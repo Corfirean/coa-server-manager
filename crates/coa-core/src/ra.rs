@@ -91,18 +91,21 @@ impl Ra {
         }
     }
 
-    /// Ask the bot module to create `count` leveling bots (throttled by the module itself). Only a number is sent.
     /// World update timing from the server's own `server info` report (mean/median/percentiles of the last 500 updates).
     pub fn performance(&mut self) -> Result<Option<Performance>> {
         let out = self.command("server info")?;
         Ok(parse_server_info(&out))
     }
 
+    /// Ask the bot module to create `count` leveling bots (throttled by the module itself). Only a number is sent.
     pub fn spawn_bots(&mut self, count: u32) -> Result<String> {
         if !(1..=2000).contains(&count) {
             return Err(Error::Invalid("Choose between 1 and 2000 companions.".into()));
         }
         let out = self.command(&format!("botcmd spawnleveled {count}"))?;
+        if out.to_lowercase().contains("no usable template characters") {
+            return Err(Error::CompanionTemplatesMissing);
+        }
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 

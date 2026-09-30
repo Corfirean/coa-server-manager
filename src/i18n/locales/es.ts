@@ -174,7 +174,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "comp.addPlain": "Añadir compañeros",
   "comp.stoppedHint": "El servidor está detenido: se crearán la próxima vez que se inicie.",
   "comp.spawned": "Creando {n} compañeros. Aparecerán gradualmente durante los próximos minutos.",
-  "comp.saved": "Guardado. {n} compañeros iniciarán sesión cuando se inicie el servidor.",
+  "comp.saved": "Guardado. Se crearán {n} compañeros cuando se inicie el servidor.",
 
   // Client
   "client.title": "Cliente del juego",
@@ -506,6 +506,10 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "overview.tickLag": "Con retrasos",
   "overview.tickDetail": "media de {mean} ms por tick · 95 % por debajo de {p95} ms · pico de {max} ms",
   "overview.tickHint": "Qué tan rápido funciona el servidor del mundo. Por encima de 20 ticks por segundo el juego va fluido; por debajo de 10 se retrasa.",
+
+  // Companions start
+  "err.companion_templates_missing.title": "Los compañeros aún no tienen nada de lo que copiarse",
+  "err.companion_templates_missing.message": "Los compañeros nuevos se copian de personajes de nivel 80 de cada clase. Crea un personaje de nivel 80 por clase en cualquier cuenta salvo la de la consola y vuelve a intentarlo.",
 };
 
 export default es;

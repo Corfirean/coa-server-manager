@@ -174,7 +174,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "comp.addPlain": "Begleiter hinzufügen",
   "comp.stoppedHint": "Der Server ist gestoppt: Sie werden beim nächsten Start erstellt.",
   "comp.spawned": "{n} Begleiter werden erstellt. Sie erscheinen nach und nach in den nächsten Minuten.",
-  "comp.saved": "Gespeichert. {n} Begleiter melden sich beim Serverstart an.",
+  "comp.saved": "Gespeichert. {n} Begleiter werden beim Serverstart erstellt.",
 
   // Client
   "client.title": "Spielclient",
@@ -506,6 +506,10 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "overview.tickLag": "Ruckelt",
   "overview.tickDetail": "durchschnittlich {mean} ms pro Tick · 95 % unter {p95} ms · Spitze {max} ms",
   "overview.tickHint": "Wie schnell der Weltserver läuft. Über 20 Ticks pro Sekunde fühlt sich das Spiel flüssig an, unter 10 ruckelt es.",
+
+  // Companions start
+  "err.companion_templates_missing.title": "Begleiter haben noch keine Vorlage zum Kopieren",
+  "err.companion_templates_missing.message": "Neue Begleiter werden von Charakteren der Stufe 80 jeder Klasse kopiert. Erstelle pro Klasse einen Charakter der Stufe 80 auf einem beliebigen Konto außer dem Konsolenkonto und versuche es erneut.",
 };
 
 export default de;

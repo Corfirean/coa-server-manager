@@ -174,7 +174,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "comp.addPlain": "Ajouter des compagnons",
   "comp.stoppedHint": "Le serveur est arrêté : ils seront créés au prochain démarrage.",
   "comp.spawned": "Création de {n} compagnons. Ils apparaissent progressivement dans les prochaines minutes.",
-  "comp.saved": "Enregistré. {n} compagnons se connecteront au démarrage du serveur.",
+  "comp.saved": "Enregistré. {n} compagnons seront créés au démarrage du serveur.",
 
   // Client
   "client.title": "Client du jeu",
@@ -506,6 +506,10 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "overview.tickLag": "Saccadé",
   "overview.tickDetail": "en moyenne {mean} ms par tick · 95 % sous {p95} ms · pic {max} ms",
   "overview.tickHint": "La vitesse du serveur de monde. Au-dessus de 20 ticks par seconde le jeu est fluide, sous 10 il saccade.",
+
+  // Companions start
+  "err.companion_templates_missing.title": "Les compagnons n’ont encore rien à copier",
+  "err.companion_templates_missing.message": "Les nouveaux compagnons sont copiés à partir de personnages de niveau 80 de chaque classe. Créez un personnage de niveau 80 par classe sur un compte quelconque, hors le compte de la console, puis réessayez.",
 };
 
 export default fr;

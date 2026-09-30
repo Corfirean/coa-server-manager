@@ -174,7 +174,7 @@ const en = {
   "comp.addPlain": "Add companions",
   "comp.stoppedHint": "The server is stopped: they will be created the next time it runs.",
   "comp.spawned": "Creating {n} companions. They appear gradually over the next minutes.",
-  "comp.saved": "Saved. {n} companions will log in when the server starts.",
+  "comp.saved": "Saved. {n} companions will be created when the server starts.",
 
   // Client
   "client.title": "Game client",
@@ -506,6 +506,10 @@ const en = {
   "overview.tickLag": "Lagging",
   "overview.tickDetail": "average {mean} ms per tick · 95% under {p95} ms · peak {max} ms",
   "overview.tickHint": "How fast the world server runs. Above 20 ticks per second the game feels smooth; below 10 it lags.",
+
+  // Companions start
+  "err.companion_templates_missing.title": "Companions have nothing to be copied from yet",
+  "err.companion_templates_missing.message": "New companions are copied from level 80 characters of each class. Create one level 80 character per class on any account except the console account, then try again.",
 } as const;
 
 export default en;

@@ -204,6 +204,22 @@ async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Re
     let out = run_verb(&state, id.clone(), Verb::StartAll).await?;
     if out.ok {
         if let Ok(root) = path_of(&state, &id) {
+            // Companions requested while the server was stopped are created now (once; a failure is only logged).
+            let r = root.clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || -> Result<()> {
+                let pending = meta_dir(&r)?.join("companions.pending.json");
+                if let Ok(v) = coa_core::fsx::read_json::<serde_json::Value>(&pending) {
+                    let _ = std::fs::remove_file(&pending);
+                    let n = v["count"].as_u64().unwrap_or(0) as u32;
+                    if n > 0 {
+                        if let Err(e) = Ra::connect(&r).and_then(|mut ra| ra.spawn_bots(n)) {
+                            tracing::warn!("pending companions were not created: {e}");
+                        }
+                    }
+                }
+                Ok(())
+            })
+            .await;
             let _ = tauri::async_runtime::spawn_blocking(move || meta_dir(&root).and_then(|m| coa_core::friends::reapply(&root, &m))).await;
         }
     }
@@ -547,6 +563,8 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
             Some(Ra::connect(&root)?.spawn_bots(count)?)
         } else {
+            // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
+            coa_core::fsx::atomic_write_json(&meta.join("companions.pending.json"), &serde_json::json!({ "count": count }))?;
             None
         };
         tracing::info!(count, spawned = spawned.is_some(), "companions requested");

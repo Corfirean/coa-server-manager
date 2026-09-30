@@ -24,6 +24,8 @@ pub enum Error {
     PackageNotPublished(String),
     #[error("download server unreachable: {0}")]
     NetworkUnreachable(String),
+    #[error("the bot module found no level 80 template characters")]
+    CompanionTemplatesMissing,
     #[error("invalid values: {}", .0.iter().map(|f| format!("{}: {}", f.key, f.message)).collect::<Vec<_>>().join("; "))]
     Validation(Vec<FieldError>),
 }
@@ -52,6 +54,7 @@ pub enum ErrorCode {
     PathRejected,
     PackageNotPublished,
     NetworkUnreachable,
+    CompanionTemplatesMissing,
     Unknown,
 }
 
@@ -142,6 +145,11 @@ impl ErrorCode {
                 "Check your internet connection and try again.",
                 &[Retry, ShowDetails],
             ),
+            ErrorCode::CompanionTemplatesMissing => (
+                "Companions have nothing to be copied from yet",
+                "New companions are copied from level 80 characters of each class. Create one level 80 character per class on any account except the console account, then try again.",
+                &[ShowDetails],
+            ),
             ErrorCode::Unknown => ("Something went wrong", "See the technical details.", &[ShowDetails]),
         };
         Human { code: self, title, message, actions }
@@ -157,6 +165,7 @@ impl Error {
             Error::Validation(_) => ErrorCode::InvalidConfigValue,
             Error::PackageNotPublished(_) => ErrorCode::PackageNotPublished,
             Error::NetworkUnreachable(_) => ErrorCode::NetworkUnreachable,
+            Error::CompanionTemplatesMissing => ErrorCode::CompanionTemplatesMissing,
             _ => ErrorCode::Unknown,
         }
     }
