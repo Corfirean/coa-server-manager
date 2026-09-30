@@ -318,6 +318,23 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "fr.copy": "Verbindungsdaten kopieren",
   "fr.pkg": "Freundepaket erstellen (zip)",
   "fr.pkgSaved": "Gespeichert: {path}",
+
+  // Console
+  "con.title": "Konsole",
+  "con.tab.world": "Welt",
+  "con.tab.auth": "Anmeldung",
+  "con.tab.database": "Datenbank",
+  "con.tab.manager": "Manager",
+  "con.searchLabel": "Protokoll durchsuchen",
+  "con.search": "Suchen …",
+  "con.follow": "Mitverfolgen",
+  "con.copied": "Kopiert",
+  "con.copyErrors": "Fehler kopieren",
+  "con.empty": "Nichts anzuzeigen.",
+  "con.commandsNote": "Befehle gehen direkt an den laufenden Weltserver. Riskante (Herunterfahren, Löschen, Sperren) verlangen eine Bestätigung.",
+  "con.commandLabel": "Befehl",
+  "con.send": "Senden",
+  "con.confirmRisky": "„{cmd}“ kann Dinge herunterfahren oder viele Datensätze ändern. Trotzdem senden?",
 };
 
 export default de;

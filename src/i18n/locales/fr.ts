@@ -318,6 +318,23 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "fr.copy": "Copier les informations de connexion",
   "fr.pkg": "Créer le paquet pour ami (zip)",
   "fr.pkgSaved": "Enregistré : {path}",
+
+  // Console
+  "con.title": "Console",
+  "con.tab.world": "Monde",
+  "con.tab.auth": "Connexion",
+  "con.tab.database": "Base de données",
+  "con.tab.manager": "Manager",
+  "con.searchLabel": "Rechercher dans le journal",
+  "con.search": "Rechercher…",
+  "con.follow": "Suivre",
+  "con.copied": "Copié",
+  "con.copyErrors": "Copier les erreurs",
+  "con.empty": "Rien à afficher.",
+  "con.commandsNote": "Les commandes vont directement au serveur de monde en cours d’exécution. Les commandes risquées (arrêt, suppression, bannissement) demandent confirmation.",
+  "con.commandLabel": "Commande",
+  "con.send": "Envoyer",
+  "con.confirmRisky": "« {cmd} » peut tout arrêter ou modifier de nombreux enregistrements. L’envoyer quand même ?",
 };
 
 export default fr;

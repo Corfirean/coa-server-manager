@@ -318,6 +318,23 @@ const en = {
   "fr.copy": "Copy connection info",
   "fr.pkg": "Create friend package (zip)",
   "fr.pkgSaved": "Saved: {path}",
+
+  // Console
+  "con.title": "Console",
+  "con.tab.world": "World",
+  "con.tab.auth": "Auth",
+  "con.tab.database": "Database",
+  "con.tab.manager": "Manager",
+  "con.searchLabel": "Search the log",
+  "con.search": "Search…",
+  "con.follow": "Follow",
+  "con.copied": "Copied",
+  "con.copyErrors": "Copy errors",
+  "con.empty": "Nothing to show.",
+  "con.commandsNote": "Commands go straight to the running world server. Risky ones (shutdown, deleting or banning) ask for confirmation.",
+  "con.commandLabel": "Command",
+  "con.send": "Send",
+  "con.confirmRisky": "“{cmd}” can shut things down or change many records. Send it anyway?",
 } as const;
 
 export default en;

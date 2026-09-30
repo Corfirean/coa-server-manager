@@ -318,6 +318,23 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "fr.copy": "Copiar datos de conexión",
   "fr.pkg": "Crear paquete para amigo (zip)",
   "fr.pkgSaved": "Guardado: {path}",
+
+  // Console
+  "con.title": "Consola",
+  "con.tab.world": "Mundo",
+  "con.tab.auth": "Acceso",
+  "con.tab.database": "Base de datos",
+  "con.tab.manager": "Manager",
+  "con.searchLabel": "Buscar en el registro",
+  "con.search": "Buscar…",
+  "con.follow": "Seguir",
+  "con.copied": "Copiado",
+  "con.copyErrors": "Copiar errores",
+  "con.empty": "Nada que mostrar.",
+  "con.commandsNote": "Los comandos van directamente al servidor del mundo en ejecución. Los arriesgados (apagar, borrar o vetar) piden confirmación.",
+  "con.commandLabel": "Comando",
+  "con.send": "Enviar",
+  "con.confirmRisky": "«{cmd}» puede apagar cosas o cambiar muchos registros. ¿Enviarlo de todos modos?",
 };
 
 export default es;

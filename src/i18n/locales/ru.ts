@@ -318,6 +318,23 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "fr.copy": "Скопировать данные подключения",
   "fr.pkg": "Создать пакет для друга (zip)",
   "fr.pkgSaved": "Сохранено: {path}",
+
+  // Console
+  "con.title": "Консоль",
+  "con.tab.world": "Мир",
+  "con.tab.auth": "Вход",
+  "con.tab.database": "База данных",
+  "con.tab.manager": "Менеджер",
+  "con.searchLabel": "Поиск по журналу",
+  "con.search": "Поиск…",
+  "con.follow": "Следить",
+  "con.copied": "Скопировано",
+  "con.copyErrors": "Скопировать ошибки",
+  "con.empty": "Показывать нечего.",
+  "con.commandsNote": "Команды отправляются прямо на запущенный игровой сервер. Рискованные (выключение, удаление, бан) требуют подтверждения.",
+  "con.commandLabel": "Команда",
+  "con.send": "Отправить",
+  "con.confirmRisky": "Команда «{cmd}» может что-то выключить или изменить много записей. Всё равно отправить?",
 };
 
 export default ru;
