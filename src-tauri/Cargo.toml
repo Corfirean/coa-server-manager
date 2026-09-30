@@ -2,6 +2,7 @@
 name = "coa-server-manager"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [lib]
 name = "coa_server_manager_lib"

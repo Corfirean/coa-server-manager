@@ -5,6 +5,7 @@ members = ["crates/coa-core", "crates/coa-release", "src-tauri"]
 [workspace.package]
 version = "0.1.1"
 edition = "2021"
+license = "AGPL-3.0-only"
 
 [profile.release]
 lto = "thin"

@@ -32,3 +32,15 @@ Start/stop testing must use a disposable copy: `tools/make-fixture.ps1` builds `
 on offset ports from the pristine packaged database. Never run start/stop against a server in use.
 `tests/e2e/cdp.mjs` drives the real window through WebView2 remote debugging
 (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`).
+
+## License
+CoA Server Manager is free software under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`).
+
+* The server it installs is built from a public fork of AzerothCore
+  ([`Corfirean/azerothcore-wotlk-coa`](https://github.com/Corfirean/azerothcore-wotlk-coa)), which keeps its own licences
+  (GPL-2.0-or-later for the MaNGOS-derived parts, AGPL-3.0 for AzerothCore-original files), and the
+  [`mod-coa-playerbots`](https://github.com/Corfirean/mod-coa-playerbots) module (AGPL-3.0). The exact commits behind every
+  package are written into its manifest, so the matching source is always available.
+* The bundled MySQL keeps its own GPL-2.0 licence (its text ships in the package's `Licenses` folder).
+* The game data in the `Data` folder (`dbc`, `maps`, `vmaps`, `mmaps`) was extracted from the client of the discontinued
+  Ascension "Conquest of Azeroth" realm and is **not** covered by this licence.
