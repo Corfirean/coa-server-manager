@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod config;
 pub mod db;
+pub mod download;
 pub mod driver;
 pub mod error;
 pub mod fsx;
