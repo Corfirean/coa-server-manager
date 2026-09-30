@@ -20,6 +20,7 @@ pub mod ra;
 pub mod registry;
 pub mod update;
 pub mod signing;
+pub mod srp6;
 
 pub use error::{Error, ErrorCode, Result};
 

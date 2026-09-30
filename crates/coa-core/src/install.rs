@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::db::{Account, Db};
+use crate::db::{self, Account, Db};
 use crate::download::Cancel;
 use crate::driver::{self, Verb};
 use crate::error::{Error, Result};
@@ -172,6 +172,9 @@ fn bootstrap_database(root: &Path) -> Result<()> {
         sql.push_str("FLUSH PRIVILEGES;\n");
         db.query(&sql)?;
         fsx::atomic_write_json(&target, &serde_json::json!({ "rootPassword": root_pw, "appPassword": app_pw }))?;
+        // The server console gets its own account with a random password instead of a shared default.
+        let console_pw = Db::from_repack(root, Account::Admin)?.provision_service_account()?; // new root password
+        db::write_console_credentials(root, &console_pw)?;
         // The new root password must actually work before we throw the old one away.
         if !Db::from_repack(root, Account::Admin)?.ping() {
             return Err(Error::Invalid("The new database password did not work.".into()));

@@ -1,7 +1,7 @@
 //! Create an account through the Manager's RA client on a RUNNING disposable fixture.
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    assert!(a[0].to_lowercase().contains("fixture"), "refusing: not a fixture folder");
+    assert!(a[0].to_lowercase().contains("fixture") || a[0].to_lowercase().contains("installtest"), "refusing: not a disposable folder");
     let root = std::path::Path::new(&a[0]);
     let mut ra = coa_core::ra::Ra::connect(root).expect("connect");
     ra.create_account(&a[1], &a[2]).expect("create");

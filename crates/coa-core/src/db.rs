@@ -247,6 +247,34 @@ impl Db {
     }
 }
 
+/// Name of the service account the Manager uses for the server console (RA). Accounts are stored upper-case.
+pub const SERVICE_ACCOUNT: &str = "COAMANAGER";
+
+impl Db {
+    /// Create (or reset) the console service account with a fresh random password and administrator rights on
+    /// all realms, and return that password. The database must be running.
+    pub fn provision_service_account(&self) -> Result<String> {
+        let password = hex::encode(&crate::srp6::new_salt()[..8]); // 16 random hex characters
+        let salt = crate::srp6::new_salt();
+        let verifier = crate::srp6::verifier(SERVICE_ACCOUNT, &password, &salt);
+        let (s, v) = (hex::encode(salt), hex::encode(verifier));
+        self.query(&format!(
+            "INSERT INTO acore_auth.account (username, salt, verifier, email, reg_mail) VALUES ('{SERVICE_ACCOUNT}', UNHEX('{s}'), UNHEX('{v}'), '', '')              ON DUPLICATE KEY UPDATE salt=UNHEX('{s}'), verifier=UNHEX('{v}'), failed_logins=0, locked=0;             INSERT INTO acore_auth.account_access (id, gmlevel, RealmID, comment) SELECT id, 3, -1, 'CoA Server Manager console' FROM acore_auth.account WHERE username='{SERVICE_ACCOUNT}'              ON DUPLICATE KEY UPDATE gmlevel=3;"
+        ))?;
+        Ok(password)
+    }
+}
+
+/// Point `Settings/repack.json` at the service account (other keys are preserved).
+pub fn write_console_credentials(root: &Path, password: &str) -> Result<()> {
+    let path = root.join("Settings/repack.json");
+    let mut v: serde_json::Value = fsx::read_json(&path)?;
+    let obj = v.as_object_mut().ok_or_else(|| Error::Invalid("repack.json is not an object".into()))?;
+    obj.insert("raUsername".into(), SERVICE_ACCOUNT.into());
+    obj.insert("raPassword".into(), password.into());
+    fsx::atomic_write_json(&path, &v)
+}
+
 pub fn valid_identifier(name: &str) -> bool {
     ident_ok(name)
 }

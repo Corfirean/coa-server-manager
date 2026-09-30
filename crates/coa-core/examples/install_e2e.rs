@@ -33,7 +33,7 @@ fn main() {
         &Params { source: Source::Dir(out.clone()), dest: dest.clone(), trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY, registry: &registry, cancel: Cancel::default() },
         &|s| eprintln!("  install: {:>3}% {} {}", s.percent, s.step, s.detail.unwrap_or_default()),
     )
-    .expect("install");
+    .unwrap_or_else(|e| panic!("install failed: {e:?}"));
     println!("installed {} at {} in {:?}", installed.version, installed.path, t.elapsed());
 
     assert!(!dest.with_file_name("coa-installtest.installing").exists());
