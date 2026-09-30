@@ -422,6 +422,14 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "err.package_not_published.message": "Aún no se ha publicado nada en la ubicación de descarga. Inténtalo más tarde o instala desde una carpeta de paquete local (Avanzado).",
   "err.network_unreachable.title": "No se pudo contactar con el servidor de descargas",
   "err.network_unreachable.message": "Comprueba tu conexión a internet e inténtalo de nuevo.",
+
+  // Manager self-update
+  "selfupd.ready": "Manager {v} está listo para instalarse",
+  "selfupd.onClose": "Se instalará cuando cierres el Manager. Tus servidores siguen funcionando.",
+  "selfupd.installing": "Instalando… el Manager se cerrará.",
+  "selfupd.now": "Instalar ahora",
+  "about.auto": "Descargar las actualizaciones en segundo plano e instalarlas al cerrar el Manager",
+  "about.autoHint": "Una actualización del Manager nunca detiene ni cambia tus servidores.",
 };
 
 export default es;

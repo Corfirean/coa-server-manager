@@ -269,6 +269,7 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
             fs::remove_dir(&dest)?; // only succeeds for an empty folder (preflight verified)
         }
         fs::rename(&staging_root, &dest)?;
+        crate::config::materialize_module_configs(&dest)?;
 
         let mut meta = InstallMeta::new(InstallKind::New, &dest);
         meta.core.commit = m.core.commit.clone();

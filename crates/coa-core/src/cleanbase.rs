@@ -194,6 +194,12 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
         if let Some((id, why)) = report.failed {
             return Err(Error::Invalid(format!("Database update {id} failed: {why}")));
         }
+        // 3b. A module script older than a table rename re-creates the old table next to the renamed one (the core then
+        // logs an error at every start). Fold its rows into the new table and drop it.
+        let both = db.query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='acore_world' AND TABLE_NAME IN ('item_template_ascension_compat','item_template_coa');")?;
+        if both.trim() == "2" {
+            db.query("INSERT IGNORE INTO acore_world.item_template_coa SELECT * FROM acore_world.item_template_ascension_compat; DROP TABLE acore_world.item_template_ascension_compat;")?;
+        }
         // 4. prove it is clean
         let accounts = db.query("SELECT COUNT(*) FROM acore_auth.account;")?;
         let chars = db.query("SELECT COUNT(*) FROM acore_characters.characters;")?;

@@ -422,6 +422,14 @@ const en = {
   "err.package_not_published.message": "Nothing has been published at the download location. Try again later, or install from a local package folder (Advanced).",
   "err.network_unreachable.title": "Could not reach the download server",
   "err.network_unreachable.message": "Check your internet connection and try again.",
+
+  // Manager self-update
+  "selfupd.ready": "Manager {v} is ready to install",
+  "selfupd.onClose": "It will be installed when you close the Manager. Your servers keep running.",
+  "selfupd.installing": "Installing… the Manager will close.",
+  "selfupd.now": "Install now",
+  "about.auto": "Download updates in the background and install them when I close the Manager",
+  "about.autoHint": "Your servers are never stopped or changed by a Manager update.",
 } as const;
 
 export default en;

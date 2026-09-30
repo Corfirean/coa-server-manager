@@ -4,10 +4,12 @@ import { Welcome } from "@/screens/Welcome";
 import { ImportServer } from "@/screens/ImportServer";
 import { Shell } from "@/screens/Shell";
 import { InstallServer } from "@/screens/InstallServer";
+import { UpdateBanner } from "@/components/UpdateBanner";
+import { autoUpdateEnabled, installOnClose, lookForUpdate } from "@/lib/selfUpdate";
 
 type View = "welcome" | "add" | "import" | "install";
 
-export default function App() {
+function Main() {
   const [servers, setServers] = useState<ServerSummary[] | null>(null);
   const [view, setView] = useState<View>("welcome");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -73,5 +75,26 @@ export default function App() {
       onInstall={() => setView("install")}
       onBack={servers.length > 0 ? () => setView("welcome") : undefined}
     />
+  );
+}
+
+export default function App() {
+  // Quietly fetch a new Manager version a few seconds after start and install it when the window is closed.
+  useEffect(() => {
+    const stop = installOnClose();
+    const timer = setTimeout(() => {
+      if (autoUpdateEnabled()) void lookForUpdate({ download: true });
+    }, 5000);
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
+  }, []);
+
+  return (
+    <>
+      <Main />
+      <UpdateBanner />
+    </>
   );
 }

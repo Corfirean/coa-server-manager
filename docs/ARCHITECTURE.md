@@ -496,3 +496,22 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   release does not exist yet (only `edge` is published). The message is now human ("package not available yet"). Also open:
   the base package has no `Data\` (maps/dbc/vmaps, ~3.8 GB); the installer needs a "use my existing Data folder / download"
   step, and the owner must decide hosting/legal for game data before `base` is published.
+
+* **Modules tab** (requested 2026-09-30): install/manage optional server modules (bots, AH bot, Solocraft, ...).
+  Design decision: AzerothCore modules are compiled into `worldserver.exe`, so "install" cannot mean "drop files in".
+  Plan: CI builds one binary containing a curated set of modules, every one disabled by default; the Manager only
+  enables/disables and configures them (`Core/configs/modules/<name>.conf`, schema-driven settings editor as for bots).
+  A `modules.json` catalogue travels with update packages (id, title, description, category, source repo + commit,
+  licence, conf file, enable key, settings schema, needed DB migrations, conflicts, status tested/experimental).
+  Adding a module = add it to the CI build list + catalogue entry, released as an ordinary update. Only modules tested
+  against the CoA fork and licence-compatible (AGPL/GPL, because the binary is distributed) are listed. The fork's own
+  CoA features (dynamic XP, ethereal bazaar, ...) appear in the same tab as "built in" toggles.
+* **Known launcher leftovers:** the repack's `Scripts/manage.py` still renders `mod_ascension_compat.conf` at every start;
+  the core now ignores it ("is no longer read ... move its settings into coa.conf") - harmless warning, clean up together
+  with a launcher refresh. Migration-runner root cause for the re-created `item_template_ascension_compat` table (a module
+  script older than the rename is seen as pending) is worked around in `clean-base`, not fixed in the runner.
+* **Bug found by the owner on the first clean install (2026-09-30):** login worked at the auth step but the game dropped
+  the connection. Causes: (1) the package shipped the maintainer's Trace-level logging templates (gigabytes of log per
+  hour, world thread stalled); (2) no active `coa.conf` (`CoA.Enable = 1`) because packages contain only `*.conf.dist`.
+  Fixed: `clean-base` restores quiet templates, `assemble-tree` ships `coa.conf.dist`, and the Manager creates missing
+  module `.conf` files from their `.dist` on install and before each start of a Manager-installed server.

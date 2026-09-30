@@ -187,6 +187,18 @@ async fn run_verb(state: &AppState, id: String, verb: Verb) -> std::result::Resu
 
 #[tauri::command]
 async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
+    // Servers installed before module configs were created automatically get them now (missing files only). Imported
+    // servers are never written to by the Manager outside the launcher's own start-up.
+    if let Ok(root) = path_of(&state, &id) {
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let (_, meta) = install_meta(&root)?;
+            if meta.kind == coa_core::registry::InstallKind::New {
+                coa_core::config::materialize_module_configs(&root)?;
+            }
+            Ok::<(), Error>(())
+        })
+        .await;
+    }
     let out = run_verb(&state, id.clone(), Verb::StartAll).await?;
     if out.ok {
         if let Ok(root) = path_of(&state, &id) {

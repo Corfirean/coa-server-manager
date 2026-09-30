@@ -119,6 +119,30 @@ pub struct SettingsView {
 }
 
 /// Keys whose value in the generated conf differs from the template (i.e. hand edits the launcher will reset).
+/// Modules read `Core/configs/modules/<name>.conf`, but packages ship only the documented `<name>.conf.dist` (the active
+/// files are the server owner's). Create every missing active file from its `.dist`, so a fresh server runs with the
+/// documented defaults (for example `CoA.Enable = 1`, without which the Ascension client is dropped after login).
+/// Existing files are never touched. Files the launcher writes itself are skipped. Returns the created file names.
+pub fn materialize_module_configs(root: &Path) -> Result<Vec<String>> {
+    let dir = root.join("Core").join("configs").join("modules");
+    let mut created = Vec::new();
+    let Ok(entries) = fs::read_dir(&dir) else { return Ok(created) };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(stem) = name.strip_suffix(".conf.dist") else { continue };
+        if stem == "coa_bugreport" || stem == "mod_ascension_compat" {
+            continue; // written by the launcher at every start
+        }
+        let active = dir.join(format!("{stem}.conf"));
+        if !active.exists() {
+            fs::copy(e.path(), &active)?;
+            created.push(format!("{stem}.conf"));
+        }
+    }
+    created.sort();
+    Ok(created)
+}
+
 pub fn drift(root: &Path) -> Result<Vec<String>> {
     let t = targets(root, Scope::Server)?;
     let Some(generated) = &t.generated else { return Ok(Vec::new()) };
@@ -461,6 +485,28 @@ mod tests {
 
     fn set(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    #[test]
+    fn missing_module_configs_are_created_from_their_dist_and_existing_ones_are_kept() {
+        let (_d, root, _m) = fixture();
+        let m = root.join("Core/configs/modules");
+        fs::create_dir_all(&m).unwrap();
+        fs::write(m.join("coa.conf.dist"), "CoA.Enable = 1
+").unwrap();
+        fs::write(m.join("spellbook.conf.dist"), "Spellbook.Enable = 1
+").unwrap();
+        fs::write(m.join("spellbook.conf"), "Spellbook.Enable = 0
+").unwrap();
+        fs::write(m.join("coa_bugreport.conf.dist"), "x = 1
+").unwrap();
+        assert_eq!(materialize_module_configs(&root).unwrap(), vec!["coa.conf".to_string()]);
+        assert_eq!(fs::read_to_string(m.join("coa.conf")).unwrap(), "CoA.Enable = 1
+");
+        assert_eq!(fs::read_to_string(m.join("spellbook.conf")).unwrap(), "Spellbook.Enable = 0
+");
+        assert!(!m.join("coa_bugreport.conf").exists());
+        assert!(materialize_module_configs(&root).unwrap().is_empty());
     }
 
     #[test]

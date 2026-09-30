@@ -422,6 +422,14 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "err.package_not_published.message": "Rien n’a encore été publié à l’emplacement de téléchargement. Réessayez plus tard ou installez depuis un dossier de paquet local (Avancé).",
   "err.network_unreachable.title": "Impossible de joindre le serveur de téléchargement",
   "err.network_unreachable.message": "Vérifiez votre connexion internet et réessayez.",
+
+  // Manager self-update
+  "selfupd.ready": "Manager {v} est prêt à être installé",
+  "selfupd.onClose": "Il sera installé à la fermeture du Manager. Vos serveurs continuent de fonctionner.",
+  "selfupd.installing": "Installation… le Manager va se fermer.",
+  "selfupd.now": "Installer maintenant",
+  "about.auto": "Télécharger les mises à jour en arrière-plan et les installer à la fermeture du Manager",
+  "about.autoHint": "Une mise à jour du Manager n’arrête ni ne modifie jamais vos serveurs.",
 };
 
 export default fr;
