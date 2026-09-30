@@ -64,6 +64,12 @@ impl Ra {
         Ok(Ra { stream })
     }
 
+    /// Send one already-validated console command and return its output.
+    pub fn run(&mut self, cmd: &str) -> Result<String> {
+        let c = crate::console::check_command(cmd)?;
+        self.command(c)
+    }
+
     fn command(&mut self, cmd: &str) -> Result<String> {
         debug_assert!(!cmd.contains(['\r', '\n']));
         self.stream.write_all(format!("{cmd}\r\n").as_bytes())?;

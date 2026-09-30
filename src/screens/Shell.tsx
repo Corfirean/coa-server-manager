@@ -9,6 +9,7 @@ import { BackupsPage } from "@/screens/BackupsPage";
 import { PlayersPage } from "@/screens/PlayersPage";
 import { SettingsHome } from "@/screens/SettingsHome";
 import { FriendsPage } from "@/screens/FriendsPage";
+import { ConsolePage } from "@/screens/ConsolePage";
 import { Button } from "@/components/ui/button";
 
 type Page = "overview" | "bots" | "server" | "players" | "friends" | "backups" | "console" | "settings";
@@ -83,6 +84,8 @@ export function Shell(props: {
           <Overview key={server.id} server={server} onForget={() => props.onForget(server.id)} />
         ) : page === "bots" || page === "server" ? (
           <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={current.label} question={current.question} />
+        ) : page === "console" ? (
+          <ConsolePage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (
           <FriendsPage key={server.id} serverId={server.id} />
         ) : page === "settings" ? (

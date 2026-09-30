@@ -751,6 +751,42 @@ async fn export_diagnostics(state: State<'_, AppState>, id: String) -> std::resu
 }
 
 
+#[tauri::command]
+async fn console_tail(
+    state: State<'_, AppState>,
+    id: String,
+    source: coa_core::console::Source,
+    filter: Option<String>,
+    lines: Option<usize>,
+) -> std::result::Result<Vec<coa_core::console::Line>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let path = coa_core::console::log_path(&root, &data_dir().join("logs").join("manager.log"), source);
+        coa_core::console::tail(&path, filter.as_deref(), lines.unwrap_or(300).min(2000))
+    })
+    .await
+}
+
+#[tauri::command]
+fn console_risk(command: String) -> coa_core::console::Risk {
+    coa_core::console::risk(&command)
+}
+
+/// Send one command to the world server console. Risky commands need `confirmed`.
+#[tauri::command]
+async fn console_command(state: State<'_, AppState>, id: String, command: String, confirmed: bool) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let c = coa_core::console::check_command(&command)?.to_string();
+        if coa_core::console::risk(&c) == coa_core::console::Risk::Dangerous && !confirmed {
+            return Err(Error::Invalid("This command can shut things down or change many records. Confirm it first.".into()));
+        }
+        tracing::info!(command = %c, "console command");
+        Ra::connect(&root)?.run(&c)
+    })
+    .await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -800,7 +836,10 @@ pub fn run() {
             friends_package,
             run_diagnostics,
             verify_files,
-            export_diagnostics
+            export_diagnostics,
+            console_tail,
+            console_risk,
+            console_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

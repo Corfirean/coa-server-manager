@@ -243,6 +243,12 @@ export interface DiagCheck {
   detail: string;
 }
 
+export type ConsoleSource = "world" | "auth" | "database" | "manager";
+export interface ConsoleLine {
+  text: string;
+  level: "info" | "warn" | "error";
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -287,6 +293,10 @@ export const api = {
   runDiagnostics: (id: string) => invoke<{ checks: DiagCheck[]; problems: number }>("run_diagnostics", { id }),
   verifyFiles: (id: string) => invoke<{ path: string; kind: "missing" | "changed" }[]>("verify_files", { id }),
   exportDiagnostics: (id: string) => invoke<string>("export_diagnostics", { id }),
+  consoleTail: (id: string, source: ConsoleSource, filter?: string, lines = 300) =>
+    invoke<ConsoleLine[]>("console_tail", { id, source, filter: filter ?? null, lines }),
+  consoleRisk: (command: string) => invoke<"normal" | "dangerous">("console_risk", { command }),
+  consoleCommand: (id: string, command: string, confirmed: boolean) => invoke<string>("console_command", { id, command, confirmed }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 
