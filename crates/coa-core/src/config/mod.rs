@@ -277,7 +277,7 @@ pub struct SnapshotInfo {
     files: Vec<SnapshotFile>,
 }
 
-fn take_snapshot(meta_dir: &Path, scope: Scope, reason: &str, files: &[(PathBuf, Vec<u8>)]) -> Result<String> {
+pub(crate) fn take_snapshot(meta_dir: &Path, scope: Scope, reason: &str, files: &[(PathBuf, Vec<u8>)]) -> Result<String> {
     let id = format!("{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S%3f"), scope.name());
     let dir = snapshot_root(meta_dir).join(&id);
     fs::create_dir_all(&dir)?;

@@ -20,6 +20,7 @@ zstd = { version = "0.13", features = ["zstdmt"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "native-tls"] }
 tar = "0.4"
 num-bigint = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 sha1 = "0.10"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 

@@ -187,7 +187,13 @@ async fn run_verb(state: &AppState, id: String, verb: Verb) -> std::result::Resu
 
 #[tauri::command]
 async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
-    run_verb(&state, id, Verb::StartAll).await
+    let out = run_verb(&state, id.clone(), Verb::StartAll).await?;
+    if out.ok {
+        if let Ok(root) = path_of(&state, &id) {
+            let _ = tauri::async_runtime::spawn_blocking(move || meta_dir(&root).and_then(|m| coa_core::friends::reapply(&root, &m))).await;
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -585,6 +591,131 @@ async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<Dri
     .await
 }
 
+#[derive(Serialize)]
+struct FriendsStatus {
+    settings: coa_core::friends::Settings,
+    lan_ip: Option<String>,
+    exposure: Vec<coa_core::net::Exposure>,
+    /// The configuration lets other computers reach the login and world servers.
+    servers_open: bool,
+    firewall: coa_core::firewall::Status,
+    tailscale: coa_core::net::Tailscale,
+    server_running: bool,
+}
+
+#[tauri::command]
+async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::Result<FriendsStatus, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let meta = meta_dir(&root)?;
+        let ports = layout::read_ports(&root);
+        Ok(FriendsStatus {
+            settings: coa_core::friends::load(&meta),
+            lan_ip: coa_core::net::lan_ip().map(|a| a.to_string()),
+            exposure: coa_core::net::exposure(&ports),
+            servers_open: coa_core::friends::bind_is_open(&root),
+            firewall: coa_core::firewall::status(),
+            tailscale: coa_core::net::tailscale(),
+            server_running: coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running,
+        })
+    })
+    .await
+}
+
+#[derive(Serialize)]
+struct InternetCheck {
+    public_ip: Option<String>,
+    router_ip: Option<String>,
+    reachability: coa_core::net::Reachability,
+    router_found: bool,
+}
+
+/// Talks to an outside address service and to the router. Only runs when the user presses the button.
+#[tauri::command]
+async fn friends_check_internet() -> std::result::Result<InternetCheck, UiError> {
+    blocking(move || {
+        let public = coa_core::net::public_ip().ok();
+        let gw = coa_core::upnp::discover();
+        let router = gw.as_ref().and_then(|g| coa_core::upnp::external_ip(g).ok());
+        Ok(InternetCheck {
+            public_ip: public.map(|a| a.to_string()),
+            router_ip: router.map(|a| a.to_string()),
+            reachability: coa_core::net::classify(router, public),
+            router_found: gw.is_some(),
+        })
+    })
+    .await
+}
+
+#[derive(Serialize)]
+struct FriendsResult {
+    host: String,
+    restart_required: bool,
+    note: Option<String>,
+}
+
+/// Switch how friends connect. `host` is only needed for the internet mode (the public address from the check).
+#[tauri::command]
+async fn friends_enable(
+    state: State<'_, AppState>,
+    id: String,
+    mode: coa_core::friends::Mode,
+    host: Option<String>,
+    use_upnp: bool,
+) -> std::result::Result<FriendsResult, UiError> {
+    use coa_core::friends::{self, Mode, Settings};
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let meta = meta_dir(&root)?;
+        let ports = layout::read_ports(&root);
+        let mut note = None;
+        let host = match mode {
+            Mode::Local => "127.0.0.1".to_string(),
+            Mode::Lan => coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("This computer has no network address.".into()))?.to_string(),
+            Mode::Direct => host.filter(|h| !h.is_empty()).ok_or_else(|| Error::Invalid("Check your connection first to learn your public address.".into()))?,
+            Mode::Private => coa_core::net::tailscale().ip.ok_or_else(|| Error::Invalid("Tailscale is not connected. Install it, sign in, then try again.".into()))?,
+        };
+        let open = mode != Mode::Local;
+        let changed = friends::set_open(&root, &meta, open)?;
+        if open {
+            coa_core::firewall::ensure_rules(&ports)?;
+        }
+        if mode == Mode::Direct && use_upnp {
+            match coa_core::upnp::discover() {
+                Some(gw) => {
+                    let lan = coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("No local address.".into()))?;
+                    coa_core::upnp::add_mapping(&gw, ports.auth, lan, "Auth")?;
+                    coa_core::upnp::add_mapping(&gw, ports.world, lan, "World")?;
+                    note = Some("Your router was asked to forward the game ports.".to_string());
+                }
+                None => note = Some("Your router does not support automatic setup; forward the two game ports by hand or use the private network.".to_string()),
+            }
+        }
+        friends::save(&meta, &Settings { mode, host: Some(host.clone()) })?;
+        let running = coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running;
+        if running {
+            friends::apply_realm_address(&root, &host)?;
+        }
+        Ok(FriendsResult { host, restart_required: changed && running, note })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn friends_package(state: State<'_, AppState>, id: String) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let meta = meta_dir(&root)?;
+        let host = coa_core::friends::load(&meta).host.ok_or_else(|| Error::Invalid("Choose how friends connect first.".into()))?;
+        let desktop = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Desktop");
+        let out = if desktop.is_dir() { desktop } else { std::env::temp_dir() }.join("CoA-Friend-Setup.zip");
+        coa_core::friends::make_friend_package(&root, &host, true, &out)?;
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -627,7 +758,11 @@ pub fn run() {
             set_client,
             client_realmlist,
             client_install_addon,
-            play
+            play,
+            friends_status,
+            friends_check_internet,
+            friends_enable,
+            friends_package
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

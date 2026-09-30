@@ -154,6 +154,36 @@ mod sys {
         Vec::new()
     }
 
+    /// Every TCP listener with its bind address class, IPv4 and IPv6.
+    pub fn listeners_detailed() -> Vec<super::Listener> {
+        let mut out = Vec::new();
+        let u32_at = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        let v4 = table(2);
+        if v4.len() >= 4 {
+            for i in 0..u32_at(&v4, 0) as usize {
+                let o = 4 + 24 * i;
+                if o + 24 > v4.len() {
+                    break;
+                }
+                let addr = u32_at(&v4, o + 4).to_le_bytes(); // network order bytes
+                out.push(super::Listener { port: u16::from_be((u32_at(&v4, o + 8) & 0xFFFF) as u16), pid: u32_at(&v4, o + 20), loopback_only: addr[0] == 127 });
+            }
+        }
+        let v6 = table(23);
+        if v6.len() >= 4 {
+            for i in 0..u32_at(&v6, 0) as usize {
+                let o = 4 + 56 * i;
+                if o + 56 > v6.len() {
+                    break;
+                }
+                let a = &v6[o..o + 16];
+                let loopback = a[..15].iter().all(|b| *b == 0) && a[15] == 1;
+                out.push(super::Listener { port: u16::from_be((u32_at(&v6, o + 20) & 0xFFFF) as u16), pid: u32_at(&v6, o + 52), loopback_only: loopback });
+            }
+        }
+        out
+    }
+
     /// (port, owning pid) for every TCP listener, IPv4 and IPv6.
     pub fn listeners() -> Vec<(u16, u32)> {
         let mut out = Vec::new();
@@ -199,9 +229,20 @@ mod sys {
     pub fn listeners() -> Vec<(u16, u32)> {
         Vec::new()
     }
+    pub fn listeners_detailed() -> Vec<super::Listener> {
+        Vec::new()
+    }
 }
 
-pub use sys::{identity, listeners};
+pub use sys::{identity, listeners, listeners_detailed};
+
+#[derive(Debug, Clone)]
+pub struct Listener {
+    pub port: u16,
+    pub pid: u32,
+    /// Bound to the loopback address only (not reachable from other computers).
+    pub loopback_only: bool,
+}
 
 /// True if the recorded identity still describes a live process (same exe and creation time).
 pub fn is_alive(record: &ProcessIdentity) -> bool {
@@ -278,6 +319,16 @@ mod tests {
         wrong_exe.exe = "C:\\other.exe".into();
         assert!(!is_alive(&wrong_exe));
         assert!(identity(0xFFFF_FF00).is_none());
+    }
+
+    #[test]
+    fn detailed_listeners_tell_loopback_from_all_interfaces() {
+        let lo = TcpListener::bind("127.0.0.1:0").unwrap();
+        let any = TcpListener::bind("0.0.0.0:0").unwrap();
+        let (p_lo, p_any) = (lo.local_addr().unwrap().port(), any.local_addr().unwrap().port());
+        let all = listeners_detailed();
+        assert!(all.iter().any(|l| l.port == p_lo && l.pid == std::process::id() && l.loopback_only));
+        assert!(all.iter().any(|l| l.port == p_any && !l.loopback_only));
     }
 
     #[test]

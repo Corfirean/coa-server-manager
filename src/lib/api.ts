@@ -217,6 +217,25 @@ export interface ClientInfo {
   other_addons: number;
 }
 
+export type FriendsMode = "local" | "lan" | "direct" | "private";
+
+export interface FriendsStatus {
+  settings: { mode: FriendsMode; host: string | null };
+  lan_ip: string | null;
+  exposure: { port: number; what: string; reachable_from_network: boolean; listening: boolean }[];
+  servers_open: boolean;
+  firewall: { auth: boolean; world: boolean };
+  tailscale: { installed: boolean; ip: string | null; connected: boolean };
+  server_running: boolean;
+}
+
+export interface InternetCheck {
+  public_ip: string | null;
+  router_ip: string | null;
+  reachability: "direct_possible" | "cgnat" | "unknown";
+  router_found: boolean;
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -253,6 +272,11 @@ export const api = {
   setRealmlist: (id: string, host: string) => invoke<string[]>("client_realmlist", { id, host }),
   installAddon: (id: string) => invoke<void>("client_install_addon", { id }),
   play: (id: string) => invoke<DriverOutcome>("play", { id }),
+  friendsStatus: (id: string) => invoke<FriendsStatus>("friends_status", { id }),
+  friendsCheckInternet: () => invoke<InternetCheck>("friends_check_internet"),
+  friendsEnable: (id: string, mode: FriendsMode, host?: string, useUpnp = false) =>
+    invoke<{ host: string; restart_required: boolean; note: string | null }>("friends_enable", { id, mode, host: host ?? null, useUpnp }),
+  friendsPackage: (id: string) => invoke<string>("friends_package", { id }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 
