@@ -1,0 +1,6 @@
+/target
+node_modules
+dist
+*.log
+.env
+src-tauri/gen
