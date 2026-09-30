@@ -209,6 +209,14 @@ export interface CompanionSizes {
   sizes: { id: string; title: string; bots: number; warning: string | null }[];
 }
 
+export interface ClientInfo {
+  path: string;
+  executable: string;
+  realmlists: { path: string; host: string | null }[];
+  addon: { installed: boolean; version: string | null; up_to_date: boolean | null };
+  other_addons: number;
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -240,6 +248,11 @@ export const api = {
   population: (id: string) => invoke<Population | null>("get_population", { id }),
   companionSizes: () => invoke<CompanionSizes>("companion_sizes"),
   addCompanions: (id: string, count: number) => invoke<{ spawned: string | null }>("add_companions", { id, count }),
+  clientInfo: (id: string) => invoke<ClientInfo | null>("client_info", { id }),
+  setClient: (id: string, path: string) => invoke<ClientInfo>("set_client", { id, path }),
+  setRealmlist: (id: string, host: string) => invoke<string[]>("client_realmlist", { id, host }),
+  installAddon: (id: string) => invoke<void>("client_install_addon", { id }),
+  play: (id: string) => invoke<DriverOutcome>("play", { id }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 

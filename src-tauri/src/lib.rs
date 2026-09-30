@@ -521,6 +521,70 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
     .await
 }
 
+fn client_of(root: &std::path::Path) -> Result<(PathBuf, InstallMeta, Option<PathBuf>)> {
+    let (dir, meta) = install_meta(root)?;
+    let client = meta.client_path.clone().map(PathBuf::from).ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
+    Ok((dir, meta, Some(client)))
+}
+
+#[tauri::command]
+fn client_info(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::client::ClientInfo>, UiError> {
+    let root = path_of(&state, &id)?;
+    let (_, meta) = install_meta(&root)?;
+    let source = coa_core::client::addon_source(&root);
+    Ok(meta.client_path.and_then(|p| coa_core::client::detect(std::path::Path::new(&p), source.as_deref())))
+}
+
+#[tauri::command]
+fn set_client(state: State<'_, AppState>, id: String, path: String) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
+    let root = path_of(&state, &id)?;
+    let (dir, mut meta) = install_meta(&root)?;
+    let source = coa_core::client::addon_source(&root);
+    let info = coa_core::client::detect(std::path::Path::new(&path), source.as_deref())
+        .ok_or_else(|| Error::Invalid("This folder does not look like a game client (it needs Data and the game executable).".into()))?;
+    meta.client_path = Some(info.path.clone());
+    coa_core::fsx::atomic_write_json(&dir.join("install.json"), &meta).map_err(UiError::from)?;
+    Ok(info)
+}
+
+#[tauri::command]
+fn client_realmlist(state: State<'_, AppState>, id: String, host: String) -> std::result::Result<Vec<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    let (dir, _, client) = client_of(&root)?;
+    Ok(coa_core::client::set_realmlist(&client.unwrap(), &dir, &host)?)
+}
+
+#[tauri::command]
+fn client_install_addon(state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let (dir, _, client) = client_of(&root)?;
+    let source = coa_core::client::addon_source(&root).ok_or_else(|| Error::Invalid("This server package does not include the companion addon.".into()))?;
+    Ok(coa_core::client::install_addon(&client.unwrap(), &dir, &source)?)
+}
+
+/// Start the server if needed, wait until it is ready, then launch the game client.
+#[tauri::command]
+async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
+    let root = path_of(&state, &id)?;
+    let (_, _, client) = client_of(&root)?;
+    let client = client.unwrap();
+    let ready = {
+        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
+        [&o.mysql, &o.auth, &o.world].iter().all(|s| s.state == coa_core::process::ServiceState::Running)
+    };
+    if !ready {
+        let out = run_verb(&state, id, Verb::StartAll).await?;
+        if !out.ok {
+            return Ok(out);
+        }
+    }
+    blocking(move || {
+        coa_core::client::launch(&client)?;
+        Ok(DriverOutcome { ok: true, exit_code: None, code: None, human: None, output: String::new() })
+    })
+    .await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -558,7 +622,12 @@ pub fn run() {
             rollback_update,
             get_population,
             companion_sizes,
-            add_companions
+            add_companions,
+            client_info,
+            set_client,
+            client_realmlist,
+            client_install_addon,
+            play
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

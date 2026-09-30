@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { api, asUiError, type Human, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
+import { api, asUiError, type ClientInfo, type Human, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
 import { cn, formatUptime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -37,6 +37,8 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
   const [failure, setFailure] = useState<Failure | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [pop, setPop] = useState<Population | null>(null);
+  const [client, setClient] = useState<ClientInfo | null>(null);
+  const [playing, setPlaying] = useState(false);
   const alive = useRef(true);
 
   const poll = useCallback(async () => {
@@ -54,6 +56,7 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
 
   useEffect(() => {
     alive.current = true;
+    void api.clientInfo(server.id).then(setClient).catch(() => setClient(null));
     void poll();
     const t = setInterval(poll, 2000);
     return () => {
@@ -81,6 +84,22 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
       setFailure({ human: ui.human ?? asUiError(String(e)).human, technical: ui.technical });
     } finally {
       setAction(null);
+      void poll();
+    }
+  }
+
+  async function play() {
+    setFailure(null);
+    setShowDetails(false);
+    setPlaying(true);
+    try {
+      const out = await api.play(server.id);
+      if (!out.ok) throw { human: out.human, technical: out.output };
+    } catch (e) {
+      const ui = asUiError(e);
+      setFailure({ human: ui.human ?? asUiError(String(e)).human, technical: ui.technical });
+    } finally {
+      setPlaying(false);
       void poll();
     }
   }
@@ -168,6 +187,12 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
           {anyUp && !running && (
             <Button variant="ghost" size="sm" disabled={transitioning} onClick={() => run("stopping")}>
               Stop
+            </Button>
+          )}
+          {client && (
+            <Button variant={running ? "primary" : "secondary"} size="xl" disabled={transitioning || playing} onClick={() => void play()} className="ml-auto min-w-40">
+              {playing && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
+              {running ? "PLAY" : "START & PLAY"}
             </Button>
           )}
         </div>
