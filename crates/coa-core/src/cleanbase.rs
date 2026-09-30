@@ -75,6 +75,20 @@ pub fn scaffolding(rel: &str) -> bool {
     l.starts_with("runtime/") || l.starts_with("scripts/") || l.starts_with("settings/") || l.starts_with("licenses/") || l == "readme.txt" || (l.starts_with("core/") && l.ends_with(".dll") && !l[5..].contains('/'))
 }
 
+/// A maintainer's repack may have "detailed logging" switched on: the launcher then rewrites the config templates to Trace
+/// level and keeps the untouched copies as `*.template.original`. A shipped package must start quiet (an active Trace
+/// log writes gigabytes and stalls the world server), so put the originals back and drop the backups.
+pub fn restore_quiet_logging(settings: &Path) -> Result<()> {
+    for name in ["worldserver.conf.template", "authserver.conf.template"] {
+        let original = settings.join(format!("{name}.original"));
+        if original.is_file() {
+            fs::copy(&original, settings.join(name))?;
+            fs::remove_file(&original)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
     if p.out.exists() {
         return Err(Error::Invalid(format!("{} already exists; choose a new folder.", p.out.display())));
@@ -102,6 +116,7 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
         fs::create_dir_all(&dst)?;
         copy_dir(&p.repack.join(&d), &dst, &|rel| !scaffolding(rel), p.repack)?;
     }
+    restore_quiet_logging(&p.out.join("Settings"))?;
     fs::create_dir_all(p.out.join("Core"))?;
     for e in fs::read_dir(p.repack.join("Core"))? {
         let e = e?;
@@ -225,6 +240,18 @@ mod tests {
         for drop in [".state/world.json", "mysql/data/acore_world/x.ibd", "mysql/logs/error.log", "Core/worldserver.exe", "Core/Logs/Server.log", "BugReport/reports/a.json", "Source/server-source.zip", "Scripts/__pycache__/x.pyc", "Testing/notes.md", "mysql/data.7z"] {
             assert!(!scaffolding(drop), "{drop}");
         }
+    }
+
+    #[test]
+    fn detailed_logging_templates_are_replaced_by_their_originals() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("worldserver.conf.template"), "Logger.root=6,Console Server").unwrap();
+        fs::write(d.path().join("worldserver.conf.template.original"), "Logger.root=2,Console Server").unwrap();
+        fs::write(d.path().join("authserver.conf.template"), "unchanged").unwrap();
+        restore_quiet_logging(d.path()).unwrap();
+        assert_eq!(fs::read_to_string(d.path().join("worldserver.conf.template")).unwrap(), "Logger.root=2,Console Server");
+        assert!(!d.path().join("worldserver.conf.template.original").exists());
+        assert_eq!(fs::read_to_string(d.path().join("authserver.conf.template")).unwrap(), "unchanged");
     }
 
     #[test]
