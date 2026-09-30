@@ -497,6 +497,15 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "scan.label.companions": "CoA-Begleiter (Bots)",
   "scan.label.client": "Spielclient",
   "placeholder.soon": "Dieser Bereich entsteht in einer späteren Version.",
+
+  // Tick rate
+  "overview.tick": "Weltgeschwindigkeit",
+  "overview.tickUnit": "Ticks/s",
+  "overview.tickGood": "Flüssig",
+  "overview.tickBusy": "Ausgelastet",
+  "overview.tickLag": "Ruckelt",
+  "overview.tickDetail": "durchschnittlich {mean} ms pro Tick · 95 % unter {p95} ms · Spitze {max} ms",
+  "overview.tickHint": "Wie schnell der Weltserver läuft. Über 20 Ticks pro Sekunde fühlt sich das Spiel flüssig an, unter 10 ruckelt es.",
 };
 
 export default de;

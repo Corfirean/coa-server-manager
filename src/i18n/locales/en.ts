@@ -497,6 +497,15 @@ const en = {
   "scan.label.companions": "CoA Companions (bots)",
   "scan.label.client": "Game client",
   "placeholder.soon": "This section is being built in a later release.",
+
+  // Tick rate
+  "overview.tick": "World speed",
+  "overview.tickUnit": "ticks/s",
+  "overview.tickGood": "Smooth",
+  "overview.tickBusy": "Busy",
+  "overview.tickLag": "Lagging",
+  "overview.tickDetail": "average {mean} ms per tick · 95% under {p95} ms · peak {max} ms",
+  "overview.tickHint": "How fast the world server runs. Above 20 ticks per second the game feels smooth; below 10 it lags.",
 } as const;
 
 export default en;

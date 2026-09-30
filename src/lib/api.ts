@@ -204,6 +204,15 @@ export interface Population {
   bots_total: number;
 }
 
+export interface Performance {
+  mean_ms: number;
+  median_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  max_ms: number;
+  ticks_per_sec: number;
+}
+
 export interface CompanionSizes {
   hardware: { cores: number; ram_gb: number; free_ram_gb: number };
   sizes: { id: string; title: string; bots: number; warning: string | null }[];
@@ -278,6 +287,7 @@ export const api = {
     invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   population: (id: string) => invoke<Population | null>("get_population", { id }),
+  performance: (id: string) => invoke<Performance | null>("get_performance", { id }),
   companionSizes: () => invoke<CompanionSizes>("companion_sizes"),
   addCompanions: (id: string, count: number) => invoke<{ spawned: string | null }>("add_companions", { id, count }),
   clientInfo: (id: string) => invoke<ClientInfo | null>("client_info", { id }),

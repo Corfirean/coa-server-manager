@@ -497,6 +497,20 @@ async fn get_population(state: State<'_, AppState>, id: String) -> std::result::
     .unwrap_or(None))
 }
 
+#[tauri::command]
+async fn get_performance(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::ra::Performance>, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
+        if o.world.state != coa_core::process::ServiceState::Running {
+            return None;
+        }
+        Ra::connect(&root).and_then(|mut r| r.performance()).ok().flatten()
+    })
+    .await
+    .unwrap_or(None))
+}
+
 #[derive(Serialize)]
 struct CompanionSizes {
     hardware: coa_core::population::Hardware,
@@ -839,6 +853,7 @@ pub fn run() {
             apply_update,
             rollback_update,
             get_population,
+            get_performance,
             companion_sizes,
             add_companions,
             client_info,

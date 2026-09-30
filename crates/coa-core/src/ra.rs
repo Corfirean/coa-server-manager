@@ -6,7 +6,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::fsx;
@@ -92,6 +92,12 @@ impl Ra {
     }
 
     /// Ask the bot module to create `count` leveling bots (throttled by the module itself). Only a number is sent.
+    /// World update timing from the server's own `server info` report (mean/median/percentiles of the last 500 updates).
+    pub fn performance(&mut self) -> Result<Option<Performance>> {
+        let out = self.command("server info")?;
+        Ok(parse_server_info(&out))
+    }
+
     pub fn spawn_bots(&mut self, count: u32) -> Result<String> {
         if !(1..=2000).contains(&count) {
             return Err(Error::Invalid("Choose between 1 and 2000 companions.".into()));
@@ -110,6 +116,41 @@ impl Ra {
             Err(Error::Invalid(format!("Could not set administrator rights: {out}")))
         }
     }
+}
+
+/// How fast the world loop is running, read from `server info`.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Performance {
+    pub mean_ms: u32,
+    pub median_ms: u32,
+    pub p95_ms: u32,
+    pub p99_ms: u32,
+    pub max_ms: u32,
+    /// World updates per second implied by the mean update time.
+    pub ticks_per_sec: f32,
+}
+
+fn ms(text: &str) -> Option<u32> {
+    text.trim().trim_end_matches("ms").trim().parse().ok()
+}
+
+pub fn parse_server_info(text: &str) -> Option<Performance> {
+    let (mut mean, mut median, mut pct) = (None, None, None);
+    for line in text.lines() {
+        let line = line.trim().trim_start_matches('|').trim_start_matches('-').trim();
+        if let Some(v) = line.strip_prefix("Mean:") {
+            mean = ms(v);
+        } else if let Some(v) = line.strip_prefix("Median:") {
+            median = ms(v);
+        } else if let Some(v) = line.strip_prefix("Percentiles (95, 99, max):") {
+            let p: Vec<Option<u32>> = v.split(',').map(ms).collect();
+            if p.len() == 3 {
+                pct = Some((p[0]?, p[1]?, p[2]?));
+            }
+        }
+    }
+    let (mean_ms, median_ms, (p95_ms, p99_ms, max_ms)) = (mean?, median?, pct?);
+    Some(Performance { mean_ms, median_ms, p95_ms, p99_ms, max_ms, ticks_per_sec: 1000.0 / mean_ms.max(1) as f32 })
 }
 
 /// Account names are letters/digits (3-17); passwords are 6-16 printable characters without spaces or quotes.
@@ -167,6 +208,21 @@ mod tests {
             got
         });
         (port, h)
+    }
+
+    #[test]
+    fn server_info_timing_is_parsed_and_unrelated_text_is_ignored() {
+        let text = "AzerothCore rev. x
+Connected players: 0. Characters in world: 0.
+Update time diff: 1ms. Last 500 diffs summary:
+|- Mean: 14ms
+|- Median: 15ms
+|- Percentiles (95, 99, max): 24ms, 30ms, 61ms
+AC>";
+        let p = parse_server_info(text).unwrap();
+        assert_eq!((p.mean_ms, p.median_ms, p.p95_ms, p.p99_ms, p.max_ms), (14, 15, 24, 30, 61));
+        assert!((p.ticks_per_sec - 71.4).abs() < 0.2);
+        assert!(parse_server_info("Connected players: 0.").is_none());
     }
 
     #[test]

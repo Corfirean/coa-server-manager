@@ -497,6 +497,15 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "scan.label.companions": "Компаньоны CoA (боты)",
   "scan.label.client": "Клиент игры",
   "placeholder.soon": "Этот раздел появится в одном из следующих выпусков.",
+
+  // Tick rate
+  "overview.tick": "Скорость мира",
+  "overview.tickUnit": "тиков/с",
+  "overview.tickGood": "Плавно",
+  "overview.tickBusy": "Нагружен",
+  "overview.tickLag": "Лагает",
+  "overview.tickDetail": "в среднем {mean} мс на тик · 95% быстрее {p95} мс · пик {max} мс",
+  "overview.tickHint": "Как быстро работает игровой сервер. Выше 20 тиков в секунду игра идёт плавно, ниже 10 — лагает.",
 };
 
 export default ru;

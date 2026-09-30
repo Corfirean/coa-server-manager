@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { api, asUiError, type ClientInfo, type Human, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
+import { api, asUiError, type ClientInfo, type Human, type Performance, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
 import { cn, formatUptime } from "@/lib/utils";
 import { useHuman, useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,31 @@ import { Card } from "@/components/ui/card";
 
 type Action = "starting" | "stopping" | "restarting" | null;
 type Failure = { human: Human; technical: string };
+
+/** World loop speed from the server's own timing report, with a simple smooth / busy / lagging verdict. */
+function TickRate({ perf }: { perf: Performance }) {
+  const t = useT();
+  const level = perf.mean_ms <= 50 ? "good" : perf.mean_ms <= 100 ? "busy" : "lag";
+  const tone = { good: "text-ok bg-ok/15", busy: "text-warn bg-warn/15", lag: "text-bad bg-bad/15" }[level];
+  const bar = { good: "bg-ok", busy: "bg-warn", lag: "bg-bad" }[level];
+  const fill = Math.max(4, Math.min(100, Math.round(100 - perf.mean_ms)));
+  return (
+    <div className="mt-4 rounded-md border border-line bg-black/20 p-3" title={t("overview.tickHint")}>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted">{t("overview.tick")}</span>
+        <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone}`}>{t(level === "good" ? "overview.tickGood" : level === "busy" ? "overview.tickBusy" : "overview.tickLag")}</span>
+      </div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className="text-3xl font-semibold tabular-nums">{Math.round(perf.ticks_per_sec)}</span>
+        <span className="text-sm text-muted">{t("overview.tickUnit")}</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fill} aria-label={t("overview.tick")}>
+        <div className={`h-full rounded-full transition-[width] duration-500 ${bar}`} style={{ width: `${fill}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-muted">{t("overview.tickDetail", { mean: perf.mean_ms, p95: perf.p95_ms, max: perf.max_ms })}</p>
+    </div>
+  );
+}
 
 function Row({ label, s }: { label: string; s: ServiceStatus }) {
   const t = useT();
@@ -43,6 +68,7 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
   const [pop, setPop] = useState<Population | null>(null);
   const [client, setClient] = useState<ClientInfo | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [perf, setPerf] = useState<Performance | null>(null);
   const alive = useRef(true);
 
   const poll = useCallback(async () => {
@@ -57,6 +83,23 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
       /* transient; next poll retries */
     }
   }, [server.id]);
+
+  // The tick rate comes from the server console (one short connection per reading), so it is read less often.
+  const worldUp = status?.observed.world.state === "running";
+  useEffect(() => {
+    if (!worldUp) {
+      setPerf(null);
+      return;
+    }
+    let live = true;
+    const read = () => void api.performance(server.id).then((p) => live && setPerf(p)).catch(() => {});
+    read();
+    const iv = setInterval(read, 10000);
+    return () => {
+      live = false;
+      clearInterval(iv);
+    };
+  }, [worldUp, server.id]);
 
   useEffect(() => {
     alive.current = true;
@@ -170,6 +213,7 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
             <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.companions", { n: pop.bots_online })}</span> : null}</dd>
           </div>
         </dl>
+        {perf && <TickRate perf={perf} />}
 
         <div className="mt-7 flex items-center gap-4">
           {running ? (
