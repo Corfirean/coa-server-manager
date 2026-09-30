@@ -12,7 +12,10 @@ Design and audit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 3 Config engine + Bots/Server settings UI + presets + snapshots | done |
 | 4 Recovery points, DB dump/restore (staging + atomic swap), Backups UI | done |
 | 5 Clean install: signed split packages, resumable verified download, staging + atomic commit, DB credential rotation, RA account creation | done |
-| 6 Updates/migrations/CI, 7 Bots, 8 Client, 9 Friends, 10 Polish | not started |
+| 6 Updates: tracked SQL migrations, update transaction (journal, conflicts, rollback), Settings > Server updates | done |
+| 7 Companions: real population, hardware-aware sizes, RA spawn (install/update of the module rides on the update flow) | done |
+| 8 Client: read-only detection, backed-up realmlist, isolated addon install, START & PLAY | done |
+| 9 Friends, 10 Polish; `coa-server-build` repo (nightly sync, releases) | not started |
 
 ## Develop
 ```
