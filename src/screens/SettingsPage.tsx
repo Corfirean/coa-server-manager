@@ -17,27 +17,31 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CompanionsCard } from "@/screens/CompanionsCard";
+import { useHuman, useI18n, useT, type Key } from "@/i18n";
 
-const RESTART_LABEL = { runtime: "Applies immediately", world: "Needs a world server restart", full: "Needs a full server restart" } as const;
+type T = (k: Key, v?: Record<string, string | number>) => string;
 
-function fmt(v: JsonValue, s: { type: string; unit?: string | null; options: { value: JsonValue; label: string }[] }): string {
-  if (typeof v === "boolean") return v ? "On" : "Off";
+const RESTART_LABEL = { runtime: "set.restart.runtime", world: "set.restart.world", full: "set.restart.full" } as const;
+
+function fmt(t: T, v: JsonValue, s: { type: string; unit?: string | null; options: { value: JsonValue; label: string }[] }): string {
+  if (typeof v === "boolean") return v ? t("set.on") : t("set.off");
   if (s.type === "enum") return s.options.find((o) => o.value === v)?.label ?? String(v);
   return s.unit ? `${v} ${s.unit}` : String(v);
 }
 
-function clientCheck(s: SettingView, v: JsonValue): string | null {
+function clientCheck(t: T, s: SettingView, v: JsonValue): string | null {
   if (s.type === "int" || s.type === "float") {
-    if (typeof v !== "number" || Number.isNaN(v)) return "Enter a number";
-    if (s.type === "int" && !Number.isInteger(v)) return "Enter a whole number";
-    if (s.min !== undefined && v < s.min) return `Must be at least ${s.min}`;
-    if (s.max !== undefined && v > s.max) return `Must be at most ${s.max}`;
+    if (typeof v !== "number" || Number.isNaN(v)) return t("set.enterNumber");
+    if (s.type === "int" && !Number.isInteger(v)) return t("set.enterInt");
+    if (s.min !== undefined && v < s.min) return t("set.atLeast", { n: s.min });
+    if (s.max !== undefined && v > s.max) return t("set.atMost", { n: s.max });
   }
   return null;
 }
 
 function Field(props: { s: SettingView; value: JsonValue; error: string | null; onChange: (v: JsonValue) => void }) {
   const { s, value, error, onChange } = props;
+  const t = useT();
   const id = `f-${s.key}`;
   const base = "rounded-md border bg-bg px-3 py-2 text-sm outline-none focus:border-gold";
   if (s.type === "bool") {
@@ -50,7 +54,7 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
         className={cn("relative h-7 w-14 cursor-pointer rounded-full transition-colors", value === true ? "bg-gold" : "bg-white/15")}
       >
         <span className={cn("absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition-transform", value === true && "translate-x-7")} />
-        <span className="sr-only">{value === true ? "On" : "Off"}</span>
+        <span className="sr-only">{value === true ? t("set.on") : t("set.off")}</span>
       </button>
     );
   }
@@ -80,8 +84,8 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
         inputMode={numeric ? "decimal" : undefined}
         aria-invalid={!!error}
         onChange={(e) => {
-          const t = e.target.value;
-          onChange(numeric ? (t.trim() === "" || Number.isNaN(Number(t)) ? (t as unknown as number) : Number(t)) : t);
+          const raw = e.target.value;
+          onChange(numeric ? (raw.trim() === "" || Number.isNaN(Number(raw)) ? (raw as unknown as number) : Number(raw)) : raw);
         }}
       />
       {s.unit && <span className="text-xs text-muted">{s.unit}</span>}
@@ -91,6 +95,7 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
 
 function Row(props: { s: SettingView; value: JsonValue; error: string | null; onChange: (v: JsonValue) => void; onReset: () => void }) {
   const { s, value, error } = props;
+  const t = useT();
   const changed = value !== s.value;
   return (
     <div className="grid grid-cols-[1fr_auto] items-start gap-x-6 gap-y-1 py-3.5">
@@ -99,18 +104,18 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
           {s.title}
           {s.dangerous && (
             <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-normal text-warn">
-              <AlertTriangle className="h-3 w-3" aria-hidden /> Careful
+              <AlertTriangle className="h-3 w-3" aria-hidden /> {t("set.careful")}
             </span>
           )}
-          {changed && <span className="rounded bg-gold/15 px-1.5 py-0.5 text-[11px] font-normal text-gold">Changed</span>}
+          {changed && <span className="rounded bg-gold/15 px-1.5 py-0.5 text-[11px] font-normal text-gold">{t("set.changed")}</span>}
         </label>
         <p className="mt-0.5 max-w-xl text-sm text-muted">{s.description}</p>
         <p className="mt-1 text-xs text-muted/80">
-          Default: {fmt(s.default, s)}
-          {s.min !== undefined && s.max !== undefined && s.type !== "bool" ? ` · Range ${s.min}–${s.max}` : ""} · {RESTART_LABEL[s.restartRequired]}
+          {t("set.default", { v: fmt(t, s.default, s) })}
+          {s.min !== undefined && s.max !== undefined && s.type !== "bool" ? ` · ${t("set.range", { min: s.min, max: s.max })}` : ""} · {t(RESTART_LABEL[s.restartRequired])}
         </p>
-        {s.problem && <p className="mt-1 text-xs text-warn">The file has an unusable value ({s.problem}); showing the default.</p>}
-        {s.drift && <p className="mt-1 text-xs text-warn">Edited by hand in the generated file — the launcher will reset it at next start unless you save it here.</p>}
+        {s.problem && <p className="mt-1 text-xs text-warn">{t("set.badValue", { problem: s.problem })}</p>}
+        {s.drift && <p className="mt-1 text-xs text-warn">{t("set.drift")}</p>}
         {error && (
           <p role="alert" className="mt-1 text-xs text-bad">
             {error}
@@ -120,8 +125,8 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
       <div className="flex items-center gap-2 pt-0.5">
         <Field s={s} value={value} error={error} onChange={props.onChange} />
         <button
-          title="Reset to default"
-          aria-label={`Reset ${s.title} to default`}
+          title={t("set.reset")}
+          aria-label={t("set.resetItem", { name: s.title })}
           onClick={props.onReset}
           disabled={value === s.default}
           className="cursor-pointer rounded p-1.5 text-muted hover:bg-white/5 hover:text-ink disabled:opacity-25"
@@ -135,6 +140,8 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
 
 export function SettingsPage(props: { serverId: string; scope: Scope; title: string; question: string }) {
   const { serverId, scope } = props;
+  const { t, tn } = useI18n();
+  const human = useHuman();
   const [view, setView] = useState<SettingsView | null>(null);
   const [draft, setDraft] = useState<Record<string, JsonValue>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -177,13 +184,13 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       <div className="max-w-xl">
         <h1 className="text-2xl font-semibold">{props.title}</h1>
         <Card className="mt-6 p-5">
-          <p className="font-medium">{fatal.human.code === "unknown" ? "Nothing to configure yet" : fatal.human.title}</p>
-          <p className="mt-1 text-sm text-muted">{fatal.human.code === "unknown" ? fatal.technical : fatal.human.message}</p>
+          <p className="font-medium">{fatal.human.code === "unknown" ? t("set.nothingYet") : human(fatal.human).title}</p>
+          <p className="mt-1 text-sm text-muted">{fatal.human.code === "unknown" ? fatal.technical : human(fatal.human).message}</p>
         </Card>
       </div>
     );
   }
-  if (!view) return <p className="text-muted">Loading settings…</p>;
+  if (!view) return <p className="text-muted">{t("set.loading")}</p>;
 
   const inCategory = view.settings.filter((s) => s.category === category);
   const basic = inCategory.filter((s) => !s.advanced);
@@ -195,13 +202,13 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
     const local: Record<string, string> = {};
     for (const [k, v] of Object.entries(changes)) {
       const s = view!.settings.find((x) => x.key === k)!;
-      const m = clientCheck(s, v);
+      const m = clientCheck(t, s, v);
       if (m) local[k] = m;
     }
     setErrors(local);
     if (Object.keys(local).length) return;
     const dangerous = Object.keys(changes).filter((k) => view!.settings.find((s) => s.key === k)?.dangerous);
-    if (dangerous.length && !window.confirm(`You are changing ${dangerous.length} setting(s) marked Careful. A snapshot of the current configuration is saved first, so this can be undone. Continue?`)) return;
+    if (dangerous.length && !window.confirm(t("set.confirmCareful", { n: dangerous.length }))) return;
     setBusy(true);
     setSaveErr(null);
     try {
@@ -247,9 +254,9 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
 
       {view.drift_keys.length > 0 && (
         <Card className="mt-5 border-warn/40 p-4" role="status">
-          <p className="font-medium text-warn">{view.drift_keys.length} setting(s) were edited by hand</p>
+          <p className="font-medium text-warn">{t("set.driftTitle", { n: view.drift_keys.length })}</p>
           <p className="mt-1 text-sm text-muted">
-            The server launcher rebuilds worldserver.conf from its template every time it starts, so these manual edits will be lost:{" "}
+            {t("set.driftText")}{" "}
             <span className="selectable">{view.drift_keys.slice(0, 6).join(", ")}</span>
             {view.drift_keys.length > 6 ? "…" : ""}
           </p>
@@ -257,14 +264,14 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       )}
 
       <div className="mt-5 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted">Presets:</span>
+        <span className="text-sm text-muted">{t("set.presets")}</span>
         {presets.map((p) => (
           <Button key={p.id} size="sm" title={p.description} onClick={() => void openPreset(p.id)}>
             {p.title}
           </Button>
         ))}
         <Button size="sm" variant="ghost" onClick={() => void openPreset("defaults")}>
-          Restore recommended defaults
+          {t("set.restoreDefaults")}
         </Button>
       </div>
 
@@ -273,11 +280,11 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
           <p className="font-medium">{preview.title}</p>
           <p className="text-sm text-muted">{preview.description}</p>
           {preview.changes.length === 0 ? (
-            <p className="mt-3 text-sm">Nothing to change — your settings already match.</p>
+            <p className="mt-3 text-sm">{t("set.matches")}</p>
           ) : (
             <>
               <p className="mt-3 text-sm">
-                This will change <b>{preview.changes.length}</b> setting{preview.changes.length === 1 ? "" : "s"}:
+                {tn("set.willChange", preview.changes.length)}
               </p>
               <ul className="mt-2 max-h-56 divide-y divide-line overflow-auto text-sm">
                 {preview.changes.map((c) => {
@@ -286,7 +293,7 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
                     <li key={c.key} className="flex justify-between gap-4 py-1.5">
                       <span>{c.title}</span>
                       <span className="text-muted">
-                        {fmt(c.from, s)} → <span className="text-ink">{fmt(c.to, s)}</span>
+                        {fmt(t, c.from, s)} → <span className="text-ink">{fmt(t, c.to, s)}</span>
                       </span>
                     </li>
                   );
@@ -302,11 +309,11 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
                 disabled={busy}
                 onClick={() => void save(Object.fromEntries(preview.changes.map((c) => [c.key, c.to])))}
               >
-                Apply
+                {t("set.apply")}
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={() => setPreview(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </div>
         </Card>
@@ -315,22 +322,22 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       {saved && (
         <Card className="mt-4 border-ok/40 p-4" role="status">
           {saved.changed.length === 0 ? (
-            <p>Nothing changed.</p>
+            <p>{t("set.nothingChanged")}</p>
           ) : (
             <>
-              <p className="font-medium text-ok">Saved.</p>
+              <p className="font-medium text-ok">{t("set.saved")}</p>
               <p className="mt-1 text-sm text-muted">
                 {running && saved.restart
-                  ? `Restart required to apply ${saved.changed.length} setting${saved.changed.length === 1 ? "" : "s"}.`
-                  : "The changes will apply the next time the server starts."}
+                  ? tn("set.restartRequired", saved.changed.length)
+                  : t("set.appliesNextStart")}
               </p>
               {running && saved.restart && (
                 <div className="mt-3 flex gap-2">
                   <Button size="sm" variant="primary" disabled={busy} onClick={() => void restartNow()}>
-                    Restart now
+                    {t("set.restartNow")}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setSaved(null)}>
-                    Later
+                    {t("set.later")}
                   </Button>
                 </div>
               )}
@@ -341,8 +348,8 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
 
       {saveErr && (
         <Card className="mt-4 border-bad/40 p-4" role="alert">
-          <p className="font-medium text-bad">{saveErr.human.title}</p>
-          <p className="mt-1 text-sm text-muted">Nothing was saved. Fix the highlighted settings and try again.</p>
+          <p className="font-medium text-bad">{human(saveErr.human).title}</p>
+          <p className="mt-1 text-sm text-muted">{t("set.notSaved")}</p>
         </Card>
       )}
 
@@ -386,7 +393,7 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
             className="flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink"
           >
             {showAdvanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
-            Advanced settings ({advanced.length})
+            {t("set.advanced", { n: advanced.length })}
           </button>
           {showAdvanced && (
             <div className="divide-y divide-line">
@@ -406,18 +413,18 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       )}
 
       {view.unknown_keys > 0 && (
-        <p className="mt-6 text-xs text-muted">{view.unknown_keys} other setting(s) in the configuration file are kept exactly as they are.</p>
+        <p className="mt-6 text-xs text-muted">{t("set.unknownKept", { n: view.unknown_keys })}</p>
       )}
 
       {dirtyKeys.length > 0 && (
         <div className="fixed bottom-0 left-60 right-0 flex items-center justify-between border-t border-line bg-[#0b0c0e]/95 px-10 py-3">
-          <span className="text-sm text-muted">{dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? "" : "s"}</span>
+          <span className="text-sm text-muted">{tn("set.unsaved", dirtyKeys.length)}</span>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={() => { setDraft({}); setErrors({}); }}>
-              Discard
+              {t("set.discard")}
             </Button>
             <Button variant="primary" size="sm" disabled={busy} onClick={() => void save(Object.fromEntries(dirtyKeys.map((k) => [k, draft[k]])))}>
-              Save changes
+              {t("set.save")}
             </Button>
           </div>
         </div>

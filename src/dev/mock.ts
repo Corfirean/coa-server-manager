@@ -22,6 +22,8 @@ export {};
       if(cmd==="start_server"){await new Promise((r: any)=>setTimeout(r,1500));running=true;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd==="stop_server"){await new Promise((r: any)=>setTimeout(r,1500));running=false;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd.startsWith("plugin:dialog")) return "C:\games\CoA-Repack";
+      if(cmd==="plugin:event|listen") return 1;
+      if(cmd==="plugin:event|unlisten") return null;
       throw new Error("unmocked "+cmd);
     }
   };
