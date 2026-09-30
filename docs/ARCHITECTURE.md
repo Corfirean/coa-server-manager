@@ -448,3 +448,24 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   repo, never committed); CI receives it as the `COA_SIGNING_KEY` secret, which the owner must add manually.
   Signatures are detached (`manifest.json.sig`, over the exact manifest bytes), so the embedded `signature`
   field in the manifest was removed. **Back up the private key** — losing it means shipping a new app to rotate.
+
+
+### 8.1 Fork created (2026-09-30)
+
+* Fork: `Corfirean/azerothcore-wotlk-coa` (from `jealous-sound/azerothcore-wotlk-coa`). Default branch is `coa-bots`
+  (a branch named `coa` is impossible: the fork inherits upstream's `coa/...` branches). `main` stays a pure mirror of upstream.
+* `coa-bots` = upstream `main` + a small, reviewable patch series (audit of the owner's 38 local commits, 2026-09-30):
+  1. `Core/Bots` hooks: `LFGMgr::GetProposalIdForPlayer`, `PlayerScript::OnPetitionOffered`, `Guild` friend `BotMgr`.
+  2. Crash fixes seen under bot load: `CombatManager::PutReference`, `Unit::RemoveFromWorld` dangling delayed-visibility pointer,
+     `InstanceMap::UnloadAll` teleport race, `IsStatisticAchievement` missing category.
+  3. `AscensionClassServiceBridge` + `AscensionResourceQuery` (needed by the bot module) and the socketless-bot appearance-sync guard.
+  4. RA: no throw on abrupt client disconnect (the Manager's RA client does exactly that).
+  5. CI workflow `coa-bots-build.yml`: builds core + bots module on Windows, runs `worldserver --version`.
+* Discovery: the bot chassis (`LoginQueryHolder`, `IWorld::AddQueryHolderCallback`, `Group::GetRolls`) is already in upstream
+  (`feat(Core): add mod-playerbots hooks and CoA API (#3069)`), so it is not carried; `docs/core-patches.md` in the bots repo is outdated.
+* Deliberately NOT carried (owner's other local work, decide separately): CoA mechanic corrections, `AscensionClassTester`
+  (dev harness; couples core to the bots module), respec `SpecId==0` guard, `cs_daynight`, aura/spell null-guards in
+  `SpellAuras.h`/`Spell.cpp`, class-contract data, debug `LOG_ERROR` traces in Petition/Query handlers, fleet log appenders in
+  `worldserver.conf.dist`, `apps/coa-dbc` binaries, `height_query` tool.
+* Sync policy: `main` fast-forwards from upstream automatically; `coa-bots` is rebased/merged onto it nightly by a workflow in the
+  build repository (conflict => issue, no release). Channels: `edge` (every green nightly) and `stable` (promoted by the owner).
