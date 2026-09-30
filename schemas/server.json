@@ -1,0 +1,568 @@
+{
+  "schema": 1,
+  "scope": "server",
+  "categories": [
+    {
+      "id": "gameplay",
+      "title": "Gameplay"
+    },
+    {
+      "id": "rates",
+      "title": "Rates"
+    },
+    {
+      "id": "characters",
+      "title": "Characters"
+    },
+    {
+      "id": "world",
+      "title": "World"
+    },
+    {
+      "id": "network",
+      "title": "Network"
+    },
+    {
+      "id": "accounts",
+      "title": "Accounts"
+    },
+    {
+      "id": "logging",
+      "title": "Logging"
+    },
+    {
+      "id": "performance",
+      "title": "Performance"
+    },
+    {
+      "id": "advanced",
+      "title": "Advanced"
+    }
+  ],
+  "settings": [
+    {
+      "key": "Rate.XP.Kill",
+      "type": "float",
+      "category": "rates",
+      "title": "Experience from kills",
+      "description": "Multiplier for experience gained by killing monsters. 1 is normal.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.XP.Quest",
+      "type": "float",
+      "category": "rates",
+      "title": "Experience from quests",
+      "description": "Multiplier for experience gained from quests.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.XP.Quest.DF",
+      "type": "float",
+      "category": "rates",
+      "title": "Experience from daily / dungeon-finder quests",
+      "description": "Multiplier for experience from Dungeon Finder quests.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.XP.Explore",
+      "type": "float",
+      "category": "rates",
+      "title": "Experience from exploring",
+      "description": "Multiplier for experience from discovering new areas.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.Drop.Item.Normal",
+      "type": "float",
+      "category": "rates",
+      "title": "Item drop rate",
+      "description": "Multiplier for how often normal-quality items drop.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.Drop.Money",
+      "type": "float",
+      "category": "rates",
+      "title": "Gold drop rate",
+      "description": "Multiplier for gold dropped by monsters.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.Honor",
+      "type": "float",
+      "category": "rates",
+      "title": "Honor gain",
+      "description": "Multiplier for honor points earned.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.Reputation.Gain",
+      "type": "float",
+      "category": "rates",
+      "title": "Reputation gain",
+      "description": "Multiplier for reputation earned.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 20,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.Rest.InGame",
+      "type": "float",
+      "category": "rates",
+      "title": "Rested bonus while playing",
+      "description": "Speed at which rested experience is used up while you play.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 10,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.Creature.Normal.Damage",
+      "type": "float",
+      "category": "advanced",
+      "title": "Monster damage",
+      "description": "Multiplier for damage dealt by normal monsters. Changes difficulty a lot.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": true,
+      "min": 0.1,
+      "max": 10,
+      "unit": "x"
+    },
+    {
+      "key": "Rate.Creature.Normal.HP",
+      "type": "float",
+      "category": "advanced",
+      "title": "Monster health",
+      "description": "Multiplier for health of normal monsters. Changes difficulty a lot.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": true,
+      "min": 0.1,
+      "max": 10,
+      "unit": "x"
+    },
+    {
+      "key": "PlayerLimit",
+      "type": "int",
+      "category": "world",
+      "title": "Maximum players",
+      "description": "How many players can be online at once. 0 means no limit.",
+      "default": 0,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 10000
+    },
+    {
+      "key": "GameType",
+      "type": "enum",
+      "category": "advanced",
+      "title": "Realm type",
+      "description": "The realm type shown in the realm list.",
+      "default": 0,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "options": [
+        {
+          "value": 0,
+          "label": "Normal"
+        },
+        {
+          "value": 1,
+          "label": "Player vs Player"
+        },
+        {
+          "value": 6,
+          "label": "Roleplay"
+        },
+        {
+          "value": 8,
+          "label": "Roleplay + PvP"
+        }
+      ]
+    },
+    {
+      "key": "RealmZone",
+      "type": "int",
+      "category": "advanced",
+      "title": "Realm zone",
+      "description": "The realm's language / region group shown to clients.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 30
+    },
+    {
+      "key": "PlayerSaveInterval",
+      "type": "int",
+      "category": "world",
+      "title": "Autosave interval",
+      "description": "How often player characters are saved while online.",
+      "default": 900000,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 60000,
+      "max": 3600000,
+      "unit": "ms"
+    },
+    {
+      "key": "CharactersPerAccount",
+      "type": "int",
+      "category": "characters",
+      "title": "Characters per account",
+      "description": "Maximum characters an account can have across all realms.",
+      "default": 50,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 1,
+      "max": 200
+    },
+    {
+      "key": "CharactersPerRealm",
+      "type": "int",
+      "category": "characters",
+      "title": "Characters per realm",
+      "description": "Maximum characters an account can have on this realm.",
+      "default": 10,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 1,
+      "max": 50
+    },
+    {
+      "key": "StartPlayerLevel",
+      "type": "int",
+      "category": "characters",
+      "title": "Starting level",
+      "description": "Level new characters start at.",
+      "default": 1,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 1,
+      "max": 80
+    },
+    {
+      "key": "StartPlayerMoney",
+      "type": "int",
+      "category": "characters",
+      "title": "Starting gold",
+      "description": "Copper new characters start with (10000 copper = 1 gold).",
+      "default": 0,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 2147483647,
+      "unit": "copper"
+    },
+    {
+      "key": "MaxPlayerLevel",
+      "type": "int",
+      "category": "characters",
+      "title": "Maximum level",
+      "description": "Highest level a character can reach. The game client only supports 80.",
+      "default": 80,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": true,
+      "min": 1,
+      "max": 80
+    },
+    {
+      "key": "SkipCinematics",
+      "type": "enum",
+      "category": "characters",
+      "title": "Skip intro cinematics",
+      "description": "Whether new characters see their intro movie.",
+      "default": 0,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "options": [
+        {
+          "value": 0,
+          "label": "Show all"
+        },
+        {
+          "value": 1,
+          "label": "Skip for non-first characters"
+        },
+        {
+          "value": 2,
+          "label": "Skip all"
+        }
+      ]
+    },
+    {
+      "key": "DurabilityLoss.OnDeath",
+      "type": "float",
+      "category": "gameplay",
+      "title": "Durability lost on death",
+      "description": "Percent of item durability lost when you die.",
+      "default": 10,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 100,
+      "unit": "%"
+    },
+    {
+      "key": "Death.SicknessLevel",
+      "type": "int",
+      "category": "gameplay",
+      "title": "Resurrection sickness up to level",
+      "description": "Characters above this level get resurrection sickness. -10 turns it off.",
+      "default": 11,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": -10,
+      "max": 80
+    },
+    {
+      "key": "LeaveGroupOnLogout.Enabled",
+      "type": "bool",
+      "category": "gameplay",
+      "title": "Leave group on logout",
+      "description": "Players are removed from their group when they log out.",
+      "default": false,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "GM.LoginState",
+      "type": "enum",
+      "category": "gameplay",
+      "title": "GM mode at login",
+      "description": "Whether game masters start with GM mode on.",
+      "default": 2,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "options": [
+        {
+          "value": 0,
+          "label": "Off"
+        },
+        {
+          "value": 1,
+          "label": "On"
+        },
+        {
+          "value": 2,
+          "label": "Same as last time"
+        }
+      ]
+    },
+    {
+      "key": "AllowTwoSide.Accounts",
+      "type": "bool",
+      "category": "accounts",
+      "title": "Both factions on one account",
+      "description": "One account may have Alliance and Horde characters.",
+      "default": true,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "AllowTwoSide.Interaction.Chat",
+      "type": "bool",
+      "category": "accounts",
+      "title": "Cross-faction chat",
+      "description": "Alliance and Horde players can talk to each other.",
+      "default": false,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "AutoBroadcast.On",
+      "type": "bool",
+      "category": "world",
+      "title": "Automatic announcements",
+      "description": "Broadcast the messages stored in the database at regular intervals.",
+      "default": false,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "AutoBroadcast.Timer",
+      "type": "int",
+      "category": "world",
+      "title": "Announcement interval",
+      "description": "Time between automatic announcements.",
+      "default": 60000,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 5000,
+      "max": 3600000,
+      "unit": "ms"
+    },
+    {
+      "key": "Warden.Enabled",
+      "type": "bool",
+      "category": "advanced",
+      "title": "Anti-cheat (Warden)",
+      "description": "Enables the client anti-cheat check. Usually unnecessary on a private server.",
+      "default": true,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "MapUpdateInterval",
+      "type": "int",
+      "category": "performance",
+      "title": "Map update interval",
+      "description": "How often the world updates maps. Lower is smoother but uses more CPU.",
+      "default": 10,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 1,
+      "max": 1000,
+      "unit": "ms"
+    },
+    {
+      "key": "MinWorldUpdateTime",
+      "type": "int",
+      "category": "performance",
+      "title": "Minimum world update time",
+      "description": "Shortest time between world updates. Raise it to reduce CPU use.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 1,
+      "max": 1000,
+      "unit": "ms"
+    },
+    {
+      "key": "ThreadPool",
+      "type": "int",
+      "category": "performance",
+      "title": "Worker threads",
+      "description": "Number of background worker threads. More helps large populations.",
+      "default": 2,
+      "advanced": true,
+      "restartRequired": "full",
+      "dangerous": false,
+      "min": 1,
+      "max": 32
+    },
+    {
+      "key": "Network.Threads",
+      "type": "int",
+      "category": "network",
+      "title": "Network threads",
+      "description": "Threads that handle player connections. One is enough for small servers.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "full",
+      "dangerous": false,
+      "min": 1,
+      "max": 16
+    },
+    {
+      "key": "Ra.Enable",
+      "type": "bool",
+      "category": "advanced",
+      "title": "Remote console",
+      "description": "Lets the Manager and scripts send commands to the server. It only listens on this computer; keep it that way.",
+      "default": true,
+      "advanced": true,
+      "restartRequired": "full",
+      "dangerous": true
+    },
+    {
+      "key": "Ra.IP",
+      "type": "string",
+      "category": "advanced",
+      "title": "Remote console address",
+      "description": "Address the remote console listens on. Keep 127.0.0.1 so it is not reachable from the internet.",
+      "default": "127.0.0.1",
+      "advanced": true,
+      "restartRequired": "full",
+      "dangerous": true
+    },
+    {
+      "key": "Updates.EnableDatabases",
+      "type": "int",
+      "category": "advanced",
+      "title": "Automatic database updates",
+      "description": "Lets the server change its own databases at start. Keep 0: the Manager applies and tracks database updates safely.",
+      "default": 0,
+      "advanced": true,
+      "restartRequired": "full",
+      "dangerous": true,
+      "min": 0,
+      "max": 7
+    }
+  ]
+}

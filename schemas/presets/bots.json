@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "presets": [
+    {
+      "id": "balanced",
+      "title": "Balanced",
+      "description": "The recommended everyday setup: questing, dungeon and battleground fill on, quiet logs.",
+      "values": {
+        "CoaBots.World.VerboseLog": false,
+        "CoaBots.Combat.VerboseLog": false,
+        "CoaBots.AutoLoginOnStartup": true,
+        "CoaBots.AutoLogin.MaxCount": 300,
+        "CoaBots.WorldBrain.Enable": true,
+        "CoaBots.LfgFill.Enable": true,
+        "CoaBots.BGFill.Enable": true,
+        "CoaBots.WorldBrain.TemporaryParties": false
+      }
+    },
+    {
+      "id": "solo-friendly",
+      "title": "Solo Friendly",
+      "description": "Bots that help you and fill your groups, with a small quiet population.",
+      "values": {
+        "CoaBots.World.VerboseLog": false,
+        "CoaBots.Combat.VerboseLog": false,
+        "CoaBots.AutoLoginOnStartup": true,
+        "CoaBots.AutoLogin.MaxCount": 100,
+        "CoaBots.WorldBrain.HelpOthers": true,
+        "CoaBots.WorldBrain.ResurrectOthers": true,
+        "CoaBots.LfgFill.Enable": true,
+        "CoaBots.BGFill.Enable": true,
+        "CoaBots.WorldBrain.TemporaryParties": false
+      }
+    },
+    {
+      "id": "living-world",
+      "title": "Living World",
+      "description": "A busier world: more bots, breaks, gathering detours and temporary parties.",
+      "values": {
+        "CoaBots.World.VerboseLog": false,
+        "CoaBots.Combat.VerboseLog": false,
+        "CoaBots.AutoLoginOnStartup": true,
+        "CoaBots.AutoLogin.MaxCount": 500,
+        "CoaBots.World.Enable": true,
+        "CoaBots.WorldBrain.Enable": true,
+        "CoaBots.WorldBrain.SessionBreaks": true,
+        "CoaBots.WorldBrain.GatherDetours": true,
+        "CoaBots.WorldBrain.TemporaryParties": true
+      }
+    },
+    {
+      "id": "performance",
+      "title": "Performance",
+      "description": "Fewer bots and less bot thinking, for weaker computers.",
+      "values": {
+        "CoaBots.World.VerboseLog": false,
+        "CoaBots.Combat.VerboseLog": false,
+        "CoaBots.AutoLoginOnStartup": true,
+        "CoaBots.AutoLogin.MaxCount": 50,
+        "CoaBots.WorldBrain.TemporaryParties": false,
+        "CoaBots.WorldBrain.GatherDetours": false,
+        "CoaBots.WorldBrain.SessionBreaks": false,
+        "CoaBots.WorldBrain.MaxActiveQuests": 8
+      }
+    }
+  ]
+}

@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use coa_core::config::{self, Scope, SettingsView};
 use coa_core::driver::{self, DriverOutcome, Verb};
 use coa_core::error::UiError;
 use coa_core::layout::{self, Classification, ScanReport};
@@ -12,6 +13,8 @@ use coa_core::process::{self, Observed};
 use coa_core::registry::{metadata_dir_for, InstallKind, InstallMeta, MetaDir, Registry};
 use coa_core::{Error, Result};
 use serde::Serialize;
+use serde_json::Value;
+use std::collections::BTreeMap;
 use tauri::State;
 
 struct AppState {
@@ -161,6 +164,78 @@ async fn stop_server(state: State<'_, AppState>, id: String) -> std::result::Res
     run_verb(&state, id, Verb::StopAll).await
 }
 
+
+#[derive(Serialize)]
+struct PresetInfo {
+    id: String,
+    title: String,
+    description: String,
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> std::result::Result<T, UiError> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| Error::Invalid(e.to_string()))?
+        .map_err(Into::into)
+}
+
+fn meta_dir(root: &std::path::Path) -> Result<PathBuf> {
+    let dir = metadata_dir_for(root)?;
+    if dir.join("install.json").is_file() {
+        Ok(dir)
+    } else {
+        Err(Error::Invalid("This server has not been added to the Manager yet.".into()))
+    }
+}
+
+#[tauri::command]
+async fn get_settings(state: State<'_, AppState>, id: String, scope: Scope) -> std::result::Result<SettingsView, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || config::load(&root, scope)).await
+}
+
+#[tauri::command]
+async fn save_settings(
+    state: State<'_, AppState>,
+    id: String,
+    scope: Scope,
+    changes: BTreeMap<String, Value>,
+) -> std::result::Result<config::SaveReport, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let meta = meta_dir(&root)?;
+        config::save(&root, &meta, scope, &changes)
+    })
+    .await
+}
+
+#[tauri::command]
+fn list_presets(scope: Scope) -> Vec<PresetInfo> {
+    scope
+        .presets()
+        .iter()
+        .map(|p| PresetInfo { id: p.id.clone(), title: p.title.clone(), description: p.description.clone() })
+        .collect()
+}
+
+#[tauri::command]
+async fn preview_preset(state: State<'_, AppState>, id: String, scope: Scope, preset: String) -> std::result::Result<config::PresetPreview, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || if preset == "defaults" { config::preview_defaults(&root, scope) } else { config::preview_preset(&root, scope, &preset) }).await
+}
+
+#[tauri::command]
+fn list_config_snapshots(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<config::SnapshotInfo>, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(config::list_snapshots(&meta_dir(&root)?))
+}
+
+#[tauri::command]
+async fn restore_config_snapshot(state: State<'_, AppState>, id: String, snapshot: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || config::restore_snapshot(&meta_dir(&root)?, &snapshot)).await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -175,7 +250,13 @@ pub fn run() {
             forget_server,
             server_status,
             start_server,
-            stop_server
+            stop_server,
+            get_settings,
+            save_settings,
+            list_presets,
+            preview_preset,
+            list_config_snapshots,
+            restore_config_snapshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

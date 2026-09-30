@@ -20,6 +20,15 @@ pub enum Error {
     UnknownInstallation(String),
     #[error("{0}")]
     Invalid(String),
+    #[error("invalid values: {}", .0.iter().map(|f| format!("{}: {}", f.key, f.message)).collect::<Vec<_>>().join("; "))]
+    Validation(Vec<FieldError>),
+}
+
+/// A problem with one setting, addressed by key so the UI can highlight the field.
+#[derive(Debug, Clone, Serialize)]
+pub struct FieldError {
+    pub key: String,
+    pub message: String,
 }
 
 /// Stable identifiers the UI maps to human messages. Raw exit codes never reach the user.
@@ -129,6 +138,7 @@ impl Error {
             Error::InsufficientSpace { .. } => ErrorCode::DiskFull,
             Error::HashMismatch { .. } => ErrorCode::HashMismatch,
             Error::PathRejected(_) => ErrorCode::PathRejected,
+            Error::Validation(_) => ErrorCode::InvalidConfigValue,
             _ => ErrorCode::Unknown,
         }
     }
@@ -139,10 +149,15 @@ impl Error {
 pub struct UiError {
     pub human: Human,
     pub technical: String,
+    pub fields: Vec<FieldError>,
 }
 
 impl From<Error> for UiError {
     fn from(e: Error) -> Self {
-        UiError { human: e.code().human(), technical: e.to_string() }
+        let fields = match &e {
+            Error::Validation(f) => f.clone(),
+            _ => Vec::new(),
+        };
+        UiError { human: e.code().human(), technical: e.to_string(), fields }
     }
 }

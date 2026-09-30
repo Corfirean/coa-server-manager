@@ -4,6 +4,7 @@ import { type ServerSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Overview } from "@/screens/Overview";
 import { Placeholder } from "@/screens/Placeholder";
+import { SettingsPage } from "@/screens/SettingsPage";
 import { Button } from "@/components/ui/button";
 
 type Page = "overview" | "bots" | "server" | "players" | "friends" | "backups" | "console" | "settings";
@@ -76,6 +77,8 @@ export function Shell(props: {
       <main className="h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
           <Overview key={server.id} server={server} onForget={() => props.onForget(server.id)} />
+        ) : page === "bots" || page === "server" ? (
+          <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={current.label} question={current.question} />
         ) : (
           <Placeholder title={current.label} question={current.question} />
         )}

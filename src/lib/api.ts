@@ -68,9 +68,79 @@ export interface ServerSummary {
   path: string;
 }
 
+export interface FieldError {
+  key: string;
+  message: string;
+}
+
 export interface UiError {
   human: Human;
   technical: string;
+  fields?: FieldError[];
+}
+
+export type Scope = "bots" | "server";
+export type Restart = "runtime" | "world" | "full";
+export type JsonValue = string | number | boolean;
+
+export interface Setting {
+  key: string;
+  type: "bool" | "int" | "float" | "string" | "enum";
+  category: string;
+  title: string;
+  description: string;
+  default: JsonValue;
+  min?: number;
+  max?: number;
+  options: { value: JsonValue; label: string }[];
+  unit?: string | null;
+  advanced: boolean;
+  restartRequired: Restart;
+  dangerous: boolean;
+}
+
+export interface SettingView extends Setting {
+  value: JsonValue;
+  is_default: boolean;
+  present: boolean;
+  problem: string | null;
+  drift: boolean;
+}
+
+export interface SettingsView {
+  scope: Scope;
+  categories: { id: string; title: string }[];
+  settings: SettingView[];
+  unknown_keys: number;
+  drift_keys: string[];
+  files: string[];
+}
+
+export interface PresetInfo {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface PresetChange {
+  key: string;
+  title: string;
+  from: JsonValue;
+  to: JsonValue;
+  dangerous: boolean;
+}
+
+export interface PresetPreview {
+  id: string;
+  title: string;
+  description: string;
+  changes: PresetChange[];
+}
+
+export interface SaveReport {
+  changed: { key: string; title: string; restart: Restart; dangerous: boolean }[];
+  restart: Restart | null;
+  snapshot: string | null;
 }
 
 export const api = {
@@ -82,6 +152,10 @@ export const api = {
   status: (id: string) => invoke<StatusView>("server_status", { id }),
   start: (id: string) => invoke<DriverOutcome>("start_server", { id }),
   stop: (id: string) => invoke<DriverOutcome>("stop_server", { id }),
+  settings: (id: string, scope: Scope) => invoke<SettingsView>("get_settings", { id, scope }),
+  save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
+  presets: (scope: Scope) => invoke<PresetInfo[]>("list_presets", { scope }),
+  previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 
 export function asUiError(e: unknown): UiError {

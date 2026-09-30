@@ -17,8 +17,21 @@ export function evaluate(expression) {
     ws.send(JSON.stringify({ id: n, method: "Runtime.evaluate", params: { expression, awaitPromise: true, returnByValue: true } }));
   });
 }
-if (process.argv[2]) {
+if (process.argv[2] && process.argv[2] !== "-") {
   const r = await evaluate(process.argv[2]);
   console.log(JSON.stringify(r.result?.result?.value ?? r.result, null, 2));
+  ws.close();
+}
+
+export async function screenshot(file) {
+  const r = await new Promise((resolve) => {
+    const n = ++id;
+    pending.set(n, resolve);
+    ws.send(JSON.stringify({ id: n, method: "Page.captureScreenshot", params: { format: "png" } }));
+  });
+  (await import("node:fs")).writeFileSync(file, Buffer.from(r.result.data, "base64"));
+}
+if (process.argv[3]) {
+  await screenshot(process.argv[3]);
   ws.close();
 }

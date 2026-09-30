@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "presets": [
+    {
+      "id": "vanilla",
+      "title": "Standard rates",
+      "description": "Everything at normal (x1) speed.",
+      "values": {
+        "Rate.XP.Kill": 1,
+        "Rate.XP.Quest": 1,
+        "Rate.XP.Explore": 1,
+        "Rate.Drop.Item.Normal": 1,
+        "Rate.Drop.Money": 1,
+        "Rate.Honor": 1,
+        "Rate.Reputation.Gain": 1
+      }
+    },
+    {
+      "id": "relaxed",
+      "title": "Relaxed",
+      "description": "Faster levelling and more drops for casual play (x2 / x3).",
+      "values": {
+        "Rate.XP.Kill": 2,
+        "Rate.XP.Quest": 2,
+        "Rate.XP.Explore": 2,
+        "Rate.Drop.Item.Normal": 2,
+        "Rate.Drop.Money": 3,
+        "Rate.Honor": 2,
+        "Rate.Reputation.Gain": 2
+      }
+    },
+    {
+      "id": "fast",
+      "title": "Fast",
+      "description": "Quick progression for testing or short sessions (x5).",
+      "values": {
+        "Rate.XP.Kill": 5,
+        "Rate.XP.Quest": 5,
+        "Rate.XP.Explore": 5,
+        "Rate.Drop.Item.Normal": 3,
+        "Rate.Drop.Money": 5,
+        "Rate.Honor": 3,
+        "Rate.Reputation.Gain": 3
+      }
+    }
+  ]
+}
