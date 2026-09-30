@@ -86,7 +86,39 @@ pub fn restore_quiet_logging(settings: &Path) -> Result<()> {
             fs::remove_file(&original)?;
         }
     }
+    let world = settings.join("worldserver.conf.template");
+    if world.is_file() {
+        let bytes = fs::read(&world)?;
+        let patched = quiet_world_logging(&String::from_utf8_lossy(&bytes));
+        if patched.as_bytes() != bytes.as_slice() {
+            fs::write(&world, patched)?;
+        }
+    }
     Ok(())
+}
+
+/// The network logger at debug level writes a line for every packet the world sends (hundreds of thousands per hour
+/// with creatures fighting); keep it to errors. CoA's own logger defaults to errors only unless `Logger.coa` exists.
+pub fn quiet_world_logging(text: &str) -> String {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out: Vec<String> = Vec::new();
+    let has_coa = text.lines().any(|l| l.trim_start().starts_with("Logger.coa="));
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with("Logger.network=") {
+            out.push("Logger.network=2,Server".to_string());
+        } else {
+            out.push(line.to_string());
+        }
+        if l.starts_with("Logger.root=") && !has_coa {
+            out.push("Logger.coa=4,Console Server".to_string());
+        }
+    }
+    let mut s = out.join(nl);
+    if text.ends_with('\n') {
+        s.push_str(nl);
+    }
+    s
 }
 
 pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
@@ -268,9 +300,18 @@ mod tests {
         fs::write(d.path().join("worldserver.conf.template.original"), "Logger.root=2,Console Server").unwrap();
         fs::write(d.path().join("authserver.conf.template"), "unchanged").unwrap();
         restore_quiet_logging(d.path()).unwrap();
-        assert_eq!(fs::read_to_string(d.path().join("worldserver.conf.template")).unwrap(), "Logger.root=2,Console Server");
+        let restored = fs::read_to_string(d.path().join("worldserver.conf.template")).unwrap();
+        assert!(restored.starts_with("Logger.root=2,Console Server") && !restored.contains("Logger.root=6"), "{restored}");
         assert!(!d.path().join("worldserver.conf.template.original").exists());
         assert_eq!(fs::read_to_string(d.path().join("authserver.conf.template")).unwrap(), "unchanged");
+    }
+
+    #[test]
+    fn the_world_template_gets_a_quiet_network_logger_and_a_coa_logger() {
+        let input = "Logger.root=2,Console Server\r\nLogger.network=5,Server\r\nOther = 1\r\n";
+        let out = quiet_world_logging(input);
+        assert_eq!(out, "Logger.root=2,Console Server\r\nLogger.coa=4,Console Server\r\nLogger.network=2,Server\r\nOther = 1\r\n");
+        assert_eq!(quiet_world_logging(&out), out, "idempotent");
     }
 
     #[test]
