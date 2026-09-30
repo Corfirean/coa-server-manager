@@ -138,6 +138,17 @@ pub fn materialize_module_configs(root: &Path) -> Result<Vec<String>> {
         let active = dir.join(format!("{stem}.conf"));
         if !active.exists() {
             fs::copy(e.path(), &active)?;
+            if stem == "coa" {
+                // This product serves the CoA client only, and the servers listen on this computer unless the owner
+                // shares them; without this key the server drops CoA clients that connect from another address
+                // (friends over a private network) right after login.
+                if let Ok(bytes) = fs::read(&active) {
+                    if let Ok(mut conf) = parser::ConfFile::parse_bytes(&bytes) {
+                        conf.set("CoA.AllowRemoteClients", "1", &["Set by CoA Server Manager: this server is built for CoA clients"]);
+                        fsx::atomic_write(&active, conf.to_text().as_bytes())?;
+                    }
+                }
+            }
             created.push(format!("{stem}.conf"));
         } else if let (Ok(have), Ok(dist)) = (fs::read(&active), fs::read(e.path())) {
             if let (Ok(mut conf), Ok(dist)) = (parser::ConfFile::parse_bytes(&have), parser::ConfFile::parse_bytes(&dist)) {
@@ -512,8 +523,8 @@ Spellbook.New = 5
         fs::write(m.join("coa_bugreport.conf.dist"), "x = 1
 ").unwrap();
         assert_eq!(materialize_module_configs(&root).unwrap(), vec!["coa.conf".to_string(), "spellbook.conf (+1 keys)".to_string()]);
-        assert_eq!(fs::read_to_string(m.join("coa.conf")).unwrap(), "CoA.Enable = 1
-");
+        let coa = fs::read_to_string(m.join("coa.conf")).unwrap();
+        assert!(coa.contains("CoA.Enable = 1") && coa.contains("CoA.AllowRemoteClients = 1"), "{coa}");
         let sb = fs::read_to_string(m.join("spellbook.conf")).unwrap();
         assert!(sb.contains("Spellbook.Enable = 0"), "existing values are never changed: {sb}");
         assert!(sb.contains("Spellbook.New = 5"), "new documented key was added: {sb}");

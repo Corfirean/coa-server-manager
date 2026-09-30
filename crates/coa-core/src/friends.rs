@@ -94,9 +94,9 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
     let coa_conf = root.join("Core/configs/modules/coa.conf");
     if let Ok(bytes) = fs::read(&coa_conf) {
         let mut conf = ConfFile::parse_bytes(&bytes)?;
-        let want_remote = if open { "1" } else { "0" };
-        if conf.get("CoA.AllowRemoteClients").map(str::trim) != Some(want_remote) {
-            conf.set("CoA.AllowRemoteClients", want_remote, &["Set by CoA Server Manager together with the friends mode"]);
+        // Opening turns it on; closing leaves it alone (it only matters while the servers listen beyond this computer).
+        if open && conf.get("CoA.AllowRemoteClients").map(str::trim) != Some("1") {
+            conf.set("CoA.AllowRemoteClients", "1", &["Set by CoA Server Manager together with the friends mode"]);
             originals.push((coa_conf.clone(), bytes));
             edits.push((coa_conf, conf.to_text()));
         }
@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn sharing_also_allows_remote_coa_clients_and_closing_takes_it_back() {
+    fn sharing_also_allows_remote_coa_clients_and_closing_leaves_it() {
         let (_d, root, meta) = setup();
         let coa = root.join("Core/configs/modules/coa.conf");
         fs::create_dir_all(coa.parent().unwrap()).unwrap();
@@ -224,7 +224,7 @@ CoA.AllowRemoteClients = 0
         assert!(fs::read_to_string(&coa).unwrap().contains("CoA.AllowRemoteClients = 1"));
         assert!(fs::read_to_string(&coa).unwrap().contains("CoA.Enable = 1"));
         assert!(set_open(&root, &meta, false).unwrap());
-        assert!(fs::read_to_string(&coa).unwrap().contains("CoA.AllowRemoteClients = 0"));
+        assert!(fs::read_to_string(&coa).unwrap().contains("CoA.AllowRemoteClients = 1"), "closing only changes BindIP");
     }
 
     #[test]
