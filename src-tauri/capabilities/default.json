@@ -2,6 +2,13 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "UI may call our own commands and open the folder picker. No filesystem, shell or http scope is granted to the frontend.",
-  "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "updater:default",
+    "process:allow-restart"
+  ]
 }

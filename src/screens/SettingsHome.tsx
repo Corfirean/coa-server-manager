@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
+import { AboutCard } from "@/screens/AboutCard";
 
 const ACTION_TEXT: Record<string, string> = {
   create: "New file",
@@ -115,6 +116,8 @@ export function SettingsHome({ serverId }: { serverId: string }) {
       <ClientCard serverId={serverId} />
 
       <DiagnosticsCard serverId={serverId} />
+
+      <AboutCard />
 
       <Card className="mt-6 p-6">
         <h2 className="font-semibold">Server updates</h2>

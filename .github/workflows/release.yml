@@ -1,0 +1,38 @@
+name: release
+# Builds the signed Windows installer and the updater manifest (latest.json) for CoA Server Manager itself.
+# Trigger: push a tag like v0.2.0, or run it by hand. The installer is signed with the updater key (secrets below);
+# server packages are a separate pipeline in coa-server-build.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Tests
+        run: cargo test --workspace
+      - name: Build, sign and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: CoA Server Manager ${{ github.ref_name }}
+          releaseBody: See the assets to download the installer. Existing installations update themselves.
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis
+          includeUpdaterJson: true

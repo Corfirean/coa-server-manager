@@ -792,6 +792,8 @@ pub fn run() {
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
