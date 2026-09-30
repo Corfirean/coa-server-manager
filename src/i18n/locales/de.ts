@@ -198,6 +198,34 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "client.updateAddon": "Begleiter-Addon aktualisieren",
   "client.addonNote": "Begleiter-Addon installiert. Andere Addons wurden nicht angetastet.",
   "client.changeFolder": "Ordner ändern …",
+
+  // Diagnostics
+  "diag.title": "Diagnose",
+  "diag.text": "Sucht nach häufigen Problemen. Es wird nichts verändert.",
+  "diag.run": "Diagnose starten",
+  "diag.verify": "Serverdateien prüfen",
+  "diag.export": "Diagnosepaket exportieren",
+  "diag.saved": "Für Fehlerberichte gespeichert: {path}",
+  "diag.allGood": "Alles sieht gut aus.",
+  "diag.problems_one": "{n} Punkt zum Prüfen",
+  "diag.problems_few": "{n} Punkte zum Prüfen",
+  "diag.problems_many": "{n} Punkte zum Prüfen",
+  "diag.problems_other": "{n} Punkte zum Prüfen",
+  "diag.word.ok": "OK",
+  "diag.word.warn": "Achtung",
+  "diag.word.fail": "Problem",
+  "diag.filesOk": "Alle Programmdateien sind unversehrt.",
+  "diag.filesDiffer": "{n} Programmdatei(en) weichen vom Installierten ab. Deine eigenen Dateien werden hier nie aufgeführt. „Nach Updates suchen“ stellt fehlende wieder her.",
+  "diag.fileMissing": "fehlt",
+  "diag.fileChanged": "geändert",
+
+  // About Manager
+  "about.version": "Version {v}. Programmupdates verändern deinen Server nie.",
+  "about.check": "Nach neuer Version suchen",
+  "about.install": "{v} installieren und neu starten",
+  "about.upToDate": "CoA Server Manager ist auf dem neuesten Stand.",
+  "about.checkFailed": "Die Suche nach einer neuen Version ist fehlgeschlagen. Prüfe deine Internetverbindung und versuche es erneut.",
+  "about.installFailed": "Das Update konnte nicht installiert werden. Dein Server wurde nicht angetastet.",
 };
 
 export default de;

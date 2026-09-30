@@ -198,6 +198,34 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "client.updateAddon": "Actualizar addon de compañeros",
   "client.addonNote": "Addon de compañeros instalado. Los demás addons no se tocaron.",
   "client.changeFolder": "Cambiar carpeta…",
+
+  // Diagnostics
+  "diag.title": "Diagnóstico",
+  "diag.text": "Busca problemas comunes. No se cambia nada.",
+  "diag.run": "Ejecutar diagnóstico",
+  "diag.verify": "Comprobar archivos del servidor",
+  "diag.export": "Exportar paquete de diagnóstico",
+  "diag.saved": "Guardado para informes de errores: {path}",
+  "diag.allGood": "Todo parece correcto.",
+  "diag.problems_one": "{n} cosa que revisar",
+  "diag.problems_few": "{n} cosas que revisar",
+  "diag.problems_many": "{n} cosas que revisar",
+  "diag.problems_other": "{n} cosas que revisar",
+  "diag.word.ok": "Correcto",
+  "diag.word.warn": "Atención",
+  "diag.word.fail": "Problema",
+  "diag.filesOk": "Todos los archivos del programa están intactos.",
+  "diag.filesDiffer": "{n} archivo(s) del programa difieren de lo instalado. Tus propios archivos nunca aparecen aquí. «Buscar actualizaciones» restaura los que faltan.",
+  "diag.fileMissing": "falta",
+  "diag.fileChanged": "modificado",
+
+  // About Manager
+  "about.version": "Versión {v}. Las actualizaciones del programa nunca cambian tu servidor.",
+  "about.check": "Buscar una versión nueva",
+  "about.install": "Instalar {v} y reiniciar",
+  "about.upToDate": "CoA Server Manager está actualizado.",
+  "about.checkFailed": "No se pudo buscar una versión nueva. Comprueba tu conexión a internet e inténtalo de nuevo.",
+  "about.installFailed": "No se pudo instalar la actualización. Tu servidor no se ha tocado.",
 };
 
 export default es;

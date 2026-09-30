@@ -198,6 +198,34 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "client.updateAddon": "Обновить аддон компаньонов",
   "client.addonNote": "Аддон компаньонов установлен. Другие аддоны не затронуты.",
   "client.changeFolder": "Сменить папку…",
+
+  // Diagnostics
+  "diag.title": "Диагностика",
+  "diag.text": "Ищет типичные проблемы. Ничего не изменяется.",
+  "diag.run": "Запустить диагностику",
+  "diag.verify": "Проверить файлы сервера",
+  "diag.export": "Экспортировать пакет диагностики",
+  "diag.saved": "Сохранено для отчёта об ошибке: {path}",
+  "diag.allGood": "Всё в порядке.",
+  "diag.problems_one": "Стоит проверить: {n}",
+  "diag.problems_few": "Стоит проверить: {n}",
+  "diag.problems_many": "Стоит проверить: {n}",
+  "diag.problems_other": "Стоит проверить: {n}",
+  "diag.word.ok": "В порядке",
+  "diag.word.warn": "Внимание",
+  "diag.word.fail": "Проблема",
+  "diag.filesOk": "Все файлы программы целы.",
+  "diag.filesDiffer": "Файлов программы, отличающихся от установленных: {n}. Ваши собственные файлы здесь не показываются. «Проверить обновления» восстановит отсутствующие.",
+  "diag.fileMissing": "отсутствует",
+  "diag.fileChanged": "изменён",
+
+  // About Manager
+  "about.version": "Версия {v}. Обновления программы никогда не меняют ваш сервер.",
+  "about.check": "Проверить наличие новой версии",
+  "about.install": "Установить {v} и перезапустить",
+  "about.upToDate": "У вас последняя версия CoA Server Manager.",
+  "about.checkFailed": "Не удалось проверить наличие новой версии. Проверьте подключение к интернету и повторите попытку.",
+  "about.installFailed": "Не удалось установить обновление. Ваш сервер не затронут.",
 };
 
 export default ru;

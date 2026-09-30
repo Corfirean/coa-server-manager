@@ -42,10 +42,10 @@ export function lookup(locale: Locale, key: Key, vars?: Vars): string {
 }
 
 /** Plural form: tries `key_<category>` (one/few/many/other) for the locale, then `key_other`, then `key`. */
-export function lookupPlural(locale: Locale, key: Key, n: number, vars?: Vars): string {
+export function lookupPlural(locale: Locale, key: string, n: number, vars?: Vars): string {
   const cat = new Intl.PluralRules(locale).select(n);
   const d = DICTS[locale];
-  const text = d[`${key}_${cat}` as Key] ?? d[`${key}_other` as Key] ?? en[`${key}_${cat}` as Key] ?? en[`${key}_other` as Key] ?? en[key] ?? key;
+  const text = d[`${key}_${cat}` as Key] ?? d[`${key}_other` as Key] ?? en[`${key}_${cat}` as Key] ?? en[`${key}_other` as Key] ?? en[key as Key] ?? key;
   return interpolate(text, { n, ...vars });
 }
 
@@ -53,7 +53,7 @@ interface Ctx {
   locale: Locale;
   setLocale: (l: Locale) => void;
   t: (key: Key, vars?: Vars) => string;
-  tn: (key: Key, n: number, vars?: Vars) => string;
+  tn: (key: string, n: number, vars?: Vars) => string;
 }
 
 const I18n = createContext<Ctx>({

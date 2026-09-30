@@ -198,6 +198,34 @@ const en = {
   "client.updateAddon": "Update companion addon",
   "client.addonNote": "Companion addon installed. Other addons were not touched.",
   "client.changeFolder": "Change folder…",
+
+  // Diagnostics
+  "diag.title": "Diagnostics",
+  "diag.text": "Looks for common problems. Nothing is changed.",
+  "diag.run": "Run diagnostics",
+  "diag.verify": "Check server files",
+  "diag.export": "Export diagnostic package",
+  "diag.saved": "Saved for bug reports: {path}",
+  "diag.allGood": "Everything looks good.",
+  "diag.problems_one": "{n} thing to look at",
+  "diag.problems_few": "{n} things to look at",
+  "diag.problems_many": "{n} things to look at",
+  "diag.problems_other": "{n} things to look at",
+  "diag.word.ok": "OK",
+  "diag.word.warn": "Attention",
+  "diag.word.fail": "Problem",
+  "diag.filesOk": "All program files are intact.",
+  "diag.filesDiffer": "{n} program file(s) differ from what was installed. Your own files are never listed here. \"Check for updates\" restores missing ones.",
+  "diag.fileMissing": "missing",
+  "diag.fileChanged": "changed",
+
+  // About Manager
+  "about.version": "Version {v}. Updates to the program never change your server.",
+  "about.check": "Check for a new version",
+  "about.install": "Install {v} and restart",
+  "about.upToDate": "CoA Server Manager is up to date.",
+  "about.checkFailed": "Could not check for a new version. Check your internet connection and try again.",
+  "about.installFailed": "The update could not be installed. Your server was not touched.",
 } as const;
 
 export default en;
