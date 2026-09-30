@@ -291,6 +291,7 @@ export const api = {
   population: (id: string) => invoke<Population | null>("get_population", { id }),
   stopSpawning: (id: string) => invoke<{ count: number }>("companions_stop_spawning", { id }),
   takeOffline: (id: string) => invoke<{ count: number }>("companions_take_offline", { id }),
+  despawnSome: (id: string, count: number) => invoke<{ count: number }>("companions_despawn_some", { id, count }),
   deleteAllCompanions: (id: string) => invoke<{ count: number }>("companions_delete_all", { id }),
   openLink: (url: string) => invoke<void>("open_link", { url }),
   performance: (id: string) => invoke<Performance | null>("get_performance", { id }),

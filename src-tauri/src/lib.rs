@@ -539,6 +539,34 @@ async fn companions_take_offline(state: State<'_, AppState>, id: String) -> std:
     .await
 }
 
+/// Log `count` randomly chosen online companions out to lower the load. Uses the per-bot command that every server
+/// build has, so it works on older builds too.
+#[tauri::command]
+async fn companions_despawn_some(state: State<'_, AppState>, id: String, count: u32) -> std::result::Result<CompanionAction, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        if !(1..=5000).contains(&count) {
+            return Err(Error::Invalid("Choose a number between 1 and 5000.".into()));
+        }
+        let prefix = coa_core::population::bot_account_prefix(&root).to_uppercase();
+        let db = coa_core::db::Db::from_repack(&root, coa_core::db::Account::App)?;
+        let rows = db.query(&format!(
+            "SELECT c.guid FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account              WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%' ORDER BY RAND() LIMIT {count};"
+        ))?;
+        let guids: Vec<u64> = rows.lines().filter_map(|l| l.trim().parse().ok()).collect();
+        let mut ra = Ra::connect(&root)?;
+        let mut done = 0;
+        for g in guids {
+            if ra.despawn_bot(g).unwrap_or(false) {
+                done += 1;
+            }
+        }
+        Ok(CompanionAction { count: done })
+    })
+    .await
+}
+
 /// Delete every companion for good. A recovery point of the characters and accounts is saved first.
 #[tauri::command]
 async fn companions_delete_all(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<CompanionAction, UiError> {
@@ -976,6 +1004,7 @@ pub fn run() {
             companions_stop_spawning,
             companions_take_offline,
             companions_delete_all,
+            companions_despawn_some,
             open_link,
             companion_sizes,
             add_companions,

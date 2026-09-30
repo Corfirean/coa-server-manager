@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Archive, Bot, Gauge, Globe, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
 import { type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
+import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
 import { Overview } from "@/screens/Overview";
 import { Placeholder } from "@/screens/Placeholder";
@@ -41,7 +42,10 @@ export function Shell(props: {
   return (
     <div className="flex h-full">
       <nav className="flex w-60 shrink-0 flex-col border-r border-line bg-[#0b0c0e] p-3" aria-label={t("nav.main")}>
-        <div className="px-3 pb-4 pt-2 text-sm font-semibold tracking-wide text-gold">{t("app.name")}</div>
+        <div className="flex items-center gap-2 px-3 pb-4 pt-2 text-sm font-semibold tracking-wide text-gold">
+          <img src={logo} alt="" aria-hidden className="h-7 w-7" />
+          {t("app.name")}
+        </div>
         <ul className="flex flex-col gap-0.5">
           {NAV.map(({ id, label, icon: Icon }) => (
             <li key={id}>

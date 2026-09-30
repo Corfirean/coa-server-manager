@@ -1,5 +1,6 @@
 import { FolderSearch, Download } from "lucide-react";
 import { useT } from "@/i18n";
+import logo from "@/assets/logo.png";
 import { LanguagePicker } from "@/components/LanguagePicker";
 
 export function Welcome({ onImport, onInstall, onBack }: { onImport: () => void; onInstall: () => void; onBack?: () => void }) {
@@ -8,7 +9,7 @@ export function Welcome({ onImport, onInstall, onBack }: { onImport: () => void;
     <main className="relative flex h-full flex-col items-center justify-center px-8">
       <LanguagePicker className="absolute right-6 top-5" />
       <div className="mb-10 text-center">
-        <div className="mx-auto mb-5 h-12 w-12 rounded-full border-2 border-gold/80 bg-card-2" aria-hidden />
+        <img src={logo} alt="" aria-hidden className="mx-auto mb-5 h-24 w-24 drop-shadow-[0_6px_24px_rgb(201_162_74/0.35)]" />
         <h1 className="text-3xl font-semibold tracking-tight">{t("welcome.title")}</h1>
         <p className="mt-2 text-muted">{t("welcome.subtitle")}</p>
       </div>

@@ -562,6 +562,12 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "comp.deleteDone": "Tous les compagnons ont été supprimés. Un point de restauration a été enregistré d’abord.",
   "err.companion_command_unsupported.title": "Cette version du serveur ne sait pas encore le faire",
   "err.companion_command_unsupported.message": "Le module de bots de cette version du serveur n’a pas cette commande. Mettez le serveur à jour ou redémarrez-le pour arrêter ce qui est en cours.",
+
+  // Despawn some
+  "comp.despawnSome": "Retirer {n} bots",
+  "comp.despawnCount": "Combien déconnecter",
+  "comp.despawnHint": "Allège aussitôt la charge : chaque bot en ligne coûte du temps serveur. Ils restent enregistrés et reviennent au prochain démarrage si la connexion automatique est activée.",
+  "comp.despawnSomeDone": "{n} compagnons déconnectés. Ils restent enregistrés.",
 };
 
 export default fr;

@@ -562,6 +562,12 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "comp.deleteDone": "Alle Begleiter wurden gelöscht. Zuvor wurde ein Wiederherstellungspunkt gespeichert.",
   "err.companion_command_unsupported.title": "Diese Serverversion kann das noch nicht",
   "err.companion_command_unsupported.message": "Das Bot-Modul dieses Server-Builds kennt diesen Befehl nicht. Aktualisiere den Server oder starte ihn neu, um Laufendes zu stoppen.",
+
+  // Despawn some
+  "comp.despawnSome": "{n} Bots entfernen",
+  "comp.despawnCount": "Wie viele abmelden",
+  "comp.despawnHint": "Entlastet sofort: Jeder Bot online kostet Serverzeit. Sie bleiben gespeichert und kommen beim nächsten Start zurück, wenn die automatische Anmeldung an ist.",
+  "comp.despawnSomeDone": "{n} Begleiter abgemeldet. Sie bleiben gespeichert.",
 };
 
 export default de;

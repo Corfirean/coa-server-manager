@@ -23,6 +23,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const [job, setJob] = useState<{ baseline: number; target: number; since: number } | null>(null);
   const [startNote, setStartNote] = useState<string | null>(null);
   const [startBusy, setStartBusy] = useState(false);
+  const [despawnN, setDespawnN] = useState("10");
 
   useEffect(() => {
     void api
@@ -66,6 +67,14 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
       return t("comp.offlineDone2", { n: r.count });
     });
   };
+
+  const dn = Number(despawnN);
+  const dnValid = Number.isInteger(dn) && dn >= 1 && dn <= 5000;
+  const despawnSome = () =>
+    act(async () => {
+      const r = await api.despawnSome(serverId, dn);
+      return t("comp.despawnSomeDone", { n: r.count });
+    });
 
   const deleteAll = () => {
     if (!window.confirm(t("comp.deleteConfirm", { n: pop?.bots_total ?? 0 }))) return;
@@ -213,7 +222,22 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
       {running && pop && pop.bots_total > 0 && (
         <div className="mt-5 border-t border-line pt-4">
           <h3 className="text-sm font-semibold">{t("comp.manageTitle")}</h3>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <label htmlFor="despawn-n" className="text-muted">{t("comp.despawnCount")}</label>
+            <input
+              id="despawn-n"
+              value={despawnN}
+              onChange={(e) => setDespawnN(e.target.value)}
+              inputMode="numeric"
+              aria-invalid={!dnValid}
+              className="w-20 rounded-md border border-line bg-bg px-3 py-1.5 text-right outline-none focus:border-gold"
+            />
+            <Button size="sm" variant="secondary" disabled={busy || !dnValid} onClick={() => void despawnSome()}>
+              {t("comp.despawnSome", { n: dnValid ? dn : "…" })}
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-muted">{t("comp.despawnHint")}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" disabled={busy} onClick={takeOffline}>
               {t("comp.offline")}
             </Button>

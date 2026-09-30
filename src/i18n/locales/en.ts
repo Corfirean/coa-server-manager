@@ -562,6 +562,12 @@ const en = {
   "comp.deleteDone": "All companions were deleted. A recovery point was saved first.",
   "err.companion_command_unsupported.title": "This server version can not do that yet",
   "err.companion_command_unsupported.message": "The bot module of this server build has no such command. Update the server, or restart it to stop what is running.",
+
+  // Despawn some
+  "comp.despawnSome": "Despawn {n} bots",
+  "comp.despawnCount": "How many to log out",
+  "comp.despawnHint": "Eases the load right away: every online bot costs server time. They stay saved and return at the next start if automatic login is on.",
+  "comp.despawnSomeDone": "{n} companions logged out. They stay saved.",
 } as const;
 
 export default en;

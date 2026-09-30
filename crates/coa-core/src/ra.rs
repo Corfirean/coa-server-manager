@@ -115,6 +115,11 @@ impl Ra {
         Ok(first_number(&self.bot_command("botcmd despawnall")?))
     }
 
+    /// Log one bot out (the character stays saved). False when that bot was not online.
+    pub fn despawn_bot(&mut self, guid: u64) -> Result<bool> {
+        Ok(self.bot_command(&format!("botcmd despawn {guid}"))?.to_lowercase().contains("despawned"))
+    }
+
     /// Log every bot out and delete every bot character for good (the caller saves a recovery point first).
     pub fn purge_all(&mut self) -> Result<String> {
         let out = self.bot_command("botcmd purgeall")?;
