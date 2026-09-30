@@ -16,6 +16,7 @@ fs4 = "0.13"
 tracing = "0.1"
 ed25519-dalek = "2"
 base64 = "0.22"
+zstd = "0.13"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 [dev-dependencies]

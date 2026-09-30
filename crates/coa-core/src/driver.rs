@@ -16,6 +16,7 @@ use crate::fsx;
 #[serde(rename_all = "kebab-case")]
 pub enum Verb {
     StartAll,
+    StartMysql,
     StopAll,
 }
 
@@ -23,6 +24,7 @@ impl Verb {
     fn arg(self) -> &'static str {
         match self {
             Verb::StartAll => "start-all",
+            Verb::StartMysql => "start-mysql",
             Verb::StopAll => "stop-all",
         }
     }
@@ -30,6 +32,7 @@ impl Verb {
     fn timeout(self) -> Duration {
         match self {
             Verb::StartAll => Duration::from_secs(420),
+            Verb::StartMysql => Duration::from_secs(120),
             Verb::StopAll => Duration::from_secs(240),
         }
     }

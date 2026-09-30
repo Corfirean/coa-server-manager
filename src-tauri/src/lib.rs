@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use coa_core::backup::{self, Kind, RecoveryPoint, Trigger, VerifyReport};
 use coa_core::config::{self, Scope, SettingsView};
 use coa_core::driver::{self, DriverOutcome, Verb};
 use coa_core::error::UiError;
@@ -15,7 +16,7 @@ use coa_core::{Error, Result};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 struct AppState {
     registry: Registry,
@@ -236,6 +237,81 @@ async fn restore_config_snapshot(state: State<'_, AppState>, id: String, snapsho
     blocking(move || config::restore_snapshot(&meta_dir(&root)?, &snapshot)).await
 }
 
+/// Marks the installation busy for the duration of a long operation, and always clears it.
+struct BusyGuard<'a> {
+    state: &'a AppState,
+    id: String,
+}
+
+impl<'a> BusyGuard<'a> {
+    fn acquire(state: &'a AppState, id: &str) -> Result<Self> {
+        let mut b = state.busy.lock().map_err(|_| Error::Invalid("state poisoned".into()))?;
+        if !b.insert(id.to_string()) {
+            return Err(Error::Invalid("Another action is still in progress for this server.".into()));
+        }
+        Ok(Self { state, id: id.to_string() })
+    }
+}
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut b) = self.state.busy.lock() {
+            b.remove(&self.id);
+        }
+    }
+}
+
+#[tauri::command]
+fn list_backups(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<RecoveryPoint>, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(backup::list(&meta_dir(&root)?))
+}
+
+#[tauri::command]
+async fn create_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    kind: Kind,
+    label: Option<String>,
+) -> std::result::Result<RecoveryPoint, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let meta = meta_dir(&root)?;
+        backup::create(&root, &meta, kind, Trigger::Manual, label, &|step| {
+            let _ = app.emit("backup-progress", step);
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn verify_backup(state: State<'_, AppState>, id: String, backup_id: String) -> std::result::Result<VerifyReport, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || backup::verify(&meta_dir(&root)?, &backup_id)).await
+}
+
+#[tauri::command]
+fn delete_backup(state: State<'_, AppState>, id: String, backup_id: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(backup::delete(&meta_dir(&root)?, &backup_id)?)
+}
+
+#[tauri::command]
+async fn restore_backup_configs(state: State<'_, AppState>, id: String, backup_id: String) -> std::result::Result<RecoveryPoint, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || backup::restore_configs(&root, &meta_dir(&root)?, &backup_id)).await
+}
+
+#[tauri::command]
+async fn restore_backup_database(state: State<'_, AppState>, id: String, backup_id: String, database: String) -> std::result::Result<backup::DbRestore, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || backup::restore_database(&root, &meta_dir(&root)?, &backup_id, &database)).await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -256,7 +332,13 @@ pub fn run() {
             list_presets,
             preview_preset,
             list_config_snapshots,
-            restore_config_snapshot
+            restore_config_snapshot,
+            list_backups,
+            create_backup,
+            verify_backup,
+            delete_backup,
+            restore_backup_configs,
+            restore_backup_database
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

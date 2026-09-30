@@ -5,6 +5,7 @@ fn main() {
     let root = args.next().expect("usage: drive <server folder> <start|stop>");
     let verb = match args.next().as_deref() {
         Some("start") => coa_core::driver::Verb::StartAll,
+        Some("mysql") => coa_core::driver::Verb::StartMysql,
         Some("stop") => coa_core::driver::Verb::StopAll,
         _ => panic!("verb must be start or stop"),
     };

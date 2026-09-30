@@ -9,7 +9,9 @@ Design and audit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 0 Audit + architecture | done |
 | 1 Foundation (fsx, registry, manifest, logging, error catalogue) | done |
 | 2 Read-only import, process observation, Start/Stop via repack launcher, health diagnosis | done |
-| 3 Config UI, 4 Backups, 5 Clean install, 6 Updates/CI, 7 Bots, 8 Client, 9 Friends, 10 Polish | not started |
+| 3 Config engine + Bots/Server settings UI + presets + snapshots | done |
+| 4 Recovery points, DB dump/restore (staging + atomic swap), Backups UI | done |
+| 5 Clean install, 6 Updates/CI, 7 Bots, 8 Client, 9 Friends, 10 Polish | not started |
 
 ## Develop
 ```

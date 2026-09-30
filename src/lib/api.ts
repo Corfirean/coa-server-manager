@@ -143,6 +143,24 @@ export interface SaveReport {
   snapshot: string | null;
 }
 
+export type BackupKind = "quick" | "full" | "config" | "database";
+
+export interface RecoveryPoint {
+  schema: number;
+  id: string;
+  kind: BackupKind;
+  trigger: string;
+  label: string | null;
+  created_at: string;
+  components: { name: string; path: string; bytes: number; tables: number | null; files: string[] | null }[];
+}
+
+export interface DbRestore {
+  previous_schema: string;
+  safety_backup: string;
+  tables_restored: number;
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -155,6 +173,12 @@ export const api = {
   settings: (id: string, scope: Scope) => invoke<SettingsView>("get_settings", { id, scope }),
   save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
   presets: (scope: Scope) => invoke<PresetInfo[]>("list_presets", { scope }),
+  backups: (id: string) => invoke<RecoveryPoint[]>("list_backups", { id }),
+  createBackup: (id: string, kind: BackupKind, label?: string) => invoke<RecoveryPoint>("create_backup", { id, kind, label: label ?? null }),
+  verifyBackup: (id: string, backupId: string) => invoke<{ ok: boolean; problems: string[] }>("verify_backup", { id, backupId }),
+  deleteBackup: (id: string, backupId: string) => invoke<void>("delete_backup", { id, backupId }),
+  restoreConfigs: (id: string, backupId: string) => invoke<RecoveryPoint>("restore_backup_configs", { id, backupId }),
+  restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 
