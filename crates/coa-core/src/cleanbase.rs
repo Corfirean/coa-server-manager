@@ -157,6 +157,9 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
         fs::create_dir_all(dst.parent().unwrap())?;
         fs::copy(&f.abs, dst)?;
     }
+    // The maintainer's database records `rev_20260906_03_any_race_class.sql` as applied although its 86 race/class starts
+    // are absent (the client patch offers those pairs, so creating such a character failed). The file is idempotent.
+    let any_race_class = sql.iter().find(|f| f.id.contains("any_race_class")).map(|f| f.abs.clone());
     let base_chars: Vec<PathBuf> = {
         let mut v: Vec<PathBuf> = fs::read_dir(p.core.join("data/sql/base/db_characters"))
             .map_err(|_| Error::Invalid("data/sql/base/db_characters was not found in the core checkout.".into()))?
@@ -199,6 +202,12 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
         let both = db.query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='acore_world' AND TABLE_NAME IN ('item_template_ascension_compat','item_template_coa');")?;
         if both.trim() == "2" {
             db.query("INSERT IGNORE INTO acore_world.item_template_coa SELECT * FROM acore_world.item_template_ascension_compat; DROP TABLE acore_world.item_template_ascension_compat;")?;
+        }
+        // 3c. re-run the race/class starts when their effect is missing
+        if let Some(file) = &any_race_class {
+            if db.query("SELECT COUNT(*) FROM acore_world.playercreateinfo WHERE race=7 AND class=27;")?.trim() == "0" {
+                db.run_sql_file("acore_world", file)?;
+            }
         }
         // 4. prove it is clean
         let accounts = db.query("SELECT COUNT(*) FROM acore_auth.account;")?;
