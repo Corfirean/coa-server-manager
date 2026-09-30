@@ -32,7 +32,7 @@ struct AppState {
 
 /// Where official server packages are published (created by the release pipeline, Phase 6).
 /// Where signed update packages are published; override with COA_UPDATE_SOURCE (URL or local package folder).
-const DEFAULT_UPDATE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/latest/download";
+const DEFAULT_UPDATE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/download/stable";
 
 fn update_source(custom: Option<String>) -> Source {
     let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_UPDATE_SOURCE").ok());
@@ -43,7 +43,7 @@ fn update_source(custom: Option<String>) -> Source {
     }
 }
 
-const DEFAULT_PACKAGE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/latest/download";
+const DEFAULT_PACKAGE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/download/base";
 
 fn package_source(custom: Option<String>) -> Source {
     let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_PACKAGE_SOURCE").ok());
