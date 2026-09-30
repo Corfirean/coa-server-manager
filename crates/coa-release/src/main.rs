@@ -3,6 +3,7 @@
 //!   coa-release pack-base   --tree DIR --out DIR --version X [--core-commit SHA] [--part-size BYTES]
 //!   coa-release pack-update --tree DIR --base-manifest FILE --core DIR --out DIR --version X
 //!                           [--bots DIR] [--core-commit SHA] [--bots-commit SHA] [--part-size BYTES]
+//!   coa-release clean-base  --repack DIR --core DIR --tree DIR --out DIR [--bots DIR] [--data DIR]
 //!   coa-release sign        --dir DIR        (key: env COA_SIGNING_KEY, or ~/.coa-manager/signing/manifest-signing.key)
 //!   coa-release verify      --dir DIR        (against the public key built into this tool)
 
@@ -61,6 +62,13 @@ fn run() -> Result<(), String> {
             )
             .map_err(e)?;
             println!("update {}: {} files, {} migrations", m.version, m.files.len(), m.migrations.len());
+        }
+        "clean-base" => {
+            let (repack, core, tree, out) = (PathBuf::from(need(&a, "repack")?), PathBuf::from(need(&a, "core")?), PathBuf::from(need(&a, "tree")?), PathBuf::from(need(&a, "out")?));
+            let bots = a.get("bots").map(PathBuf::from);
+            let data = a.get("data").map(PathBuf::from);
+            coa_core::cleanbase::build(&coa_core::cleanbase::Params { repack: &repack, core: &core, bots: bots.as_deref(), tree: &tree, data: data.as_deref(), out: &out }, &|s| eprintln!("{s}")).map_err(e)?;
+            println!("clean base tree at {}", out.display());
         }
         "sign" => {
             let dir = PathBuf::from(need(&a, "dir")?);

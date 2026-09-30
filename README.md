@@ -15,6 +15,7 @@ Design and audit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 6 Updates: tracked SQL migrations, update transaction (journal, conflicts, rollback), Settings > Server updates | done |
 | 7 Companions: real population, hardware-aware sizes, RA spawn (install/update of the module rides on the update flow) | done |
 | 8 Client: read-only detection, backed-up realmlist, isolated addon install, START & PLAY | done |
+| Backlog: interface languages EN/RU/DE/FR/ES (see docs/ARCHITECTURE.md section 9) | planned |
 | 9 Friends, 10 Polish; `coa-server-build` repo (nightly sync, releases) | not started |
 
 ## Develop

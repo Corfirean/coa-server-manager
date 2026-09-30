@@ -124,7 +124,10 @@ pub fn drift(root: &Path) -> Result<Vec<String>> {
     let Some(generated) = &t.generated else { return Ok(Vec::new()) };
     let (template, conf) = (load_conf(&t.read)?, load_conf(generated)?);
     let mut keys = BTreeSet::new();
-    for (k, v) in conf.entries() {
+    // Compare what the server actually uses: the last occurrence of each key (a file may repeat a key).
+    let names: BTreeSet<&str> = conf.entries().map(|(k, _)| k).collect();
+    for k in names {
+        let v = conf.get(k).unwrap_or_default();
         match template.get(k) {
             Some(tv) if has_placeholder(tv) => {}
             Some(tv) if tv.trim() != v.trim() => {
@@ -544,6 +547,20 @@ mod tests {
         assert_eq!(fs::read(&conf).unwrap(), original);
         assert!(list_snapshots(&meta).len() >= 2, "restore took its own snapshot");
         assert!(restore_snapshot(&meta, "../evil").is_err());
+    }
+
+    #[test]
+    fn a_repeated_key_with_the_same_effective_value_is_not_drift() {
+        let (_d, root, _m) = fixture();
+        for f in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+            let p = root.join(f);
+            let mut t = fs::read_to_string(&p).unwrap();
+            t.push_str("Logger.x=6,Console Errors
+Logger.x=6,Console Server
+");
+            fs::write(&p, t).unwrap();
+        }
+        assert!(drift(&root).unwrap().is_empty());
     }
 
     #[test]

@@ -469,3 +469,17 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   `worldserver.conf.dist`, `apps/coa-dbc` binaries, `height_query` tool.
 * Sync policy: `main` fast-forwards from upstream automatically; `coa-bots` is rebased/merged onto it nightly by a workflow in the
   build repository (conflict => issue, no release). Channels: `edge` (every green nightly) and `stable` (promoted by the owner).
+
+
+---------------------------------------------------------------------------------------------------------
+
+## 9. Backlog (owner requests)
+
+* **Interface languages: English (default), Russian, German, French, Spanish** (requested 2026-09-30).
+  Plan: i18n layer in the React UI (string catalogue per locale, ICU-style plurals, locale picked from the OS with a
+  switch in Settings, persisted per user); all user-facing strings currently written in English move into catalogues;
+  the Rust error catalogue (`error.rs` titles/messages/actions) is keyed by `ErrorCode` and translated on the UI side
+  (backend keeps stable codes; technical details stay untranslated for bug reports); dates, sizes and numbers use
+  `Intl`; settings-schema titles/descriptions (`schemas/*.json`) get per-locale overlays (`schemas/i18n/<locale>.json`);
+  translations are reviewed by native speakers before release, with an English fallback for missing keys and a CI check
+  that every locale has every key. Do this before the first public release so strings are not retro-fitted.
