@@ -16,7 +16,9 @@ Design and audit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 7 Companions: real population, hardware-aware sizes, RA spawn (install/update of the module rides on the update flow) | done |
 | 8 Client: read-only detection, backed-up realmlist, isolated addon install, START & PLAY | done |
 | Backlog: interface languages EN/RU/DE/FR/ES (see docs/ARCHITECTURE.md section 9) | planned |
-| 9 Friends, 10 Polish; `coa-server-build` repo (nightly sync, releases) | not started |
+| 9 Friends: exposure check, firewall rules, UPnP discovery, LAN/direct/private modes, friend package | done |
+| 10 Polish: diagnostics, file verification, redacted diagnostic export | done; self-update installer, accessibility audit, i18n pending |
+| `coa-server-build` repo: nightly build, edge/stable releases, fork sync | created; needs the COA_SIGNING_KEY / FORK_PUSH_TOKEN secrets |
 
 ## Develop
 ```

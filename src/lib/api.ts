@@ -236,6 +236,13 @@ export interface InternetCheck {
   router_found: boolean;
 }
 
+export interface DiagCheck {
+  id: string;
+  title: string;
+  level: "ok" | "warn" | "fail";
+  detail: string;
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -277,6 +284,9 @@ export const api = {
   friendsEnable: (id: string, mode: FriendsMode, host?: string, useUpnp = false) =>
     invoke<{ host: string; restart_required: boolean; note: string | null }>("friends_enable", { id, mode, host: host ?? null, useUpnp }),
   friendsPackage: (id: string) => invoke<string>("friends_package", { id }),
+  runDiagnostics: (id: string) => invoke<{ checks: DiagCheck[]; problems: number }>("run_diagnostics", { id }),
+  verifyFiles: (id: string) => invoke<{ path: string; kind: "missing" | "changed" }[]>("verify_files", { id }),
+  exportDiagnostics: (id: string) => invoke<string>("export_diagnostics", { id }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 

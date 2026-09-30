@@ -716,6 +716,41 @@ async fn friends_package(state: State<'_, AppState>, id: String) -> std::result:
     .await
 }
 
+#[tauri::command]
+async fn run_diagnostics(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::diag::Report, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (_, meta) = install_meta(&root)?;
+        Ok(coa_core::diag::run(&root, &meta))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn verify_files(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::diag::FileProblem>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (_, meta) = install_meta(&root)?;
+        Ok(coa_core::diag::verify_managed(&root, &meta))
+    })
+    .await
+}
+
+/// Writes a redacted zip for bug reports to the Desktop and returns its path.
+#[tauri::command]
+async fn export_diagnostics(state: State<'_, AppState>, id: String) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, meta) = install_meta(&root)?;
+        let report = coa_core::diag::run(&root, &meta);
+        let out = coa_core::diag::desktop_or_temp().join(format!("CoA-Diagnostics-{}.zip", coa_core::diag::stamp()));
+        coa_core::diag::export_package(&root, &dir, &data_dir().join("logs").join("manager.log"), &meta, &report, &out)?;
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+}
+
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -762,7 +797,10 @@ pub fn run() {
             friends_status,
             friends_check_internet,
             friends_enable,
-            friends_package
+            friends_package,
+            run_diagnostics,
+            verify_files,
+            export_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");
