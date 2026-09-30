@@ -549,6 +549,19 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "comp.progressDone": "Se crearon los {n} compañeros. Están iniciando sesión.",
   "comp.progressOffline": "Creando {n} compañeros con su equipo… esto tarda unos minutos.",
   "comp.progressStalled": "Esperando a que el servidor cree más…",
+
+  // Companions control
+  "comp.stop": "Detener la creación",
+  "comp.stopped": "Detenido. Se cancelaron {n} compañeros que seguían en espera; los ya creados se quedan.",
+  "comp.manageTitle": "Gestionar los compañeros existentes",
+  "comp.offline": "Desconectar a todos",
+  "comp.offlineConfirm": "¿Desconectar a todos los compañeros del juego? Quedan guardados y vuelven en el próximo inicio del servidor o cuando los añadas de nuevo.",
+  "comp.offlineDone2": "{n} compañeros desconectados. Quedan guardados.",
+  "comp.delete": "Eliminar a todos los compañeros…",
+  "comp.deleteConfirm": "¿Eliminar definitivamente los {n} compañeros? Antes se guarda un punto de recuperación. Tus propios personajes no se tocan.",
+  "comp.deleteDone": "Se eliminaron todos los compañeros. Antes se guardó un punto de recuperación.",
+  "err.companion_command_unsupported.title": "Esta versión del servidor aún no puede hacerlo",
+  "err.companion_command_unsupported.message": "El módulo de bots de esta versión del servidor no tiene ese comando. Actualiza el servidor o reinícialo para detener lo que esté en marcha.",
 };
 
 export default es;

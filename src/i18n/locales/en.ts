@@ -549,6 +549,19 @@ const en = {
   "comp.progressDone": "All {n} companions are created. They are logging in now.",
   "comp.progressOffline": "Creating {n} companions with their equipment… this takes a few minutes.",
   "comp.progressStalled": "Waiting for the server to create more…",
+
+  // Companions control
+  "comp.stop": "Stop creating",
+  "comp.stopped": "Stopped. {n} companions that were still waiting are cancelled; the ones already created stay.",
+  "comp.manageTitle": "Manage existing companions",
+  "comp.offline": "Take all offline",
+  "comp.offlineConfirm": "Log all companions out of the game? They stay saved and come back at the next server start or when you add them again.",
+  "comp.offlineDone2": "{n} companions taken offline. They stay saved.",
+  "comp.delete": "Delete all companions…",
+  "comp.deleteConfirm": "Delete all {n} companions for good? A recovery point is saved first. Your own characters are not touched.",
+  "comp.deleteDone": "All companions were deleted. A recovery point was saved first.",
+  "err.companion_command_unsupported.title": "This server version can not do that yet",
+  "err.companion_command_unsupported.message": "The bot module of this server build has no such command. Update the server, or restart it to stop what is running.",
 } as const;
 
 export default en;

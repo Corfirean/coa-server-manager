@@ -549,6 +549,19 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "comp.progressDone": "Alle {n} Begleiter sind erstellt. Sie melden sich jetzt an.",
   "comp.progressOffline": "{n} Begleiter werden samt Ausrüstung erstellt … das dauert einige Minuten.",
   "comp.progressStalled": "Warte darauf, dass der Server weitere erstellt …",
+
+  // Companions control
+  "comp.stop": "Erstellung stoppen",
+  "comp.stopped": "Gestoppt. {n} noch wartende Begleiter wurden abgebrochen; bereits erstellte bleiben erhalten.",
+  "comp.manageTitle": "Vorhandene Begleiter verwalten",
+  "comp.offline": "Alle offline nehmen",
+  "comp.offlineConfirm": "Alle Begleiter aus dem Spiel abmelden? Sie bleiben gespeichert und kommen beim nächsten Serverstart oder beim erneuten Hinzufügen zurück.",
+  "comp.offlineDone2": "{n} Begleiter offline genommen. Sie bleiben gespeichert.",
+  "comp.delete": "Alle Begleiter löschen …",
+  "comp.deleteConfirm": "Alle {n} Begleiter endgültig löschen? Zuvor wird ein Wiederherstellungspunkt gespeichert. Deine eigenen Charaktere bleiben unberührt.",
+  "comp.deleteDone": "Alle Begleiter wurden gelöscht. Zuvor wurde ein Wiederherstellungspunkt gespeichert.",
+  "err.companion_command_unsupported.title": "Diese Serverversion kann das noch nicht",
+  "err.companion_command_unsupported.message": "Das Bot-Modul dieses Server-Builds kennt diesen Befehl nicht. Aktualisiere den Server oder starte ihn neu, um Laufendes zu stoppen.",
 };
 
 export default de;

@@ -39,6 +39,43 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const maxNum = Number(autoMax);
   const maxValid = autoMax.trim() !== "" && Number.isInteger(maxNum) && maxNum >= 0 && maxNum <= 5000;
 
+  async function act(fn: () => Promise<string>) {
+    setBusy(true);
+    setError(null);
+    try {
+      setNote(await fn());
+    } catch (e) {
+      setError(asUiError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const stopCreating = () =>
+    act(async () => {
+      const r = await api.stopSpawning(serverId);
+      setJob(null);
+      return t("comp.stopped", { n: r.count });
+    });
+
+  const takeOffline = () => {
+    if (!window.confirm(t("comp.offlineConfirm"))) return;
+    void act(async () => {
+      const r = await api.takeOffline(serverId);
+      setJob(null);
+      return t("comp.offlineDone2", { n: r.count });
+    });
+  };
+
+  const deleteAll = () => {
+    if (!window.confirm(t("comp.deleteConfirm", { n: pop?.bots_total ?? 0 }))) return;
+    void act(async () => {
+      await api.deleteAllCompanions(serverId);
+      setJob(null);
+      return t("comp.deleteDone");
+    });
+  };
+
   async function saveStart() {
     setStartBusy(true);
     setError(null);
@@ -166,9 +203,26 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
             <div className="h-full rounded-full bg-gold transition-[width] duration-500" style={{ width: `${(done / job.target) * 100}%` }} />
           </div>
           {done === 0 && Date.now() - job.since > 20000 && <p className="mt-1 text-xs text-muted">{t("comp.progressStalled")}</p>}
+          <Button className="mt-2" size="sm" variant="ghost" disabled={busy} onClick={() => void stopCreating()}>
+            {t("comp.stop")}
+          </Button>
         </div>
       )}
       {note && !job && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
+
+      {running && pop && pop.bots_total > 0 && (
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="text-sm font-semibold">{t("comp.manageTitle")}</h3>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" disabled={busy} onClick={takeOffline}>
+              {t("comp.offline")}
+            </Button>
+            <Button size="sm" variant="ghost" className="text-bad hover:text-bad" disabled={busy} onClick={deleteAll}>
+              {t("comp.delete")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-5 border-t border-line pt-4">
         <h3 className="text-sm font-semibold">{t("comp.startTitle")}</h3>

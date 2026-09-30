@@ -26,6 +26,8 @@ pub enum Error {
     NetworkUnreachable(String),
     #[error("the bot module found no level 80 template characters")]
     CompanionTemplatesMissing,
+    #[error("this server's bot module does not have that command yet")]
+    CompanionCommandUnsupported,
     #[error("invalid values: {}", .0.iter().map(|f| format!("{}: {}", f.key, f.message)).collect::<Vec<_>>().join("; "))]
     Validation(Vec<FieldError>),
 }
@@ -55,6 +57,7 @@ pub enum ErrorCode {
     PackageNotPublished,
     NetworkUnreachable,
     CompanionTemplatesMissing,
+    CompanionCommandUnsupported,
     Unknown,
 }
 
@@ -150,6 +153,11 @@ impl ErrorCode {
                 "New companions are copied from level 80 characters of each class. Create one level 80 character per class on any account except the console account, then try again.",
                 &[ShowDetails],
             ),
+            ErrorCode::CompanionCommandUnsupported => (
+                "This server version can not do that yet",
+                "The bot module of this server build has no such command. Update the server, or restart it to stop what is running.",
+                &[ShowDetails],
+            ),
             ErrorCode::Unknown => ("Something went wrong", "See the technical details.", &[ShowDetails]),
         };
         Human { code: self, title, message, actions }
@@ -166,6 +174,7 @@ impl Error {
             Error::PackageNotPublished(_) => ErrorCode::PackageNotPublished,
             Error::NetworkUnreachable(_) => ErrorCode::NetworkUnreachable,
             Error::CompanionTemplatesMissing => ErrorCode::CompanionTemplatesMissing,
+            Error::CompanionCommandUnsupported => ErrorCode::CompanionCommandUnsupported,
             _ => ErrorCode::Unknown,
         }
     }

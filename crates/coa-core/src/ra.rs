@@ -97,6 +97,30 @@ impl Ra {
         Ok(parse_server_info(&out))
     }
 
+    fn bot_command(&mut self, cmd: &str) -> Result<String> {
+        let out = self.command(cmd)?;
+        if is_unsupported_command(&out) {
+            return Err(Error::CompanionCommandUnsupported);
+        }
+        Ok(out)
+    }
+
+    /// Drop every bot still waiting to be created. Returns how many were waiting.
+    pub fn cancel_spawning(&mut self) -> Result<u32> {
+        Ok(first_number(&self.bot_command("botcmd spawncancel")?))
+    }
+
+    /// Log every bot out without deleting anything. Returns how many were online.
+    pub fn despawn_all(&mut self) -> Result<u32> {
+        Ok(first_number(&self.bot_command("botcmd despawnall")?))
+    }
+
+    /// Log every bot out and delete every bot character for good (the caller saves a recovery point first).
+    pub fn purge_all(&mut self) -> Result<String> {
+        let out = self.bot_command("botcmd purgeall")?;
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
     /// Ask the bot module to create `count` leveling bots (throttled by the module itself). Only a number is sent.
     pub fn spawn_bots(&mut self, count: u32) -> Result<String> {
         if !(1..=2000).contains(&count) {
@@ -119,6 +143,16 @@ impl Ra {
             Err(Error::Invalid(format!("Could not set administrator rights: {out}")))
         }
     }
+}
+
+/// The console answers an unknown sub-command with the list of the ones it knows.
+fn is_unsupported_command(out: &str) -> bool {
+    let l = out.to_lowercase();
+    l.contains("possible subcommands") || l.contains("### usage") || l.contains("no such command") || l.contains("unknown command")
+}
+
+fn first_number(text: &str) -> u32 {
+    text.split(|c: char| !c.is_ascii_digit()).find(|t| !t.is_empty()).and_then(|t| t.parse().ok()).unwrap_or(0)
 }
 
 /// How fast the world loop is running, read from `server info`.
@@ -211,6 +245,16 @@ mod tests {
             got
         });
         (port, h)
+    }
+
+    #[test]
+    fn an_unknown_bot_subcommand_is_recognised_and_numbers_are_read_from_replies() {
+        assert!(is_unsupported_command("### USAGE: .botcmd ...
+Possible subcommands:
+|- botcmd despawn"));
+        assert!(!is_unsupported_command("BotMgr: cancelled 35 queued bot spawn(s)."));
+        assert_eq!(first_number("BotMgr: cancelled 35 queued bot spawn(s)."), 35);
+        assert_eq!(first_number("nothing"), 0);
     }
 
     #[test]

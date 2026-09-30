@@ -549,6 +549,19 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "comp.progressDone": "Les {n} compagnons sont créés. Ils se connectent maintenant.",
   "comp.progressOffline": "Création de {n} compagnons avec leur équipement… cela prend quelques minutes.",
   "comp.progressStalled": "En attente de la création des suivants par le serveur…",
+
+  // Companions control
+  "comp.stop": "Arrêter la création",
+  "comp.stopped": "Arrêté. {n} compagnons encore en attente sont annulés ; ceux déjà créés restent.",
+  "comp.manageTitle": "Gérer les compagnons existants",
+  "comp.offline": "Tout mettre hors ligne",
+  "comp.offlineConfirm": "Déconnecter tous les compagnons du jeu ? Ils restent enregistrés et reviennent au prochain démarrage du serveur ou quand vous les ajoutez de nouveau.",
+  "comp.offlineDone2": "{n} compagnons mis hors ligne. Ils restent enregistrés.",
+  "comp.delete": "Supprimer tous les compagnons…",
+  "comp.deleteConfirm": "Supprimer définitivement les {n} compagnons ? Un point de restauration est d’abord enregistré. Vos propres personnages ne sont pas touchés.",
+  "comp.deleteDone": "Tous les compagnons ont été supprimés. Un point de restauration a été enregistré d’abord.",
+  "err.companion_command_unsupported.title": "Cette version du serveur ne sait pas encore le faire",
+  "err.companion_command_unsupported.message": "Le module de bots de cette version du serveur n’a pas cette commande. Mettez le serveur à jour ou redémarrez-le pour arrêter ce qui est en cours.",
 };
 
 export default fr;

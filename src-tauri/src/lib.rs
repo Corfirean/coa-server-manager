@@ -514,6 +514,50 @@ async fn get_population(state: State<'_, AppState>, id: String) -> std::result::
     .unwrap_or(None))
 }
 
+#[derive(Serialize)]
+struct CompanionAction {
+    /// Bots affected (cancelled from the queue, or logged out).
+    count: u32,
+}
+
+#[tauri::command]
+async fn companions_stop_spawning(state: State<'_, AppState>, id: String) -> std::result::Result<CompanionAction, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || Ok(CompanionAction { count: Ra::connect(&root)?.cancel_spawning()? })).await
+}
+
+#[tauri::command]
+async fn companions_take_offline(state: State<'_, AppState>, id: String) -> std::result::Result<CompanionAction, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let mut ra = Ra::connect(&root)?;
+        // Anything still waiting to be created must not come back right after.
+        let _ = ra.cancel_spawning();
+        Ok(CompanionAction { count: ra.despawn_all()? })
+    })
+    .await
+}
+
+/// Delete every companion for good. A recovery point of the characters and accounts is saved first.
+#[tauri::command]
+async fn companions_delete_all(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<CompanionAction, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let meta = meta_dir(&root)?;
+        backup::create(&root, &meta, Kind::Quick, Trigger::BeforeDangerousChange, Some("before deleting all companions".into()), &|step| {
+            let _ = app.emit("backup-progress", step);
+        })?;
+        let before = coa_core::population::query(&root).map(|p| p.bots_total).unwrap_or(0);
+        let mut ra = Ra::connect(&root)?;
+        let _ = ra.cancel_spawning();
+        ra.purge_all()?;
+        Ok(CompanionAction { count: before })
+    })
+    .await
+}
+
 #[tauri::command]
 async fn get_performance(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::ra::Performance>, UiError> {
     let root = path_of(&state, &id)?;
@@ -929,6 +973,9 @@ pub fn run() {
             rollback_update,
             get_population,
             get_performance,
+            companions_stop_spawning,
+            companions_take_offline,
+            companions_delete_all,
             open_link,
             companion_sizes,
             add_companions,
