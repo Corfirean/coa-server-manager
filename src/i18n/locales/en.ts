@@ -304,7 +304,7 @@ const en = {
   "fr.publicAddr": "Your public address:",
   "fr.noRouter": " · your router cannot be set up automatically; forward the two game ports by hand",
   "fr.noInternet": "Could not reach the internet to find your address.",
-  "fr.tsMissing": "Tailscale is not installed. Install the free app from tailscale.com/download, sign in, then come back.",
+  "fr.tsMissing": "Tailscale is not installed. Install the free app, sign in, then come back.",
   "fr.tsOff": "Tailscale is installed but not connected. Sign in to it first.",
   "fr.privateAddr": "Your private address:",
   "fr.checkFirst": "Check your connection first",
@@ -510,6 +510,23 @@ const en = {
   // Companions start
   "err.companion_templates_missing.title": "Companions have nothing to be copied from yet",
   "err.companion_templates_missing.message": "New companions are copied from level 80 characters of each class. Create one level 80 character per class on any account except the console account, then try again.",
+
+  // Friends guides
+  "fr.tsDownload": "Download Tailscale (free)",
+  "fr.guide": "How to set this up",
+  "fr.g.net.1": "Press “Check my connection”: the Manager finds your public address and tries to open the ports on your router by itself.",
+  "fr.g.net.2": "If that does not work, open your router's settings page (often 192.168.0.1 or 192.168.1.1) and find “Port forwarding” (also called “Virtual server” or “NAT”).",
+  "fr.g.net.3": "Forward two TCP ports to this computer ({lan}): {auth} (login) and {world} (game). Use the same number inside and outside.",
+  "fr.g.net.4": "Never forward the database port (3307) or the server console port (3443).",
+  "fr.g.net.5": "Press “Enable”, restart the server and send your friend the line above (“set realmlist …”). They put it in the realmlist.wtf file of their game.",
+  "fr.g.net.6": "If your provider gives you a shared address (“CGNAT”), ports cannot be opened at all: use the private network instead.",
+  "fr.g.routerHelp": "Step-by-step guides for many routers (portforward.com)",
+  "fr.g.ts.1": "You and your friend both install the free Tailscale app (link above) and sign in.",
+  "fr.g.ts.2": "Share this computer with your friend: open the Tailscale admin page, find this computer in the list, choose “Share…” and send the link to your friend. They accept it with their own Tailscale account.",
+  "fr.g.ts.3": "No router settings are needed. Press “Enable”, restart the server and send your friend the line above (“set realmlist …” with your Tailscale address).",
+  "fr.g.ts.4": "Both of you must keep Tailscale running while you play.",
+  "fr.g.ts.admin": "Open the Tailscale admin page",
+  "fr.g.ts.share": "How sharing works (tailscale.com)",
 } as const;
 
 export default en;

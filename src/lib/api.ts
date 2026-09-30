@@ -236,6 +236,8 @@ export interface FriendsStatus {
   firewall: { auth: boolean; world: boolean };
   tailscale: { installed: boolean; ip: string | null; connected: boolean };
   server_running: boolean;
+  auth_port: number;
+  world_port: number;
 }
 
 export interface InternetCheck {
@@ -287,6 +289,7 @@ export const api = {
     invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   population: (id: string) => invoke<Population | null>("get_population", { id }),
+  openLink: (url: string) => invoke<void>("open_link", { url }),
   performance: (id: string) => invoke<Performance | null>("get_performance", { id }),
   companionSizes: () => invoke<CompanionSizes>("companion_sizes"),
   addCompanions: (id: string, count: number) => invoke<{ spawned: string | null }>("add_companions", { id, count }),

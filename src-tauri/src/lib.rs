@@ -212,7 +212,8 @@ async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Re
                     let _ = std::fs::remove_file(&pending);
                     let n = v["count"].as_u64().unwrap_or(0) as u32;
                     if n > 0 {
-                        if let Err(e) = Ra::connect(&r).and_then(|mut ra| ra.spawn_bots(n)) {
+                        let made = coa_core::db::Db::from_repack(&r, coa_core::db::Account::Admin).and_then(|db| coa_core::companions::ensure_templates(&db));
+                        if let Err(e) = made.and_then(|_| Ra::connect(&r)).and_then(|mut ra| ra.spawn_bots(n)) {
                             tracing::warn!("pending companions were not created: {e}");
                         }
                     }
@@ -561,6 +562,8 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
         config::save(&root, &meta, Scope::Bots, &changes)?;
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
+            // Older servers have no template characters to copy bots from: add them first.
+            coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?)?;
             Some(Ra::connect(&root)?.spawn_bots(count)?)
         } else {
             // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
@@ -647,6 +650,21 @@ struct FriendsStatus {
     firewall: coa_core::firewall::Status,
     tailscale: coa_core::net::Tailscale,
     server_running: bool,
+    auth_port: u16,
+    world_port: u16,
+}
+
+/// Open one of a few known help pages in the default browser. Anything else is refused, so a page can never ask the
+/// Manager to launch an arbitrary address.
+#[tauri::command]
+fn open_link(url: String) -> std::result::Result<(), UiError> {
+    const ALLOWED: &[&str] = &["https://tailscale.com/", "https://login.tailscale.com/", "https://portforward.com/"];
+    if !ALLOWED.iter().any(|p| url.starts_with(p)) || !url.chars().all(|c| c.is_ascii_alphanumeric() || "/:._-?=#%".contains(c)) {
+        return Err(Error::Invalid("That link is not allowed.".into()).into());
+    }
+    // explorer.exe opens the address in the default browser without going through a shell.
+    std::process::Command::new("explorer.exe").arg(&url).spawn().map_err(|e| Error::Invalid(e.to_string()))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -663,6 +681,8 @@ async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::
             firewall: coa_core::firewall::status(),
             tailscale: coa_core::net::tailscale(),
             server_running: coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running,
+            auth_port: ports.auth,
+            world_port: ports.world,
         })
     })
     .await
@@ -872,6 +892,7 @@ pub fn run() {
             rollback_update,
             get_population,
             get_performance,
+            open_link,
             companion_sizes,
             add_companions,
             client_info,

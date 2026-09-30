@@ -395,15 +395,18 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
 
       {advanced.length > 0 && (
         <div className="mt-4">
-          <button
-            onClick={() => setShowAdvanced((v) => !v)}
-            aria-expanded={showAdvanced}
-            className="flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink"
-          >
-            {showAdvanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
-            {t("set.advanced", { n: advanced.length })}
-          </button>
-          {showAdvanced && (
+          {/* A tab whose settings are all advanced has nothing else to show, so its settings are listed directly. */}
+          {basic.length > 0 && (
+            <button
+              onClick={() => setShowAdvanced((v) => !v)}
+              aria-expanded={showAdvanced}
+              className="flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink"
+            >
+              {showAdvanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+              {t("set.advanced", { n: advanced.length })}
+            </button>
+          )}
+          {(showAdvanced || basic.length === 0) && (
             <div className="divide-y divide-line">
               {advanced.map((s) => (
                 <Row

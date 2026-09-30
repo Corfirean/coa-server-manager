@@ -304,7 +304,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "fr.publicAddr": "Tu dirección pública:",
   "fr.noRouter": " · tu router no se puede configurar automáticamente; redirige los dos puertos del juego a mano",
   "fr.noInternet": "No se pudo acceder a internet para averiguar tu dirección.",
-  "fr.tsMissing": "Tailscale no está instalado. Instala la aplicación gratuita desde tailscale.com/download, inicia sesión y vuelve.",
+  "fr.tsMissing": "Tailscale no está instalado. Instala la aplicación gratuita, inicia sesión y vuelve.",
   "fr.tsOff": "Tailscale está instalado pero no conectado. Inicia sesión primero.",
   "fr.privateAddr": "Tu dirección privada:",
   "fr.checkFirst": "Comprueba primero tu conexión",
@@ -510,6 +510,23 @@ const es: Partial<Record<keyof typeof en, string>> = {
   // Companions start
   "err.companion_templates_missing.title": "Los compañeros aún no tienen nada de lo que copiarse",
   "err.companion_templates_missing.message": "Los compañeros nuevos se copian de personajes de nivel 80 de cada clase. Crea un personaje de nivel 80 por clase en cualquier cuenta salvo la de la consola y vuelve a intentarlo.",
+
+  // Friends guides
+  "fr.tsDownload": "Descargar Tailscale (gratis)",
+  "fr.guide": "Cómo configurarlo",
+  "fr.g.net.1": "Pulsa «Comprobar mi conexión»: el Manager averigua tu dirección pública e intenta abrir por sí mismo los puertos del router.",
+  "fr.g.net.2": "Si no funciona, abre la página de configuración del router (a menudo 192.168.0.1 o 192.168.1.1) y busca «Reenvío de puertos» (también «Servidor virtual» o «NAT»).",
+  "fr.g.net.3": "Redirige dos puertos TCP a este equipo ({lan}): {auth} (acceso) y {world} (juego). Usa el mismo número dentro y fuera.",
+  "fr.g.net.4": "No redirijas nunca el puerto de la base de datos (3307) ni el de la consola del servidor (3443).",
+  "fr.g.net.5": "Pulsa «Activar», reinicia el servidor y envía a tu amigo la línea de arriba («set realmlist …»). Debe ponerla en el archivo realmlist.wtf de su juego.",
+  "fr.g.net.6": "Si tu proveedor te da una dirección compartida («CGNAT»), no se pueden abrir puertos: usa en su lugar la red privada.",
+  "fr.g.routerHelp": "Guías paso a paso para muchos routers (portforward.com)",
+  "fr.g.ts.1": "Tú y tu amigo instaláis la aplicación gratuita Tailscale (enlace de arriba) e iniciáis sesión.",
+  "fr.g.ts.2": "Comparte este equipo con tu amigo: abre la página de administración de Tailscale, busca este equipo en la lista, elige «Share…» y envía el enlace a tu amigo. Él lo acepta con su propia cuenta de Tailscale.",
+  "fr.g.ts.3": "No hace falta configurar el router. Pulsa «Activar», reinicia el servidor y envía a tu amigo la línea de arriba («set realmlist …» con tu dirección de Tailscale).",
+  "fr.g.ts.4": "Tailscale debe seguir en marcha en ambos equipos mientras jugáis.",
+  "fr.g.ts.admin": "Abrir la página de administración de Tailscale",
+  "fr.g.ts.share": "Cómo funciona compartir (tailscale.com)",
 };
 
 export default es;

@@ -22,6 +22,31 @@ const MODES: { id: FriendsMode; title: Key; text: Key }[] = [
   { id: "private", title: "fr.mode.private.title", text: "fr.mode.private.text" },
 ];
 
+/** A link to one of the few help pages the Manager may open; it goes through the backend, which checks the address. */
+function ExtLink({ url, children }: { url: string; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={() => void api.openLink(url).catch(() => {})} className="cursor-pointer text-left text-gold underline underline-offset-2 hover:text-gold-strong">
+      {children}
+    </button>
+  );
+}
+
+/** Collapsible step-by-step help inside a mode card. */
+function Guide({ steps, links }: { steps: string[]; links?: React.ReactNode }) {
+  const t = useT();
+  return (
+    <details className="mt-3 text-sm">
+      <summary className="cursor-pointer text-muted hover:text-ink">{t("fr.guide")}</summary>
+      <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-muted">
+        {steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
+      {links && <div className="mt-2 flex flex-col items-start gap-1">{links}</div>}
+    </details>
+  );
+}
+
 /** A ready-to-paste realmlist line for the friend, shown as soon as the address is known. */
 function RealmlistLine({ host }: { host: string }) {
   const t = useT();
@@ -151,6 +176,17 @@ export function FriendsPage({ serverId }: { serverId: string }) {
                       <p className="mt-2">{t("fr.publicAddr")} <b className="selectable">{net.public_ip}</b>{!net.router_found && <span className="text-muted">{t("fr.noRouter")}</span>}</p>
                     )}
                     {net?.public_ip && net.reachability !== "cgnat" && cur.mode !== m.id && <RealmlistLine host={net.public_ip} />}
+                    <Guide
+                      steps={[
+                        t("fr.g.net.1"),
+                        t("fr.g.net.2"),
+                        t("fr.g.net.3", { lan: st.lan_ip ?? "?", auth: st.auth_port, world: st.world_port }),
+                        t("fr.g.net.4"),
+                        t("fr.g.net.5"),
+                        t("fr.g.net.6"),
+                      ]}
+                      links={<ExtLink url="https://portforward.com/router.htm">{t("fr.g.routerHelp")}</ExtLink>}
+                    />
                     {net && !net.public_ip && <p className="mt-2 text-warn">{t("fr.noInternet")}</p>}
                   </div>
                 )}
@@ -162,7 +198,24 @@ export function FriendsPage({ serverId }: { serverId: string }) {
                     {st.tailscale.connected && <>{t("fr.privateAddr")} <b className="selectable">{st.tailscale.ip}</b></>}
                   </p>
                 )}
+                {m.id === "private" && !st.tailscale.installed && (
+                  <div className="mt-2 text-sm">
+                    <ExtLink url="https://tailscale.com/download">{t("fr.tsDownload")}</ExtLink>
+                  </div>
+                )}
                 {m.id === "private" && st.tailscale.connected && st.tailscale.ip && cur.mode !== m.id && <RealmlistLine host={st.tailscale.ip} />}
+                {m.id === "private" && (
+                  <Guide
+                    steps={[t("fr.g.ts.1"), t("fr.g.ts.2"), t("fr.g.ts.3"), t("fr.g.ts.4")]}
+                    links={
+                      <>
+                        <ExtLink url="https://tailscale.com/download">{t("fr.tsDownload")}</ExtLink>
+                        <ExtLink url="https://login.tailscale.com/admin/machines">{t("fr.g.ts.admin")}</ExtLink>
+                        <ExtLink url="https://tailscale.com/kb/1084/sharing">{t("fr.g.ts.share")}</ExtLink>
+                      </>
+                    }
+                  />
+                )}
               </div>
               <Button
                 size="sm"

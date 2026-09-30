@@ -209,11 +209,15 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
                 db.run_sql_file("acore_world", file)?;
             }
         }
+        // 3d. the companion template characters (the bot module copies every bot from one of them)
+        crate::companions::seed_fresh(db)?;
         // 4. prove it is clean
         let accounts = db.query("SELECT COUNT(*) FROM acore_auth.account;")?;
-        let chars = db.query("SELECT COUNT(*) FROM acore_characters.characters;")?;
-        if accounts != "0" || chars != "0" {
-            return Err(Error::Invalid(format!("The database is not clean ({accounts} accounts, {chars} characters).")));
+        // nothing but the template characters may exist
+        let chars = db.query(&format!("SELECT COUNT(*) FROM acore_characters.characters WHERE account<>{};", crate::companions::TEMPLATE_ACCOUNT))?;
+        let templates = crate::companions::template_count(db)?;
+        if accounts != "0" || chars != "0" || templates != 21 {
+            return Err(Error::Invalid(format!("The database is not clean ({accounts} accounts, {chars} player characters, {templates} templates).")));
         }
         Ok(())
     })?;

@@ -304,7 +304,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "fr.publicAddr": "Votre adresse publique :",
   "fr.noRouter": " · votre routeur ne peut pas être configuré automatiquement ; redirigez les deux ports du jeu à la main",
   "fr.noInternet": "Impossible d’accéder à internet pour trouver votre adresse.",
-  "fr.tsMissing": "Tailscale n’est pas installé. Installez l’application gratuite depuis tailscale.com/download, connectez-vous, puis revenez.",
+  "fr.tsMissing": "Tailscale n’est pas installé. Installez l’application gratuite, connectez-vous, puis revenez.",
   "fr.tsOff": "Tailscale est installé mais non connecté. Connectez-vous d’abord.",
   "fr.privateAddr": "Votre adresse privée :",
   "fr.checkFirst": "Vérifiez d’abord votre connexion",
@@ -510,6 +510,23 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   // Companions start
   "err.companion_templates_missing.title": "Les compagnons n’ont encore rien à copier",
   "err.companion_templates_missing.message": "Les nouveaux compagnons sont copiés à partir de personnages de niveau 80 de chaque classe. Créez un personnage de niveau 80 par classe sur un compte quelconque, hors le compte de la console, puis réessayez.",
+
+  // Friends guides
+  "fr.tsDownload": "Télécharger Tailscale (gratuit)",
+  "fr.guide": "Comment le configurer",
+  "fr.g.net.1": "Appuyez sur « Vérifier ma connexion » : le Manager trouve votre adresse publique et essaie d’ouvrir lui-même les ports de votre routeur.",
+  "fr.g.net.2": "Si cela échoue, ouvrez la page de configuration de votre routeur (souvent 192.168.0.1 ou 192.168.1.1) et cherchez « Redirection de ports » (aussi appelée « Serveur virtuel » ou « NAT »).",
+  "fr.g.net.3": "Redirigez deux ports TCP vers cet ordinateur ({lan}) : {auth} (connexion) et {world} (jeu). Utilisez le même numéro à l’intérieur et à l’extérieur.",
+  "fr.g.net.4": "Ne redirigez jamais le port de la base de données (3307) ni celui de la console du serveur (3443).",
+  "fr.g.net.5": "Appuyez sur « Activer », redémarrez le serveur et envoyez à votre ami la ligne ci-dessus (« set realmlist … »). Il la place dans le fichier realmlist.wtf de son jeu.",
+  "fr.g.net.6": "Si votre fournisseur vous attribue une adresse partagée (« CGNAT »), il est impossible d’ouvrir les ports : utilisez plutôt le réseau privé.",
+  "fr.g.routerHelp": "Guides pas à pas pour de nombreux routeurs (portforward.com)",
+  "fr.g.ts.1": "Vous et votre ami installez l’application gratuite Tailscale (lien ci-dessus) et vous vous connectez.",
+  "fr.g.ts.2": "Partagez cet ordinateur avec votre ami : ouvrez la page d’administration de Tailscale, trouvez cet ordinateur dans la liste, choisissez « Share… » et envoyez le lien à votre ami. Il l’accepte avec son propre compte Tailscale.",
+  "fr.g.ts.3": "Aucun réglage du routeur n’est nécessaire. Appuyez sur « Activer », redémarrez le serveur et envoyez à votre ami la ligne ci-dessus (« set realmlist … » avec votre adresse Tailscale).",
+  "fr.g.ts.4": "Tailscale doit rester lancé chez vous deux pendant que vous jouez.",
+  "fr.g.ts.admin": "Ouvrir la page d’administration de Tailscale",
+  "fr.g.ts.share": "Comment fonctionne le partage (tailscale.com)",
 };
 
 export default fr;
