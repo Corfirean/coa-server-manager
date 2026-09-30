@@ -148,6 +148,8 @@ pub struct BuildOptions {
     pub core_commit: Option<String>,
     pub built_at: String,
     pub part_size: u64,
+    pub bots_commit: Option<String>,
+    pub migrations: Vec<crate::manifest::Migration>,
 }
 
 /// Package `src` into `out` (parts + manifest.json). Returns the manifest.
@@ -212,11 +214,11 @@ pub fn build(src: &Path, out: &Path, opts: &BuildOptions, progress: &dyn Fn(&str
         kind: opts.kind,
         version: opts.version.clone(),
         core: Revision { commit: opts.core_commit.clone() },
-        bots: None,
+        bots: opts.bots_commit.clone().map(|c| Revision { commit: Some(c) }),
         built_at: opts.built_at.clone(),
         min_manager_version: "0.1.0".into(),
         files: entries,
-        migrations: Vec::new(),
+        migrations: opts.migrations.clone(),
         archive: Some(ArchiveInfo { format: "tar.zst".into(), parts: split.parts.clone(), unpacked_size: unpacked }),
     };
     manifest.validate()?;
@@ -327,7 +329,7 @@ mod tests {
     use super::*;
 
     fn opts(part: u64) -> BuildOptions {
-        BuildOptions { kind: Kind::Base, version: "0.1.0".into(), core_commit: Some("a".repeat(40)), built_at: "2026-09-30T00:00:00Z".into(), part_size: part }
+        BuildOptions { kind: Kind::Base, version: "0.1.0".into(), core_commit: Some("a".repeat(40)), built_at: "2026-09-30T00:00:00Z".into(), part_size: part, bots_commit: None, migrations: vec![] }
     }
 
     fn tree(root: &Path) -> Vec<(String, Vec<u8>)> {

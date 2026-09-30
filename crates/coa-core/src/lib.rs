@@ -18,6 +18,7 @@ pub mod migrations;
 pub mod package;
 pub mod ra;
 pub mod registry;
+pub mod release;
 pub mod update;
 pub mod signing;
 pub mod srp6;

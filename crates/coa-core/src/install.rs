@@ -350,7 +350,7 @@ mod tests {
         layout::testkit::fake_repack(&src);
         fs::create_dir_all(src.join("Settings")).unwrap();
         fs::write(src.join("Settings/database.json"), br#"{"rootPassword":"a","appPassword":"b"}"#).unwrap();
-        let opts = package::BuildOptions { kind: manifest::Kind::Base, version: "0.1.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20 };
+        let opts = package::BuildOptions { kind: manifest::Kind::Base, version: "0.1.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20, bots_commit: None, migrations: vec![] };
         package::build(&src, &pkg, &opts, &|_| {}).unwrap();
         let good = SigningKey::generate(&mut rand_core::OsRng);
         let evil = SigningKey::generate(&mut rand_core::OsRng);

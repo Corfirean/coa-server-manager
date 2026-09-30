@@ -596,7 +596,7 @@ mod tests {
         if migrations {
             write(&src, "_migrations/world/m1.sql", b"SELECT 1;");
         }
-        let mut m = build(&src, &pkg, &BuildOptions { kind: Kind::Update, version: "2.0.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20 }, &|_| {}).unwrap();
+        let mut m = build(&src, &pkg, &BuildOptions { kind: Kind::Update, version: "2.0.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20, bots_commit: None, migrations: vec![] }, &|_| {}).unwrap();
         // Settings/* are merge-config by the packager; make the migration entry visible to the runner
         if migrations {
             m.migrations.push(crate::manifest::Migration { id: "m1".into(), db: "world".into(), sha256: fsx::sha256_bytes(b"SELECT 1;"), destructive: false });

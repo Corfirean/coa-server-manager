@@ -364,6 +364,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "coa-release"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "coa-core",
+ "serde_json",
+]
+
+[[package]]
 name = "coa-server-manager"
 version = "0.1.0"
 dependencies = [

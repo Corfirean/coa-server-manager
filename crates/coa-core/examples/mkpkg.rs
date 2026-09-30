@@ -16,7 +16,7 @@ fn main() {
         std::fs::create_dir_all(f.parent().unwrap()).unwrap();
         std::fs::write(f, c.replace("\n", "\n")).unwrap();
     }
-    build(&src, &out, &BuildOptions { kind: Kind::Update, version: a[1].clone(), core_commit: None, built_at: chrono::Utc::now().to_rfc3339(), part_size: 1 << 20 }, &|_| {}).unwrap();
+    build(&src, &out, &BuildOptions { kind: Kind::Update, version: a[1].clone(), core_commit: None, built_at: chrono::Utc::now().to_rfc3339(), part_size: 1 << 20, bots_commit: None, migrations: vec![] }, &|_| {}).unwrap();
     let key = format!("{}/.coa-manager/signing/manifest-signing.key", std::env::var("USERPROFILE").unwrap());
     let seed: [u8; 32] = STANDARD.decode(std::fs::read_to_string(key).unwrap().trim()).unwrap().try_into().unwrap();
     let sig = SigningKey::from_bytes(&seed).sign(&std::fs::read(out.join("manifest.json")).unwrap());

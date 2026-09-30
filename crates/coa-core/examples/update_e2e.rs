@@ -32,7 +32,7 @@ fn main() {
     put(&src, "Settings/worldserver.conf.template", "[worldserver]\nUpdateE2E.NewSetting = 7\n");
     let sql = "CREATE TABLE IF NOT EXISTS coa_manager_update_test (id INT PRIMARY KEY); INSERT IGNORE INTO coa_manager_update_test VALUES (1);";
     put(&src, "_migrations/world/2026_09_30_00_update_e2e.sql", sql);
-    let mut m = build(&src, &pkg, &BuildOptions { kind: Kind::Update, version: "0.2.0".into(), core_commit: None, built_at: chrono::Utc::now().to_rfc3339(), part_size: 1 << 20 }, &|_| {}).unwrap();
+    let mut m = build(&src, &pkg, &BuildOptions { kind: Kind::Update, version: "0.2.0".into(), core_commit: None, built_at: chrono::Utc::now().to_rfc3339(), part_size: 1 << 20, bots_commit: None, migrations: vec![] }, &|_| {}).unwrap();
     m.migrations.push(Migration { id: "2026_09_30_00_update_e2e".into(), db: "world".into(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
     std::fs::write(pkg.join("manifest.json"), serde_json::to_vec_pretty(&m).unwrap()).unwrap();
     let key = format!("{}/.coa-manager/signing/manifest-signing.key", std::env::var("USERPROFILE").unwrap());

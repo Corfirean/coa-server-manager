@@ -16,7 +16,7 @@ fn main() {
     assert!(std::fs::symlink_metadata(fixture.join("Data")).unwrap().file_type().is_symlink(), "Data junction must be skipped by the packager");
 
     let t = std::time::Instant::now();
-    let m = build(&fixture, &out, &BuildOptions { kind: coa_core::manifest::Kind::Base, version: "0.1.0".into(), core_commit: None, built_at: chrono::Utc::now().to_rfc3339(), part_size: 256 * 1024 * 1024 }, &|s| eprintln!("  pack: {s}")).expect("build");
+    let m = build(&fixture, &out, &BuildOptions { kind: coa_core::manifest::Kind::Base, version: "0.1.0".into(), core_commit: None, built_at: chrono::Utc::now().to_rfc3339(), part_size: 256 * 1024 * 1024, bots_commit: None, migrations: vec![] }, &|s| eprintln!("  pack: {s}")).expect("build");
     let arch = m.archive.as_ref().unwrap();
     println!("packaged {} files, {:.2} GB -> {} parts, {:.2} GB in {:?}", m.files.len(), arch.unpacked_size as f64 / 1e9, arch.parts.len(), arch.parts.iter().map(|p| p.size).sum::<u64>() as f64 / 1e9, t.elapsed());
 
