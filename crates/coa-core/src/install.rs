@@ -145,6 +145,35 @@ fn random_hex(n: usize) -> String {
 /// Rotate the database users' passwords away from the packaged bootstrap values and write the launcher's
 /// `Settings/database.json`. MySQL is started from `root` and stopped again before returning.
 fn bootstrap_database(root: &Path) -> Result<()> {
+    with_scratch_ports(root, || bootstrap_database_inner(root))
+}
+
+fn free_port() -> Result<u16> {
+    Ok(std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
+}
+
+/// Run `f` with the staging copy listening on unused ports, so an installation never collides with a server (or any
+/// other program) already using the shipped ports. The shipped ports are put back afterwards.
+fn with_scratch_ports<T>(root: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    const KEYS: [&str; 4] = ["mysqlPort", "authPort", "worldPort", "raPort"];
+    let path = root.join("Settings/repack.json");
+    let original: serde_json::Value = fsx::read_json(&path)?;
+    let mut scratch = original.clone();
+    for k in KEYS {
+        scratch[k] = free_port()?.into();
+    }
+    fsx::atomic_write_json(&path, &scratch)?;
+    let result = f();
+    // keep whatever else changed meanwhile (console credentials), restore only the ports
+    let mut now: serde_json::Value = fsx::read_json(&path).unwrap_or(scratch);
+    for k in KEYS {
+        now[k] = original[k].clone();
+    }
+    fsx::atomic_write_json(&path, &now)?;
+    result
+}
+
+fn bootstrap_database_inner(root: &Path) -> Result<()> {
     let boot = root.join(BOOTSTRAP_CREDENTIALS);
     let target = root.join("Settings/database.json");
     if !boot.is_file() {
