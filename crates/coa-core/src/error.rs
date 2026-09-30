@@ -20,6 +20,10 @@ pub enum Error {
     UnknownInstallation(String),
     #[error("{0}")]
     Invalid(String),
+    #[error("package not published: {0}")]
+    PackageNotPublished(String),
+    #[error("download server unreachable: {0}")]
+    NetworkUnreachable(String),
     #[error("invalid values: {}", .0.iter().map(|f| format!("{}: {}", f.key, f.message)).collect::<Vec<_>>().join("; "))]
     Validation(Vec<FieldError>),
 }
@@ -46,6 +50,8 @@ pub enum ErrorCode {
     StartupFailed,
     HashMismatch,
     PathRejected,
+    PackageNotPublished,
+    NetworkUnreachable,
     Unknown,
 }
 
@@ -126,6 +132,16 @@ impl ErrorCode {
                 "The requested file location is outside the server folder.",
                 &[ShowDetails],
             ),
+            ErrorCode::PackageNotPublished => (
+                "This server package is not available yet",
+                "Nothing has been published at the download location. Try again later, or install from a local package folder (Advanced).",
+                &[Retry, ShowDetails],
+            ),
+            ErrorCode::NetworkUnreachable => (
+                "Could not reach the download server",
+                "Check your internet connection and try again.",
+                &[Retry, ShowDetails],
+            ),
             ErrorCode::Unknown => ("Something went wrong", "See the technical details.", &[ShowDetails]),
         };
         Human { code: self, title, message, actions }
@@ -139,6 +155,8 @@ impl Error {
             Error::HashMismatch { .. } => ErrorCode::HashMismatch,
             Error::PathRejected(_) => ErrorCode::PathRejected,
             Error::Validation(_) => ErrorCode::InvalidConfigValue,
+            Error::PackageNotPublished(_) => ErrorCode::PackageNotPublished,
+            Error::NetworkUnreachable(_) => ErrorCode::NetworkUnreachable,
             _ => ErrorCode::Unknown,
         }
     }

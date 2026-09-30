@@ -416,6 +416,12 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "set.unsaved_other": "{n} несохранённых изменений",
   "set.discard": "Отменить",
   "set.save": "Сохранить изменения",
+
+  // Download errors
+  "err.package_not_published.title": "Этот пакет сервера пока недоступен",
+  "err.package_not_published.message": "В месте загрузки пока ничего не опубликовано. Повторите позже или установите из локальной папки с пакетом (Дополнительно).",
+  "err.network_unreachable.title": "Не удалось связаться с сервером загрузки",
+  "err.network_unreachable.message": "Проверьте подключение к интернету и повторите попытку.",
 };
 
 export default ru;

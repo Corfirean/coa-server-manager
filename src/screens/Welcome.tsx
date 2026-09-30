@@ -1,10 +1,12 @@
 import { FolderSearch, Download } from "lucide-react";
 import { useT } from "@/i18n";
+import { LanguagePicker } from "@/components/LanguagePicker";
 
 export function Welcome({ onImport, onInstall, onBack }: { onImport: () => void; onInstall: () => void; onBack?: () => void }) {
   const t = useT();
   return (
-    <main className="flex h-full flex-col items-center justify-center px-8">
+    <main className="relative flex h-full flex-col items-center justify-center px-8">
+      <LanguagePicker className="absolute right-6 top-5" />
       <div className="mb-10 text-center">
         <div className="mx-auto mb-5 h-12 w-12 rounded-full border-2 border-gold/80 bg-card-2" aria-hidden />
         <h1 className="text-3xl font-semibold tracking-tight">{t("welcome.title")}</h1>

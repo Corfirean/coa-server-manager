@@ -8,14 +8,15 @@ import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
-import { LOCALES, useHuman, useI18n, type Key } from "@/i18n";
+import { useHuman, useI18n, type Key } from "@/i18n";
+import { LanguagePicker } from "@/components/LanguagePicker";
 
 function mb(bytes: number) {
   return bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 export function SettingsHome({ serverId }: { serverId: string }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const human = useHuman();
   const [preview, setPreview] = useState<UpdatePreview | null>(null);
   const [pending, setPending] = useState<UpdateTxn | null>(null);
@@ -111,18 +112,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
       <Card className="mt-6 p-6">
         <h2 className="font-semibold">{t("settings.language")}</h2>
         <p className="mt-1 text-sm text-muted">{t("settings.languageHint")}</p>
-        <select
-          aria-label={t("settings.language")}
-          value={locale}
-          onChange={(e) => setLocale(e.target.value as typeof locale)}
-          className="mt-3 rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold"
-        >
-          {LOCALES.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
+        <LanguagePicker className="mt-3" />
       </Card>
 
       <ClientCard serverId={serverId} />

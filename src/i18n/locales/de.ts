@@ -416,6 +416,12 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "set.unsaved_other": "{n} nicht gespeicherte Änderungen",
   "set.discard": "Verwerfen",
   "set.save": "Änderungen speichern",
+
+  // Download errors
+  "err.package_not_published.title": "Dieses Serverpaket ist noch nicht verfügbar",
+  "err.package_not_published.message": "Am Download-Ort wurde noch nichts veröffentlicht. Versuche es später erneut oder installiere aus einem lokalen Paketordner (Erweitert).",
+  "err.network_unreachable.title": "Der Download-Server war nicht erreichbar",
+  "err.network_unreachable.message": "Prüfe deine Internetverbindung und versuche es erneut.",
 };
 
 export default de;

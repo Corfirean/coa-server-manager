@@ -416,6 +416,12 @@ const en = {
   "set.unsaved_other": "{n} unsaved changes",
   "set.discard": "Discard",
   "set.save": "Save changes",
+
+  // Download errors
+  "err.package_not_published.title": "This server package is not available yet",
+  "err.package_not_published.message": "Nothing has been published at the download location. Try again later, or install from a local package folder (Advanced).",
+  "err.network_unreachable.title": "Could not reach the download server",
+  "err.network_unreachable.message": "Check your internet connection and try again.",
 } as const;
 
 export default en;

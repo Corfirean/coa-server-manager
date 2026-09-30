@@ -483,3 +483,16 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   `Intl`; settings-schema titles/descriptions (`schemas/*.json`) get per-locale overlays (`schemas/i18n/<locale>.json`);
   translations are reviewed by native speakers before release, with an English fallback for missing keys and a CI check
   that every locale has every key. Do this before the first public release so strings are not retro-fitted.
+
+  **Status (2026-09-30):** catalogue + picker + all screens translated (en/ru/de/fr/es drafts, `tools/check-i18n.mjs` checks
+  keys/placeholders). Still English: settings-schema titles/descriptions/presets, companion size names, diagnostics check
+  texts and update step names coming from the backend (need `schemas/i18n/<locale>.json` overlays and code-keyed backend strings).
+
+* **Language choice on the very first screen** (requested 2026-09-30): the welcome screen must offer the language picker
+  right away (before any other text is read), preselected from the OS language; the choice is persisted and shared with
+  Settings. **Done 2026-09-30:** shared `LanguagePicker` (top-right of the welcome screen and in Settings).
+
+* **Clean-install gap found by the owner (2026-09-30):** installing from the default URL fails with 404 because the `base`
+  release does not exist yet (only `edge` is published). The message is now human ("package not available yet"). Also open:
+  the base package has no `Data\` (maps/dbc/vmaps, ~3.8 GB); the installer needs a "use my existing Data folder / download"
+  step, and the owner must decide hosting/legal for game data before `base` is published.

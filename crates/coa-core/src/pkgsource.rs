@@ -28,7 +28,10 @@ pub fn fetch_small(source: &Source, name: &str) -> Result<Vec<u8>> {
             let url = format!("{}/{name}", base.trim_end_matches('/'));
             download::check_url(&url)?;
             let t = download::HttpTransport::new()?;
-            let reply = download::Transport::get(&t, &url, 0).map_err(|e| Error::Invalid(format!("Could not reach the download server: {e}")))?;
+            let reply = download::Transport::get(&t, &url, 0).map_err(|e| Error::NetworkUnreachable(format!("{e}")))?;
+            if reply.status == 404 || reply.status == 410 {
+                return Err(Error::PackageNotPublished(format!("the download server answered {} for {name} ({url})", reply.status)));
+            }
             if reply.status != 200 {
                 return Err(Error::Invalid(format!("The download server answered {} for {name}.", reply.status)));
             }

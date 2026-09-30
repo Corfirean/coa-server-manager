@@ -416,6 +416,12 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "set.unsaved_other": "{n} cambios sin guardar",
   "set.discard": "Descartar",
   "set.save": "Guardar cambios",
+
+  // Download errors
+  "err.package_not_published.title": "Este paquete del servidor aún no está disponible",
+  "err.package_not_published.message": "Aún no se ha publicado nada en la ubicación de descarga. Inténtalo más tarde o instala desde una carpeta de paquete local (Avanzado).",
+  "err.network_unreachable.title": "No se pudo contactar con el servidor de descargas",
+  "err.network_unreachable.message": "Comprueba tu conexión a internet e inténtalo de nuevo.",
 };
 
 export default es;
