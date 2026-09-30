@@ -6,21 +6,19 @@
 //! leave that folder (safe to discard) - never a half-installed server at the destination.
 
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use crate::db::{Account, Db};
-use crate::download::{self, Cancel, Job, Progress};
+use crate::download::Cancel;
 use crate::driver::{self, Verb};
 use crate::error::{Error, Result};
 use crate::fsx;
 use crate::layout::{self, Classification};
-use crate::manifest::{self, Manifest};
+use crate::manifest;
 use crate::package::{self, BOOTSTRAP_CREDENTIALS};
 use crate::registry::{metadata_dir_for, InstallKind, InstallMeta, MetaDir, Registry};
-use crate::signing;
 
 const MARKER: &str = ".coa-installing";
 
@@ -109,14 +107,8 @@ pub fn preflight(dest: &Path, needed_bytes: u64, registry: &Registry) -> Preflig
     Preflight { ok: problems.is_empty(), problems, free_bytes }
 }
 
-/// Where a package comes from.
-#[derive(Debug, Clone)]
-pub enum Source {
-    /// `https://.../` base URL holding manifest.json, manifest.json.sig and the parts.
-    Url(String),
-    /// A folder produced by `package::build` plus its `manifest.json.sig` (used for offline / local installs).
-    Dir(PathBuf),
-}
+pub use crate::pkgsource::Source;
+use crate::pkgsource::{fetch_manifest, fetch_parts};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Step {
@@ -148,24 +140,6 @@ fn random_hex(n: usize) -> String {
     }
     s.truncate(n);
     s
-}
-
-fn fetch_small(source: &Source, name: &str) -> Result<Vec<u8>> {
-    match source {
-        Source::Dir(d) => Ok(fs::read(fsx::safe_join(d, name)?).map_err(|_| Error::Invalid(format!("{name} was not found in the package folder.")))?),
-        Source::Url(base) => {
-            let url = format!("{}/{name}", base.trim_end_matches('/'));
-            download::check_url(&url)?;
-            let t = download::HttpTransport::new()?;
-            let reply = download::Transport::get(&t, &url, 0).map_err(|e| Error::Invalid(format!("Could not reach the download server: {e}")))?;
-            if reply.status != 200 {
-                return Err(Error::Invalid(format!("The download server answered {} for {name}.", reply.status)));
-            }
-            let mut buf = Vec::new();
-            reply.body.take(64 * 1024 * 1024).read_to_end(&mut buf)?;
-            Ok(buf)
-        }
-    }
 }
 
 /// Rotate the database users' passwords away from the packaged bootstrap values and write the launcher's
@@ -222,10 +196,7 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
 
     say("Checking your computer", 2, None);
     // 1. Manifest first: it is signed, and tells us how much space we need.
-    let manifest_bytes = fetch_small(&p.source, "manifest.json")?;
-    let sig = String::from_utf8_lossy(&fetch_small(&p.source, "manifest.json.sig")?).into_owned();
-    signing::verify(&manifest_bytes, &sig, p.trusted_key)?;
-    let m = Manifest::parse(&manifest_bytes)?;
+    let (m, manifest_bytes) = fetch_manifest(&p.source, p.trusted_key)?;
     if m.kind != manifest::Kind::Base || !m.compatible_with_manager(crate::MANAGER_VERSION) {
         return Err(Error::Invalid("This package needs a newer version of CoA Server Manager.".into()));
     }
@@ -238,21 +209,9 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
     }
 
     // 2. Download (or use the local folder), verifying every part.
-    let parts_dir = match &p.source {
-        Source::Dir(d) => d.clone(),
-        Source::Url(base) => {
-            let dl = meta_dir.join("staging").join("download");
-            let total = archive.parts.len();
-            for (i, part) in archive.parts.iter().enumerate() {
-                let job = Job { url: format!("{}/{}", base.trim_end_matches('/'), part.name), dest: dl.join(&part.name), sha256: part.sha256.clone(), size: part.size };
-                download::fetch(&job, &p.cancel, &|pr: Progress| {
-                    let frac = (i as f64 + pr.downloaded as f64 / pr.total.max(1) as f64) / total as f64;
-                    say("Downloading server", 5 + (frac * 45.0) as u8, Some(format!("{:.1} MB/s", pr.bytes_per_sec as f64 / 1e6)));
-                })?;
-            }
-            dl
-        }
-    };
+    let parts_dir = fetch_parts(&p.source, &m, &meta_dir.join("staging").join("download"), &p.cancel, &|frac, detail| {
+        say("Downloading server", 5 + (frac * 45.0) as u8, detail)
+    })?;
 
     // 3. Extract into our own staging folder.
     if staging_root.exists() {
@@ -388,7 +347,7 @@ mod tests {
         layout::testkit::fake_repack(&src);
         fs::create_dir_all(src.join("Settings")).unwrap();
         fs::write(src.join("Settings/database.json"), br#"{"rootPassword":"a","appPassword":"b"}"#).unwrap();
-        let opts = package::BuildOptions { version: "0.1.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20 };
+        let opts = package::BuildOptions { kind: manifest::Kind::Base, version: "0.1.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20 };
         package::build(&src, &pkg, &opts, &|_| {}).unwrap();
         let good = SigningKey::generate(&mut rand_core::OsRng);
         let evil = SigningKey::generate(&mut rand_core::OsRng);

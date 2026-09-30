@@ -9,12 +9,14 @@ pub mod health;
 pub mod install;
 pub mod layout;
 pub mod logging;
+pub mod pkgsource;
 pub mod process;
 pub mod manifest;
 pub mod migrations;
 pub mod package;
 pub mod ra;
 pub mod registry;
+pub mod update;
 pub mod signing;
 
 pub use error::{Error, ErrorCode, Result};

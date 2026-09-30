@@ -53,7 +53,11 @@ pub fn excluded(rel: &str) -> bool {
 
 fn policy_for(rel: &str) -> (Owner, ReplacePolicy) {
     let l = rel.to_lowercase();
-    if l.starts_with("mysql/data/") {
+    if l.starts_with("_migrations/") {
+        (Owner::Core, ReplacePolicy::NeverTouch) // staged for the migration runner, never copied into the server
+    } else if l.ends_with(".dist") {
+        (Owner::Core, ReplacePolicy::Replace)
+    } else if l.starts_with("mysql/data/") {
         (Owner::User, ReplacePolicy::NeverTouch)
     } else if l.starts_with("settings/") {
         (Owner::Core, ReplacePolicy::MergeConfig)
@@ -139,6 +143,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> io::Result<()> {
 }
 
 pub struct BuildOptions {
+    pub kind: Kind,
     pub version: String,
     pub core_commit: Option<String>,
     pub built_at: String,
@@ -154,7 +159,7 @@ pub fn build(src: &Path, out: &Path, opts: &BuildOptions, progress: &dyn Fn(&str
     let mut files: Vec<(String, PathBuf)> = rels.into_iter().map(|r| (r.clone(), src.join(&r))).collect();
     // The database users of the packaged data directory: needed once at install to rotate the passwords.
     let creds = src.join("Settings/database.json");
-    if creds.is_file() {
+    if opts.kind == Kind::Base && creds.is_file() {
         files.push((BOOTSTRAP_CREDENTIALS.to_string(), creds));
     }
     files.sort();
@@ -204,7 +209,7 @@ pub fn build(src: &Path, out: &Path, opts: &BuildOptions, progress: &dyn Fn(&str
 
     let manifest = Manifest {
         schema: crate::manifest::SCHEMA,
-        kind: Kind::Base,
+        kind: opts.kind,
         version: opts.version.clone(),
         core: Revision { commit: opts.core_commit.clone() },
         bots: None,
@@ -322,7 +327,7 @@ mod tests {
     use super::*;
 
     fn opts(part: u64) -> BuildOptions {
-        BuildOptions { version: "0.1.0".into(), core_commit: Some("a".repeat(40)), built_at: "2026-09-30T00:00:00Z".into(), part_size: part }
+        BuildOptions { kind: Kind::Base, version: "0.1.0".into(), core_commit: Some("a".repeat(40)), built_at: "2026-09-30T00:00:00Z".into(), part_size: part }
     }
 
     fn tree(root: &Path) -> Vec<(String, Vec<u8>)> {
