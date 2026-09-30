@@ -17,16 +17,21 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CompanionsCard } from "@/screens/CompanionsCard";
-import { useHuman, useI18n, useT, type Key } from "@/i18n";
+import { useHuman, useI18n, useSchemaText, useT, type Key } from "@/i18n";
 
 type T = (k: Key, v?: Record<string, string | number>) => string;
 
 const RESTART_LABEL = { runtime: "set.restart.runtime", world: "set.restart.world", full: "set.restart.full" } as const;
 
-function fmt(t: T, v: JsonValue, s: { type: string; unit?: string | null; options: { value: JsonValue; label: string }[] }): string {
+type SX = ReturnType<typeof useSchemaText>;
+
+function fmt(t: T, sx: SX, v: JsonValue, s: { key: string; type: string; unit?: string | null; options: { value: JsonValue; label: string }[] }): string {
   if (typeof v === "boolean") return v ? t("set.on") : t("set.off");
-  if (s.type === "enum") return s.options.find((o) => o.value === v)?.label ?? String(v);
-  return s.unit ? `${v} ${s.unit}` : String(v);
+  if (s.type === "enum") {
+    const o = s.options.find((x) => x.value === v);
+    return o ? sx.option(s.key, o) : String(v);
+  }
+  return s.unit ? `${v} ${sx.unit(s.unit)}` : String(v);
 }
 
 function clientCheck(t: T, s: SettingView, v: JsonValue): string | null {
@@ -42,6 +47,7 @@ function clientCheck(t: T, s: SettingView, v: JsonValue): string | null {
 function Field(props: { s: SettingView; value: JsonValue; error: string | null; onChange: (v: JsonValue) => void }) {
   const { s, value, error, onChange } = props;
   const t = useT();
+  const sx = useSchemaText();
   const id = `f-${s.key}`;
   const base = "rounded-md border bg-bg px-3 py-2 text-sm outline-none focus:border-gold";
   if (s.type === "bool") {
@@ -68,7 +74,7 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
       >
         {s.options.map((o) => (
           <option key={String(o.value)} value={String(o.value)}>
-            {o.label}
+            {sx.option(s.key, o)}
           </option>
         ))}
       </select>
@@ -88,7 +94,7 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
           onChange(numeric ? (raw.trim() === "" || Number.isNaN(Number(raw)) ? (raw as unknown as number) : Number(raw)) : raw);
         }}
       />
-      {s.unit && <span className="text-xs text-muted">{s.unit}</span>}
+      {s.unit && <span className="text-xs text-muted">{sx.unit(s.unit)}</span>}
     </div>
   );
 }
@@ -96,12 +102,13 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
 function Row(props: { s: SettingView; value: JsonValue; error: string | null; onChange: (v: JsonValue) => void; onReset: () => void }) {
   const { s, value, error } = props;
   const t = useT();
+  const sx = useSchemaText();
   const changed = value !== s.value;
   return (
     <div className="grid grid-cols-[1fr_auto] items-start gap-x-6 gap-y-1 py-3.5">
       <div>
         <label htmlFor={`f-${s.key}`} className="flex flex-wrap items-center gap-2 font-medium">
-          {s.title}
+          {sx.title(s)}
           {s.dangerous && (
             <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-normal text-warn">
               <AlertTriangle className="h-3 w-3" aria-hidden /> {t("set.careful")}
@@ -109,9 +116,9 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
           )}
           {changed && <span className="rounded bg-gold/15 px-1.5 py-0.5 text-[11px] font-normal text-gold">{t("set.changed")}</span>}
         </label>
-        <p className="mt-0.5 max-w-xl text-sm text-muted">{s.description}</p>
+        <p className="mt-0.5 max-w-xl text-sm text-muted">{sx.description(s)}</p>
         <p className="mt-1 text-xs text-muted/80">
-          {t("set.default", { v: fmt(t, s.default, s) })}
+          {t("set.default", { v: fmt(t, sx, s.default, s) })}
           {s.min !== undefined && s.max !== undefined && s.type !== "bool" ? ` · ${t("set.range", { min: s.min, max: s.max })}` : ""} · {t(RESTART_LABEL[s.restartRequired])}
         </p>
         {s.problem && <p className="mt-1 text-xs text-warn">{t("set.badValue", { problem: s.problem })}</p>}
@@ -126,7 +133,7 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
         <Field s={s} value={value} error={error} onChange={props.onChange} />
         <button
           title={t("set.reset")}
-          aria-label={t("set.resetItem", { name: s.title })}
+          aria-label={t("set.resetItem", { name: sx.title(s) })}
           onClick={props.onReset}
           disabled={value === s.default}
           className="cursor-pointer rounded p-1.5 text-muted hover:bg-white/5 hover:text-ink disabled:opacity-25"
@@ -141,6 +148,7 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
 export function SettingsPage(props: { serverId: string; scope: Scope; title: string; question: string }) {
   const { serverId, scope } = props;
   const { t, tn } = useI18n();
+  const sx = useSchemaText();
   const human = useHuman();
   const [view, setView] = useState<SettingsView | null>(null);
   const [draft, setDraft] = useState<Record<string, JsonValue>>({});
@@ -266,8 +274,8 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       <div className="mt-5 flex flex-wrap items-center gap-2">
         <span className="text-sm text-muted">{t("set.presets")}</span>
         {presets.map((p) => (
-          <Button key={p.id} size="sm" title={p.description} onClick={() => void openPreset(p.id)}>
-            {p.title}
+          <Button key={p.id} size="sm" title={sx.preset(p).description} onClick={() => void openPreset(p.id)}>
+            {sx.preset(p).title}
           </Button>
         ))}
         <Button size="sm" variant="ghost" onClick={() => void openPreset("defaults")}>
@@ -277,8 +285,8 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
 
       {preview && (
         <Card className="mt-4 border-gold/40 p-5">
-          <p className="font-medium">{preview.title}</p>
-          <p className="text-sm text-muted">{preview.description}</p>
+          <p className="font-medium">{sx.preset({ id: preview.id, title: preview.title, description: preview.description }).title}</p>
+          <p className="text-sm text-muted">{sx.preset({ id: preview.id, title: preview.title, description: preview.description }).description}</p>
           {preview.changes.length === 0 ? (
             <p className="mt-3 text-sm">{t("set.matches")}</p>
           ) : (
@@ -291,9 +299,9 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
                   const s = view.settings.find((x) => x.key === c.key)!;
                   return (
                     <li key={c.key} className="flex justify-between gap-4 py-1.5">
-                      <span>{c.title}</span>
+                      <span>{sx.title({ key: c.key, title: c.title })}</span>
                       <span className="text-muted">
-                        {fmt(t, c.from, s)} → <span className="text-ink">{fmt(t, c.to, s)}</span>
+                        {fmt(t, sx, c.from, s)} → <span className="text-ink">{fmt(t, sx, c.to, s)}</span>
                       </span>
                     </li>
                   );
@@ -367,7 +375,7 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
                 category === c.id ? "border-gold text-ink" : "border-transparent text-muted hover:text-ink",
               )}
             >
-              {c.title}
+              {sx.category(scope, c)}
             </button>
           ))}
       </div>

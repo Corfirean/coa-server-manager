@@ -433,6 +433,70 @@ const en = {
 
   // Friends line
   "fr.copyLine": "Copy line",
+
+  // Diagnostics checks
+  "dg.title.files": "Server files",
+  "dg.title.missing_parts": "Missing parts",
+  "dg.title.mysql": "Database",
+  "dg.title.auth": "Login server",
+  "dg.title.world": "World server",
+  "dg.title.configs": "Configuration",
+  "dg.title.config_values": "Setting values",
+  "dg.title.disk": "Free disk space",
+  "dg.title.permissions": "Permissions",
+  "dg.title.client": "Game client",
+  "dg.title.exposure": "Private services",
+  "dg.files.ok": "All expected server parts were found.",
+  "dg.files.partial": "Some server parts are missing.",
+  "dg.files.custom": "This is a custom server build; some features are limited.",
+  "dg.files.bad": "This folder does not look like a CoA server.",
+  "dg.svc.running": "Running",
+  "dg.svc.port": "Port {port} is used by another program (process {pid}).",
+  "dg.svc.starting": "Starting, not answering yet.",
+  "dg.svc.stopped": "Not running.",
+  "dg.configs.ok": "Configuration files can be read.",
+  "dg.configs.bad": "Cannot read: {files}",
+  "dg.values.bad": "Unusable values for: {keys}",
+  "dg.disk.ok": "{gb} GB free",
+  "dg.disk.low": "Only {gb} GB free; backups and updates need room.",
+  "dg.perm.ok": "The server folder is writable.",
+  "dg.perm.bad": "The Manager cannot write to the server folder (try another location or run once as administrator).",
+  "dg.client.missing": "The saved game folder was not found; choose it again in Settings.",
+  "dg.exposure.ok": "Database and server console are not reachable from the network.",
+  "dg.exposure.bad": "Reachable from the network: {what}.",
+
+  // Update steps
+  "ustep.Starting": "Starting",
+  "ustep.Checking the update": "Checking the update",
+  "ustep.Downloading the update": "Downloading the update",
+  "ustep.Verifying the update": "Verifying the update",
+  "ustep.Making sure the server is stopped": "Making sure the server is stopped",
+  "ustep.Saving a recovery point": "Saving a recovery point",
+  "ustep.Applying the update": "Applying the update",
+  "ustep.Updating the database": "Updating the database",
+  "ustep.Starting the updated server": "Starting the updated server",
+  "ustep.Finishing": "Finishing",
+  "ustep.Undoing the update": "Undoing the update",
+  "ustep.Done": "Done",
+
+  // Companion sizes
+  "comp.size.small": "Small",
+  "comp.size.medium": "Medium",
+  "comp.size.large": "Large",
+  "comp.warnHardware": "{n} companions may need more CPU and memory than this computer has ({cores} cores, {ram} GB).",
+  "comp.warnMemory": "Free some memory first; other programs are using most of it.",
+
+  // Friends notes
+  "fr.note.forwarded": "Your router was asked to forward the game ports.",
+  "fr.note.manual": "Your router does not support automatic setup; forward the two game ports by hand or use the private network.",
+
+  // Import labels and placeholder
+  "scan.label.worldserver": "World server",
+  "scan.label.authserver": "Auth server",
+  "scan.label.database_content": "Auth / Characters / World databases",
+  "scan.label.companions": "CoA Companions (bots)",
+  "scan.label.client": "Game client",
+  "placeholder.soon": "This section is being built in a later release.",
 } as const;
 
 export default en;

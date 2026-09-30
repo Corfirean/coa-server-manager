@@ -433,6 +433,70 @@ const es: Partial<Record<keyof typeof en, string>> = {
 
   // Friends line
   "fr.copyLine": "Copiar línea",
+
+  // Diagnostics checks
+  "dg.title.files": "Archivos del servidor",
+  "dg.title.missing_parts": "Partes que faltan",
+  "dg.title.mysql": "Base de datos",
+  "dg.title.auth": "Servidor de acceso",
+  "dg.title.world": "Servidor del mundo",
+  "dg.title.configs": "Configuración",
+  "dg.title.config_values": "Valores de los ajustes",
+  "dg.title.disk": "Espacio libre en disco",
+  "dg.title.permissions": "Permisos",
+  "dg.title.client": "Cliente del juego",
+  "dg.title.exposure": "Servicios privados",
+  "dg.files.ok": "Se encontraron todas las partes esperadas del servidor.",
+  "dg.files.partial": "Faltan algunas partes del servidor.",
+  "dg.files.custom": "Esta es una versión personalizada del servidor; algunas funciones están limitadas.",
+  "dg.files.bad": "Esta carpeta no parece un servidor de CoA.",
+  "dg.svc.running": "En marcha",
+  "dg.svc.port": "El puerto {port} lo usa otro programa (proceso {pid}).",
+  "dg.svc.starting": "Iniciándose, aún no responde.",
+  "dg.svc.stopped": "No está en marcha.",
+  "dg.configs.ok": "Los archivos de configuración se pueden leer.",
+  "dg.configs.bad": "No se puede leer: {files}",
+  "dg.values.bad": "Valores inutilizables en: {keys}",
+  "dg.disk.ok": "{gb} GB libres",
+  "dg.disk.low": "Solo {gb} GB libres; las copias y las actualizaciones necesitan espacio.",
+  "dg.perm.ok": "La carpeta del servidor admite escritura.",
+  "dg.perm.bad": "El Manager no puede escribir en la carpeta del servidor (prueba otra ubicación o ejecútalo una vez como administrador).",
+  "dg.client.missing": "No se encontró la carpeta del juego guardada; elígela de nuevo en Ajustes.",
+  "dg.exposure.ok": "La base de datos y la consola del servidor no son accesibles desde la red.",
+  "dg.exposure.bad": "Accesible desde la red: {what}.",
+
+  // Update steps
+  "ustep.Starting": "Iniciando",
+  "ustep.Checking the update": "Comprobando la actualización",
+  "ustep.Downloading the update": "Descargando la actualización",
+  "ustep.Verifying the update": "Verificando la actualización",
+  "ustep.Making sure the server is stopped": "Comprobando que el servidor está detenido",
+  "ustep.Saving a recovery point": "Guardando un punto de recuperación",
+  "ustep.Applying the update": "Aplicando la actualización",
+  "ustep.Updating the database": "Actualizando la base de datos",
+  "ustep.Starting the updated server": "Iniciando el servidor actualizado",
+  "ustep.Finishing": "Finalizando",
+  "ustep.Undoing the update": "Deshaciendo la actualización",
+  "ustep.Done": "Hecho",
+
+  // Companion sizes
+  "comp.size.small": "Pequeño",
+  "comp.size.medium": "Mediano",
+  "comp.size.large": "Grande",
+  "comp.warnHardware": "{n} compañeros pueden necesitar más CPU y memoria de las que tiene este equipo ({cores} núcleos, {ram} GB).",
+  "comp.warnMemory": "Libera primero algo de memoria; otros programas usan la mayor parte.",
+
+  // Friends notes
+  "fr.note.forwarded": "Se pidió a tu router que redirigiera los puertos del juego.",
+  "fr.note.manual": "Tu router no admite la configuración automática; redirige los dos puertos del juego a mano o usa la red privada.",
+
+  // Import labels and placeholder
+  "scan.label.worldserver": "Servidor del mundo",
+  "scan.label.authserver": "Servidor de acceso",
+  "scan.label.database_content": "Bases de datos de acceso, personajes y mundo",
+  "scan.label.companions": "Compañeros de CoA (bots)",
+  "scan.label.client": "Cliente del juego",
+  "placeholder.soon": "Esta sección se está desarrollando para una versión posterior.",
 };
 
 export default es;

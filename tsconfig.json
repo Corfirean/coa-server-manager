@@ -15,6 +15,7 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "isolatedModules": true,
+    "resolveJsonModule": true,
     "noEmit": true,
     "types": [
       "node"

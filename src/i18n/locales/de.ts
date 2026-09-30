@@ -433,6 +433,70 @@ const de: Partial<Record<keyof typeof en, string>> = {
 
   // Friends line
   "fr.copyLine": "Zeile kopieren",
+
+  // Diagnostics checks
+  "dg.title.files": "Serverdateien",
+  "dg.title.missing_parts": "Fehlende Teile",
+  "dg.title.mysql": "Datenbank",
+  "dg.title.auth": "Anmeldeserver",
+  "dg.title.world": "Weltserver",
+  "dg.title.configs": "Konfiguration",
+  "dg.title.config_values": "Einstellungswerte",
+  "dg.title.disk": "Freier Speicherplatz",
+  "dg.title.permissions": "Berechtigungen",
+  "dg.title.client": "Spielclient",
+  "dg.title.exposure": "Private Dienste",
+  "dg.files.ok": "Alle erwarteten Serverteile wurden gefunden.",
+  "dg.files.partial": "Einige Serverteile fehlen.",
+  "dg.files.custom": "Dies ist ein angepasster Server-Build; einige Funktionen sind eingeschränkt.",
+  "dg.files.bad": "Dieser Ordner sieht nicht wie ein CoA-Server aus.",
+  "dg.svc.running": "Läuft",
+  "dg.svc.port": "Port {port} wird von einem anderen Programm verwendet (Prozess {pid}).",
+  "dg.svc.starting": "Startet, antwortet noch nicht.",
+  "dg.svc.stopped": "Läuft nicht.",
+  "dg.configs.ok": "Konfigurationsdateien können gelesen werden.",
+  "dg.configs.bad": "Nicht lesbar: {files}",
+  "dg.values.bad": "Unbrauchbare Werte bei: {keys}",
+  "dg.disk.ok": "{gb} GB frei",
+  "dg.disk.low": "Nur {gb} GB frei; Sicherungen und Updates brauchen Platz.",
+  "dg.perm.ok": "Der Serverordner ist beschreibbar.",
+  "dg.perm.bad": "Der Manager kann nicht in den Serverordner schreiben (wähle einen anderen Ort oder starte einmal als Administrator).",
+  "dg.client.missing": "Der gespeicherte Spielordner wurde nicht gefunden; wähle ihn in den Einstellungen erneut.",
+  "dg.exposure.ok": "Datenbank und Serverkonsole sind aus dem Netzwerk nicht erreichbar.",
+  "dg.exposure.bad": "Aus dem Netzwerk erreichbar: {what}.",
+
+  // Update steps
+  "ustep.Starting": "Start",
+  "ustep.Checking the update": "Update wird geprüft",
+  "ustep.Downloading the update": "Update wird heruntergeladen",
+  "ustep.Verifying the update": "Update wird verifiziert",
+  "ustep.Making sure the server is stopped": "Es wird sichergestellt, dass der Server gestoppt ist",
+  "ustep.Saving a recovery point": "Wiederherstellungspunkt wird gespeichert",
+  "ustep.Applying the update": "Update wird angewendet",
+  "ustep.Updating the database": "Datenbank wird aktualisiert",
+  "ustep.Starting the updated server": "Aktualisierter Server wird gestartet",
+  "ustep.Finishing": "Abschluss",
+  "ustep.Undoing the update": "Update wird rückgängig gemacht",
+  "ustep.Done": "Fertig",
+
+  // Companion sizes
+  "comp.size.small": "Klein",
+  "comp.size.medium": "Mittel",
+  "comp.size.large": "Groß",
+  "comp.warnHardware": "{n} Begleiter brauchen möglicherweise mehr CPU und Speicher, als dieser Computer hat ({cores} Kerne, {ram} GB).",
+  "comp.warnMemory": "Gib zuerst etwas Speicher frei; andere Programme belegen den größten Teil.",
+
+  // Friends notes
+  "fr.note.forwarded": "Dein Router wurde gebeten, die Spielports weiterzuleiten.",
+  "fr.note.manual": "Dein Router unterstützt keine automatische Einrichtung; leite die beiden Spielports manuell weiter oder nutze das private Netzwerk.",
+
+  // Import labels and placeholder
+  "scan.label.worldserver": "Weltserver",
+  "scan.label.authserver": "Anmeldeserver",
+  "scan.label.database_content": "Datenbanken für Anmeldung, Charaktere und Welt",
+  "scan.label.companions": "CoA-Begleiter (Bots)",
+  "scan.label.client": "Spielclient",
+  "placeholder.soon": "Dieser Bereich entsteht in einer späteren Version.",
 };
 
 export default de;

@@ -1,4 +1,8 @@
 // Dev-only: lets the UI run in a plain browser for visual review. Never bundled in production builds.
+import botsSchema from "../../schemas/bots.json";
+import serverSchema from "../../schemas/server.json";
+import botsPresets from "../../schemas/presets/bots.json";
+import serverPresets from "../../schemas/presets/server.json";
 export {};
 
 (() => {
@@ -14,7 +18,7 @@ export {};
   const svc=(n: string,p: number,st: string)=>({name:n,state:st,pid:st==="running"?100:null,port:p,port_ready:st==="running",conflict:null,uptime_secs:st==="running"?4206:null});
   (window as any).__TAURI_INTERNALS__ = {
     transformCallback: (cb: unknown)=>cb, unregisterCallback(){}, convertFileSrc:(x: unknown)=>x,
-    invoke: async (cmd: string)=>{
+    invoke: async (cmd: string, args?: any)=>{
       if(cmd==="list_servers") return added?[{id:"1",name:"CoA-Repack",path:report.path}]:[];
       if(cmd==="scan_server") return report;
       if(cmd==="add_server"){added=true;return {id:"1",name:"CoA-Repack",path:report.path};}
@@ -22,6 +26,12 @@ export {};
       if(cmd==="start_server"){await new Promise((r: any)=>setTimeout(r,1500));running=true;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd==="stop_server"){await new Promise((r: any)=>setTimeout(r,1500));running=false;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd.startsWith("plugin:dialog")) return "C:\games\CoA-Repack";
+      if(cmd==="get_settings"){const sc=args?.scope==="server"?serverSchema:botsSchema;return {scope:args?.scope,categories:sc.categories,settings:(sc.settings as any[]).map(x=>({...x,options:x.options??[],value:x.default,is_default:true,present:true,problem:null,drift:false})),unknown_keys:3,drift_keys:[],files:[]};}
+      if(cmd==="list_presets"){const pr=args?.scope==="server"?serverPresets:botsPresets;return (pr.presets as any[]).map(p=>({id:p.id,title:p.title,description:p.description}));}
+      if(cmd==="preview_preset"){const a=args;const sc=a.scope==="server"?serverSchema:botsSchema;const pr=(a.scope==="server"?serverPresets:botsPresets).presets as any[];const p=pr.find(x=>x.id===a.preset)??{id:a.preset??"defaults",title:"Recommended defaults",description:"Every setting returns to its default value."};const st=(sc.settings as any[]).filter(x=>x.type==="int"||x.type==="float"||x.type==="enum").slice(0,3);return {id:p.id,title:p.title,description:p.description,changes:st.map(x=>({key:x.key,title:x.title,from:x.default,to:x.type==="enum"?(x.options?.[1]?.value??x.default):(Number(x.default)||1)*2,dangerous:false}))};}
+      if(cmd==="companion_sizes") return {hardware:{cores:16,ram_gb:31,free_ram_gb:12},sizes:[{id:"small",title:"Small",bots:50,warning:null},{id:"medium",title:"Medium",bots:250,warning:null},{id:"large",title:"Large",bots:500,warning:"500 companions may need more CPU and memory than this computer has (8 cores, 16 GB)."}]};
+      if(cmd==="get_population") return null;
+      if(cmd==="run_diagnostics") return {problems:2,checks:[{id:"files",title:"Server files",level:"ok",detail:"All expected server parts were found."},{id:"world",title:"World server",level:"warn",detail:"Not running."},{id:"disk",title:"Free disk space",level:"warn",detail:"Only 3 GB free; backups and updates need room."},{id:"exposure",title:"Private services",level:"ok",detail:"Database and server console are not reachable from the network."}]};
       if(cmd==="plugin:event|listen") return 1;
       if(cmd==="plugin:event|unlisten") return null;
       throw new Error("unmocked "+cmd);

@@ -86,7 +86,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
     run(`enable-${mode}`, async () => {
       const r = await api.friendsEnable(serverId, mode, net?.public_ip ?? undefined, mode === "direct" && !!net?.router_found);
       setNeedsRestart(r.restart_required);
-      return [r.restart_required ? t("fr.restartToApply") : null, r.note].filter(Boolean).join(" ") || t("fr.ready");
+      return [r.restart_required ? t("fr.restartToApply") : null, r.note ? (r.note.startsWith("Your router was asked") ? t("fr.note.forwarded") : r.note.startsWith("Your router does not support") ? t("fr.note.manual") : r.note) : null].filter(Boolean).join(" ") || t("fr.ready");
     });
 
   if (!st) return <p className="text-muted">{error ? human(error.human).message : t("fr.looking")}</p>;

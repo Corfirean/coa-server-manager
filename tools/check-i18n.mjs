@@ -38,4 +38,21 @@ for (const loc of ["ru", "de", "fr", "es"]) {
   const pct = ((100 * (en.size - missing)) / en.size).toFixed(1);
   console.log(`${loc}: ${en.size - missing}/${en.size} translated (${pct}%), ${missing} fall back to English`);
 }
+// Settings-schema overlays (src/i18n/schema/<locale>.json) must cover every setting, category, option and preset.
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const schemas = ["bots", "server"].map((sc) => ({ sc, d: JSON.parse(readFileSync(join(root, "schemas", `${sc}.json`), "utf8")), p: JSON.parse(readFileSync(join(root, "schemas", "presets", `${sc}.json`), "utf8")).presets }));
+for (const loc of ["ru", "de", "fr", "es"]) {
+  const o = JSON.parse(readFileSync(join(root, "src", "i18n", "schema", `${loc}.json`), "utf8"));
+  let miss = 0;
+  for (const { sc, d, p } of schemas) {
+    for (const c of d.categories) if (!o.categories[`${sc}.${c.id}`]) miss++;
+    for (const s of d.settings) {
+      if (!o.settings[s.key]) miss++;
+      for (const opt of s.options ?? []) if (!o.options[`${s.key}.${opt.value}`]) miss++;
+    }
+    for (const x of p) if (!o.presets[x.id]) miss++;
+  }
+  console.log(`${loc}: schema overlay ${miss === 0 ? "complete" : miss + " entries missing"}`);
+  if (miss) errors++;
+}
 process.exit(errors ? 1 : 0);

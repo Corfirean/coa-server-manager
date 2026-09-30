@@ -1,0 +1,513 @@
+{
+ "categories": {
+  "bots.general": "General",
+  "bots.population": "Población",
+  "bots.login": "Inicio de sesión",
+  "bots.roles": "Roles",
+  "bots.openworld": "Mundo abierto",
+  "bots.quests": "Misiones",
+  "bots.combat": "Combate",
+  "bots.dungeon": "Buscador de mazmorras",
+  "bots.battlegrounds": "Campos de batalla",
+  "bots.social": "Comportamiento social",
+  "bots.advanced": "Avanzado",
+  "server.gameplay": "Jugabilidad",
+  "server.rates": "Tasas",
+  "server.characters": "Personajes",
+  "server.world": "Mundo",
+  "server.network": "Red",
+  "server.accounts": "Cuentas",
+  "server.logging": "Registros",
+  "server.performance": "Rendimiento",
+  "server.advanced": "Avanzado"
+ },
+ "units": {
+  "ms": "ms",
+  "%": "%",
+  "yards": "yardas",
+  "levels": "niveles",
+  "x": "×",
+  "min": "min",
+  "copper": "cobre"
+ },
+ "settings": {
+  "CoaBots.RandomSpawn.DefaultCount": {
+   "t": "Bots creados por comando",
+   "d": "Cuántos bots crea el comando de creación cuando no indicas un número."
+  },
+  "CoaBots.RandomSpawn.MaxCount": {
+   "t": "Mayor creación individual",
+   "d": "Límite de seguridad para un comando de creación. Los lotes muy grandes pueden congelar el servidor un momento, así que súbelo solo cuando nadie más esté jugando."
+  },
+  "CoaBots.LeveledSpawn.Brackets": {
+   "t": "Reparto de niveles de los bots nuevos",
+   "d": "Cómo se reparten por niveles los nuevos bots que suben de nivel, como rangos con pesos (1-20:40 significa 40 partes de bots entre los niveles 1 y 20)."
+  },
+  "CoaBots.RandomSpawn.AutoLogin": {
+   "t": "Conectar enseguida a los bots nuevos",
+   "d": "Los bots recién creados inician sesión de inmediato en lugar de esperar en la base de datos."
+  },
+  "CoaBots.RandomSpawn.AccountPrefix": {
+   "t": "Prefijo de los nombres de cuenta de bots",
+   "d": "Los bots viven en cuentas cuyo nombre empieza por este prefijo. Cambiarlo hace que los bots existentes dejen de conectarse automáticamente."
+  },
+  "CoaBots.RandomSpawn.BatchSize": {
+   "t": "Bots creados por paso",
+   "d": "La creación se reparte en el tiempo para que el servidor vaya fluido. Valores altos son más rápidos, pero pueden causar tirones."
+  },
+  "CoaBots.RandomSpawn.BatchIntervalMs": {
+   "t": "Pausa entre pasos de creación",
+   "d": "Tiempo entre los pasos de creación. Valores bajos son más rápidos, pero pueden causar tirones."
+  },
+  "CoaBots.AutoLoginOnStartup": {
+   "t": "Conexión automática de bots",
+   "d": "Los bots existentes inician sesión solos cada vez que arranca el servidor."
+  },
+  "CoaBots.AutoLogin.MaxCount": {
+   "t": "Máximo de bots conectados",
+   "d": "El mayor número de bots que inician sesión automáticamente al arrancar."
+  },
+  "CoaBots.AutoLogin.BatchSize": {
+   "t": "Bots que se conectan por paso",
+   "d": "Las conexiones se reparten en el tiempo. Valores altos conectan bots más rápido, pero cargan más el servidor."
+  },
+  "CoaBots.AutoLogin.BatchIntervalMs": {
+   "t": "Pausa entre pasos de conexión",
+   "d": "Tiempo entre los pasos de conexión."
+  },
+  "CoaBots.SpecBalance.TankTargetPct": {
+   "t": "Proporción objetivo de tanques",
+   "d": "Proporción de bots que deben ser tanques."
+  },
+  "CoaBots.SpecBalance.HealerTargetPct": {
+   "t": "Proporción objetivo de sanadores",
+   "d": "Proporción de bots que deben ser sanadores."
+  },
+  "CoaBots.TalentBuildsPath": {
+   "t": "Archivo de datos de talentos",
+   "d": "Dónde se guardan las builds de talentos de la comunidad. Déjalo vacío para usar la búsqueda integrada."
+  },
+  "CoaBots.World.Enable": {
+   "t": "Los bots vagan por el mundo",
+   "d": "Los bots inactivos hacen recados: visitan servicios de la ciudad, viajan a zonas de recolección o de farmeo o deambulan un poco."
+  },
+  "CoaBots.WorldBrain.Enable": {
+   "t": "IA de misiones",
+   "d": "Los bots aceptan y completan misiones por su cuenta. Si se apaga, los bots solo recolectan, pescan, farmean y deambulan."
+  },
+  "CoaBots.World.ServiceRadius": {
+   "t": "Radio de búsqueda de servicios de la ciudad",
+   "d": "Hasta dónde busca un bot vendedores y buzones."
+  },
+  "CoaBots.World.AreaRadius": {
+   "t": "Radio de la zona de recados",
+   "d": "Hasta dónde busca un bot zonas de recolección o de farmeo."
+  },
+  "CoaBots.World.ThinkIntervalMs": {
+   "t": "Intervalo de revisión de recados",
+   "d": "Con qué frecuencia cada bot reconsidera su recado."
+  },
+  "CoaBots.World.IdleBeforeErrandMs": {
+   "t": "Inactividad antes de un recado",
+   "d": "Cuánto tiempo debe un bot no encontrar nada que hacer antes de empezar un recado."
+  },
+  "CoaBots.World.VerboseLog": {
+   "t": "Registro detallado de recados",
+   "d": "Escribe cada paso de los recados en el registro. Útil para depurar, ruidoso con muchos bots."
+  },
+  "CoaBots.Combat.VerboseLog": {
+   "t": "Registro detallado de combate",
+   "d": "Escribe las decisiones de combate en el registro. Muy ruidoso; actívalo solo mientras buscas un problema concreto."
+  },
+  "CoaBots.Profile.IntentMinMs": {
+   "t": "Actividad más corta",
+   "d": "El menor tiempo que un bot se mantiene en un mismo tipo de actividad."
+  },
+  "CoaBots.Profile.IntentMaxMs": {
+   "t": "Actividad más larga",
+   "d": "El mayor tiempo que un bot se mantiene en un mismo tipo de actividad."
+  },
+  "CoaBots.Grind.SearchRadius": {
+   "t": "Radio de búsqueda para farmear",
+   "d": "Hasta dónde busca un bot monstruos para farmear."
+  },
+  "CoaBots.Grind.MaxLevelAbove": {
+   "t": "Nivel máximo de monstruo para farmear",
+   "d": "Cuántos niveles por encima del suyo combate un bot al farmear."
+  },
+  "CoaBots.Healer.CriticalHealPct": {
+   "t": "Umbral de curación de emergencia",
+   "d": "Los sanadores pasan a sus curas más fuertes cuando la salud de un aliado cae por debajo de este valor."
+  },
+  "CoaBots.WorldBrain.SearchRadius": {
+   "t": "Radio de búsqueda de objetivos",
+   "d": "Hasta dónde examina un bot en busca de objetivos de misión dentro de una zona de objetivo."
+  },
+  "CoaBots.WorldBrain.EngageRange": {
+   "t": "Distancia de enfrentamiento",
+   "d": "Distancia a la que un bot empieza a combatir a un monstruo de misión."
+  },
+  "CoaBots.WorldBrain.MountDistanceMin": {
+   "t": "Montar a partir de (mín.)",
+   "d": "Cada bot monta en viajes más largos que una distancia personal elegida entre este valor y el máximo."
+  },
+  "CoaBots.WorldBrain.MountDistanceMax": {
+   "t": "Montar a partir de (máx.)",
+   "d": "Extremo superior de la distancia personal para montar."
+  },
+  "CoaBots.WorldBrain.TaxiMinDistance": {
+   "t": "Usar rutas de vuelo a partir de",
+   "d": "Los viajes más largos usan una ruta de vuelo si el bot conoce alguna."
+  },
+  "CoaBots.WorldBrain.SessionBreaks": {
+   "t": "Hacer descansos",
+   "d": "Los bots alternan las misiones con unos minutos de vida en la ciudad, como haría un jugador."
+  },
+  "CoaBots.WorldBrain.GatherDetours": {
+   "t": "Recolectar hierbas y minerales cercanos",
+   "d": "Los recolectores se desvían de su camino por un nodo justo al lado."
+  },
+  "CoaBots.WorldBrain.MaxActiveQuests": {
+   "t": "Máximo de misiones activas",
+   "d": "Cuántas misiones lleva un bot a la vez."
+  },
+  "CoaBots.WorldBrain.AcceptEliteQuests": {
+   "t": "Aceptar misiones de élite",
+   "d": "Los bots en solitario aceptan misiones de élite. Desactivado por defecto porque normalmente no pueden completarlas solos."
+  },
+  "CoaBots.WorldBrain.QuestLevelBelow": {
+   "t": "Misiones por debajo de su nivel",
+   "d": "Cuántos niveles por debajo del suyo sigue aceptando misiones un bot."
+  },
+  "CoaBots.WorldBrain.QuestLevelAbove": {
+   "t": "Misiones por encima de su nivel",
+   "d": "Cuántos niveles por encima del suyo sigue aceptando misiones un bot."
+  },
+  "CoaBots.WorldBrain.MaxMobLevelAbove": {
+   "t": "Nivel máximo del monstruo de misión",
+   "d": "Cuánto por encima de su nivel puede estar un monstruo de misión."
+  },
+  "CoaBots.WorldBrain.MaxObjectiveDistance": {
+   "t": "Objetivo de misión más lejano",
+   "d": "No se aceptan las misiones cuyos objetivos estén más lejos."
+  },
+  "CoaBots.WorldBrain.GiverSearchRadius": {
+   "t": "Radio de búsqueda de dadores de misiones",
+   "d": "Hasta dónde busca un bot a quienes dan misiones."
+  },
+  "CoaBots.WorldBrain.MaxBadAreasPerObjective": {
+   "t": "Zonas probadas por objetivo",
+   "d": "Cuántas zonas descarta un bot antes de dejar la misión aparcada."
+  },
+  "CoaBots.WorldBrain.QuestSuspendMs": {
+   "t": "Tiempo aparcada (corto)",
+   "d": "Cuánto tiempo se aparca una misión después de que el bot renuncie a ella."
+  },
+  "CoaBots.WorldBrain.QuestSuspendMaxMs": {
+   "t": "Tiempo aparcada (largo)",
+   "d": "El máximo tiempo que una misión puede quedar aparcada tras fallos repetidos."
+  },
+  "CoaBots.LfgFill.Enable": {
+   "t": "Relleno con bots del Buscador de mazmorras",
+   "d": "Cuando te pones en cola solo para una mazmorra, los bots ocupan los roles de tanque, sanador y daño que falten."
+  },
+  "CoaBots.AutoQueueDungeon.Enable": {
+   "t": "Los bots se ponen en cola para mazmorras solos",
+   "d": "Experimental: los bots tanque inactivos se ponen en cola para una mazmorra por su cuenta y el relleno anterior completa el grupo."
+  },
+  "CoaBots.BGFill.Enable": {
+   "t": "Relleno con bots de campos de batalla",
+   "d": "Cuando alguien se pone en cola para un campo de batalla, ambos equipos se completan con bots para que la partida empiece enseguida."
+  },
+  "CoaBots.BGFill.TargetPlayersPerTeam": {
+   "t": "Tamaño de equipo en campos de batalla",
+   "d": "Bots por equipo hasta los que rellenar. 0 significa un equipo completo para ese campo de batalla."
+  },
+  "CoaBots.WorldBrain.HelpOthers": {
+   "t": "Los bots ayudan a jugadores cercanos",
+   "d": "Un bot que pasa por allí se une a un combate que un jugador amigo está perdiendo, sin quedarse con su botín ni su crédito."
+  },
+  "CoaBots.WorldBrain.HelpRadius": {
+   "t": "Distancia de ayuda",
+   "d": "Lo cerca que debe estar un bot para meterse en un combate."
+  },
+  "CoaBots.WorldBrain.HelpHealthPct": {
+   "t": "Ayudar por debajo de salud",
+   "d": "Los bots ayudan cuando la salud del jugador que combate está por debajo de este valor."
+  },
+  "CoaBots.WorldBrain.ResurrectOthers": {
+   "t": "Los bots resucitan a jugadores caídos",
+   "d": "Los bots que conocen un hechizo de resurrección reviven cadáveres amigos."
+  },
+  "CoaBots.WorldBrain.TemporaryParties": {
+   "t": "Grupos temporales de bots",
+   "d": "Bots de nivel parecido con la misma misión se unen brevemente."
+  },
+  "CoaBots.WorldBrain.PartyMaxSize": {
+   "t": "Tamaño del grupo temporal",
+   "d": "El mayor tamaño de un grupo temporal."
+  },
+  "CoaBots.WorldBrain.PartyRadius": {
+   "t": "Distancia para formar grupo",
+   "d": "Lo cerca que deben estar los bots para unirse."
+  },
+  "CoaBots.WorldBrain.PartyMinMinutes": {
+   "t": "Duración mínima del grupo",
+   "d": "Duración mínima de un grupo temporal."
+  },
+  "CoaBots.WorldBrain.PartyMaxMinutes": {
+   "t": "Duración máxima del grupo",
+   "d": "Duración máxima de un grupo temporal."
+  },
+  "CoaBots.WorldBrain.PlannerMinMs": {
+   "t": "Intervalo del planificador (mín.)",
+   "d": "El menor tiempo entre las pasadas de planificación de un bot."
+  },
+  "CoaBots.WorldBrain.PlannerMaxMs": {
+   "t": "Intervalo del planificador (máx.)",
+   "d": "El mayor tiempo entre las pasadas de planificación de un bot."
+  },
+  "CoaBots.WorldBrain.ScanMinMs": {
+   "t": "Intervalo de búsqueda de objetivos (mín.)",
+   "d": "El menor tiempo entre búsquedas de objetivos."
+  },
+  "CoaBots.WorldBrain.ScanMaxMs": {
+   "t": "Intervalo de búsqueda de objetivos (máx.)",
+   "d": "El mayor tiempo entre búsquedas de objetivos."
+  },
+  "CoaBots.WorldBrain.SearchTimeoutMs": {
+   "t": "Límite de tiempo de búsqueda en una zona",
+   "d": "Cuánto tiempo rastrea un bot una zona vacía antes de probar otra."
+  },
+  "CoaBots.WorldBrain.ApproachTimeoutMs": {
+   "t": "Límite de tiempo de aproximación",
+   "d": "Cuánto tiempo camina un bot hacia un objetivo reservado."
+  },
+  "CoaBots.WorldBrain.TravelTimeoutMs": {
+   "t": "Límite de tiempo de viaje",
+   "d": "Cuánto puede durar todo un viaje a una zona."
+  },
+  "CoaBots.WorldBrain.Weight.TravelPer100Yards": {
+   "t": "Peso de preferencia: TravelPer100Yards",
+   "d": "Cuánto peso dan los bots a este factor al elegir qué hacer a continuación. Cámbialo solo si conoces el planificador."
+  },
+  "CoaBots.WorldBrain.Weight.CrowdPerBot": {
+   "t": "Peso de preferencia: CrowdPerBot",
+   "d": "Cuánto peso dan los bots a este factor al elegir qué hacer a continuación. Cámbialo solo si conoces el planificador."
+  },
+  "CoaBots.WorldBrain.Weight.Overlap": {
+   "t": "Peso de preferencia: Overlap",
+   "d": "Cuánto peso dan los bots a este factor al elegir qué hacer a continuación. Cámbialo solo si conoces el planificador."
+  },
+  "CoaBots.WorldBrain.Weight.TurnIn": {
+   "t": "Peso de preferencia: TurnIn",
+   "d": "Cuánto peso dan los bots a este factor al elegir qué hacer a continuación. Cámbialo solo si conoces el planificador."
+  },
+  "CoaBots.WorldBrain.Weight.Accept": {
+   "t": "Peso de preferencia: Accept",
+   "d": "Cuánto peso dan los bots a este factor al elegir qué hacer a continuación. Cámbialo solo si conoces el planificador."
+  },
+  "CoaBots.WorldBrain.Weight.AreaOccupancy": {
+   "t": "Peso de preferencia: AreaOccupancy",
+   "d": "Cuánto peso dan los bots a este factor al elegir qué hacer a continuación. Cámbialo solo si conoces el planificador."
+  },
+  "CoaBots.WorldBrain.Weight.TargetReserved": {
+   "t": "Peso de preferencia: TargetReserved",
+   "d": "Cuánto peso dan los bots a este factor al elegir qué hacer a continuación. Cámbialo solo si conoces el planificador."
+  },
+  "Rate.XP.Kill": {
+   "t": "Experiencia por muertes",
+   "d": "Multiplicador de la experiencia ganada al matar monstruos. 1 es lo normal."
+  },
+  "Rate.XP.Quest": {
+   "t": "Experiencia por misiones",
+   "d": "Multiplicador de la experiencia ganada con las misiones."
+  },
+  "Rate.XP.Quest.DF": {
+   "t": "Experiencia por misiones diarias / Buscador de mazmorras",
+   "d": "Multiplicador de la experiencia de las misiones del Buscador de mazmorras."
+  },
+  "Rate.XP.Explore": {
+   "t": "Experiencia por explorar",
+   "d": "Multiplicador de la experiencia por descubrir nuevas zonas."
+  },
+  "Rate.Drop.Item.Normal": {
+   "t": "Tasa de botín de objetos",
+   "d": "Multiplicador de la frecuencia con que caen objetos de calidad normal."
+  },
+  "Rate.Drop.Money": {
+   "t": "Tasa de botín de oro",
+   "d": "Multiplicador del oro que sueltan los monstruos."
+  },
+  "Rate.Honor": {
+   "t": "Ganancia de honor",
+   "d": "Multiplicador de los puntos de honor obtenidos."
+  },
+  "Rate.Reputation.Gain": {
+   "t": "Ganancia de reputación",
+   "d": "Multiplicador de la reputación obtenida."
+  },
+  "Rate.Rest.InGame": {
+   "t": "Bonificación de descanso al jugar",
+   "d": "Velocidad a la que se consume la experiencia de descanso mientras juegas."
+  },
+  "Rate.Creature.Normal.Damage": {
+   "t": "Daño de los monstruos",
+   "d": "Multiplicador del daño de los monstruos normales. Cambia mucho la dificultad."
+  },
+  "Rate.Creature.Normal.HP": {
+   "t": "Salud de los monstruos",
+   "d": "Multiplicador de la salud de los monstruos normales. Cambia mucho la dificultad."
+  },
+  "PlayerLimit": {
+   "t": "Máximo de jugadores",
+   "d": "Cuántos jugadores pueden estar conectados a la vez. 0 significa sin límite."
+  },
+  "GameType": {
+   "t": "Tipo de reino",
+   "d": "El tipo de reino que se muestra en la lista de reinos."
+  },
+  "RealmZone": {
+   "t": "Zona del reino",
+   "d": "El grupo de idioma / región del reino que se muestra a los clientes."
+  },
+  "PlayerSaveInterval": {
+   "t": "Intervalo de autoguardado",
+   "d": "Con qué frecuencia se guardan los personajes de los jugadores mientras están conectados."
+  },
+  "CharactersPerAccount": {
+   "t": "Personajes por cuenta",
+   "d": "Máximo de personajes que puede tener una cuenta entre todos los reinos."
+  },
+  "CharactersPerRealm": {
+   "t": "Personajes por reino",
+   "d": "Máximo de personajes que puede tener una cuenta en este reino."
+  },
+  "StartPlayerLevel": {
+   "t": "Nivel inicial",
+   "d": "Nivel con el que empiezan los personajes nuevos."
+  },
+  "StartPlayerMoney": {
+   "t": "Oro inicial",
+   "d": "Cobre con el que empiezan los personajes nuevos (10000 de cobre = 1 de oro)."
+  },
+  "MaxPlayerLevel": {
+   "t": "Nivel máximo",
+   "d": "El nivel más alto que puede alcanzar un personaje. El cliente del juego solo admite 80."
+  },
+  "SkipCinematics": {
+   "t": "Omitir cinemáticas de introducción",
+   "d": "Si los personajes nuevos ven su película de introducción."
+  },
+  "DurabilityLoss.OnDeath": {
+   "t": "Durabilidad perdida al morir",
+   "d": "Porcentaje de durabilidad de los objetos que se pierde al morir."
+  },
+  "Death.SicknessLevel": {
+   "t": "Enfermedad de resurrección hasta el nivel",
+   "d": "Los personajes por encima de este nivel sufren la enfermedad de resurrección. -10 la desactiva."
+  },
+  "LeaveGroupOnLogout.Enabled": {
+   "t": "Dejar el grupo al desconectarse",
+   "d": "Los jugadores salen de su grupo cuando cierran sesión."
+  },
+  "GM.LoginState": {
+   "t": "Modo GM al iniciar sesión",
+   "d": "Si los maestros del juego empiezan con el modo GM activado."
+  },
+  "AllowTwoSide.Accounts": {
+   "t": "Ambas facciones en una cuenta",
+   "d": "Una cuenta puede tener personajes de la Alianza y de la Horda."
+  },
+  "AllowTwoSide.Interaction.Chat": {
+   "t": "Chat entre facciones",
+   "d": "Los jugadores de la Alianza y de la Horda pueden hablar entre sí."
+  },
+  "AutoBroadcast.On": {
+   "t": "Anuncios automáticos",
+   "d": "Difunde a intervalos regulares los mensajes guardados en la base de datos."
+  },
+  "AutoBroadcast.Timer": {
+   "t": "Intervalo de anuncios",
+   "d": "Tiempo entre los anuncios automáticos."
+  },
+  "Warden.Enabled": {
+   "t": "Antitrampas (Warden)",
+   "d": "Activa la comprobación antitrampas del cliente. Normalmente innecesaria en un servidor privado."
+  },
+  "MapUpdateInterval": {
+   "t": "Intervalo de actualización de mapas",
+   "d": "Con qué frecuencia el mundo actualiza los mapas. Más bajo es más fluido, pero usa más CPU."
+  },
+  "MinWorldUpdateTime": {
+   "t": "Tiempo mínimo de actualización del mundo",
+   "d": "El menor tiempo entre actualizaciones del mundo. Súbelo para reducir el uso de CPU."
+  },
+  "ThreadPool": {
+   "t": "Hilos de trabajo",
+   "d": "Número de hilos de trabajo en segundo plano. Más ayuda con muchos jugadores."
+  },
+  "Network.Threads": {
+   "t": "Hilos de red",
+   "d": "Hilos que gestionan las conexiones de los jugadores. Uno basta para servidores pequeños."
+  },
+  "Ra.Enable": {
+   "t": "Consola remota",
+   "d": "Permite que el Manager y los scripts envíen comandos al servidor. Solo escucha en este equipo; déjalo así."
+  },
+  "Ra.IP": {
+   "t": "Dirección de la consola remota",
+   "d": "Dirección en la que escucha la consola remota. Mantén 127.0.0.1 para que no sea accesible desde internet."
+  },
+  "Updates.EnableDatabases": {
+   "t": "Actualizaciones automáticas de bases de datos",
+   "d": "Permite que el servidor cambie él mismo sus bases de datos al arrancar. Déjalo en 0: el Manager aplica y registra las actualizaciones de bases de datos de forma segura."
+  }
+ },
+ "options": {
+  "GameType.0": "Normal",
+  "GameType.1": "Jugador contra jugador",
+  "GameType.6": "Juego de rol",
+  "GameType.8": "Juego de rol + JcJ",
+  "SkipCinematics.0": "Mostrar todas",
+  "SkipCinematics.1": "Omitir salvo para el primer personaje",
+  "SkipCinematics.2": "Omitir todas",
+  "GM.LoginState.0": "Apagado",
+  "GM.LoginState.1": "Encendido",
+  "GM.LoginState.2": "Igual que la última vez"
+ },
+ "presets": {
+  "balanced": {
+   "t": "Equilibrado",
+   "d": "La configuración recomendada para el día a día: misiones, relleno de mazmorras y de campos de batalla activados, registros discretos."
+  },
+  "solo-friendly": {
+   "t": "Apto para jugar solo",
+   "d": "Bots que te ayudan y completan tus grupos, con una población pequeña y tranquila."
+  },
+  "living-world": {
+   "t": "Mundo vivo",
+   "d": "Un mundo más animado: más bots, descansos, desvíos para recolectar y grupos temporales."
+  },
+  "performance": {
+   "t": "Rendimiento",
+   "d": "Menos bots y menos cálculo de los bots, para equipos más modestos."
+  },
+  "vanilla": {
+   "t": "Tasas estándar",
+   "d": "Todo a velocidad normal (×1)."
+  },
+  "relaxed": {
+   "t": "Relajado",
+   "d": "Subida de nivel más rápida y más botín para jugar sin prisa (×2 / ×3)."
+  },
+  "fast": {
+   "t": "Rápido",
+   "d": "Progreso rápido para pruebas o sesiones cortas (×5)."
+  },
+  "defaults": {
+   "t": "Valores recomendados",
+   "d": "Todos los ajustes vuelven a su valor predeterminado."
+  }
+ }
+}

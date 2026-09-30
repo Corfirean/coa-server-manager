@@ -484,9 +484,11 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   translations are reviewed by native speakers before release, with an English fallback for missing keys and a CI check
   that every locale has every key. Do this before the first public release so strings are not retro-fitted.
 
-  **Status (2026-09-30):** catalogue + picker + all screens translated (en/ru/de/fr/es drafts, `tools/check-i18n.mjs` checks
-  keys/placeholders). Still English: settings-schema titles/descriptions/presets, companion size names, diagnostics check
-  texts and update step names coming from the backend (need `schemas/i18n/<locale>.json` overlays and code-keyed backend strings).
+  **Status (2026-09-30, updated):** catalogue + picker + every screen translated (en/ru/de/fr/es drafts); settings-schema titles,
+  descriptions, categories, presets, options and units are translated through overlays in `src/i18n/schema/`; diagnostics
+  checks, update steps, companion sizes and friends notes are recognised and translated in the UI. `tools/check-i18n.mjs`
+  verifies keys, placeholders and overlay coverage. Still English: free-form backend technical messages. Native-speaker
+  review is still needed (see `docs/TRANSLATIONS.md`).
 
 * **Language choice on the very first screen** (requested 2026-09-30): the welcome screen must offer the language picker
   right away (before any other text is read), preselected from the OS language; the choice is persisted and shared with

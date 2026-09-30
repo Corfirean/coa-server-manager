@@ -433,6 +433,70 @@ const ru: Partial<Record<keyof typeof en, string>> = {
 
   // Friends line
   "fr.copyLine": "Скопировать строку",
+
+  // Diagnostics checks
+  "dg.title.files": "Файлы сервера",
+  "dg.title.missing_parts": "Отсутствующие части",
+  "dg.title.mysql": "База данных",
+  "dg.title.auth": "Сервер входа",
+  "dg.title.world": "Игровой мир",
+  "dg.title.configs": "Конфигурация",
+  "dg.title.config_values": "Значения настроек",
+  "dg.title.disk": "Свободное место на диске",
+  "dg.title.permissions": "Права доступа",
+  "dg.title.client": "Клиент игры",
+  "dg.title.exposure": "Закрытые службы",
+  "dg.files.ok": "Найдены все ожидаемые части сервера.",
+  "dg.files.partial": "Некоторых частей сервера не хватает.",
+  "dg.files.custom": "Это нестандартная сборка сервера; часть функций ограничена.",
+  "dg.files.bad": "Эта папка не похожа на сервер CoA.",
+  "dg.svc.running": "Работает",
+  "dg.svc.port": "Порт {port} занят другой программой (процесс {pid}).",
+  "dg.svc.starting": "Запускается, пока не отвечает.",
+  "dg.svc.stopped": "Не запущено.",
+  "dg.configs.ok": "Файлы конфигурации читаются.",
+  "dg.configs.bad": "Не удаётся прочитать: {files}",
+  "dg.values.bad": "Недопустимые значения у: {keys}",
+  "dg.disk.ok": "Свободно {gb} ГБ",
+  "dg.disk.low": "Свободно только {gb} ГБ; для резервных копий и обновлений нужно место.",
+  "dg.perm.ok": "В папку сервера можно записывать.",
+  "dg.perm.bad": "Менеджер не может записывать в папку сервера (выберите другое место или один раз запустите от имени администратора).",
+  "dg.client.missing": "Сохранённая папка игры не найдена; выберите её заново в Настройках.",
+  "dg.exposure.ok": "База данных и консоль сервера недоступны из сети.",
+  "dg.exposure.bad": "Доступно из сети: {what}.",
+
+  // Update steps
+  "ustep.Starting": "Запуск",
+  "ustep.Checking the update": "Проверка обновления",
+  "ustep.Downloading the update": "Загрузка обновления",
+  "ustep.Verifying the update": "Проверка подлинности обновления",
+  "ustep.Making sure the server is stopped": "Убеждаюсь, что сервер остановлен",
+  "ustep.Saving a recovery point": "Сохранение точки восстановления",
+  "ustep.Applying the update": "Применение обновления",
+  "ustep.Updating the database": "Обновление базы данных",
+  "ustep.Starting the updated server": "Запуск обновлённого сервера",
+  "ustep.Finishing": "Завершение",
+  "ustep.Undoing the update": "Откат обновления",
+  "ustep.Done": "Готово",
+
+  // Companion sizes
+  "comp.size.small": "Малый",
+  "comp.size.medium": "Средний",
+  "comp.size.large": "Большой",
+  "comp.warnHardware": "Для {n} компаньонов может не хватить процессора и памяти этого компьютера (ядер — {cores}, памяти — {ram} ГБ).",
+  "comp.warnMemory": "Сначала освободите память: большую её часть занимают другие программы.",
+
+  // Friends notes
+  "fr.note.forwarded": "Роутеру отправлена просьба пробросить игровые порты.",
+  "fr.note.manual": "Ваш роутер не поддерживает автоматическую настройку; пробросьте два игровых порта вручную или используйте частную сеть.",
+
+  // Import labels and placeholder
+  "scan.label.worldserver": "Игровой сервер (мир)",
+  "scan.label.authserver": "Сервер входа",
+  "scan.label.database_content": "Базы данных входа, персонажей и мира",
+  "scan.label.companions": "Компаньоны CoA (боты)",
+  "scan.label.client": "Клиент игры",
+  "placeholder.soon": "Этот раздел появится в одном из следующих выпусков.",
 };
 
 export default ru;

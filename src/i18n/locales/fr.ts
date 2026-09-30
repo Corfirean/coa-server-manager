@@ -433,6 +433,70 @@ const fr: Partial<Record<keyof typeof en, string>> = {
 
   // Friends line
   "fr.copyLine": "Copier la ligne",
+
+  // Diagnostics checks
+  "dg.title.files": "Fichiers du serveur",
+  "dg.title.missing_parts": "Parties manquantes",
+  "dg.title.mysql": "Base de données",
+  "dg.title.auth": "Serveur de connexion",
+  "dg.title.world": "Serveur de monde",
+  "dg.title.configs": "Configuration",
+  "dg.title.config_values": "Valeurs des paramètres",
+  "dg.title.disk": "Espace disque libre",
+  "dg.title.permissions": "Autorisations",
+  "dg.title.client": "Client du jeu",
+  "dg.title.exposure": "Services privés",
+  "dg.files.ok": "Toutes les parties attendues du serveur ont été trouvées.",
+  "dg.files.partial": "Certaines parties du serveur manquent.",
+  "dg.files.custom": "Il s’agit d’une version personnalisée du serveur ; certaines fonctions sont limitées.",
+  "dg.files.bad": "Ce dossier ne ressemble pas à un serveur CoA.",
+  "dg.svc.running": "En cours",
+  "dg.svc.port": "Le port {port} est utilisé par un autre programme (processus {pid}).",
+  "dg.svc.starting": "Démarrage, ne répond pas encore.",
+  "dg.svc.stopped": "Non démarré.",
+  "dg.configs.ok": "Les fichiers de configuration sont lisibles.",
+  "dg.configs.bad": "Lecture impossible : {files}",
+  "dg.values.bad": "Valeurs inutilisables pour : {keys}",
+  "dg.disk.ok": "{gb} Go libres",
+  "dg.disk.low": "Seulement {gb} Go libres ; les sauvegardes et mises à jour ont besoin de place.",
+  "dg.perm.ok": "Le dossier du serveur est accessible en écriture.",
+  "dg.perm.bad": "Le Manager ne peut pas écrire dans le dossier du serveur (essayez un autre emplacement ou lancez-le une fois en administrateur).",
+  "dg.client.missing": "Le dossier de jeu enregistré est introuvable ; choisissez-le à nouveau dans les Paramètres.",
+  "dg.exposure.ok": "La base de données et la console du serveur ne sont pas joignables depuis le réseau.",
+  "dg.exposure.bad": "Joignable depuis le réseau : {what}.",
+
+  // Update steps
+  "ustep.Starting": "Démarrage",
+  "ustep.Checking the update": "Vérification de la mise à jour",
+  "ustep.Downloading the update": "Téléchargement de la mise à jour",
+  "ustep.Verifying the update": "Vérification de la mise à jour",
+  "ustep.Making sure the server is stopped": "Vérification que le serveur est arrêté",
+  "ustep.Saving a recovery point": "Enregistrement d’un point de restauration",
+  "ustep.Applying the update": "Application de la mise à jour",
+  "ustep.Updating the database": "Mise à jour de la base de données",
+  "ustep.Starting the updated server": "Démarrage du serveur mis à jour",
+  "ustep.Finishing": "Finalisation",
+  "ustep.Undoing the update": "Annulation de la mise à jour",
+  "ustep.Done": "Terminé",
+
+  // Companion sizes
+  "comp.size.small": "Petit",
+  "comp.size.medium": "Moyen",
+  "comp.size.large": "Grand",
+  "comp.warnHardware": "{n} compagnons peuvent demander plus de processeur et de mémoire que cet ordinateur n’en a ({cores} cœurs, {ram} Go).",
+  "comp.warnMemory": "Libérez d’abord de la mémoire ; d’autres programmes en utilisent la plus grande partie.",
+
+  // Friends notes
+  "fr.note.forwarded": "Votre routeur a été invité à rediriger les ports du jeu.",
+  "fr.note.manual": "Votre routeur ne prend pas en charge la configuration automatique ; redirigez les deux ports du jeu à la main ou utilisez le réseau privé.",
+
+  // Import labels and placeholder
+  "scan.label.worldserver": "Serveur de monde",
+  "scan.label.authserver": "Serveur de connexion",
+  "scan.label.database_content": "Bases de données connexion / personnages / monde",
+  "scan.label.companions": "Compagnons CoA (bots)",
+  "scan.label.client": "Client du jeu",
+  "placeholder.soon": "Cette section sera développée dans une prochaine version.",
 };
 
 export default fr;

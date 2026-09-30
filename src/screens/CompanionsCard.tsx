@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { api, asUiError, type CompanionSizes, type Population, type UiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useHuman, useT } from "@/i18n";
+import { hasKey, useHuman, useT, type Key } from "@/i18n";
 
 export function CompanionsCard({ serverId }: { serverId: string }) {
   const t = useT();
@@ -35,8 +35,15 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
     };
   }, [serverId]);
 
+  // The backend describes a size's warning in English; show the translated text for the two known kinds.
+  const warningFor = (size?: { bots: number; warning: string | null }) => {
+    if (!size?.warning) return null;
+    return size.warning.startsWith(`${size.bots} companions`)
+      ? t("comp.warnHardware", { n: size.bots, cores: sizes?.hardware.cores ?? "?", ram: sizes ? sizes.hardware.ram_gb.toFixed(0) : "?" })
+      : t("comp.warnMemory");
+  };
   const count = choice === "custom" ? Number(custom) : (sizes?.sizes.find((s) => s.id === choice)?.bots ?? 0);
-  const warning = choice === "custom" ? (count > 500 ? t("comp.largeWarning") : null) : (sizes?.sizes.find((s) => s.id === choice)?.warning ?? null);
+  const warning = choice === "custom" ? (count > 500 ? t("comp.largeWarning") : null) : (warningFor(sizes?.sizes.find((s) => s.id === choice)));
   const valid = Number.isInteger(count) && count >= 1 && count <= 2000;
 
   async function add() {
@@ -70,7 +77,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
           {sizes?.sizes.map((s) => (
             <label key={s.id} className={`cursor-pointer rounded-md border px-3 py-2 text-sm ${choice === s.id ? "border-gold bg-gold/10" : "border-line hover:bg-white/5"}`}>
               <input type="radio" name="size" className="sr-only" checked={choice === s.id} onChange={() => setChoice(s.id)} />
-              {s.title} <span className="text-muted">· {s.bots}</span>
+              {hasKey(`comp.size.${s.id}`) ? t(`comp.size.${s.id}` as Key) : s.title} <span className="text-muted">· {s.bots}</span>
             </label>
           ))}
           <label className={`cursor-pointer rounded-md border px-3 py-2 text-sm ${choice === "custom" ? "border-gold bg-gold/10" : "border-line hover:bg-white/5"}`}>

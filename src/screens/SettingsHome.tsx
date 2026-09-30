@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
-import { useHuman, useI18n, type Key } from "@/i18n";
+import { hasKey, useHuman, useI18n, type Key } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 
 function mb(bytes: number) {
@@ -192,7 +192,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
         {busy === "update" && progress && (
           <div className="mt-5">
             <div className="flex justify-between text-sm">
-              <span role="status">{progress.step}</span>
+              <span role="status">{hasKey(`ustep.${progress.step}`) ? t(`ustep.${progress.step}` as Key) : progress.step}</span>
               <span className="text-muted">{progress.percent}%</span>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={progress.percent} aria-valuemin={0} aria-valuemax={100}>

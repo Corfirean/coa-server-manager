@@ -4,7 +4,7 @@ import { AlertTriangle, Check, Minus } from "lucide-react";
 import { api, asUiError, type Classification, type ScanReport, type ServerSummary, type UiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useHuman, useT, type Key } from "@/i18n";
+import { hasKey, useHuman, useT, type Key } from "@/i18n";
 
 const HEADLINE: Record<Classification, { title: Key; tone: string; text: Key }> = {
   healthy: { title: "import.healthy.title", tone: "text-ok", text: "import.healthy.text" },
@@ -101,7 +101,7 @@ export function ImportServer(props: {
           <ul className="mt-4 divide-y divide-line text-sm">
             {report.items.map((it) => (
               <li key={it.key} className="flex items-center justify-between py-2">
-                <span>{it.label}</span>
+                <span>{hasKey(`scan.label.${it.key}`) ? t(`scan.label.${it.key}` as Key) : it.label}</span>
                 <span className="flex items-center gap-2 text-muted">
                   {it.detail && <span className="text-xs">{it.detail}</span>}
                   {it.status === "found" ? (
