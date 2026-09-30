@@ -11,6 +11,7 @@ use coa_core::download::Cancel;
 use coa_core::driver::{self, DriverOutcome, Verb};
 use coa_core::install::{self, Preflight, Source};
 use coa_core::ra::Ra;
+use coa_core::update::{self, Resolution};
 use coa_core::error::UiError;
 use coa_core::layout::{self, Classification, ScanReport};
 use coa_core::process::{self, Observed};
@@ -30,6 +31,18 @@ struct AppState {
 }
 
 /// Where official server packages are published (created by the release pipeline, Phase 6).
+/// Where signed update packages are published; override with COA_UPDATE_SOURCE (URL or local package folder).
+const DEFAULT_UPDATE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/latest/download";
+
+fn update_source(custom: Option<String>) -> Source {
+    let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_UPDATE_SOURCE").ok());
+    match pick {
+        Some(p) if p.to_ascii_lowercase().starts_with("http") => Source::Url(p),
+        Some(p) => Source::Dir(PathBuf::from(p)),
+        None => Source::Url(DEFAULT_UPDATE_URL.into()),
+    }
+}
+
 const DEFAULT_PACKAGE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/latest/download";
 
 fn package_source(custom: Option<String>) -> Source {
@@ -383,6 +396,73 @@ async fn create_account(state: State<'_, AppState>, id: String, username: String
     .await
 }
 
+fn install_meta(root: &std::path::Path) -> Result<(PathBuf, InstallMeta)> {
+    let dir = meta_dir(root)?;
+    let (_, meta) = MetaDir::open(&dir)?;
+    Ok((dir, meta))
+}
+
+#[tauri::command]
+async fn check_update(state: State<'_, AppState>, id: String, source: Option<String>) -> std::result::Result<update::Preview, UiError> {
+    let root = path_of(&state, &id)?;
+    let src = update_source(source);
+    blocking(move || {
+        let (_, meta) = install_meta(&root)?;
+        update::preview(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default())
+    })
+    .await
+}
+
+#[tauri::command]
+fn pending_update(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::Txn>, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(update::unfinished(&meta_dir(&root)?))
+}
+
+#[tauri::command]
+async fn apply_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    source: Option<String>,
+    resolutions: BTreeMap<String, Resolution>,
+) -> std::result::Result<update::Outcome, UiError> {
+    let root = path_of(&state, &id)?;
+    let src = update_source(source);
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
+        let observed = coa_core::process::observe(&root, &layout::read_ports(&root));
+        if observed.world.state != coa_core::process::ServiceState::Stopped || observed.auth.state != coa_core::process::ServiceState::Stopped {
+            let out = driver::run(&root, Verb::StopAll)?;
+            if !out.ok {
+                return Err(Error::Invalid("The server could not be stopped, so the update was not started.".into()));
+            }
+        }
+        let env = update::RepackEnv { root: &root, meta_dir: &dir };
+        update::apply(
+            &update::Params { root: &root, meta_dir: &dir, source: src, trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY, cancel: Cancel::default(), resolutions, env: &env, fail_after_ops: None },
+            &|step, percent| {
+                let _ = app.emit("update-progress", serde_json::json!({ "step": step, "percent": percent }));
+            },
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn rollback_update(state: State<'_, AppState>, id: String, txn: String) -> std::result::Result<update::Txn, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let dir = meta_dir(&root)?;
+        let env = update::RepackEnv { root: &root, meta_dir: &dir };
+        update::rollback(&root, &dir, &txn, &env)
+    })
+    .await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -413,7 +493,11 @@ pub fn run() {
             install_preflight,
             install_new,
             cancel_install,
-            create_account
+            create_account,
+            check_update,
+            pending_update,
+            apply_update,
+            rollback_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

@@ -173,6 +173,30 @@ export interface InstallStep {
   detail: string | null;
 }
 
+export interface UpdatePlanItem {
+  path: string;
+  action: "create" | "replace" | "merge-config" | "skip" | "conflict";
+  reason: string | null;
+}
+
+export interface UpdatePreview {
+  from_version: string | null;
+  to_version: string;
+  items: UpdatePlanItem[];
+  conflicts: string[];
+  migrations: number;
+  download_bytes: number;
+}
+
+export interface UpdateTxn {
+  id: string;
+  state: "prepared" | "applying" | "applied" | "needs-decision" | "committed" | "rolled-back" | "failed";
+  from_version: string | null;
+  to_version: string;
+  recovery_point: string | null;
+  message: string | null;
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -196,6 +220,11 @@ export const api = {
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),
+  checkUpdate: (id: string, source?: string) => invoke<UpdatePreview>("check_update", { id, source: source ?? null }),
+  pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
+  applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
+    invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
+  rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 
