@@ -463,6 +463,64 @@ async fn rollback_update(state: State<'_, AppState>, id: String, txn: String) ->
     .await
 }
 
+#[tauri::command]
+async fn get_population(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::population::Population>, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
+        if o.mysql.state != coa_core::process::ServiceState::Running {
+            return None;
+        }
+        coa_core::population::query(&root).ok()
+    })
+    .await
+    .unwrap_or(None))
+}
+
+#[derive(Serialize)]
+struct CompanionSizes {
+    hardware: coa_core::population::Hardware,
+    sizes: Vec<coa_core::population::SizeOption>,
+}
+
+#[tauri::command]
+fn companion_sizes() -> CompanionSizes {
+    let hardware = coa_core::population::hardware();
+    let sizes = coa_core::population::sizes(&hardware);
+    CompanionSizes { hardware, sizes }
+}
+
+#[derive(Serialize)]
+struct CompanionsResult {
+    spawned: Option<String>,
+}
+
+/// Turn on automatic bot login for `count` bots and, if the server is running, ask it to create them.
+#[tauri::command]
+async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> std::result::Result<CompanionsResult, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        if !(1..=2000).contains(&count) {
+            return Err(Error::Invalid("Choose between 1 and 2000 companions.".into()));
+        }
+        let meta = meta_dir(&root)?;
+        let mut changes = BTreeMap::new();
+        changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
+        changes.insert("CoaBots.AutoLogin.MaxCount".to_string(), Value::from(count));
+        config::save(&root, &meta, Scope::Bots, &changes)?;
+        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
+        let spawned = if o.world.state == coa_core::process::ServiceState::Running {
+            Some(Ra::connect(&root)?.spawn_bots(count)?)
+        } else {
+            None
+        };
+        tracing::info!(count, spawned = spawned.is_some(), "companions requested");
+        Ok(CompanionsResult { spawned })
+    })
+    .await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -497,7 +555,10 @@ pub fn run() {
             check_update,
             pending_update,
             apply_update,
-            rollback_update
+            rollback_update,
+            get_population,
+            companion_sizes,
+            add_companions
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

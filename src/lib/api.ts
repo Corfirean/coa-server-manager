@@ -197,6 +197,18 @@ export interface UpdateTxn {
   message: string | null;
 }
 
+export interface Population {
+  online_total: number;
+  bots_online: number;
+  players_online: number;
+  bots_total: number;
+}
+
+export interface CompanionSizes {
+  hardware: { cores: number; ram_gb: number; free_ram_gb: number };
+  sizes: { id: string; title: string; bots: number; warning: string | null }[];
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -225,6 +237,9 @@ export const api = {
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
     invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
+  population: (id: string) => invoke<Population | null>("get_population", { id }),
+  companionSizes: () => invoke<CompanionSizes>("companion_sizes"),
+  addCompanions: (id: string, count: number) => invoke<{ spawned: string | null }>("add_companions", { id, count }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 

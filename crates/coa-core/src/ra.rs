@@ -85,6 +85,15 @@ impl Ra {
         }
     }
 
+    /// Ask the bot module to create `count` leveling bots (throttled by the module itself). Only a number is sent.
+    pub fn spawn_bots(&mut self, count: u32) -> Result<String> {
+        if !(1..=2000).contains(&count) {
+            return Err(Error::Invalid("Choose between 1 and 2000 companions.".into()));
+        }
+        let out = self.command(&format!("botcmd spawnleveled {count}"))?;
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
     /// Give `name` administrator rights on all realms (GM level 3).
     pub fn make_administrator(&mut self, name: &str) -> Result<()> {
         validate_account(name, "placeholder")?;
@@ -148,6 +157,16 @@ mod tests {
         ra.create_account("Player1", "hunter22").unwrap();
         drop(ra);
         assert_eq!(h.join().unwrap(), ["local", "secretra", "account create Player1 hunter22"]);
+    }
+
+    #[test]
+    fn spawn_bots_sends_only_a_bounded_number() {
+        let (port, h) = fake_ra("Queued 50 bots");
+        let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+        assert_eq!(ra.spawn_bots(50).unwrap(), "Queued 50 bots");
+        assert!(ra.spawn_bots(0).is_err() && ra.spawn_bots(5000).is_err());
+        drop(ra);
+        assert_eq!(h.join().unwrap()[2], "botcmd spawnleveled 50");
     }
 
     #[test]

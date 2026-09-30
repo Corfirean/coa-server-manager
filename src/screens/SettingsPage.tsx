@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CompanionsCard } from "@/screens/CompanionsCard";
 
 const RESTART_LABEL = { runtime: "Applies immediately", world: "Needs a world server restart", full: "Needs a full server restart" } as const;
 
@@ -241,6 +242,8 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
     <div className="max-w-3xl pb-24">
       <h1 className="text-2xl font-semibold">{props.title}</h1>
       <p className="mt-1 text-muted">{props.question}</p>
+
+      {scope === "bots" && <CompanionsCard serverId={serverId} />}
 
       {view.drift_keys.length > 0 && (
         <Card className="mt-5 border-warn/40 p-4" role="status">

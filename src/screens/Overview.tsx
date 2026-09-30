@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { api, asUiError, type Human, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
+import { api, asUiError, type Human, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
 import { cn, formatUptime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,12 +36,17 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
   const [action, setAction] = useState<Action>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [pop, setPop] = useState<Population | null>(null);
   const alive = useRef(true);
 
   const poll = useCallback(async () => {
     try {
       const s = await api.status(server.id);
       if (alive.current) setStatus(s);
+      if (s.observed.world.state === "running") {
+        const p = await api.population(server.id).catch(() => null);
+        if (alive.current) setPop(p);
+      } else if (alive.current) setPop(null);
     } catch {
       /* transient; next poll retries */
     }
@@ -139,7 +144,7 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
           </div>
           <div>
             <dt className="text-muted">Players online</dt>
-            <dd className="mt-0.5 text-lg text-muted">—</dd>
+            <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">+ {pop.bots_online} companions</span> : null}</dd>
           </div>
         </dl>
 

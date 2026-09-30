@@ -10,6 +10,7 @@ pub mod install;
 pub mod layout;
 pub mod logging;
 pub mod pkgsource;
+pub mod population;
 pub mod process;
 pub mod manifest;
 pub mod migrations;
