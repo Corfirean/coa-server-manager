@@ -7,6 +7,7 @@ pub mod logging;
 pub mod process;
 pub mod manifest;
 pub mod registry;
+pub mod signing;
 
 pub use error::{Error, ErrorCode, Result};
 

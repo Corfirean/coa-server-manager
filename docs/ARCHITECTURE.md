@@ -428,3 +428,23 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
 | 8 | Client detection, addon, realmlist, PLAY | Client tree hash unchanged except addon dir + realmlist |
 | 9 | Friends: net diagnostics, firewall service, Tailscale | Idempotent rule add/remove test |
 | 10 | Error translation, diagnostics, repair, a11y, self-update | Spec §61 checklist |
+
+
+---------------------------------------------------------------------------------------------------------
+
+## 8. Decisions recorded after owner review (2026-09-30)
+
+* **Core changes go through our own fork.** We are not maintainers of `jealous-sound/azerothcore-wotlk-coa`, so
+  the bot-enabling core patches (and the S1/S5/S6/S7 style changes) live in a fork owned by the bot/manager
+  project; the build repo pins exact fork SHAs. Upstream is tracked as a remote and merged periodically; the
+  compatibility matrix is keyed by fork commit. The fork is created when Phase 6/7 needs it (nothing is pushed
+  before then). This supersedes S2 (no upstream commits required) and removes risk R1.
+* **Base package is compressed and split.** Payloads are zstd/LZMA-compressed and cut into parts below the
+  2 GiB GitHub asset limit (target 1.9 GB) with a parts list in the manifest; the downloader verifies each part
+  and the reassembled archive. Actual ratios will be measured in Phase 5 (the packaged database already shrinks
+  3.3 GB -> 141 MB; `Data\` maps/vmaps/mmaps are expected to compress far less).
+* **Manifest signing (R3 resolved).** Ed25519 key generated. Public key: `keys/manifest-signing.pub`, embedded
+  in the app (`signing::EMBEDDED_PUBLIC_KEY`). Private key: `%USERPROFILE%\.coa-manager\signing\` (outside the
+  repo, never committed); CI receives it as the `COA_SIGNING_KEY` secret, which the owner must add manually.
+  Signatures are detached (`manifest.json.sig`, over the exact manifest bytes), so the embedded `signature`
+  field in the manifest was removed. **Back up the private key** — losing it means shipping a new app to rotate.

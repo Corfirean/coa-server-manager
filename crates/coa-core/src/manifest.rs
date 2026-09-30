@@ -61,13 +61,6 @@ pub struct Revision {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Signature {
-    pub alg: String,
-    pub key_id: String,
-    pub sig: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
     pub schema: u32,
@@ -82,8 +75,6 @@ pub struct Manifest {
     pub files: Vec<FileEntry>,
     #[serde(default)]
     pub migrations: Vec<Migration>,
-    #[serde(default)]
-    pub signature: Option<Signature>,
 }
 
 fn is_sha256(s: &str) -> bool {
