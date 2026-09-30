@@ -201,13 +201,29 @@ impl Db {
         Ok((size, fsx::sha256_file(out)?))
     }
 
+    /// Run a plain SQL file against `schema`; the first error aborts and is returned.
+    pub fn run_sql_file(&self, schema: &str, file: &Path) -> Result<()> {
+        if !ident_ok(schema) {
+            return Err(Error::Invalid("bad schema name".into()));
+        }
+        let mut c = self.command("mysql.exe");
+        c.args(["--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci", "--max-allowed-packet=128M"]);
+        c.arg(schema);
+        c.stdin(Stdio::from(File::open(file)?));
+        let out = c.output()?;
+        if !out.status.success() {
+            return Err(self.fail(&out.stderr));
+        }
+        Ok(())
+    }
+
     /// Import a dump produced by `dump_to` into `schema` (which must already exist and be empty).
     pub fn import_from(&self, schema: &str, dump: &Path) -> Result<()> {
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
         }
         let mut c = self.command("mysql.exe");
-        c.args(["--default-character-set=utf8mb4", "--max-allowed-packet=128M"]);
+        c.args(["--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci", "--max-allowed-packet=128M"]);
         c.arg(schema);
         c.stdin(Stdio::piped());
         let mut child = c.spawn()?;

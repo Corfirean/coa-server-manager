@@ -11,6 +11,7 @@ pub mod layout;
 pub mod logging;
 pub mod process;
 pub mod manifest;
+pub mod migrations;
 pub mod package;
 pub mod ra;
 pub mod registry;
