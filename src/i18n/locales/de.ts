@@ -543,6 +543,12 @@ const de: Partial<Record<keyof typeof en, string>> = {
 
   // Offline bots
   "comp.offlineDone": "{n} Begleiter samt Ausrüstung erstellt. Sie melden sich beim Serverstart an.",
+
+  // Companions progress
+  "comp.progress": "{done} von {target} hinzugefügt",
+  "comp.progressDone": "Alle {n} Begleiter sind erstellt. Sie melden sich jetzt an.",
+  "comp.progressOffline": "{n} Begleiter werden samt Ausrüstung erstellt … das dauert einige Minuten.",
+  "comp.progressStalled": "Warte darauf, dass der Server weitere erstellt …",
 };
 
 export default de;

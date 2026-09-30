@@ -543,6 +543,12 @@ const ru: Partial<Record<keyof typeof en, string>> = {
 
   // Offline bots
   "comp.offlineDone": "Создано компаньонов: {n}, сразу со снаряжением. Они войдут в игру при запуске сервера.",
+
+  // Companions progress
+  "comp.progress": "Добавлено {done} из {target}",
+  "comp.progressDone": "Все компаньоны ({n}) созданы. Они входят в игру.",
+  "comp.progressOffline": "Создаю компаньонов ({n}) со снаряжением… это займёт несколько минут.",
+  "comp.progressStalled": "Жду, пока сервер создаст остальных…",
 };
 
 export default ru;

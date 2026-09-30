@@ -543,6 +543,12 @@ const en = {
 
   // Offline bots
   "comp.offlineDone": "Created {n} companions with their equipment. They log in when the server starts.",
+
+  // Companions progress
+  "comp.progress": "{done} of {target} added",
+  "comp.progressDone": "All {n} companions are created. They are logging in now.",
+  "comp.progressOffline": "Creating {n} companions with their equipment… this takes a few minutes.",
+  "comp.progressStalled": "Waiting for the server to create more…",
 } as const;
 
 export default en;

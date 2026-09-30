@@ -19,6 +19,8 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   // Start-up login: how many existing bots the server brings online by itself every time it starts.
   const [autoOn, setAutoOn] = useState(true);
   const [autoMax, setAutoMax] = useState("");
+  // A creation that is still in progress on the running server: how many existed before and how many were asked for.
+  const [job, setJob] = useState<{ baseline: number; target: number; since: number } | null>(null);
   const [startNote, setStartNote] = useState<string | null>(null);
   const [startBusy, setStartBusy] = useState(false);
 
@@ -62,12 +64,23 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
       setPop(up ? await api.population(serverId).catch(() => null) : null);
     };
     void poll();
-    const t = setInterval(poll, 4000);
+    // Faster while companions are being created, so the progress bar moves.
+    const t = setInterval(poll, job ? 1500 : 4000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [serverId]);
+  }, [serverId, job !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const done = job && pop ? Math.max(0, Math.min(job.target, pop.bots_total - job.baseline)) : 0;
+  useEffect(() => {
+    if (!job) return;
+    // Finished, or the server went away, or nothing new appeared for two minutes.
+    if ((pop && done >= job.target) || !running) {
+      if (pop && done >= job.target) setNote(t("comp.progressDone", { n: job.target }));
+      setJob(null);
+    }
+  }, [done, running]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The backend describes a size's warning in English; show the translated text for the two known kinds.
   const warningFor = (size?: { bots: number; warning: string | null }) => {
@@ -86,6 +99,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
     setNote(null);
     try {
       const r = await api.addCompanions(serverId, count);
+      if (r.spawned && r.baseline !== null) setJob({ baseline: r.baseline, target: count, since: Date.now() });
       setNote(r.created ? t("comp.offlineDone", { n: r.created }) : r.spawned ? t("comp.spawned", { n: count }) : t("comp.saved", { n: count }));
     } catch (e) {
       setError(asUiError(e));
@@ -128,13 +142,33 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
       {sizes && <p className="mt-2 text-xs text-muted">{t("comp.hardware", { cores: sizes.hardware.cores, ram: sizes.hardware.ram_gb.toFixed(0) })}</p>}
 
       <div className="mt-4 flex items-center gap-3">
-        <Button variant="primary" disabled={busy || !valid} onClick={() => void add()}>
+        <Button variant="primary" disabled={busy || !valid || job !== null} onClick={() => void add()}>
           {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
           {valid ? t("comp.add", { n: count }) : t("comp.addPlain")}
         </Button>
         {!running && <span className="text-xs text-muted">{t("comp.stoppedHint")}</span>}
       </div>
-      {note && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
+      {busy && !running && count >= 100 && (
+        <div className="mt-3">
+          <p className="text-sm text-muted" role="status">{t("comp.progressOffline", { n: count })}</p>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-busy="true">
+            <div className="h-full w-full animate-pulse rounded-full bg-gold/70" />
+          </div>
+        </div>
+      )}
+      {job && (
+        <div className="mt-3">
+          <div className="flex justify-between text-sm">
+            <span role="status">{t("comp.progress", { done, target: job.target })}</span>
+            <span className="text-muted">{Math.round((done / job.target) * 100)}%</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={job.target}>
+            <div className="h-full rounded-full bg-gold transition-[width] duration-500" style={{ width: `${(done / job.target) * 100}%` }} />
+          </div>
+          {done === 0 && Date.now() - job.since > 20000 && <p className="mt-1 text-xs text-muted">{t("comp.progressStalled")}</p>}
+        </div>
+      )}
+      {note && !job && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
 
       <div className="mt-5 border-t border-line pt-4">
         <h3 className="text-sm font-semibold">{t("comp.startTitle")}</h3>

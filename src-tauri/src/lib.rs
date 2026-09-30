@@ -546,6 +546,8 @@ struct CompanionsResult {
     spawned: Option<String>,
     /// Created offline with their equipment (server was stopped and the batch was large).
     created: Option<u32>,
+    /// Companions that existed before this request (for a progress bar while the server creates the new ones).
+    baseline: Option<u32>,
 }
 
 /// Turn on automatic bot login for `count` bots and, if the server is running, ask it to create them.
@@ -592,11 +594,13 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
             }
             made?;
             tracing::info!(count, "companions created offline");
-            return Ok(CompanionsResult { spawned: None, created: Some(count) });
+            return Ok(CompanionsResult { spawned: None, created: Some(count), baseline: None });
         }
+        let mut baseline = None;
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
             // Older servers have no template characters to copy bots from: add them first.
             coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?)?;
+            baseline = coa_core::population::query(&root).ok().map(|p| p.bots_total);
             Some(Ra::connect(&root)?.spawn_bots(count)?)
         } else {
             // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
@@ -604,7 +608,7 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
             None
         };
         tracing::info!(count, spawned = spawned.is_some(), "companions requested");
-        Ok(CompanionsResult { spawned, created: None })
+        Ok(CompanionsResult { spawned, created: None, baseline })
     })
     .await
 }

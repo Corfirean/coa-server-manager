@@ -543,6 +543,12 @@ const es: Partial<Record<keyof typeof en, string>> = {
 
   // Offline bots
   "comp.offlineDone": "Se crearon {n} compañeros con su equipo. Iniciarán sesión cuando arranque el servidor.",
+
+  // Companions progress
+  "comp.progress": "{done} de {target} añadidos",
+  "comp.progressDone": "Se crearon los {n} compañeros. Están iniciando sesión.",
+  "comp.progressOffline": "Creando {n} compañeros con su equipo… esto tarda unos minutos.",
+  "comp.progressStalled": "Esperando a que el servidor cree más…",
 };
 
 export default es;
