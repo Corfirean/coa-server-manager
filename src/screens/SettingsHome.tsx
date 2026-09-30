@@ -8,15 +8,7 @@ import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
-import { LOCALES, useI18n } from "@/i18n";
-
-const ACTION_TEXT: Record<string, string> = {
-  create: "New file",
-  replace: "Updated",
-  "merge-config": "New settings added",
-  skip: "Unchanged",
-  conflict: "Needs your decision",
-};
+import { LOCALES, useHuman, useI18n, type Key } from "@/i18n";
 
 function mb(bytes: number) {
   return bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -24,6 +16,7 @@ function mb(bytes: number) {
 
 export function SettingsHome({ serverId }: { serverId: string }) {
   const { t, locale, setLocale } = useI18n();
+  const human = useHuman();
   const [preview, setPreview] = useState<UpdatePreview | null>(null);
   const [pending, setPending] = useState<UpdateTxn | null>(null);
   const [busy, setBusy] = useState<"check" | "update" | "rollback" | null>(null);
@@ -65,7 +58,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
     try {
       const out = await api.applyUpdate(serverId, choices, source.trim() || undefined);
       setPreview(null);
-      if (out.txn.state === "committed") setDone(`Updated to version ${out.txn.to_version}.`);
+      if (out.txn.state === "committed") setDone(t("upd.updatedTo", { v: out.txn.to_version ?? "" }));
       else setPending(out.txn);
     } catch (e) {
       setError(asUiError(e));
@@ -76,14 +69,14 @@ export function SettingsHome({ serverId }: { serverId: string }) {
     }
   }
 
-  async function rollback(t: UpdateTxn) {
-    if (!window.confirm("Go back to the previous version? Your characters and accounts are not changed.")) return;
+  async function rollback(txn: UpdateTxn) {
+    if (!window.confirm(t("upd.confirmBack"))) return;
     setBusy("rollback");
     setError(null);
     try {
-      await api.rollbackUpdate(serverId, t.id);
+      await api.rollbackUpdate(serverId, txn.id);
       setPending(null);
-      setDone("Went back to the previous version. Your data was not touched.");
+      setDone(t("upd.wentBack"));
     } catch (e) {
       setError(asUiError(e));
     } finally {
@@ -92,7 +85,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
   }
 
   async function browse() {
-    const p = await open({ directory: true, multiple: false, title: "Choose an update package folder" });
+    const p = await open({ directory: true, multiple: false, title: t("upd.dialogTitle") });
     if (typeof p === "string") setSource(p);
   }
 
@@ -104,13 +97,13 @@ export function SettingsHome({ serverId }: { serverId: string }) {
       {pending && (
         <Card className="mt-6 border-warn/40 p-5" role="alert">
           <p className="font-medium text-warn">
-            {pending.state === "needs-decision" ? "The updated server did not start correctly" : "An earlier update did not finish"}
+            {pending.state === "needs-decision" ? t("upd.pendingBad") : t("upd.pendingUnfinished")}
           </p>
-          <p className="mt-1 text-sm text-muted">{pending.message ?? "You can safely go back to the previous version."}</p>
-          <p className="mt-1 text-sm text-muted">Going back restores program files and settings. Characters and accounts are never rolled back automatically.</p>
+          <p className="mt-1 text-sm text-muted">{pending.message ?? t("upd.safeBack")}</p>
+          <p className="mt-1 text-sm text-muted">{t("upd.backNote")}</p>
           <Button className="mt-3" size="sm" disabled={!!busy} onClick={() => void rollback(pending)}>
             {busy === "rollback" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-            Go back to version {pending.from_version ?? "before the update"}
+            {pending.from_version ? t("upd.goBackTo", { v: pending.from_version }) : t("upd.goBackBefore")}
           </Button>
         </Card>
       )}
@@ -139,57 +132,58 @@ export function SettingsHome({ serverId }: { serverId: string }) {
       <AboutCard />
 
       <Card className="mt-6 p-6">
-        <h2 className="font-semibold">Server updates</h2>
-        <p className="mt-1 text-sm text-muted">Updates are checked for authenticity, backed up first, and can be undone.</p>
+        <h2 className="font-semibold">{t("upd.title")}</h2>
+        <p className="mt-1 text-sm text-muted">{t("upd.text")}</p>
 
         <div className="mt-4 flex items-center gap-3">
           <Button variant="primary" disabled={!!busy} onClick={() => void check()}>
             {busy === "check" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-            Check for updates
+            {t("upd.check")}
           </Button>
           <button onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced} className="flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
             {advanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
-            Advanced
+            {t("install.advanced")}
           </button>
         </div>
         {advanced && (
           <div className="mt-3 flex gap-2">
-            <input aria-label="Update package folder" value={source} onChange={(e) => setSource(e.target.value)} placeholder="Update package folder (leave empty to use the official source)" className="selectable flex-1 rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold" />
-            <Button size="sm" onClick={browse}>Browse…</Button>
+            <input aria-label={t("upd.folderLabel")} value={source} onChange={(e) => setSource(e.target.value)} placeholder={t("upd.folderHint")} className="selectable flex-1 rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold" />
+            <Button size="sm" onClick={browse}>{t("install.browse")}</Button>
           </div>
         )}
 
         {done && <p className="mt-4 text-sm text-ok" role="status">{done}</p>}
         {error && (
           <p className="mt-4 text-sm text-bad" role="alert">
-            {error.human.code === "unknown" ? error.technical : error.human.message}
+            {error.human.code === "unknown" ? error.technical : human(error.human).message}
           </p>
         )}
 
         {preview && (
           <div className="mt-5 border-t border-line pt-4">
             <p className="font-medium">
-              Version {preview.to_version} is available{preview.from_version ? ` (you have ${preview.from_version})` : ""}
+              {preview.from_version ? t("upd.availableFrom", { to: preview.to_version, from: preview.from_version }) : t("upd.available", { to: preview.to_version })}
             </p>
             <p className="mt-1 text-sm text-muted">
-              Download {mb(preview.download_bytes)} · {preview.items.filter((i) => i.action !== "skip").length} file(s) change
-              {preview.migrations > 0 ? ` · ${preview.migrations} database update(s)` : ""}
+              {preview.migrations > 0
+                ? t("upd.summaryDb", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length, db: preview.migrations })
+                : t("upd.summary", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length })}
             </p>
             <ul className="mt-3 max-h-56 divide-y divide-line overflow-auto text-sm">
               {preview.items.filter((i) => i.action !== "skip").map((i) => (
                 <li key={i.path} className="py-2">
                   <div className="flex justify-between gap-3">
                     <span className="selectable break-all">{i.path}</span>
-                    <span className={i.action === "conflict" ? "shrink-0 text-warn" : "shrink-0 text-muted"}>{ACTION_TEXT[i.action]}</span>
+                    <span className={i.action === "conflict" ? "shrink-0 text-warn" : "shrink-0 text-muted"}>{t(`upd.act.${i.action}` as Key)}</span>
                   </div>
                   {i.action === "conflict" && (
                     <fieldset className="mt-2 flex flex-wrap gap-4 text-xs text-muted">
-                      <legend className="sr-only">This file was modified outside CoA Server Manager</legend>
-                      <span className="text-warn">This file was modified outside CoA Server Manager.</span>
+                      <legend className="sr-only">{t("upd.conflict")}</legend>
+                      <span className="text-warn">{t("upd.conflict")}</span>
                       {(["keep", "replace"] as const).map((c) => (
                         <label key={c} className="flex cursor-pointer items-center gap-1">
                           <input type="radio" name={i.path} checked={choices[i.path] === c} onChange={() => setChoices((x) => ({ ...x, [i.path]: c }))} />
-                          {c === "keep" ? "Keep my file" : "Replace with update"}
+                          {c === "keep" ? t("upd.keep") : t("upd.replace")}
                         </label>
                       ))}
                     </fieldset>
@@ -199,9 +193,9 @@ export function SettingsHome({ serverId }: { serverId: string }) {
             </ul>
             <Button className="mt-4" variant="primary" disabled={!!busy} onClick={() => void update()}>
               {busy === "update" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-              Update now
+              {t("upd.now")}
             </Button>
-            <p className="mt-2 text-xs text-muted">The server is stopped during the update and started again to check that it works.</p>
+            <p className="mt-2 text-xs text-muted">{t("upd.stopNote")}</p>
           </div>
         )}
 
