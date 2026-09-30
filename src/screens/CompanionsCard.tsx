@@ -16,6 +16,40 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // Start-up login: how many existing bots the server brings online by itself every time it starts.
+  const [autoOn, setAutoOn] = useState(true);
+  const [autoMax, setAutoMax] = useState("");
+  const [startNote, setStartNote] = useState<string | null>(null);
+  const [startBusy, setStartBusy] = useState(false);
+
+  useEffect(() => {
+    void api
+      .settings(serverId, "bots")
+      .then((v) => {
+        const on = v.settings.find((s) => s.key === "CoaBots.AutoLoginOnStartup");
+        const max = v.settings.find((s) => s.key === "CoaBots.AutoLogin.MaxCount");
+        if (on) setAutoOn(on.value === true);
+        if (max) setAutoMax(String(max.value));
+      })
+      .catch(() => {});
+  }, [serverId]);
+
+  const maxNum = Number(autoMax);
+  const maxValid = autoMax.trim() !== "" && Number.isInteger(maxNum) && maxNum >= 0 && maxNum <= 5000;
+
+  async function saveStart() {
+    setStartBusy(true);
+    setError(null);
+    setStartNote(null);
+    try {
+      await api.save(serverId, "bots", { "CoaBots.AutoLoginOnStartup": autoOn, "CoaBots.AutoLogin.MaxCount": maxNum });
+      setStartNote(t("comp.startSaved"));
+    } catch (e) {
+      setError(asUiError(e));
+    } finally {
+      setStartBusy(false);
+    }
+  }
 
   useEffect(() => {
     void api.companionSizes().then(setSizes);
@@ -52,7 +86,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
     setNote(null);
     try {
       const r = await api.addCompanions(serverId, count);
-      setNote(r.spawned ? t("comp.spawned", { n: count }) : t("comp.saved", { n: count }));
+      setNote(r.created ? t("comp.offlineDone", { n: r.created }) : r.spawned ? t("comp.spawned", { n: count }) : t("comp.saved", { n: count }));
     } catch (e) {
       setError(asUiError(e));
     } finally {
@@ -101,6 +135,32 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
         {!running && <span className="text-xs text-muted">{t("comp.stoppedHint")}</span>}
       </div>
       {note && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
+
+      <div className="mt-5 border-t border-line pt-4">
+        <h3 className="text-sm font-semibold">{t("comp.startTitle")}</h3>
+        <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" checked={autoOn} onChange={(e) => setAutoOn(e.target.checked)} />
+          {t("comp.startAuto")}
+        </label>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor="start-max" className="text-muted">{t("comp.startCount")}</label>
+          <input
+            id="start-max"
+            value={autoMax}
+            onChange={(e) => setAutoMax(e.target.value)}
+            inputMode="numeric"
+            disabled={!autoOn}
+            aria-invalid={!maxValid}
+            className="w-24 rounded-md border border-line bg-bg px-3 py-1.5 text-right outline-none focus:border-gold disabled:opacity-40"
+          />
+          <Button size="sm" variant="secondary" disabled={startBusy || (autoOn && !maxValid)} onClick={() => void saveStart()}>
+            {t("comp.startSave")}
+          </Button>
+        </div>
+        {autoOn && !maxValid && autoMax !== "" && <p className="mt-1 text-xs text-warn">{t("comp.startInvalid")}</p>}
+        <p className="mt-1 text-xs text-muted">{t("comp.startHint")}</p>
+        {startNote && <p className="mt-2 text-sm text-ok" role="status">{startNote}</p>}
+      </div>
       {error && <p className="mt-3 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
     </Card>
   );

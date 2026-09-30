@@ -527,6 +527,22 @@ const en = {
   "fr.g.ts.4": "Both of you must keep Tailscale running while you play.",
   "fr.g.ts.admin": "Open the Tailscale admin page",
   "fr.g.ts.share": "How sharing works (tailscale.com)",
+
+  // Bots at start
+  "comp.startTitle": "Bots at server start",
+  "comp.startAuto": "Bots log in automatically when the server starts",
+  "comp.startCount": "How many log in",
+  "comp.startSave": "Save",
+  "comp.startSaved": "Saved. It applies the next time the server starts.",
+  "comp.startHint": "Bots that do not log in stay saved and can be brought online later.",
+  "comp.startInvalid": "Enter a whole number from 0 to 5000.",
+
+  // Overview start bots
+  "overview.startBots": "Bots log in at start: {n}",
+  "overview.startBotsOff": "Bots log in at start: off",
+
+  // Offline bots
+  "comp.offlineDone": "Created {n} companions with their equipment. They log in when the server starts.",
 } as const;
 
 export default en;

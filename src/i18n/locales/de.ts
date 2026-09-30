@@ -527,6 +527,22 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "fr.g.ts.4": "Tailscale muss bei euch beiden laufen, solange ihr spielt.",
   "fr.g.ts.admin": "Tailscale-Verwaltungsseite öffnen",
   "fr.g.ts.share": "So funktioniert das Teilen (tailscale.com)",
+
+  // Bots at start
+  "comp.startTitle": "Bots beim Serverstart",
+  "comp.startAuto": "Bots melden sich beim Serverstart automatisch an",
+  "comp.startCount": "Wie viele sich anmelden",
+  "comp.startSave": "Speichern",
+  "comp.startSaved": "Gespeichert. Gilt ab dem nächsten Serverstart.",
+  "comp.startHint": "Bots, die sich nicht anmelden, bleiben gespeichert und können später online gebracht werden.",
+  "comp.startInvalid": "Gib eine ganze Zahl von 0 bis 5000 ein.",
+
+  // Overview start bots
+  "overview.startBots": "Bots melden sich beim Start an: {n}",
+  "overview.startBotsOff": "Bots melden sich beim Start nicht an",
+
+  // Offline bots
+  "comp.offlineDone": "{n} Begleiter samt Ausrüstung erstellt. Sie melden sich beim Serverstart an.",
 };
 
 export default de;

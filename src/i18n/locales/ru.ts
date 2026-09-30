@@ -527,6 +527,22 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "fr.g.ts.4": "Пока вы играете, Tailscale должен быть запущен у обоих.",
   "fr.g.ts.admin": "Открыть страницу администрирования Tailscale",
   "fr.g.ts.share": "Как работает предоставление доступа (tailscale.com)",
+
+  // Bots at start
+  "comp.startTitle": "Боты при запуске сервера",
+  "comp.startAuto": "Боты входят в игру автоматически при запуске сервера",
+  "comp.startCount": "Сколько входит",
+  "comp.startSave": "Сохранить",
+  "comp.startSaved": "Сохранено. Вступит в силу при следующем запуске сервера.",
+  "comp.startHint": "Боты, которые не входят, остаются сохранёнными, их можно вывести в сеть позже.",
+  "comp.startInvalid": "Введите целое число от 0 до 5000.",
+
+  // Overview start bots
+  "overview.startBots": "Боты входят при запуске: {n}",
+  "overview.startBotsOff": "Боты при запуске не входят",
+
+  // Offline bots
+  "comp.offlineDone": "Создано компаньонов: {n}, сразу со снаряжением. Они войдут в игру при запуске сервера.",
 };
 
 export default ru;

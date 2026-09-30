@@ -69,6 +69,18 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
   const [client, setClient] = useState<ClientInfo | null>(null);
   const [playing, setPlaying] = useState(false);
   const [perf, setPerf] = useState<Performance | null>(null);
+  const [startBots, setStartBots] = useState<number | null | undefined>(undefined);
+
+  useEffect(() => {
+    void api
+      .settings(server.id, "bots")
+      .then((v) => {
+        const on = v.settings.find((s) => s.key === "CoaBots.AutoLoginOnStartup");
+        const max = v.settings.find((s) => s.key === "CoaBots.AutoLogin.MaxCount");
+        setStartBots(on?.value === true && typeof max?.value === "number" ? max.value : null);
+      })
+      .catch(() => setStartBots(undefined));
+  }, [server.id]);
   const alive = useRef(true);
 
   const poll = useCallback(async () => {
@@ -213,6 +225,9 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
             <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.companions", { n: pop.bots_online })}</span> : null}</dd>
           </div>
         </dl>
+        {startBots !== undefined && (
+          <p className="mt-3 text-xs text-muted">{startBots === null ? t("overview.startBotsOff") : t("overview.startBots", { n: startBots })}</p>
+        )}
         {perf && <TickRate perf={perf} />}
 
         <div className="mt-7 flex items-center gap-4">

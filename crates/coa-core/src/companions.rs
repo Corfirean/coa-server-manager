@@ -48,8 +48,57 @@ pub fn ensure_templates(db: &Db) -> Result<bool> {
     Ok(true)
 }
 
-pub fn has_seed_file(_root: &Path) -> bool {
-    !SQL.is_empty()
+/// The bot module's offline factory ships with the server package; it creates fully equipped bots straight in the
+/// database while the world server is stopped (fast and safe for large batches).
+pub const OFFLINE_FACTORY: &str = "Extras/CoABotTools/offline_bot_factory.py";
+
+/// Batches at least this large are created offline when the server happens to be stopped.
+pub const OFFLINE_MIN: u32 = 100;
+
+pub fn offline_factory(root: &Path) -> Option<std::path::PathBuf> {
+    let p = root.join(OFFLINE_FACTORY);
+    (p.is_file() && root.join("Runtime/python/python.exe").is_file() && root.join("mysql/bin/mysql.exe").is_file() && root.join("mysql/admin-client.ini").is_file()).then_some(p)
+}
+
+/// Run the offline factory for `count` leveled bots. The database must be running and the world/auth servers stopped.
+/// Returns the tail of its report. Credentials are passed as a file path only, never on the command line.
+pub fn offline_create(root: &Path, log: &Path, count: u32) -> Result<String> {
+    use std::process::{Command, Stdio};
+    let script = offline_factory(root).ok_or_else(|| crate::error::Error::Invalid("The offline bot factory is not part of this server.".into()))?;
+    if let Some(dir) = log.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let out = fs::File::create(log)?;
+    let err = out.try_clone()?;
+    let mut child = Command::new(root.join("Runtime/python/python.exe"))
+        .arg(&script)
+        .args(["--count", &count.to_string(), "--leveled", "--mysql-exe"])
+        .arg(root.join("mysql/bin/mysql.exe"))
+        .arg("--defaults-file")
+        .arg(root.join("mysql/admin-client.ini"))
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(out))
+        .stderr(Stdio::from(err))
+        .spawn()?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(45 * 60) {
+            let _ = child.kill();
+            return Err(crate::error::Error::Invalid("Creating the companions took too long and was stopped.".into()));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    };
+    let text = fs::read_to_string(log).unwrap_or_default();
+    let tail: Vec<&str> = text.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect();
+    if status.success() {
+        Ok(tail.join("\n"))
+    } else {
+        Err(crate::error::Error::Invalid(format!("The bot factory reported an error: {}", tail.join(" | "))))
+    }
 }
 
 #[cfg(test)]

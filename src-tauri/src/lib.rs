@@ -544,6 +544,8 @@ fn companion_sizes() -> CompanionSizes {
 #[derive(Serialize)]
 struct CompanionsResult {
     spawned: Option<String>,
+    /// Created offline with their equipment (server was stopped and the batch was large).
+    created: Option<u32>,
 }
 
 /// Turn on automatic bot login for `count` bots and, if the server is running, ask it to create them.
@@ -558,9 +560,40 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
-        changes.insert("CoaBots.AutoLogin.MaxCount".to_string(), Value::from(count));
+        // Every companion, old and new, should come back at the next start, so the start-up limit only ever grows here.
+        let existing_max = config::load(&root, Scope::Bots)
+            .ok()
+            .and_then(|v| v.settings.iter().find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount").and_then(|s| s.value.as_u64()))
+            .unwrap_or(0) as u32;
+        let already = coa_core::population::query(&root).map(|p| p.bots_total).unwrap_or(0);
+        changes.insert("CoaBots.AutoLogin.MaxCount".to_string(), Value::from(existing_max.max(already + count).min(5000)));
         config::save(&root, &meta, Scope::Bots, &changes)?;
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
+        // Large batches while the server is stopped: create them in the database right now, fully equipped.
+        if o.world.state == coa_core::process::ServiceState::Stopped
+            && o.auth.state == coa_core::process::ServiceState::Stopped
+            && count >= coa_core::companions::OFFLINE_MIN
+            && coa_core::companions::offline_factory(&root).is_some()
+        {
+            let started_db = o.mysql.state != coa_core::process::ServiceState::Running;
+            if started_db {
+                let out = driver::run(&root, Verb::StartMysql)?;
+                if !out.ok {
+                    return Err(Error::Invalid("The database could not be started.".into()));
+                }
+            }
+            let made = (|| -> Result<()> {
+                coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?)?;
+                coa_core::companions::offline_create(&root, &meta.join("logs").join("companions-offline.log"), count)?;
+                Ok(())
+            })();
+            if started_db {
+                let _ = driver::run(&root, Verb::StopAll);
+            }
+            made?;
+            tracing::info!(count, "companions created offline");
+            return Ok(CompanionsResult { spawned: None, created: Some(count) });
+        }
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
             // Older servers have no template characters to copy bots from: add them first.
             coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?)?;
@@ -571,7 +604,7 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
             None
         };
         tracing::info!(count, spawned = spawned.is_some(), "companions requested");
-        Ok(CompanionsResult { spawned })
+        Ok(CompanionsResult { spawned, created: None })
     })
     .await
 }
