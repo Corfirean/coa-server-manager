@@ -161,6 +161,18 @@ export interface DbRestore {
   tables_restored: number;
 }
 
+export interface Preflight {
+  ok: boolean;
+  problems: { code: string; message: string }[];
+  free_bytes: number;
+}
+
+export interface InstallStep {
+  step: string;
+  percent: number;
+  detail: string | null;
+}
+
 export const api = {
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
@@ -179,6 +191,11 @@ export const api = {
   deleteBackup: (id: string, backupId: string) => invoke<void>("delete_backup", { id, backupId }),
   restoreConfigs: (id: string, backupId: string) => invoke<RecoveryPoint>("restore_backup_configs", { id, backupId }),
   restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
+  installPreflight: (dest: string) => invoke<Preflight>("install_preflight", { dest }),
+  installNew: (dest: string, pkg?: string) => invoke<ServerSummary>("install_new", { dest, package: pkg ?? null }),
+  cancelInstall: () => invoke<void>("cancel_install"),
+  createAccount: (id: string, username: string, password: string, administrator: boolean) =>
+    invoke<void>("create_account", { id, username, password, administrator }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
 };
 

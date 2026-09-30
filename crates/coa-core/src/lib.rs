@@ -6,10 +6,13 @@ pub mod driver;
 pub mod error;
 pub mod fsx;
 pub mod health;
+pub mod install;
 pub mod layout;
 pub mod logging;
 pub mod process;
 pub mod manifest;
+pub mod package;
+pub mod ra;
 pub mod registry;
 pub mod signing;
 

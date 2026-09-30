@@ -1,7 +1,6 @@
 import { FolderSearch, Download } from "lucide-react";
-import { Card } from "@/components/ui/card";
 
-export function Welcome({ onImport }: { onImport: () => void }) {
+export function Welcome({ onImport, onInstall, onBack }: { onImport: () => void; onInstall: () => void; onBack?: () => void }) {
   return (
     <main className="flex h-full flex-col items-center justify-center px-8">
       <div className="mb-10 text-center">
@@ -11,12 +10,14 @@ export function Welcome({ onImport }: { onImport: () => void }) {
       </div>
 
       <div className="grid w-full max-w-3xl grid-cols-2 gap-5">
-        <Card className="p-7 opacity-60" aria-disabled="true">
+        <button
+          onClick={onInstall}
+          className="cursor-pointer rounded-card border border-line bg-card/90 p-7 text-left shadow-[0_8px_30px_rgb(0_0_0/0.28)] transition-colors hover:border-gold/60"
+        >
           <Download className="mb-4 h-7 w-7 text-gold" aria-hidden />
           <h2 className="text-lg font-semibold">Install new server</h2>
           <p className="mt-1 text-sm text-muted">One-click setup with everything included.</p>
-          <p className="mt-4 inline-block rounded bg-white/5 px-2 py-1 text-xs text-muted">Coming in a later release</p>
-        </Card>
+        </button>
 
         <button
           onClick={onImport}
@@ -29,6 +30,11 @@ export function Welcome({ onImport }: { onImport: () => void }) {
           </p>
         </button>
       </div>
+      {onBack && (
+        <button onClick={onBack} className="mt-8 cursor-pointer text-sm text-muted hover:text-ink">
+          Back to my servers
+        </button>
+      )}
     </main>
   );
 }

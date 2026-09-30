@@ -3,8 +3,9 @@ import { api, type ServerSummary } from "@/lib/api";
 import { Welcome } from "@/screens/Welcome";
 import { ImportServer } from "@/screens/ImportServer";
 import { Shell } from "@/screens/Shell";
+import { InstallServer } from "@/screens/InstallServer";
 
-type View = "welcome" | "import";
+type View = "welcome" | "add" | "import" | "install";
 
 export default function App() {
   const [servers, setServers] = useState<ServerSummary[] | null>(null);
@@ -29,7 +30,7 @@ export default function App() {
         servers={servers}
         activeId={activeId}
         onSelect={setActiveId}
-        onAddAnother={() => setView("import")}
+        onAddAnother={() => setView("add")}
         onForget={async (id) => {
           await api.forget(id);
           await refresh();
@@ -38,11 +39,25 @@ export default function App() {
     );
   }
 
+  if (view === "install") {
+    return (
+      <InstallServer
+        canCancel
+        onCancel={() => setView(servers.length > 0 ? "add" : "welcome")}
+        onDone={async (s) => {
+          await refresh();
+          setActiveId(s.id);
+          setView("welcome");
+        }}
+      />
+    );
+  }
+
   if (view === "import") {
     return (
       <ImportServer
-        canCancel={servers.length > 0}
-        onCancel={() => setView("welcome")}
+        canCancel
+        onCancel={() => setView(servers.length > 0 ? "add" : "welcome")}
         onAdded={async (s) => {
           await refresh();
           setActiveId(s.id);
@@ -52,5 +67,11 @@ export default function App() {
     );
   }
 
-  return <Welcome onImport={() => setView("import")} />;
+  return (
+    <Welcome
+      onImport={() => setView("import")}
+      onInstall={() => setView("install")}
+      onBack={servers.length > 0 ? () => setView("welcome") : undefined}
+    />
+  );
 }

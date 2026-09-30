@@ -56,6 +56,22 @@ pub struct Migration {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchivePart {
+    pub name: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+/// How a base/update payload is shipped: one zstd-compressed tar stream cut into parts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveInfo {
+    pub format: String,
+    pub parts: Vec<ArchivePart>,
+    pub unpacked_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Revision {
     pub commit: Option<String>,
 }
@@ -75,6 +91,8 @@ pub struct Manifest {
     pub files: Vec<FileEntry>,
     #[serde(default)]
     pub migrations: Vec<Migration>,
+    #[serde(default)]
+    pub archive: Option<ArchiveInfo>,
 }
 
 fn is_sha256(s: &str) -> bool {
@@ -134,6 +152,16 @@ impl Manifest {
                 return bad(format!("{}: duplicate path", f.path));
             }
         }
+        if let Some(a) = &self.archive {
+            if a.format != "tar.zst" || a.parts.is_empty() {
+                return bad(format!("unsupported archive format {:?}", a.format));
+            }
+            for p in &a.parts {
+                if !is_sha256(&p.sha256) || p.name.contains(['/', '\\']) || p.name.is_empty() || p.name.starts_with('.') {
+                    return bad(format!("archive part {:?} is invalid", p.name));
+                }
+            }
+        }
         let mut ids = HashSet::new();
         for m in &self.migrations {
             if m.id.is_empty() || !is_sha256(&m.sha256) || !ids.insert((m.db.clone(), m.id.clone())) {
@@ -180,7 +208,7 @@ mod tests {
     fn sample(files: &str) -> String {
         format!(
             r#"{{"schema":1,"kind":"update","version":"0.4.1","core":{{"commit":"{c}"}},"bots":{{"commit":null}},
-            "builtAt":"2026-09-30T00:00:00Z","minManagerVersion":"0.1.0","files":[{files}],"migrations":[]}}"#,
+            "builtAt":"2026-09-30T00:00:00Z","minManagerVersion":"0.1.0","files":[{files}],"migrations":[],"archive":null}}"#,
             c = "a".repeat(40)
         )
     }

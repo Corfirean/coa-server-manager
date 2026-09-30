@@ -7,7 +7,10 @@ use std::sync::Mutex;
 
 use coa_core::backup::{self, Kind, RecoveryPoint, Trigger, VerifyReport};
 use coa_core::config::{self, Scope, SettingsView};
+use coa_core::download::Cancel;
 use coa_core::driver::{self, DriverOutcome, Verb};
+use coa_core::install::{self, Preflight, Source};
+use coa_core::ra::Ra;
 use coa_core::error::UiError;
 use coa_core::layout::{self, Classification, ScanReport};
 use coa_core::process::{self, Observed};
@@ -22,6 +25,20 @@ struct AppState {
     registry: Registry,
     /// Installation ids with a start/stop currently running (one action at a time per server).
     busy: Mutex<HashSet<String>>,
+    /// Cancel handle of the installation currently running, if any.
+    install_cancel: Mutex<Option<Cancel>>,
+}
+
+/// Where official server packages are published (created by the release pipeline, Phase 6).
+const DEFAULT_PACKAGE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/latest/download";
+
+fn package_source(custom: Option<String>) -> Source {
+    let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_PACKAGE_SOURCE").ok());
+    match pick {
+        Some(p) if p.to_ascii_lowercase().starts_with("http") => Source::Url(p),
+        Some(p) => Source::Dir(PathBuf::from(p)),
+        None => Source::Url(DEFAULT_PACKAGE_URL.into()),
+    }
 }
 
 #[derive(Serialize)]
@@ -312,12 +329,66 @@ async fn restore_backup_database(state: State<'_, AppState>, id: String, backup_
     blocking(move || backup::restore_database(&root, &meta_dir(&root)?, &backup_id, &database)).await
 }
 
+#[tauri::command]
+fn install_preflight(state: State<'_, AppState>, dest: String) -> Preflight {
+    // The real size is checked again once the signed manifest is known; assume a typical install here.
+    install::preflight(std::path::Path::new(&dest), 6 * 1024 * 1024 * 1024, &state.registry)
+}
+
+#[tauri::command]
+async fn install_new(app: AppHandle, state: State<'_, AppState>, dest: String, package: Option<String>) -> std::result::Result<ServerSummary, UiError> {
+    let cancel = Cancel::default();
+    *state.install_cancel.lock().map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
+    let source = package_source(package);
+    let registry = Registry::at(data_dir().join("installs.json"));
+    let dest_path = PathBuf::from(dest);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        install::install_base(
+            &install::Params { source, dest: dest_path, trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY, registry: &registry, cancel },
+            &|step| {
+                let _ = app.emit("install-progress", step);
+            },
+        )
+    })
+    .await;
+    if let Ok(mut c) = state.install_cancel.lock() {
+        *c = None;
+    }
+    let done = result.map_err(|e| Error::Invalid(e.to_string()))??;
+    Ok(summary(done.id, PathBuf::from(done.path)))
+}
+
+#[tauri::command]
+fn cancel_install(state: State<'_, AppState>) {
+    if let Ok(c) = state.install_cancel.lock() {
+        if let Some(c) = c.as_ref() {
+            c.cancel();
+        }
+    }
+}
+
+#[tauri::command]
+async fn create_account(state: State<'_, AppState>, id: String, username: String, password: String, administrator: bool) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        coa_core::ra::validate_account(&username, &password)?;
+        let mut ra = Ra::connect(&root)?;
+        ra.create_account(&username, &password)?;
+        if administrator {
+            ra.make_administrator(&username)?;
+        }
+        tracing::info!(%username, administrator, "account created");
+        Ok(())
+    })
+    .await
+}
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()) })
+        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
             scan_server,
@@ -338,7 +409,11 @@ pub fn run() {
             verify_backup,
             delete_backup,
             restore_backup_configs,
-            restore_backup_database
+            restore_backup_database,
+            install_preflight,
+            install_new,
+            cancel_install,
+            create_account
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");
