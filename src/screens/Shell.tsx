@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Archive, Bot, Gauge, Globe, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
 import { type ServerSummary } from "@/lib/api";
+import { useT, type Key } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { Overview } from "@/screens/Overview";
 import { Placeholder } from "@/screens/Placeholder";
@@ -14,15 +15,15 @@ import { Button } from "@/components/ui/button";
 
 type Page = "overview" | "bots" | "server" | "players" | "friends" | "backups" | "console" | "settings";
 
-const NAV: { id: Page; label: string; icon: LucideIcon; question: string }[] = [
-  { id: "overview", label: "Overview", icon: Gauge, question: "Is my server running?" },
-  { id: "bots", label: "Bots", icon: Bot, question: "How are my bots configured?" },
-  { id: "server", label: "Server", icon: Server, question: "How does my server behave?" },
-  { id: "players", label: "Players", icon: Users, question: "Who is playing right now?" },
-  { id: "friends", label: "Play with Friends", icon: Globe, question: "How can my friend join?" },
-  { id: "backups", label: "Backups", icon: Archive, question: "Is my data safe?" },
-  { id: "console", label: "Console", icon: Terminal, question: "What is the server doing?" },
-  { id: "settings", label: "Settings", icon: Settings, question: "How does Manager behave?" },
+const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
+  { id: "overview", label: "nav.overview", icon: Gauge, question: "q.overview" },
+  { id: "bots", label: "nav.bots", icon: Bot, question: "q.bots" },
+  { id: "server", label: "nav.server", icon: Server, question: "q.server" },
+  { id: "players", label: "nav.players", icon: Users, question: "q.players" },
+  { id: "friends", label: "nav.friends", icon: Globe, question: "q.friends" },
+  { id: "backups", label: "nav.backups", icon: Archive, question: "q.backups" },
+  { id: "console", label: "nav.console", icon: Terminal, question: "q.console" },
+  { id: "settings", label: "nav.settings", icon: Settings, question: "q.settings" },
 ];
 
 export function Shell(props: {
@@ -32,14 +33,15 @@ export function Shell(props: {
   onAddAnother: () => void;
   onForget: (id: string) => Promise<void>;
 }) {
+  const t = useT();
   const [page, setPage] = useState<Page>("overview");
   const server = props.servers.find((s) => s.id === props.activeId)!;
   const current = NAV.find((n) => n.id === page)!;
 
   return (
     <div className="flex h-full">
-      <nav className="flex w-60 shrink-0 flex-col border-r border-line bg-[#0b0c0e] p-3" aria-label="Main">
-        <div className="px-3 pb-4 pt-2 text-sm font-semibold tracking-wide text-gold">CoA Server Manager</div>
+      <nav className="flex w-60 shrink-0 flex-col border-r border-line bg-[#0b0c0e] p-3" aria-label={t("nav.main")}>
+        <div className="px-3 pb-4 pt-2 text-sm font-semibold tracking-wide text-gold">{t("app.name")}</div>
         <ul className="flex flex-col gap-0.5">
           {NAV.map(({ id, label, icon: Icon }) => (
             <li key={id}>
@@ -52,7 +54,7 @@ export function Shell(props: {
                 )}
               >
                 <Icon className={cn("h-[18px] w-[18px]", page === id && "text-gold")} aria-hidden />
-                {label}
+                {t(label)}
               </button>
             </li>
           ))}
@@ -64,7 +66,7 @@ export function Shell(props: {
               className="mb-2 w-full rounded-md border border-line bg-card px-2 py-2 text-sm"
               value={props.activeId}
               onChange={(e) => props.onSelect(e.target.value)}
-              aria-label="Server"
+              aria-label={t("nav.serverPicker")}
             >
               {props.servers.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -74,7 +76,7 @@ export function Shell(props: {
             </select>
           )}
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={props.onAddAnother}>
-            Manage another server
+            {t("nav.addAnother")}
           </Button>
         </div>
       </nav>
@@ -83,7 +85,7 @@ export function Shell(props: {
         {page === "overview" ? (
           <Overview key={server.id} server={server} onForget={() => props.onForget(server.id)} />
         ) : page === "bots" || page === "server" ? (
-          <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={current.label} question={current.question} />
+          <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={t(current.label)} question={t(current.question)} />
         ) : page === "console" ? (
           <ConsolePage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (
@@ -95,7 +97,7 @@ export function Shell(props: {
         ) : page === "backups" ? (
           <BackupsPage key={server.id} serverId={server.id} />
         ) : (
-          <Placeholder title={current.label} question={current.question} />
+          <Placeholder title={t(current.label)} question={t(current.question)} />
         )}
       </main>
     </div>

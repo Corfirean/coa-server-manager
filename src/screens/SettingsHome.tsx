@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
+import { LOCALES, useI18n } from "@/i18n";
 
 const ACTION_TEXT: Record<string, string> = {
   create: "New file",
@@ -22,6 +23,7 @@ function mb(bytes: number) {
 }
 
 export function SettingsHome({ serverId }: { serverId: string }) {
+  const { t, locale, setLocale } = useI18n();
   const [preview, setPreview] = useState<UpdatePreview | null>(null);
   const [pending, setPending] = useState<UpdateTxn | null>(null);
   const [busy, setBusy] = useState<"check" | "update" | "rollback" | null>(null);
@@ -96,8 +98,8 @@ export function SettingsHome({ serverId }: { serverId: string }) {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold">Settings</h1>
-      <p className="mt-1 text-muted">How does Manager behave?</p>
+      <h1 className="text-2xl font-semibold">{t("settings.title")}</h1>
+      <p className="mt-1 text-muted">{t("q.settings")}</p>
 
       {pending && (
         <Card className="mt-6 border-warn/40 p-5" role="alert">
@@ -112,6 +114,23 @@ export function SettingsHome({ serverId }: { serverId: string }) {
           </Button>
         </Card>
       )}
+
+      <Card className="mt-6 p-6">
+        <h2 className="font-semibold">{t("settings.language")}</h2>
+        <p className="mt-1 text-sm text-muted">{t("settings.languageHint")}</p>
+        <select
+          aria-label={t("settings.language")}
+          value={locale}
+          onChange={(e) => setLocale(e.target.value as typeof locale)}
+          className="mt-3 rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold"
+        >
+          {LOCALES.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </Card>
 
       <ClientCard serverId={serverId} />
 
