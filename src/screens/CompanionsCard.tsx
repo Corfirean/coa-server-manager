@@ -3,8 +3,11 @@ import { Loader2 } from "lucide-react";
 import { api, asUiError, type CompanionSizes, type Population, type UiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useHuman, useT } from "@/i18n";
 
 export function CompanionsCard({ serverId }: { serverId: string }) {
+  const t = useT();
+  const human = useHuman();
   const [sizes, setSizes] = useState<CompanionSizes | null>(null);
   const [pop, setPop] = useState<Population | null>(null);
   const [running, setRunning] = useState(false);
@@ -33,7 +36,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   }, [serverId]);
 
   const count = choice === "custom" ? Number(custom) : (sizes?.sizes.find((s) => s.id === choice)?.bots ?? 0);
-  const warning = choice === "custom" ? (count > 500 ? "Large populations may need more CPU and memory. Increase gradually." : null) : (sizes?.sizes.find((s) => s.id === choice)?.warning ?? null);
+  const warning = choice === "custom" ? (count > 500 ? t("comp.largeWarning") : null) : (sizes?.sizes.find((s) => s.id === choice)?.warning ?? null);
   const valid = Number.isInteger(count) && count >= 1 && count <= 2000;
 
   async function add() {
@@ -42,7 +45,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
     setNote(null);
     try {
       const r = await api.addCompanions(serverId, count);
-      setNote(r.spawned ? `Creating ${count} companions. They appear gradually over the next minutes.` : `Saved. ${count} companions will log in when the server starts.`);
+      setNote(r.spawned ? t("comp.spawned", { n: count }) : t("comp.saved", { n: count }));
     } catch (e) {
       setError(asUiError(e));
     } finally {
@@ -52,17 +55,17 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
 
   return (
     <Card className="mt-6 p-6">
-      <h2 className="font-semibold">AI companions</h2>
+      <h2 className="font-semibold">{t("comp.title")}</h2>
       <p className="mt-1 text-sm text-muted">
         {pop
-          ? `${pop.bots_online} online now · ${pop.bots_total} created in total`
+          ? t("comp.population", { online: pop.bots_online, total: pop.bots_total })
           : running
-            ? "Reading the current population…"
-            : "Start the server to see how many companions are online."}
+            ? t("comp.reading")
+            : t("comp.startToSee")}
       </p>
 
       <fieldset className="mt-4">
-        <legend className="text-sm text-muted">Would you like more companions?</legend>
+        <legend className="text-sm text-muted">{t("comp.wantMore")}</legend>
         <div className="mt-2 flex flex-wrap gap-2">
           {sizes?.sizes.map((s) => (
             <label key={s.id} className={`cursor-pointer rounded-md border px-3 py-2 text-sm ${choice === s.id ? "border-gold bg-gold/10" : "border-line hover:bg-white/5"}`}>
@@ -72,26 +75,26 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
           ))}
           <label className={`cursor-pointer rounded-md border px-3 py-2 text-sm ${choice === "custom" ? "border-gold bg-gold/10" : "border-line hover:bg-white/5"}`}>
             <input type="radio" name="size" className="sr-only" checked={choice === "custom"} onChange={() => setChoice("custom")} />
-            Custom
+            {t("comp.custom")}
           </label>
           {choice === "custom" && (
-            <input aria-label="Number of companions" value={custom} onChange={(e) => setCustom(e.target.value)} inputMode="numeric" className="w-24 rounded-md border border-line bg-bg px-3 py-2 text-right text-sm outline-none focus:border-gold" />
+            <input aria-label={t("comp.numberLabel")} value={custom} onChange={(e) => setCustom(e.target.value)} inputMode="numeric" className="w-24 rounded-md border border-line bg-bg px-3 py-2 text-right text-sm outline-none focus:border-gold" />
           )}
         </div>
       </fieldset>
 
       {warning && <p className="mt-3 text-sm text-warn" role="status">{warning}</p>}
-      {sizes && <p className="mt-2 text-xs text-muted">This computer: {sizes.hardware.cores} cores, {sizes.hardware.ram_gb.toFixed(0)} GB memory.</p>}
+      {sizes && <p className="mt-2 text-xs text-muted">{t("comp.hardware", { cores: sizes.hardware.cores, ram: sizes.hardware.ram_gb.toFixed(0) })}</p>}
 
       <div className="mt-4 flex items-center gap-3">
         <Button variant="primary" disabled={busy || !valid} onClick={() => void add()}>
           {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-          Add {valid ? count : ""} companions
+          {valid ? t("comp.add", { n: count }) : t("comp.addPlain")}
         </Button>
-        {!running && <span className="text-xs text-muted">The server is stopped: they will be created the next time it runs.</span>}
+        {!running && <span className="text-xs text-muted">{t("comp.stoppedHint")}</span>}
       </div>
       {note && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
-      {error && <p className="mt-3 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : error.human.message}</p>}
+      {error && <p className="mt-3 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
     </Card>
   );
 }
