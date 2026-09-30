@@ -109,6 +109,17 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     Ok(())
 }
 
+/// Before every server start: when the owner shares the server with friends, make sure the login and world servers
+/// listen on all addresses. The launcher's own tools (for example switching detailed logging off) restore the config
+/// templates from older copies and would silently put `BindIP` back to 127.0.0.1 while the realm list still advertises
+/// the shared address - the game then shows the realm and drops back to the login screen without any message.
+pub fn ensure_bind(root: &Path, meta: &Path) -> Result<bool> {
+    match load(meta).mode {
+        Mode::Local => Ok(false),
+        _ => set_open(root, meta, true),
+    }
+}
+
 /// After every server start: put the chosen address back into the realm list (the launcher resets it to 127.0.0.1).
 pub fn reapply(root: &Path, meta: &Path) -> Result<()> {
     let s = load(meta);
@@ -187,6 +198,16 @@ mod tests {
         assert!(crate::config::list_snapshots(&meta).iter().any(|s| s.reason.contains("opening")), "a snapshot was taken first");
         assert!(set_open(&root, &meta, false).unwrap());
         assert!(fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("BindIP = \"127.0.0.1\""));
+    }
+
+    #[test]
+    fn a_shared_server_gets_its_bind_address_back_before_start_and_a_local_one_is_left_alone() {
+        let (_d, root, meta) = setup();
+        assert!(!ensure_bind(&root, &meta).unwrap(), "local mode: nothing to do");
+        save(&meta, &Settings { mode: Mode::Private, host: Some("100.64.1.2".into()) }).unwrap();
+        assert!(ensure_bind(&root, &meta).unwrap(), "templates were reset to 127.0.0.1 -> reopened");
+        assert!(bind_is_open(&root));
+        assert!(!ensure_bind(&root, &meta).unwrap(), "already open: idempotent");
     }
 
     #[test]

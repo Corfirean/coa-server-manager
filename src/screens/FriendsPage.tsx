@@ -55,6 +55,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
   const [error, setError] = useState<UiError | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [needsRestart, setNeedsRestart] = useState(false);
 
   const refresh = useCallback(() => api.friendsStatus(serverId).then(setSt).catch((e) => setError(asUiError(e))), [serverId]);
   useEffect(() => {
@@ -84,6 +85,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
   const enable = (mode: FriendsMode) =>
     run(`enable-${mode}`, async () => {
       const r = await api.friendsEnable(serverId, mode, net?.public_ip ?? undefined, mode === "direct" && !!net?.router_found);
+      setNeedsRestart(r.restart_required);
       return [r.restart_required ? t("fr.restartToApply") : null, r.note].filter(Boolean).join(" ") || t("fr.ready");
     });
 
@@ -199,6 +201,24 @@ export function FriendsPage({ serverId }: { serverId: string }) {
       )}
 
       {note && <p className="mt-4 text-sm text-ok" role="status">{note}</p>}
+      {needsRestart && st.server_running && (
+        <Button
+          className="mt-3"
+          size="sm"
+          variant="primary"
+          disabled={!!busy}
+          onClick={() =>
+            void run("restart", async () => {
+              await api.stop(serverId);
+              await api.start(serverId);
+              setNeedsRestart(false);
+            })
+          }
+        >
+          {busy === "restart" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          {t("set.restartNow")}
+        </Button>
+      )}
       {error && <p className="mt-4 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
     </div>
   );

@@ -195,6 +195,8 @@ async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Re
             if meta.kind == coa_core::registry::InstallKind::New {
                 coa_core::config::materialize_module_configs(&root)?;
             }
+            let dir = meta_dir(&root)?;
+            coa_core::friends::ensure_bind(&root, &dir)?;
             Ok::<(), Error>(())
         })
         .await;
