@@ -430,6 +430,9 @@ const en = {
   "selfupd.now": "Install now",
   "about.auto": "Download updates in the background and install them when I close the Manager",
   "about.autoHint": "Your servers are never stopped or changed by a Manager update.",
+
+  // Friends line
+  "fr.copyLine": "Copy line",
 } as const;
 
 export default en;

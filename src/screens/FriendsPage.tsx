@@ -22,6 +22,30 @@ const MODES: { id: FriendsMode; title: Key; text: Key }[] = [
   { id: "private", title: "fr.mode.private.title", text: "fr.mode.private.text" },
 ];
 
+/** A ready-to-paste realmlist line for the friend, shown as soon as the address is known. */
+function RealmlistLine({ host }: { host: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const line = `set realmlist ${host}`;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <code className="selectable rounded bg-black/40 px-2 py-1 text-sm">{line}</code>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() =>
+          void navigator.clipboard.writeText(line).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          })
+        }
+      >
+        {copied ? t("fr.copied") : t("fr.copyLine")}
+      </Button>
+    </div>
+  );
+}
+
 export function FriendsPage({ serverId }: { serverId: string }) {
   const t = useT();
   const human = useHuman();
@@ -103,7 +127,12 @@ export function FriendsPage({ serverId }: { serverId: string }) {
                 </h3>
                 <p className="mt-0.5 text-sm text-muted">{t(m.text)}</p>
 
-                {m.id === "lan" && <p className="mt-2 text-sm">{t("fr.yourLan")} <b className="selectable">{st.lan_ip ?? t("fr.unknown")}</b></p>}
+                {m.id === "lan" && (
+                  <>
+                    <p className="mt-2 text-sm">{t("fr.yourLan")} <b className="selectable">{st.lan_ip ?? t("fr.unknown")}</b></p>
+                    {st.lan_ip && cur.mode !== m.id && <RealmlistLine host={st.lan_ip} />}
+                  </>
+                )}
 
                 {m.id === "direct" && (
                   <div className="mt-2 text-sm">
@@ -119,6 +148,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
                     {net?.public_ip && net.reachability !== "cgnat" && (
                       <p className="mt-2">{t("fr.publicAddr")} <b className="selectable">{net.public_ip}</b>{!net.router_found && <span className="text-muted">{t("fr.noRouter")}</span>}</p>
                     )}
+                    {net?.public_ip && net.reachability !== "cgnat" && cur.mode !== m.id && <RealmlistLine host={net.public_ip} />}
                     {net && !net.public_ip && <p className="mt-2 text-warn">{t("fr.noInternet")}</p>}
                   </div>
                 )}
@@ -130,6 +160,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
                     {st.tailscale.connected && <>{t("fr.privateAddr")} <b className="selectable">{st.tailscale.ip}</b></>}
                   </p>
                 )}
+                {m.id === "private" && st.tailscale.connected && st.tailscale.ip && cur.mode !== m.id && <RealmlistLine host={st.tailscale.ip} />}
               </div>
               <Button
                 size="sm"

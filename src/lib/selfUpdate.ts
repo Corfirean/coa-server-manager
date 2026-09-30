@@ -103,22 +103,27 @@ export async function installNow(): Promise<void> {
 /** Install a downloaded update when the user closes the window. Call once at start-up. */
 export function installOnClose(): () => void {
   let stop: (() => void) | undefined;
-  void getCurrentWindow()
-    .onCloseRequested(async (event) => {
-      if (state.phase !== "ready" || !update || !autoUpdateEnabled()) return;
-      event.preventDefault();
-      try {
-        set({ phase: "installing" });
-        await update.install();
-      } catch (e) {
-        set({ phase: "error", error: String(e) });
-        await getCurrentWindow().destroy();
-      }
-    })
-    .then((un) => {
-      stop = un;
-    })
-    .catch(() => {});
+  try {
+    const win = getCurrentWindow();
+    void win
+      .onCloseRequested(async (event) => {
+        if (state.phase !== "ready" || !update || !autoUpdateEnabled()) return;
+        event.preventDefault();
+        try {
+          set({ phase: "installing" });
+          await update.install();
+        } catch (e) {
+          set({ phase: "error", error: String(e) });
+          await win.destroy();
+        }
+      })
+      .then((un) => {
+        stop = un;
+      })
+      .catch(() => {});
+  } catch {
+    /* not running inside the desktop shell (browser preview) */
+  }
   return () => stop?.();
 }
 

@@ -16,6 +16,12 @@
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 
+/* Everything is sized in rem, so scaling the root font grows the whole interface with the window
+   (16px up to about 1280px wide, then gradually larger; capped at 26px). */
+html {
+  font-size: clamp(16px, calc(0.75vw + 6.4px), 26px);
+}
+
 html,
 body,
 #root {

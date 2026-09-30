@@ -430,6 +430,9 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "selfupd.now": "Installer maintenant",
   "about.auto": "Télécharger les mises à jour en arrière-plan et les installer à la fermeture du Manager",
   "about.autoHint": "Une mise à jour du Manager n’arrête ni ne modifie jamais vos serveurs.",
+
+  // Friends line
+  "fr.copyLine": "Copier la ligne",
 };
 
 export default fr;

@@ -430,6 +430,9 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "selfupd.now": "Установить сейчас",
   "about.auto": "Скачивать обновления в фоне и устанавливать их, когда я закрою менеджер",
   "about.autoHint": "Обновление менеджера никогда не останавливает и не меняет ваши серверы.",
+
+  // Friends line
+  "fr.copyLine": "Скопировать строку",
 };
 
 export default ru;
