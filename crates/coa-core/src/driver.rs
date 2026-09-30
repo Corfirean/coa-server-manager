@@ -41,6 +41,7 @@ pub struct DriverOutcome {
     pub exit_code: Option<i32>,
     /// Human-facing classification of a failure.
     pub code: Option<ErrorCode>,
+    pub human: Option<crate::error::Human>,
     pub output: String,
 }
 
@@ -128,7 +129,7 @@ pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
         }
     };
     tracing::info!(?verb, ok, ?code, "driver: launcher verb finished");
-    Ok(DriverOutcome { ok, exit_code, code, output })
+    Ok(DriverOutcome { ok, exit_code, code, human: code.map(ErrorCode::human), output })
 }
 
 #[cfg(test)]

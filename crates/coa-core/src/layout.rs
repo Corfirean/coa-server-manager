@@ -125,7 +125,7 @@ fn hash_exe(path: &Path, release: Option<&ReleaseJson>, name: &str) -> Option<Ex
     Some(ExeInfo { size: meta.len(), sha256, matches_release })
 }
 
-fn read_ports(root: &Path) -> Ports {
+pub fn read_ports(root: &Path) -> Ports {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct P {
@@ -195,6 +195,9 @@ fn count_bot_keys(conf: &Path) -> usize {
 
 /// Scan `root` without modifying it.
 pub fn scan(root: &Path) -> Result<ScanReport> {
+    if !root.is_dir() {
+        return Err(crate::error::Error::Invalid(format!("{} is not a folder", root.display())));
+    }
     let root = fsx::canonicalize_lenient(root)?;
     let mut notes = Vec::new();
 
@@ -400,6 +403,11 @@ mod tests {
         fs::write(root.join("Core/worldserver.exe"), b"w").unwrap();
         fs::write(root.join("Core/authserver.exe"), b"a").unwrap();
         assert_eq!(scan(&root).unwrap().classification, Classification::UnknownCustom);
+    }
+
+    #[test]
+    fn missing_folder_is_an_error_not_a_verdict() {
+        assert!(scan(Path::new("C:/definitely/not/here")).is_err());
     }
 
     #[test]
