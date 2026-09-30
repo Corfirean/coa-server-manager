@@ -89,6 +89,18 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
         originals.push((p.clone(), bytes));
         edits.push((p, conf.to_text()));
     }
+    // Friends connect from other addresses, and the server only applies the CoA client protocol (extension packets,
+    // header mode) to loopback unless remote clients are allowed - so sharing must switch that on as well.
+    let coa_conf = root.join("Core/configs/modules/coa.conf");
+    if let Ok(bytes) = fs::read(&coa_conf) {
+        let mut conf = ConfFile::parse_bytes(&bytes)?;
+        let want_remote = if open { "1" } else { "0" };
+        if conf.get("CoA.AllowRemoteClients").map(str::trim) != Some(want_remote) {
+            conf.set("CoA.AllowRemoteClients", want_remote, &["Set by CoA Server Manager together with the friends mode"]);
+            originals.push((coa_conf.clone(), bytes));
+            edits.push((coa_conf, conf.to_text()));
+        }
+    }
     if edits.is_empty() {
         return Ok(false);
     }
@@ -198,6 +210,21 @@ mod tests {
         assert!(crate::config::list_snapshots(&meta).iter().any(|s| s.reason.contains("opening")), "a snapshot was taken first");
         assert!(set_open(&root, &meta, false).unwrap());
         assert!(fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("BindIP = \"127.0.0.1\""));
+    }
+
+    #[test]
+    fn sharing_also_allows_remote_coa_clients_and_closing_takes_it_back() {
+        let (_d, root, meta) = setup();
+        let coa = root.join("Core/configs/modules/coa.conf");
+        fs::create_dir_all(coa.parent().unwrap()).unwrap();
+        fs::write(&coa, "CoA.Enable = 1
+CoA.AllowRemoteClients = 0
+").unwrap();
+        assert!(set_open(&root, &meta, true).unwrap());
+        assert!(fs::read_to_string(&coa).unwrap().contains("CoA.AllowRemoteClients = 1"));
+        assert!(fs::read_to_string(&coa).unwrap().contains("CoA.Enable = 1"));
+        assert!(set_open(&root, &meta, false).unwrap());
+        assert!(fs::read_to_string(&coa).unwrap().contains("CoA.AllowRemoteClients = 0"));
     }
 
     #[test]

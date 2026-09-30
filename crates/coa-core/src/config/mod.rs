@@ -122,7 +122,9 @@ pub struct SettingsView {
 /// Modules read `Core/configs/modules/<name>.conf`, but packages ship only the documented `<name>.conf.dist` (the active
 /// files are the server owner's). Create every missing active file from its `.dist`, so a fresh server runs with the
 /// documented defaults (for example `CoA.Enable = 1`, without which the Ascension client is dropped after login).
-/// Existing files are never touched. Files the launcher writes itself are skipped. Returns the created file names.
+/// An existing file only receives keys its `.dist` gained since (added with their documentation, values never changed),
+/// so a server updated to a build with a new setting gets that setting's documented default. Files the launcher writes
+/// itself are skipped. Returns what was created (`name.conf`) or extended (`name.conf (+n keys)`).
 pub fn materialize_module_configs(root: &Path) -> Result<Vec<String>> {
     let dir = root.join("Core").join("configs").join("modules");
     let mut created = Vec::new();
@@ -137,6 +139,14 @@ pub fn materialize_module_configs(root: &Path) -> Result<Vec<String>> {
         if !active.exists() {
             fs::copy(e.path(), &active)?;
             created.push(format!("{stem}.conf"));
+        } else if let (Ok(have), Ok(dist)) = (fs::read(&active), fs::read(e.path())) {
+            if let (Ok(mut conf), Ok(dist)) = (parser::ConfFile::parse_bytes(&have), parser::ConfFile::parse_bytes(&dist)) {
+                let plan = merge::apply(&mut conf, &dist);
+                if !plan.added.is_empty() {
+                    fsx::atomic_write(&active, conf.to_text().as_bytes())?;
+                    created.push(format!("{stem}.conf (+{} keys)", plan.added.len()));
+                }
+            }
         }
     }
     created.sort();
@@ -495,16 +505,18 @@ mod tests {
         fs::write(m.join("coa.conf.dist"), "CoA.Enable = 1
 ").unwrap();
         fs::write(m.join("spellbook.conf.dist"), "Spellbook.Enable = 1
+Spellbook.New = 5
 ").unwrap();
         fs::write(m.join("spellbook.conf"), "Spellbook.Enable = 0
 ").unwrap();
         fs::write(m.join("coa_bugreport.conf.dist"), "x = 1
 ").unwrap();
-        assert_eq!(materialize_module_configs(&root).unwrap(), vec!["coa.conf".to_string()]);
+        assert_eq!(materialize_module_configs(&root).unwrap(), vec!["coa.conf".to_string(), "spellbook.conf (+1 keys)".to_string()]);
         assert_eq!(fs::read_to_string(m.join("coa.conf")).unwrap(), "CoA.Enable = 1
 ");
-        assert_eq!(fs::read_to_string(m.join("spellbook.conf")).unwrap(), "Spellbook.Enable = 0
-");
+        let sb = fs::read_to_string(m.join("spellbook.conf")).unwrap();
+        assert!(sb.contains("Spellbook.Enable = 0"), "existing values are never changed: {sb}");
+        assert!(sb.contains("Spellbook.New = 5"), "new documented key was added: {sb}");
         assert!(!m.join("coa_bugreport.conf").exists());
         assert!(materialize_module_configs(&root).unwrap().is_empty());
     }
