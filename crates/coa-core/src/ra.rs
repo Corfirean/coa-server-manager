@@ -124,6 +124,14 @@ mod tests {
     use std::io::{BufRead, BufReader};
     use std::net::TcpListener;
 
+    /// These tests share the loopback interface; on some machines (security software hooking TCP) several
+    /// concurrent short-lived loopback connections are occasionally reset, so they run one at a time.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn fake_ra(reply: &'static str) -> (u16, std::thread::JoinHandle<Vec<String>>) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
@@ -145,6 +153,11 @@ mod tests {
                 got.push(line.trim().to_string());
                 s.write_all(format!("{reply}\r\nAC>").as_bytes()).unwrap();
             }
+            // Close gracefully: dropping a socket with unread data would send RST and could discard the reply.
+            let _ = s.shutdown(std::net::Shutdown::Write);
+            let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+            let mut sink = [0u8; 64];
+            while matches!(s.read(&mut sink), Ok(n) if n > 0) {}
             got
         });
         (port, h)
@@ -152,6 +165,7 @@ mod tests {
 
     #[test]
     fn creates_an_account_over_ra_with_the_expected_commands() {
+        let _lock = serial();
         let (port, h) = fake_ra("Account created: PLAYER1");
         let mut ra = Ra::connect_to(port, "local", "secretra").unwrap();
         ra.create_account("Player1", "hunter22").unwrap();
@@ -161,6 +175,7 @@ mod tests {
 
     #[test]
     fn spawn_bots_sends_only_a_bounded_number() {
+        let _lock = serial();
         let (port, h) = fake_ra("Queued 50 bots");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         assert_eq!(ra.spawn_bots(50).unwrap(), "Queued 50 bots");
@@ -171,6 +186,7 @@ mod tests {
 
     #[test]
     fn duplicate_account_and_input_validation() {
+        let _lock = serial();
         let (port, _h) = fake_ra("Account already exist.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         assert!(ra.create_account("Player1", "hunter22").unwrap_err().to_string().contains("already taken"));
@@ -182,9 +198,8 @@ mod tests {
 
     #[test]
     fn unreachable_console_gives_a_friendly_error() {
-        let l = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = l.local_addr().unwrap().port();
-        drop(l);
-        assert!(Ra::connect_to(port, "u", "p").unwrap_err().to_string().contains("not running"));
+        let _lock = serial();
+        // Port 1 is never used by a game server; probing a freed ephemeral port would race with the other tests.
+        assert!(Ra::connect_to(1, "u", "p").unwrap_err().to_string().contains("not running"));
     }
 }
