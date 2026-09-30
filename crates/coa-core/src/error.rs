@@ -33,6 +33,8 @@ pub enum ErrorCode {
     WorldserverAlreadyRunning,
     InvalidConfigValue,
     DiskFull,
+    OperationInProgress,
+    StartupFailed,
     HashMismatch,
     PathRejected,
     Unknown,
@@ -94,6 +96,16 @@ impl ErrorCode {
                 "Not enough free disk space",
                 "Free up some space or choose another drive, then try again.",
                 &[ChooseAnotherFolder, Retry],
+            ),
+            ErrorCode::OperationInProgress => (
+                "Another action is still in progress",
+                "The server is busy starting or stopping. Wait a moment and try again.",
+                &[Retry],
+            ),
+            ErrorCode::StartupFailed => (
+                "Server could not start",
+                "A service stopped while starting. Check the details for the cause.",
+                &[FixAutomatically, ShowDetails],
             ),
             ErrorCode::HashMismatch => (
                 "A downloaded file is damaged",
