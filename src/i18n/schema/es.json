@@ -462,6 +462,10 @@
   "Updates.EnableDatabases": {
    "t": "Actualizaciones automáticas de bases de datos",
    "d": "Permite que el servidor cambie él mismo sus bases de datos al arrancar. Déjalo en 0: el Manager aplica y registra las actualizaciones de bases de datos de forma segura."
+  },
+  "MapUpdate.Threads": {
+   "t": "Núcleos de CPU para el mundo",
+   "d": "Cuántos núcleos del procesador usa el mundo para actualizar los mapas. Los compañeros repartidos por varios mapas van mucho más rápido con más de un núcleo. Se aplica al reiniciar el servidor del mundo."
   }
  },
  "options": {

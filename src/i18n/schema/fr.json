@@ -462,6 +462,10 @@
   "Updates.EnableDatabases": {
    "t": "Mises à jour automatiques des bases de données",
    "d": "Permet au serveur de modifier lui-même ses bases de données au démarrage. Gardez 0 : le Manager applique et suit les mises à jour de base de données en toute sécurité."
+  },
+  "MapUpdate.Threads": {
+   "t": "Cœurs du processeur pour le monde",
+   "d": "Nombre de cœurs du processeur utilisés par le monde pour mettre à jour les cartes. Les compagnons répartis sur plusieurs cartes vont nettement plus vite avec plus d’un cœur. Pris en compte au redémarrage du serveur de monde."
   }
  },
  "options": {

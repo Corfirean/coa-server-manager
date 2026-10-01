@@ -355,6 +355,67 @@ pub fn list_snapshots(meta_dir: &Path) -> Vec<SnapshotInfo> {
     out
 }
 
+/// How many threads the world should use to update maps on this computer: half the logical processors, between 2 and 8.
+/// Maps (continents, dungeons, battlegrounds) are updated in parallel, one thread per map, so more threads than the
+/// number of maps in use bring nothing.
+pub fn recommended_map_threads() -> u32 {
+    let cores = std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(4);
+    (cores / 2).clamp(2, 8)
+}
+
+const PERFORMANCE_MARKER: &str = "performance-defaults-v1.done";
+
+/// Once per server: switch the world to updating maps on several threads (`MapUpdate.Threads`), which the stock
+/// configuration leaves at 1. A value the owner already raised is respected, and because this runs a single time
+/// (a marker file in the Manager's folder for the server) a later choice to go back to 1 is never overridden.
+/// Returns the new thread count when something was written.
+pub fn ensure_performance_defaults(root: &Path, meta_dir: &Path) -> Result<Option<u32>> {
+    let marker = meta_dir.join(PERFORMANCE_MARKER);
+    if marker.exists() {
+        return Ok(None);
+    }
+    let view = load(root, Scope::Server)?;
+    let current = view.settings.iter().find(|s| s.meta.key == "MapUpdate.Threads");
+    let already = current.map(|s| s.present && s.value.as_i64().unwrap_or(1) > 1).unwrap_or(false);
+    let threads = recommended_map_threads();
+    let written = if already {
+        None
+    } else {
+        let changes = BTreeMap::from([("MapUpdate.Threads".to_string(), Value::from(threads))]);
+        save(root, meta_dir, Scope::Server, &changes)?;
+        Some(threads)
+    };
+    let quieted = quiet_debug_loggers(root)?;
+    fsx::atomic_write(&marker, b"MapUpdate.Threads and logging levels set by the Manager\n")?;
+    tracing::info!(?written, ?quieted, "performance defaults applied");
+    Ok(written)
+}
+
+/// Loggers some configurations leave at debug level: `network` writes a line for every packet sent and
+/// `entities.player` one for every item check. With companions that is thousands of lines a second, each a disk write.
+/// They are put back to info level (the next level up); anything else in the file is untouched.
+fn quiet_debug_loggers(root: &Path) -> Result<Vec<String>> {
+    let mut changed = Vec::new();
+    for path in targets(root, Scope::Server)?.writes {
+        let mut conf = ConfFile::parse_bytes(&fs::read(&path)?)?;
+        let mut touched = false;
+        for key in ["Logger.network", "Logger.entities.player"] {
+            let Some(value) = conf.get(key).map(|v| v.trim().to_string()) else { continue };
+            if let Some(rest) = value.strip_prefix("5,") {
+                conf.set(key, &format!("4,{rest}"), &["Lowered from debug by CoA Server Manager: it wrote a line for every packet and item check"]);
+                touched = true;
+                if !changed.contains(&key.to_string()) {
+                    changed.push(key.to_string());
+                }
+            }
+        }
+        if touched {
+            fsx::atomic_write(&path, conf.to_text().as_bytes())?;
+        }
+    }
+    Ok(changed)
+}
+
 /// Apply validated `changes`. Nothing is written unless every change is valid; previous contents are snapshotted first.
 pub fn save(root: &Path, meta_dir: &Path, scope: Scope, changes: &BTreeMap<String, Value>) -> Result<SaveReport> {
     let raws = validate(root, scope, changes)?;
@@ -506,6 +567,38 @@ mod tests {
 
     fn set(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    #[test]
+    fn the_world_gets_several_map_threads_once_and_an_owner_choice_is_never_overridden() {
+        let (_d, root, meta) = fixture();
+        let wanted = recommended_map_threads();
+        assert!((2..=8).contains(&wanted));
+        for p in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+            let mut t = fs::read_to_string(root.join(p)).unwrap();
+            t.push_str("Logger.network=5,Server\r\nLogger.entities.player=5,Server\r\nLogger.module=4,Console Server\r\n");
+            fs::write(root.join(p), t).unwrap();
+        }
+        assert_eq!(ensure_performance_defaults(&root, &meta).unwrap(), Some(wanted));
+        for p in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+            let t = fs::read_to_string(root.join(p)).unwrap();
+            assert!(t.contains(&format!("MapUpdate.Threads = {wanted}")), "{p}: {t}");
+            assert!(t.contains("Unknown.Custom = \"keep me\""), "other settings untouched");
+            assert!(t.contains("Logger.network=4,Server") && t.contains("Logger.entities.player=4,Server"), "{p}: {t}");
+            assert!(t.contains("Logger.module=4,Console Server"), "info level loggers are left alone");
+        }
+        // the owner goes back to one thread: it stays that way
+        save(&root, &meta, Scope::Server, &set(&[("MapUpdate.Threads", json!(1))])).unwrap();
+        assert_eq!(ensure_performance_defaults(&root, &meta).unwrap(), None);
+        assert!(fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("MapUpdate.Threads = 1"));
+    }
+
+    #[test]
+    fn an_already_raised_value_is_respected_on_the_first_run() {
+        let (_d, root, meta) = fixture();
+        save(&root, &meta, Scope::Server, &set(&[("MapUpdate.Threads", json!(6))])).unwrap();
+        assert_eq!(ensure_performance_defaults(&root, &meta).unwrap(), None);
+        assert!(fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("MapUpdate.Threads = 6"));
     }
 
     #[test]

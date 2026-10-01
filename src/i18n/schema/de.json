@@ -462,6 +462,10 @@
   "Updates.EnableDatabases": {
    "t": "Automatische Datenbank-Updates",
    "d": "Erlaubt dem Server, seine Datenbanken beim Start selbst zu ändern. Lass es auf 0: Der Manager wendet Datenbank-Updates sicher an und verfolgt sie."
+  },
+  "MapUpdate.Threads": {
+   "t": "CPU-Kerne für die Welt",
+   "d": "Wie viele Prozessorkerne die Welt zum Aktualisieren der Karten nutzt. Begleiter, die sich über mehrere Karten verteilen, laufen mit mehr als einem Kern deutlich schneller. Wird nach einem Neustart des Weltservers wirksam."
   }
  },
  "options": {

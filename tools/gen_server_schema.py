@@ -39,6 +39,7 @@ R = [
     ("AutoBroadcast.Timer", "int", "world", "Announcement interval", "Time between automatic announcements.", 60000, 5000, 3600000, "ms", True, "world", False),
     ("Warden.Enabled", "bool", "advanced", "Anti-cheat (Warden)", "Enables the client anti-cheat check. Usually unnecessary on a private server.", True, None, None, None, True, "world", False),
     ("MapUpdateInterval", "int", "performance", "Map update interval", "How often the world updates maps. Lower is smoother but uses more CPU.", 10, 1, 1000, "ms", True, "world", False),
+    ("MapUpdate.Threads", "int", "performance", "CPU cores for the world", "How many processor cores the world uses to update maps. Companions spread over several maps run much faster with more than one. Takes effect when the world server restarts.", 4, 1, 16, None, False, "world", False),
     ("MinWorldUpdateTime", "int", "performance", "Minimum world update time", "Shortest time between world updates. Raise it to reduce CPU use.", 1, 1, 1000, "ms", True, "world", False),
     ("ThreadPool", "int", "performance", "Worker threads", "Number of background worker threads. More helps large populations.", 2, 1, 32, None, True, "full", False),
     ("Network.Threads", "int", "network", "Network threads", "Threads that handle player connections. One is enough for small servers.", 1, 1, 16, None, True, "full", False),

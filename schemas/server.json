@@ -490,6 +490,19 @@
       "unit": "ms"
     },
     {
+      "key": "MapUpdate.Threads",
+      "type": "int",
+      "category": "performance",
+      "title": "CPU cores for the world",
+      "description": "How many processor cores the world uses to update maps. Companions spread over several maps run much faster with more than one. Takes effect when the world server restarts.",
+      "default": 4,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 1,
+      "max": 16
+    },
+    {
       "key": "MinWorldUpdateTime",
       "type": "int",
       "category": "performance",

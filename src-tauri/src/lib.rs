@@ -199,6 +199,9 @@ async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Re
             }
             let dir = meta_dir(&root)?;
             coa_core::friends::ensure_bind(&root, &dir)?;
+            if meta.kind == coa_core::registry::InstallKind::New {
+                coa_core::config::ensure_performance_defaults(&root, &dir)?;
+            }
             Ok::<(), Error>(())
         })
         .await;
