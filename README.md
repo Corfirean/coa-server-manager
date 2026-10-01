@@ -1,32 +1,65 @@
 # CoA Server Manager
 
-Windows desktop manager for local Conquest of Azeroth (AzerothCore) servers. Tauri 2 + Rust + React.
-Design and audit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+A Windows app that installs and runs your own **Conquest of Azeroth** server (AzerothCore) with a few clicks:
+no console, no config files, no database tools. Tauri 2 + Rust + React.
+
+![Overview](docs/screenshots/play.png)
+
+## What it does
+
+* **One-click install.** Downloads a signed, verified server package (resumable, checked file by file), sets up the
+  database and creates your first account. Or import a server you already have.
+* **Start / Stop / PLAY.** One button for the whole server (database, auth, world) with live status, uptime and
+  players online. PLAY starts the game client with the right realmlist.
+* **Safe updates.** The Manager checks for a new server version on start and every five minutes; the main button turns
+  into **UPDATE**. Updates are authenticated (Ed25519), back up first, keep files you changed and can be rolled back.
+* **Backups.** Characters, accounts and settings on demand, automatically before every update; verify and restore
+  from the app.
+* **Companions (bots).** Fill the world with level-appropriate bots, see progress, stop spawning, take them offline,
+  despawn N to relieve the server, and choose how many log in at server start.
+* **Settings without files.** Bots and Server pages with plain-language options and presets, a console to the world
+  server, player list with account tools.
+* **Play with friends.** Checks whether your server is reachable, opens firewall rules, finds your router (UPnP),
+  supports LAN, direct and private-network (Tailscale) play, with step-by-step guides and a package to send to friends.
+* **Updates to the Manager itself** download in the background and install when you close it. Your servers are never
+  stopped or changed by a Manager update.
+* **Languages:** English, Russian, German, French, Spanish.
+
+| Install | Ready |
+|---------|-------|
+| ![Installing](docs/screenshots/install.png) | ![Ready](docs/screenshots/ready.png) |
+
+| Overview | Server updates |
+|----------|----------------|
+| ![Overview](docs/screenshots/overview.png) | ![Updates](docs/screenshots/updates.png) |
+
+![Backups](docs/screenshots/backups.png)
+
+## Install
+
+Download the installer from the [Releases](https://github.com/Corfirean/coa-server-manager/releases) page
+and run it. You need about 10 GB of free disk space for the server. The Manager does not include the game client;
+use your existing Conquest of Azeroth client.
 
 ## Status
-| Phase | State |
-|-------|-------|
-| 0 Audit + architecture | done |
-| 1 Foundation (fsx, registry, manifest, logging, error catalogue) | done |
-| 2 Read-only import, process observation, Start/Stop via repack launcher, health diagnosis | done |
-| 3 Config engine + Bots/Server settings UI + presets + snapshots | done |
-| 4 Recovery points, DB dump/restore (staging + atomic swap), Backups UI | done |
-| 5 Clean install: signed split packages, resumable verified download, staging + atomic commit, DB credential rotation, RA account creation | done |
-| 6 Updates: tracked SQL migrations, update transaction (journal, conflicts, rollback), Settings > Server updates | done |
-| 7 Companions: real population, hardware-aware sizes, RA spawn (install/update of the module rides on the update flow) | done |
-| 8 Client: read-only detection, backed-up realmlist, isolated addon install, START & PLAY | done |
-| Backlog: interface languages EN/RU/DE/FR/ES (see docs/ARCHITECTURE.md section 9) | planned |
-| 9 Friends: exposure check, firewall rules, UPnP discovery, LAN/direct/private modes, friend package | done |
-| 10 Polish: diagnostics, file verification, redacted diagnostic export | done; self-update installer, accessibility audit, i18n pending |
-| `coa-server-build` repo: nightly build, edge/stable releases, fork sync | created; needs the COA_SIGNING_KEY / FORK_PUSH_TOKEN secrets |
+
+Phases 0–10 of the plan in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are done: foundation, import, start/stop,
+config engine, backups, clean install from signed packages, updates, companions, client launch, friends, polish.
+Remaining work (client download/update from the Manager, translation review by native speakers) is listed in
+section 9 of that document. Translation notes: [docs/TRANSLATIONS.md](docs/TRANSLATIONS.md).
 
 ## Develop
 ```
 npm install
-cargo test --workspace                 # core logic (scan, fsx, manifest, process, driver, health)
+cargo test --workspace                 # core logic (scan, fsx, manifest, process, driver, health, updates, ...)
+npx tsc --noEmit                       # type check
+node tools/check-i18n.mjs              # translation keys and placeholders
 npx vite                               # UI in a browser uses a mock IPC (src/dev/mock.ts)
 cargo build -p coa-server-manager      # native app (debug build loads http://localhost:1420)
 ```
+Layout: `crates/coa-core` (logic), `crates/coa-release` (package tools: pack, sign, verify), `src-tauri`
+(command layer), `src` (UI).
+
 Live checks against a real repack: `cargo run -p coa-core --example scan -- <folder>` (read-only).
 Start/stop testing must use a disposable copy: `tools/make-fixture.ps1` builds `C:\games\coa-fixture`
 on offset ports from the pristine packaged database. Never run start/stop against a server in use.
