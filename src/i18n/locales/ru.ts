@@ -721,6 +721,9 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "mod.settings": "Настройки",
   "mod.default": "Вернуть по умолчанию ({v})",
   "mod.saved": "Сохранено (изменено: {n}).",
+
+  // Modules page: nothing yet
+  "mod.empty": "Здесь пока пусто. Дополнительные модули появятся на этой странице по мере добавления.",
 };
 
 export default ru;

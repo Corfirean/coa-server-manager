@@ -12,7 +12,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, Omit<React.Input
     const t = useT();
     const [shown, setShown] = React.useState(false);
     return (
-      <div className="relative inline-block">
+      <div className="relative block w-fit">
         <input ref={ref} type={shown ? "text" : "password"} className={cn(className, "pr-11 [&::-ms-reveal]:hidden")} {...props} />
         <button
           type="button"

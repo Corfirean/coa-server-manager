@@ -12,12 +12,12 @@ export interface ReportInput {
 }
 
 export const NEW_ISSUE_URL = "https://github.com/Corfirean/coa-server-manager/issues/new";
-const PRIVACY = "> ⚠️ Please remove passwords, tokens, private IP information or other sensitive data before posting logs.";
+const PRIVACY = "> Please remove passwords, tokens, private IP information or other sensitive data before posting logs.";
 
 export function reportBody(r: ReportInput): string {
   const text = (s: string, fallback: string) => (s.trim() ? s.trim() : fallback);
   return [
-    "## 🐛 Bug Report",
+    "## Bug Report",
     "",
     `**Manager version:** ${r.managerVersion || "unknown"}  `,
     `**Windows version:** ${r.windows || "unknown"}  `,

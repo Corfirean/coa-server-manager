@@ -47,7 +47,8 @@ export function ModulesPage({ serverId }: { serverId: string }) {
       {error && <p className="mt-3 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
 
       <div className="mt-6 space-y-4">
-        {modules === null && <p className="text-muted">{t("overview.checking")}</p>}
+        {modules === null && !error && <p className="text-muted">{t("overview.checking")}</p>}
+        {modules?.length === 0 && <Card className="p-6 text-center text-muted">{t("mod.empty")}</Card>}
         {modules?.map((m) => (
           <Card key={m.id} className={cn("p-5", !m.installed && "opacity-60")}>
             <div className="flex items-start justify-between gap-4">

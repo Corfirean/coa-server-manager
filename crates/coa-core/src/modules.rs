@@ -36,8 +36,8 @@ pub fn catalog() -> Vec<Entry> {
     serde_json::from_str::<Catalog>(CATALOG).map(|c| c.modules).unwrap_or_default()
 }
 
-fn entry(id: &str) -> Result<Entry> {
-    catalog().into_iter().find(|e| e.id == id).ok_or_else(|| Error::Invalid("That module is not known to the Manager.".into()))
+fn entry_in(cat: &[Entry], id: &str) -> Result<Entry> {
+    cat.iter().find(|e| e.id == id).cloned().ok_or_else(|| Error::Invalid("That module is not known to the Manager.".into()))
 }
 
 fn dir(root: &Path) -> PathBuf {
@@ -64,8 +64,12 @@ pub struct ModuleView {
 }
 
 pub fn list(root: &Path) -> Vec<ModuleView> {
-    catalog()
-        .into_iter()
+    list_in(&catalog(), root)
+}
+
+fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
+    cat.iter()
+        .cloned()
         .map(|e| {
             let conf = dir(root).join(&e.conf);
             let dist = dir(root).join(format!("{}.dist", e.conf));
@@ -97,7 +101,11 @@ fn backup(meta: &Path, conf: &Path) -> Result<()> {
 }
 
 pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
-    let e = entry(id)?;
+    set_enabled_in(&catalog(), root, meta, id, on)
+}
+
+fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
+    let e = entry_in(cat, id)?;
     let conf = active_file(root, &e)?;
     let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
     if file.get(&e.enable_key).map(truthy) == Some(on) {
@@ -121,7 +129,11 @@ pub struct Setting {
 
 /// Every active setting of the module with its current value, its documented default and its description.
 pub fn settings(root: &Path, id: &str) -> Result<Vec<Setting>> {
-    let e = entry(id)?;
+    settings_in(&catalog(), root, id)
+}
+
+fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
+    let e = entry_in(cat, id)?;
     let conf = dir(root).join(&e.conf);
     let dist = read(&dir(root).join(format!("{}.dist", e.conf)));
     let active = read(&conf).or_else(|| dist.clone()).ok_or_else(|| Error::Invalid("This module is not part of this server.".into()))?;
@@ -138,7 +150,11 @@ pub fn settings(root: &Path, id: &str) -> Result<Vec<Setting>> {
 
 /// Change values of settings the module already has. A value is one line of at most 500 characters.
 pub fn save_settings(root: &Path, meta: &Path, id: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
-    let e = entry(id)?;
+    save_settings_in(&catalog(), root, meta, id, changes)
+}
+
+fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+    let e = entry_in(cat, id)?;
     let conf = active_file(root, &e)?;
     let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
     let mut changed = Vec::new();
@@ -169,6 +185,18 @@ pub fn save_settings(root: &Path, meta: &Path, id: &str, changes: &BTreeMap<Stri
 mod tests {
     use super::*;
 
+    fn test_catalog() -> Vec<Entry> {
+        let one = |id: &str, name: &str, conf: &str, key: &str| Entry {
+            id: id.into(),
+            name: name.into(),
+            description: ["en", "ru", "de", "fr", "es"].iter().map(|l| (l.to_string(), format!("{name} ({l})"))).collect(),
+            repo: format!("https://github.com/Corfirean/example/{id}"),
+            conf: conf.into(),
+            enable_key: key.into(),
+        };
+        vec![one("war-games", "War Games", "war_games.conf", "WarGames.Enable"), one("spellbook", "Spellbook", "spellbook.conf", "Spellbook.Enable")]
+    }
+
     fn server(d: &Path) -> (PathBuf, PathBuf) {
         let (root, meta) = (d.join("srv"), d.join("meta"));
         let m = dir(&root);
@@ -179,9 +207,9 @@ mod tests {
     }
 
     #[test]
-    fn the_bundled_catalog_is_complete() {
+    fn the_bundled_catalog_is_valid() {
         let c = catalog();
-        assert!(c.len() >= 5);
+        // it may be empty (modules are added to it one by one); whatever is in it must be complete
         for e in &c {
             assert!(e.description.contains_key("en") && e.description.len() == 5, "{} has all five descriptions", e.id);
             assert!(e.repo.starts_with("https://github.com/Corfirean/") && e.conf.ends_with(".conf") && e.enable_key.ends_with(".Enable"), "{}", e.id);
@@ -196,43 +224,43 @@ mod tests {
     fn a_module_is_listed_as_installed_with_its_documented_default_until_a_file_exists() {
         let d = tempfile::tempdir().unwrap();
         let (root, _) = server(d.path());
-        let wg = list(&root).into_iter().find(|m| m.id == "war-games").unwrap();
+        let wg = list_in(&test_catalog(), &root).into_iter().find(|m| m.id == "war-games").unwrap();
         assert!(wg.installed && wg.enabled, "the .dist says 1");
-        assert!(!list(&root).into_iter().find(|m| m.id == "spellbook").unwrap().installed, "no configuration of that module on this server");
+        assert!(!list_in(&test_catalog(), &root).into_iter().find(|m| m.id == "spellbook").unwrap().installed, "no configuration of that module on this server");
     }
 
     #[test]
     fn switching_a_module_creates_its_file_saves_the_old_one_and_changes_only_that_line() {
         let d = tempfile::tempdir().unwrap();
         let (root, meta) = server(d.path());
-        set_enabled(&root, &meta, "war-games", false).unwrap();
+        set_enabled_in(&test_catalog(), &root, &meta, "war-games", false).unwrap();
         let conf = fs::read_to_string(dir(&root).join("war_games.conf")).unwrap();
         assert!(conf.contains("WarGames.Enable = 0") && conf.contains("WarGames.ChallengeSeconds = 60"), "{conf}");
-        assert!(!list(&root).into_iter().find(|m| m.id == "war-games").unwrap().enabled);
-        set_enabled(&root, &meta, "war-games", false).unwrap();
+        assert!(!list_in(&test_catalog(), &root).into_iter().find(|m| m.id == "war-games").unwrap().enabled);
+        set_enabled_in(&test_catalog(), &root, &meta, "war-games", false).unwrap();
         assert_eq!(fs::read_dir(meta.join("backups/modules")).unwrap().count(), 1, "no change, no backup");
-        set_enabled(&root, &meta, "war-games", true).unwrap();
+        set_enabled_in(&test_catalog(), &root, &meta, "war-games", true).unwrap();
         assert!(fs::read_to_string(dir(&root).join("war_games.conf")).unwrap().contains("WarGames.Enable = 1"));
-        assert!(set_enabled(&root, &meta, "spellbook", true).is_err(), "not part of this server");
-        assert!(set_enabled(&root, &meta, "nonsense", true).is_err());
+        assert!(set_enabled_in(&test_catalog(), &root, &meta, "spellbook", true).is_err(), "not part of this server");
+        assert!(set_enabled_in(&test_catalog(), &root, &meta, "nonsense", true).is_err());
     }
 
     #[test]
     fn settings_show_the_documentation_and_only_known_keys_with_one_line_values_can_be_saved() {
         let d = tempfile::tempdir().unwrap();
         let (root, meta) = server(d.path());
-        let s = settings(&root, "war-games").unwrap();
+        let s = settings_in(&test_catalog(), &root, "war-games").unwrap();
         assert_eq!(s.len(), 2);
         assert_eq!(s[1], Setting { key: "WarGames.ChallengeSeconds".into(), value: "60".into(), default: Some("60".into()), doc: "How long a challenge stays open.".into() });
         assert_eq!(s[0].doc, "Turns War Games on. Second line.");
 
         let ok = BTreeMap::from([("WarGames.ChallengeSeconds".to_string(), "90".to_string())]);
-        assert_eq!(save_settings(&root, &meta, "war-games", &ok).unwrap(), ["WarGames.ChallengeSeconds"]);
-        assert!(settings(&root, "war-games").unwrap()[1].value == "90");
-        assert!(save_settings(&root, &meta, "war-games", &ok).unwrap().is_empty(), "same value: nothing to do");
+        assert_eq!(save_settings_in(&test_catalog(), &root, &meta, "war-games", &ok).unwrap(), ["WarGames.ChallengeSeconds"]);
+        assert!(settings_in(&test_catalog(), &root, "war-games").unwrap()[1].value == "90");
+        assert!(save_settings_in(&test_catalog(), &root, &meta, "war-games", &ok).unwrap().is_empty(), "same value: nothing to do");
         for bad in [("Other.Key", "1"), ("WarGames.ChallengeSeconds", ""), ("WarGames.ChallengeSeconds", "1\nInjected = 1")] {
             let c = BTreeMap::from([(bad.0.to_string(), bad.1.to_string())]);
-            assert!(save_settings(&root, &meta, "war-games", &c).is_err(), "{bad:?}");
+            assert!(save_settings_in(&test_catalog(), &root, &meta, "war-games", &c).is_err(), "{bad:?}");
         }
         assert!(!fs::read_to_string(dir(&root).join("war_games.conf")).unwrap().contains("Injected"));
     }

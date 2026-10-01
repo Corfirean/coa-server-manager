@@ -203,7 +203,7 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
   const tone = transitioning ? "text-warn" : running ? "text-ok" : anyUp ? "text-warn" : "text-muted";
 
   return (
-    <div className="max-w-2xl">
+    <div className="w-full max-w-4xl">
       <h1 className="text-2xl font-semibold">{server.name}</h1>
       <p className="selectable mt-0.5 text-xs text-muted">{server.path}</p>
 
@@ -238,7 +238,7 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
         )}
         {perf && <TickRate perf={perf} />}
 
-        <div className="mt-7 flex items-center gap-4">
+        <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-3">
           {running ? (
             <Button variant="secondary" size="xl" disabled={transitioning} onClick={() => run("stopping")} className="min-w-56">
               {transitioning && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
@@ -277,7 +277,8 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
               {t("btn.stopSmall")}
             </Button>
           )}
-          {client && <RealmlistMenu serverId={server.id} className="ml-auto" />}
+          <div className="ml-auto flex items-center gap-3">
+          {client && <RealmlistMenu serverId={server.id} />}
           {client && clientStatus?.update_available ? (
             <Button variant="primary" size="xl" disabled={playing} onClick={() => setDialog("update")} className="min-w-40">
               {t("btn.updateClient")}
@@ -288,10 +289,11 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
               {running ? t("btn.play") : t("btn.startPlay")}
             </Button>
           ) : client === null ? (
-            <Button variant="secondary" size="xl" onClick={() => setDialog("setup")} className="ml-auto min-w-40">
+            <Button variant="secondary" size="xl" onClick={() => setDialog("setup")} className="min-w-40">
               {t("btn.setupClient")}
             </Button>
           ) : null}
+          </div>
         </div>
         {anyUp && !running && !transitioning && (
           <p className="mt-3 text-sm text-muted">{t("overview.partial")}</p>

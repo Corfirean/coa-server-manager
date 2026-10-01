@@ -20,6 +20,11 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   from the app.
 * **Companions (bots).** Fill the world with level-appropriate bots, see progress, stop spawning, take them offline,
   despawn N to relieve the server, and choose how many log in at server start.
+* **Realmlist switcher.** Keep named realmlists (for example *Solo* and *PTR*) and switch the game client between them from a
+  drop-down next to PLAY; the file that was replaced is saved first.
+* **Accounts.** See everyone who can log in, change passwords and access levels, rename an account.
+* **Modules.** A page for the server's optional modules (switch on/off, GitHub, settings); it fills up as modules are added.
+* **Report a problem.** A form that prepares a ready bug report for GitHub with your versions filled in.
 * **Settings without files.** Bots and Server pages with plain-language options and presets, a console to the world
   server, player list with account tools.
 * **Play with friends.** Checks whether your server is reachable, opens firewall rules, finds your router (UPnP),

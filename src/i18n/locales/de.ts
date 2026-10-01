@@ -721,6 +721,9 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "mod.settings": "Einstellungen",
   "mod.default": "Zurück zum Standard ({v})",
   "mod.saved": "Gespeichert ({n} geändert).",
+
+  // Modules page: nothing yet
+  "mod.empty": "Hier ist noch nichts. Optionale Module erscheinen auf dieser Seite, sobald sie hinzugefügt werden.",
 };
 
 export default de;

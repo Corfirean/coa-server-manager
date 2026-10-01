@@ -721,6 +721,9 @@ const en = {
   "mod.settings": "Settings",
   "mod.default": "Back to the default ({v})",
   "mod.saved": "Saved ({n} changed).",
+
+  // Modules page: nothing yet
+  "mod.empty": "There is nothing here yet. Optional modules will appear on this page as they are added.",
 } as const;
 
 export default en;

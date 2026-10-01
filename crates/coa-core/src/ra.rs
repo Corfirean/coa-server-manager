@@ -315,25 +315,33 @@ AC>";
     }
 
     #[test]
-    fn changes_a_password_and_an_access_level_with_the_expected_commands() {
+    fn changes_a_password_with_the_expected_command() {
         let _lock = serial();
         let (port, h) = fake_ra("The password was changed");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         ra.set_account_password("Player1", "newpass9").unwrap();
         drop(ra);
         assert_eq!(h.join().unwrap()[2], "account set password Player1 newpass9 newpass9");
+    }
 
+    #[test]
+    fn changes_an_access_level_with_the_expected_command() {
+        let _lock = serial();
         let (port, h) = fake_ra("You have changed security level of Player1 to 2.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         ra.set_account_access("Player1", 2).unwrap();
         assert!(ra.set_account_access("Player1", 4).is_err(), "only 0 to 3");
         drop(ra);
         assert_eq!(h.join().unwrap()[2], "account set gmlevel Player1 2 -1");
+    }
 
+    #[test]
+    fn a_failed_account_command_is_reported_and_bad_names_never_reach_the_console() {
+        let _lock = serial();
         let (port, _h) = fake_ra("Account not found.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
-        assert!(ra.set_account_password("Nobody", "newpass9").unwrap_err().to_string().contains("not found"));
         assert!(ra.set_account_password("x", "newpass9").is_err(), "the name is validated before anything is sent");
+        assert!(ra.set_account_password("Nobody", "newpass9").unwrap_err().to_string().contains("not found"));
     }
 
     #[test]
