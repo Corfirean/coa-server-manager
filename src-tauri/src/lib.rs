@@ -536,6 +536,22 @@ async fn module_save_settings(state: State<'_, AppState>, id: String, module: St
 }
 
 #[tauri::command]
+async fn all_settings(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::allsettings::Item>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::allsettings::list(&root)).await
+}
+
+#[tauri::command]
+async fn all_settings_save(state: State<'_, AppState>, id: String, changes: BTreeMap<String, String>) -> std::result::Result<Vec<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::allsettings::save(&root, &dir, &changes)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn list_accounts(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::accounts::AccountInfo>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::accounts::list(&root)).await
@@ -1367,6 +1383,8 @@ pub fn run() {
             module_set_enabled,
             module_settings,
             module_save_settings,
+            all_settings,
+            all_settings_save,
             account_set_password,
             account_set_access,
             account_rename,

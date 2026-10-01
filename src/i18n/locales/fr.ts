@@ -724,6 +724,17 @@ const fr: Partial<Record<keyof typeof en, string>> = {
 
   // Modules page: nothing yet
   "mod.empty": "Il n’y a encore rien ici. Les modules optionnels apparaîtront sur cette page au fur et à mesure de leur ajout.",
+  // Settings page: the full searchable list
+  "all.title": "Tous les réglages du serveur",
+  "all.intro": "Chaque réglage documenté du serveur de monde, avec son explication. Ne modifiez que ce que vous comprenez : une mauvaise valeur peut casser le serveur. La configuration précédente est sauvegardée d'abord et peut être restaurée.",
+  "all.search": "Rechercher par nom ou description…",
+  "all.onlyChanged": "Seulement les modifiés",
+  "all.count": "{shown} sur {total} affichés. Utilisez la recherche pour affiner.",
+  "all.none": "Aucun réglage ne correspond.",
+  "all.changed": "modifié",
+  "all.useDefault": "Utiliser la valeur par défaut ({v})",
+  "all.save": "Enregistrer {n} modification(s)",
+  "all.saved": "Enregistré. Redémarrez le serveur pour appliquer les changements.",
 };
 
 export default fr;

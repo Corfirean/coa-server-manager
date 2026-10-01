@@ -26,6 +26,7 @@ pub mod migrations;
 pub mod net;
 pub mod package;
 pub mod ra;
+pub mod allsettings;
 pub mod modules;
 pub mod realmlist;
 pub mod registry;

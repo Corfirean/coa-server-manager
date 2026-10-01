@@ -190,6 +190,15 @@ export interface ModuleSetting {
   doc: string;
 }
 
+export interface AllSetting {
+  key: string;
+  value: string;
+  default: string;
+  doc: string;
+  /** the configuration sets it to something other than the documented default */
+  changed: boolean;
+}
+
 export interface ReportContext {
   manager_version: string;
   windows: string;
@@ -367,6 +376,8 @@ export const api = {
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
   moduleSettings: (id: string, module: string) => invoke<ModuleSetting[]>("module_settings", { id, module }),
   moduleSaveSettings: (id: string, module: string, changes: Record<string, string>) => invoke<string[]>("module_save_settings", { id, module, changes }),
+  allSettings: (id: string) => invoke<AllSetting[]>("all_settings", { id }),
+  allSettingsSave: (id: string, changes: Record<string, string>) => invoke<string[]>("all_settings_save", { id, changes }),
   reportContext: (id: string) => invoke<ReportContext>("report_context", { id }),
   listAccounts: (id: string) => invoke<AccountInfo[]>("list_accounts", { id }),
   accountSetPassword: (id: string, name: string, password: string) => invoke<void>("account_set_password", { id, name, password }),

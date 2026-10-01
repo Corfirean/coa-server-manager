@@ -724,6 +724,17 @@ const en = {
 
   // Modules page: nothing yet
   "mod.empty": "There is nothing here yet. Optional modules will appear on this page as they are added.",
+  // Settings page: the full searchable list
+  "all.title": "All server settings",
+  "all.intro": "Every documented setting of the world server, with its explanation. Change only what you understand: a wrong value can break the server. The previous configuration is saved first and can be restored.",
+  "all.search": "Search by name or description…",
+  "all.onlyChanged": "Only changed",
+  "all.count": "Showing {shown} of {total}. Search to narrow it down.",
+  "all.none": "No settings match.",
+  "all.changed": "changed",
+  "all.useDefault": "Use the default ({v})",
+  "all.save": "Save {n} change(s)",
+  "all.saved": "Saved. Restart the server to apply the changes.",
 } as const;
 
 export default en;

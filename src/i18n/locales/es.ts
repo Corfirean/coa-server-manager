@@ -724,6 +724,17 @@ const es: Partial<Record<keyof typeof en, string>> = {
 
   // Modules page: nothing yet
   "mod.empty": "Aquí todavía no hay nada. Los módulos opcionales aparecerán en esta página a medida que se añadan.",
+  // Settings page: the full searchable list
+  "all.title": "Todos los ajustes del servidor",
+  "all.intro": "Cada ajuste documentado del servidor del mundo, con su explicación. Cambia solo lo que entiendas: un valor incorrecto puede romper el servidor. La configuración anterior se guarda antes y se puede restaurar.",
+  "all.search": "Buscar por nombre o descripción…",
+  "all.onlyChanged": "Solo los cambiados",
+  "all.count": "Mostrando {shown} de {total}. Usa la búsqueda para acotar.",
+  "all.none": "Ningún ajuste coincide.",
+  "all.changed": "cambiado",
+  "all.useDefault": "Usar el valor predeterminado ({v})",
+  "all.save": "Guardar {n} cambio(s)",
+  "all.saved": "Guardado. Reinicia el servidor para aplicar los cambios.",
 };
 
 export default es;
