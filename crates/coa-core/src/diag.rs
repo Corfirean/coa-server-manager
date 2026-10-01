@@ -143,6 +143,31 @@ fn tail(path: &Path, max: u64) -> Vec<u8> {
     b
 }
 
+/// Keep the first line of each repeated "Missing property X" warning and report how often it came.
+pub fn squash_repeated_config_warnings(text: &str) -> String {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    let mut out: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let key = line.strip_prefix("> Config: Missing property ").and_then(|r| r.split_whitespace().next());
+        match key {
+            Some(k) => match counts.iter_mut().find(|(n, _)| n == k) {
+                Some((_, c)) => *c += 1,
+                None => {
+                    counts.push((k.to_string(), 1));
+                    out.push(line);
+                }
+            },
+            None => out.push(line),
+        }
+    }
+    let mut s = out.join("\n");
+    for (k, c) in counts.iter().filter(|(_, c)| *c > 1) {
+        s.push_str(&format!("
+[Manager: \"Missing property {k}\" was logged {c} times in this excerpt]"));
+    }
+    s
+}
+
 /// Remove things that must never leave the machine from log text.
 pub fn redact(text: &str) -> String {
     let mut out = Vec::new();
@@ -177,9 +202,33 @@ pub fn export_package(root: &Path, meta_dir: &Path, manager_log: &Path, meta: &I
     });
     add("summary.json", serde_json::to_string_pretty(&summary)?.as_bytes())?;
     for (name, path) in [("manager.log", manager_log.to_path_buf()), ("manager-install.log", meta_dir.join("logs/manager.log")), ("Server.log.tail", root.join("Core/Logs/Server.log")), ("Errors.log.tail", root.join("Core/Logs/Errors.log")), ("Auth.log.tail", root.join("Core/Logs/Auth.log")), ("world-console.log.tail", root.join("Core/Logs/world-console.log")), ("mysql-error.log.tail", root.join("mysql/logs/mysql-error.log"))] {
-        let bytes = tail(&path, 512 * 1024);
+        // A module that reads a missing setting on every tick fills a log with one warning, thousands of times; read far
+        // enough back to see past that, fold the repeats, then keep the last part.
+        let bytes = tail(&path, 8 * 1024 * 1024);
         if !bytes.is_empty() {
-            add(name, redact(&String::from_utf8_lossy(&bytes)).as_bytes())?;
+            let text = squash_repeated_config_warnings(&String::from_utf8_lossy(&bytes));
+            let keep = text.len().saturating_sub(512 * 1024);
+            let start = (keep..text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
+            add(name, redact(&text[start..]).as_bytes())?;
+        }
+    }
+    // Which files the server's own configuration folders hold, and the two CoA switches that decide whether the game
+    // client can talk to the world server at all.
+    let mut present = String::new();
+    for dir in ["Core/configs", "Core/configs/modules", "Core/Logs"] {
+        if let Ok(rd) = fs::read_dir(root.join(dir)) {
+            let mut names: Vec<String> = rd.flatten().filter(|e| e.path().is_file()).map(|e| format!("{dir}/{} ({} bytes)", e.file_name().to_string_lossy(), e.metadata().map(|m| m.len()).unwrap_or(0))).collect();
+            names.sort();
+            present.push_str(&names.join("\n"));
+            present.push('\n');
+        }
+    }
+    add("files.txt", present.as_bytes())?;
+    if let Ok(b) = fs::read(root.join("Core/configs/modules/coa.conf")) {
+        if let Ok(c) = ConfFile::parse_bytes(&b) {
+            let wanted = ["CoA.Enable", "CoA.AllowRemoteClients", "CoA.MapClass10ToWarrior"];
+            let lines: Vec<String> = c.entries().filter(|(k, _)| wanted.contains(k)).map(|(k, v)| format!("{k} = {v}")).collect();
+            add("coa.conf.txt", lines.join("\n").as_bytes())?;
         }
     }
     // Which settings exist, never their values.
@@ -209,6 +258,21 @@ pub fn desktop_or_temp() -> PathBuf {
 mod tests {
     use super::*;
     use crate::registry::{InstallKind, InstallMeta};
+
+    #[test]
+    fn repeated_config_warnings_are_folded() {
+        let t = "start
+> Config: Missing property A.B in config file x or module config, add y
+> Config: Missing property A.B in config file x
+real error
+> Config: Missing property C.D in config file x
+> Config: Missing property A.B in config file x";
+        let out = squash_repeated_config_warnings(t);
+        assert_eq!(out.matches("Missing property A.B in config file").count(), 1);
+        assert!(out.contains("real error") && out.contains("C.D"));
+        assert!(out.contains("\"Missing property A.B\" was logged 3 times"));
+        assert!(!out.contains("C.D\" was logged"));
+    }
 
     #[test]
     fn redaction_removes_lines_that_could_carry_secrets() {
