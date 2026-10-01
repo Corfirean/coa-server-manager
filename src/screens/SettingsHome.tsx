@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { applyServerUpdate, clearServerUpdateResult, useServerUpdate } from "@/lib/serverUpdate";
 import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,29 +17,39 @@ function mb(bytes: number) {
 
 export function SettingsHome({ serverId }: { serverId: string }) {
   const { t } = useI18n();
+  const upd = useServerUpdate(serverId);
   const human = useHuman();
   const [preview, setPreview] = useState<UpdatePreview | null>(null);
   const [pending, setPending] = useState<UpdateTxn | null>(null);
-  const [busy, setBusy] = useState<"check" | "update" | "rollback" | null>(null);
-  const [progress, setProgress] = useState<{ step: string; percent: number } | null>(null);
-  const [error, setError] = useState<UiError | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [localBusy, setBusy] = useState<"check" | "rollback" | null>(null);
+  // an update keeps running in the background when this tab is left, so its state is the shared one
+  const busy = upd.applying ? "update" : localBusy;
+  const progress = upd.applying ? { step: upd.step ?? "Starting", percent: upd.percent } : null;
+  const [localError, setError] = useState<UiError | null>(null);
+  const error = localError ?? upd.uiError;
+  const [localDone, setDone] = useState<string | null>(null);
+  const done = upd.result && "committed" in upd.result ? t("upd.updatedTo", { v: upd.result.committed }) : localDone;
   const [choices, setChoices] = useState<Record<string, "keep" | "replace">>({});
   const [advanced, setAdvanced] = useState(false);
   const [source, setSource] = useState("");
 
   useEffect(() => {
     void api.pendingUpdate(serverId).then(setPending).catch(() => {});
-    const un = listen<{ step: string; percent: number }>("update-progress", (e) => setProgress(e.payload));
-    return () => {
-      void un.then((f) => f());
-    };
   }, [serverId]);
+
+  // the update finished (possibly while another tab was open): drop the stale preview, show what is left to decide
+  useEffect(() => {
+    if (!upd.result) return;
+    setPreview(null);
+    if ("pending" in upd.result) setPending(upd.result.pending);
+    else void api.pendingUpdate(serverId).then(setPending).catch(() => {});
+  }, [upd.result, serverId]);
 
   async function check() {
     setBusy("check");
     setError(null);
     setDone(null);
+    clearServerUpdateResult(serverId);
     setPreview(null);
     try {
       const p = await api.checkUpdate(serverId, source.trim() || undefined);
@@ -53,21 +63,9 @@ export function SettingsHome({ serverId }: { serverId: string }) {
   }
 
   async function update() {
-    setBusy("update");
     setError(null);
-    setProgress({ step: "Starting", percent: 0 });
-    try {
-      const out = await api.applyUpdate(serverId, choices, source.trim() || undefined);
-      setPreview(null);
-      if (out.txn.state === "committed") setDone(t("upd.updatedTo", { v: out.txn.to_version ?? "" }));
-      else setPending(out.txn);
-    } catch (e) {
-      setError(asUiError(e));
-    } finally {
-      setBusy(null);
-      setProgress(null);
-      void api.pendingUpdate(serverId).then(setPending).catch(() => {});
-    }
+    setDone(null);
+    await applyServerUpdate(serverId, { choices, source: source.trim() || undefined });
   }
 
   async function rollback(txn: UpdateTxn) {
