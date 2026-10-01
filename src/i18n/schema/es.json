@@ -466,6 +466,86 @@
   "MapUpdate.Threads": {
    "t": "Núcleos de CPU para el mundo",
    "d": "Cuántos núcleos del procesador usa el mundo para actualizar los mapas. Los compañeros repartidos por varios mapas van mucho más rápido con más de un núcleo. Se aplica al reiniciar el servidor del mundo."
+  },
+  "Rate.Drop.Item.Uncommon": {
+   "t": "Probabilidad de botín de objetos poco comunes",
+   "d": "Multiplicador de la frecuencia con que caen objetos poco comunes (verdes)."
+  },
+  "Rate.Drop.Item.Rare": {
+   "t": "Probabilidad de botín de objetos raros",
+   "d": "Multiplicador de la frecuencia con que caen objetos raros (azules)."
+  },
+  "Rate.Drop.Item.Epic": {
+   "t": "Probabilidad de botín de objetos épicos",
+   "d": "Multiplicador de la frecuencia con que caen objetos épicos (morados)."
+  },
+  "Rate.Drop.Item.Legendary": {
+   "t": "Probabilidad de botín de objetos legendarios",
+   "d": "Multiplicador de la frecuencia con que caen objetos legendarios (naranjas)."
+  },
+  "Rate.Talent": {
+   "t": "Puntos de talento",
+   "d": "Multiplicador de los puntos de talento que gana un personaje por nivel."
+  },
+  "Rate.Skill.Discovery": {
+   "t": "Probabilidad de descubrir recetas",
+   "d": "Multiplicador de la probabilidad de descubrir una receta nueva al fabricar."
+  },
+  "Rate.RepairCost": {
+   "t": "Coste de reparación",
+   "d": "Multiplicador del coste de reparar el equipo. 0 hace las reparaciones gratuitas."
+  },
+  "Rate.Auction.Cut": {
+   "t": "Comisión de la casa de subastas",
+   "d": "Multiplicador de la parte de una venta que se queda la casa de subastas. 0 significa sin comisión."
+  },
+  "Rate.ArenaPoints": {
+   "t": "Puntos de arena",
+   "d": "Multiplicador de los puntos de arena obtenidos."
+  },
+  "Rate.XP.Pet": {
+   "t": "Experiencia de mascotas",
+   "d": "Multiplicador de la experiencia que ganan las mascotas de los cazadores."
+  },
+  "Instance.IgnoreLevel": {
+   "t": "Ignorar el nivel requerido de las mazmorras",
+   "d": "Personajes de cualquier nivel pueden entrar en mazmorras y bandas."
+  },
+  "Instance.IgnoreRaid": {
+   "t": "Entrar en bandas sin grupo de banda",
+   "d": "Los jugadores pueden entrar en instancias de banda sin estar en un grupo de banda."
+  },
+  "Instance.ResetTimeHour": {
+   "t": "Hora de reinicio de mazmorras",
+   "d": "Hora del día (0-23) a la que se reinician los bloqueos de mazmorras y bandas."
+  },
+  "MaxPrimaryTradeSkill": {
+   "t": "Profesiones principales por personaje",
+   "d": "Cuántas profesiones principales (como herrería o herboristería) puede aprender un personaje."
+  },
+  "AlwaysMaxSkillForLevel": {
+   "t": "Habilidades siempre al máximo del nivel",
+   "d": "Las habilidades de armas y otras están siempre al máximo para el nivel del personaje, sin entrenar."
+  },
+  "ActivateWeather": {
+   "t": "Clima",
+   "d": "Activa o desactiva la lluvia, la nieve y las tormentas."
+  },
+  "Group.Raid.LevelRestriction": {
+   "t": "Nivel mínimo para invitar a una banda",
+   "d": "Los personajes por debajo de este nivel no pueden ser invitados a un grupo de banda."
+  },
+  "AllowTwoSide.Interaction.Group": {
+   "t": "Grupos entre facciones",
+   "d": "Jugadores de la Alianza y de la Horda pueden formar grupos juntos."
+  },
+  "AllowTwoSide.Interaction.Guild": {
+   "t": "Hermandades entre facciones",
+   "d": "Jugadores de la Alianza y de la Horda pueden unirse a la misma hermandad."
+  },
+  "AllowTwoSide.Interaction.Auction": {
+   "t": "Casa de subastas compartida",
+   "d": "Jugadores de la Alianza y de la Horda usan la misma casa de subastas."
   }
  },
  "options": {

@@ -466,6 +466,86 @@
   "MapUpdate.Threads": {
    "t": "CPU-Kerne für die Welt",
    "d": "Wie viele Prozessorkerne die Welt zum Aktualisieren der Karten nutzt. Begleiter, die sich über mehrere Karten verteilen, laufen mit mehr als einem Kern deutlich schneller. Wird nach einem Neustart des Weltservers wirksam."
+  },
+  "Rate.Drop.Item.Uncommon": {
+   "t": "Droprate für ungewöhnliche Gegenstände",
+   "d": "Multiplikator dafür, wie oft ungewöhnliche (grüne) Gegenstände fallen."
+  },
+  "Rate.Drop.Item.Rare": {
+   "t": "Droprate für seltene Gegenstände",
+   "d": "Multiplikator dafür, wie oft seltene (blaue) Gegenstände fallen."
+  },
+  "Rate.Drop.Item.Epic": {
+   "t": "Droprate für epische Gegenstände",
+   "d": "Multiplikator dafür, wie oft epische (lila) Gegenstände fallen."
+  },
+  "Rate.Drop.Item.Legendary": {
+   "t": "Droprate für legendäre Gegenstände",
+   "d": "Multiplikator dafür, wie oft legendäre (orange) Gegenstände fallen."
+  },
+  "Rate.Talent": {
+   "t": "Talentpunkte",
+   "d": "Multiplikator für die Talentpunkte, die ein Charakter pro Stufe erhält."
+  },
+  "Rate.Skill.Discovery": {
+   "t": "Chance auf Rezeptentdeckung",
+   "d": "Multiplikator für die Chance, beim Herstellen ein neues Rezept zu entdecken."
+  },
+  "Rate.RepairCost": {
+   "t": "Reparaturkosten",
+   "d": "Multiplikator für die Kosten der Ausrüstungsreparatur. 0 macht Reparaturen kostenlos."
+  },
+  "Rate.Auction.Cut": {
+   "t": "Auktionshaus-Gebühr",
+   "d": "Multiplikator für den Anteil eines Verkaufs, den das Auktionshaus behält. 0 bedeutet keine Gebühr."
+  },
+  "Rate.ArenaPoints": {
+   "t": "Arenapunkte",
+   "d": "Multiplikator für erhaltene Arenapunkte."
+  },
+  "Rate.XP.Pet": {
+   "t": "Begleiter-Erfahrung",
+   "d": "Multiplikator für die Erfahrung, die Begleiter von Jägern erhalten."
+  },
+  "Instance.IgnoreLevel": {
+   "t": "Stufenanforderungen für Dungeons ignorieren",
+   "d": "Charaktere jeder Stufe können Dungeons und Schlachtzüge betreten."
+  },
+  "Instance.IgnoreRaid": {
+   "t": "Schlachtzüge ohne Schlachtzugsgruppe betreten",
+   "d": "Spieler können Schlachtzugsinstanzen betreten, ohne in einer Schlachtzugsgruppe zu sein."
+  },
+  "Instance.ResetTimeHour": {
+   "t": "Dungeon-Reset-Stunde",
+   "d": "Uhrzeit (0–23), zu der Dungeon- und Schlachtzugssperren zurückgesetzt werden."
+  },
+  "MaxPrimaryTradeSkill": {
+   "t": "Hauptberufe pro Charakter",
+   "d": "Wie viele Hauptberufe (z. B. Schmiedekunst oder Kräuterkunde) ein Charakter erlernen darf."
+  },
+  "AlwaysMaxSkillForLevel": {
+   "t": "Fertigkeiten immer auf Maximum der Stufe",
+   "d": "Waffen- und andere Fertigkeiten sind immer auf dem Maximum der Charakterstufe, Training ist nicht nötig."
+  },
+  "ActivateWeather": {
+   "t": "Wetter",
+   "d": "Schaltet Regen, Schnee und Stürme ein oder aus."
+  },
+  "Group.Raid.LevelRestriction": {
+   "t": "Mindeststufe zum Einladen in einen Schlachtzug",
+   "d": "Charaktere unter dieser Stufe können nicht in eine Schlachtzugsgruppe eingeladen werden."
+  },
+  "AllowTwoSide.Interaction.Group": {
+   "t": "Gruppen über Fraktionen hinweg",
+   "d": "Spieler der Allianz und der Horde können gemeinsam Gruppen bilden."
+  },
+  "AllowTwoSide.Interaction.Guild": {
+   "t": "Gilden über Fraktionen hinweg",
+   "d": "Spieler der Allianz und der Horde können derselben Gilde beitreten."
+  },
+  "AllowTwoSide.Interaction.Auction": {
+   "t": "Gemeinsames Auktionshaus",
+   "d": "Spieler der Allianz und der Horde nutzen dasselbe Auktionshaus."
   }
  },
  "options": {

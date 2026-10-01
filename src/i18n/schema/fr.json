@@ -466,6 +466,86 @@
   "MapUpdate.Threads": {
    "t": "Cœurs du processeur pour le monde",
    "d": "Nombre de cœurs du processeur utilisés par le monde pour mettre à jour les cartes. Les compagnons répartis sur plusieurs cartes vont nettement plus vite avec plus d’un cœur. Pris en compte au redémarrage du serveur de monde."
+  },
+  "Rate.Drop.Item.Uncommon": {
+   "t": "Taux de butin des objets inhabituels",
+   "d": "Multiplicateur de la fréquence de butin des objets inhabituels (verts)."
+  },
+  "Rate.Drop.Item.Rare": {
+   "t": "Taux de butin des objets rares",
+   "d": "Multiplicateur de la fréquence de butin des objets rares (bleus)."
+  },
+  "Rate.Drop.Item.Epic": {
+   "t": "Taux de butin des objets épiques",
+   "d": "Multiplicateur de la fréquence de butin des objets épiques (violets)."
+  },
+  "Rate.Drop.Item.Legendary": {
+   "t": "Taux de butin des objets légendaires",
+   "d": "Multiplicateur de la fréquence de butin des objets légendaires (orange)."
+  },
+  "Rate.Talent": {
+   "t": "Points de talent",
+   "d": "Multiplicateur des points de talent gagnés par niveau."
+  },
+  "Rate.Skill.Discovery": {
+   "t": "Chance de découvrir des recettes",
+   "d": "Multiplicateur de la chance de découvrir une nouvelle recette en fabriquant."
+  },
+  "Rate.RepairCost": {
+   "t": "Coût des réparations",
+   "d": "Multiplicateur du coût de réparation de l'équipement. 0 rend les réparations gratuites."
+  },
+  "Rate.Auction.Cut": {
+   "t": "Commission de l'hôtel des ventes",
+   "d": "Multiplicateur de la part d'une vente que garde l'hôtel des ventes. 0 signifie aucune commission."
+  },
+  "Rate.ArenaPoints": {
+   "t": "Points d'arène",
+   "d": "Multiplicateur des points d'arène gagnés."
+  },
+  "Rate.XP.Pet": {
+   "t": "Expérience des familiers",
+   "d": "Multiplicateur de l'expérience gagnée par les familiers des chasseurs."
+  },
+  "Instance.IgnoreLevel": {
+   "t": "Ignorer les niveaux requis des donjons",
+   "d": "Les personnages de tout niveau peuvent entrer dans les donjons et les raids."
+  },
+  "Instance.IgnoreRaid": {
+   "t": "Entrer dans les raids sans groupe de raid",
+   "d": "Les joueurs peuvent entrer dans les instances de raid sans être dans un groupe de raid."
+  },
+  "Instance.ResetTimeHour": {
+   "t": "Heure de réinitialisation des donjons",
+   "d": "Heure de la journée (0-23) à laquelle les verrouillages de donjons et de raids sont réinitialisés."
+  },
+  "MaxPrimaryTradeSkill": {
+   "t": "Métiers principaux par personnage",
+   "d": "Nombre de métiers principaux (comme la forge ou l'herboristerie) qu'un personnage peut apprendre."
+  },
+  "AlwaysMaxSkillForLevel": {
+   "t": "Compétences toujours au maximum du niveau",
+   "d": "Les compétences d'armes et autres sont toujours au maximum du niveau du personnage, sans entraînement."
+  },
+  "ActivateWeather": {
+   "t": "Météo",
+   "d": "Active ou désactive la pluie, la neige et les tempêtes."
+  },
+  "Group.Raid.LevelRestriction": {
+   "t": "Niveau minimum pour inviter dans un raid",
+   "d": "Les personnages en dessous de ce niveau ne peuvent pas être invités dans un groupe de raid."
+  },
+  "AllowTwoSide.Interaction.Group": {
+   "t": "Groupes entre factions",
+   "d": "Les joueurs de l'Alliance et de la Horde peuvent former des groupes ensemble."
+  },
+  "AllowTwoSide.Interaction.Guild": {
+   "t": "Guildes entre factions",
+   "d": "Les joueurs de l'Alliance et de la Horde peuvent rejoindre la même guilde."
+  },
+  "AllowTwoSide.Interaction.Auction": {
+   "t": "Hôtel des ventes commun",
+   "d": "Les joueurs de l'Alliance et de la Horde utilisent le même hôtel des ventes."
   }
  },
  "options": {
