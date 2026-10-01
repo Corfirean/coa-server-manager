@@ -28,6 +28,8 @@ struct AppState {
     busy: Mutex<HashSet<String>>,
     /// Cancel handle of the installation currently running, if any.
     install_cancel: Mutex<Option<Cancel>>,
+    /// Cancel handle of the game-client check or download currently running, if any.
+    client_cancel: Mutex<Option<Cancel>>,
 }
 
 /// Where official server packages are published (created by the release pipeline, Phase 6).
@@ -726,6 +728,182 @@ fn client_install_addon(state: State<'_, AppState>, id: String) -> std::result::
     Ok(coa_core::client::install_addon(&client.unwrap(), &dir, &source)?)
 }
 
+#[derive(Serialize)]
+struct ClientStatus {
+    /// A usable client folder is linked to this server.
+    linked: bool,
+    /// The Manager keeps this folder up to date (it downloaded it or was asked to adopt it).
+    managed: bool,
+    installed_version: Option<String>,
+    latest_version: Option<String>,
+    latest_bytes: Option<u64>,
+    /// A managed client is older than the published one (or its download never finished).
+    update_available: bool,
+}
+
+fn linked_client(root: &std::path::Path) -> Result<Option<PathBuf>> {
+    let (_, meta) = install_meta(root)?;
+    Ok(meta.client_path.map(PathBuf::from).filter(|p| coa_core::client::detect(p, None).is_some()))
+}
+
+/// Cheap: one small manifest request and the local state file; no game file is read.
+#[tauri::command]
+async fn client_status(state: State<'_, AppState>, id: String) -> std::result::Result<ClientStatus, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let client = linked_client(&root)?;
+        let latest = coa_core::clientdl::fetch_latest().ok();
+        let local = client.as_deref().map(coa_core::clientdl::local);
+        let managed = local.as_ref().map(|l| l.managed).unwrap_or(false);
+        let installed = local.and_then(|l| l.version);
+        let update_available = managed && latest.as_ref().map(|l| installed.as_deref() != Some(l.version.as_str())).unwrap_or(false);
+        Ok(ClientStatus {
+            linked: client.is_some(),
+            managed,
+            installed_version: installed,
+            latest_bytes: latest.as_ref().map(|l| l.total_bytes()),
+            latest_version: latest.map(|l| l.version),
+            update_available,
+        })
+    })
+    .await
+}
+
+#[derive(Serialize)]
+struct ClientDownloadCheck {
+    needed_bytes: u64,
+    free_bytes: u64,
+    version: String,
+    /// Where the client would go.
+    dest: String,
+}
+
+const CLIENT_FOLDER: &str = "CoA Client";
+
+#[tauri::command]
+async fn client_download_check(parent: String) -> std::result::Result<ClientDownloadCheck, UiError> {
+    blocking(move || {
+        let latest = coa_core::clientdl::fetch_latest()?;
+        let dest = PathBuf::from(&parent).join(CLIENT_FOLDER);
+        Ok(ClientDownloadCheck {
+            needed_bytes: latest.total_bytes(),
+            free_bytes: coa_core::fsx::free_space(std::path::Path::new(&parent))?,
+            version: latest.version,
+            dest: dest.to_string_lossy().into_owned(),
+        })
+    })
+    .await
+}
+
+/// Compare the linked client with the published one. Hashes files only where the recorded state cannot vouch for them.
+#[tauri::command]
+async fn client_plan(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::clientdl::Plan, UiError> {
+    let root = path_of(&state, &id)?;
+    let cancel = begin_client_job(&state)?;
+    let result = blocking(move || {
+        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
+        let manifest = coa_core::clientdl::fetch_latest()?;
+        let current = coa_core::clientdl::load_state(&client).unwrap_or_default();
+        coa_core::clientdl::plan(&client, &manifest, &current, &cancel, &|s| {
+            let _ = app.emit("client-progress", s);
+        })
+    })
+    .await;
+    end_client_job(&state);
+    result
+}
+
+/// Bring the linked client to the published version. `keep_modified` leaves files the player changed alone.
+#[tauri::command]
+async fn client_sync(app: AppHandle, state: State<'_, AppState>, id: String, keep_modified: bool) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let cancel = begin_client_job(&state)?;
+    let result = blocking(move || {
+        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
+        run_client_sync(&app, &client, keep_modified, &cancel)
+    })
+    .await;
+    end_client_job(&state);
+    result
+}
+
+fn run_client_sync(app: &AppHandle, client: &std::path::Path, keep_modified: bool, cancel: &Cancel) -> Result<()> {
+    let emit = |s: coa_core::clientdl::Step| {
+        let _ = app.emit("client-progress", s);
+    };
+    let manifest = coa_core::clientdl::fetch_latest()?;
+    let current = coa_core::clientdl::load_state(client).unwrap_or_default();
+    let plan = coa_core::clientdl::plan(client, &manifest, &current, cancel, &emit)?;
+    coa_core::download::check_url(coa_core::clientdl::OBJECTS_URL)?;
+    let transport = coa_core::download::HttpTransport::new()?;
+    coa_core::clientdl::apply(
+        &coa_core::clientdl::Apply { client, manifest: &manifest, plan: &plan, keep_modified, transport: &transport, objects_url: coa_core::clientdl::OBJECTS_URL, cancel },
+        &emit,
+    )?;
+    tracing::info!(version = %manifest.version, downloaded = plan.items.len(), "client brought up to date");
+    Ok(())
+}
+
+/// Download the whole client into `<parent>/CoA Client`, then link it to this server.
+#[tauri::command]
+async fn client_download(app: AppHandle, state: State<'_, AppState>, id: String, parent: String) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
+    let root = path_of(&state, &id)?;
+    let cancel = begin_client_job(&state)?;
+    let result = blocking(move || {
+        let (dir, mut meta) = install_meta(&root)?;
+        let parent = PathBuf::from(&parent);
+        if !parent.is_dir() {
+            return Err(Error::Invalid("Choose an existing folder to put the game client in.".into()));
+        }
+        let dest = parent.join(CLIENT_FOLDER);
+        let resuming = coa_core::clientdl::load_state(&dest).is_some();
+        let non_empty = std::fs::read_dir(&dest).map(|mut r| r.next().is_some()).unwrap_or(false);
+        if non_empty && !resuming {
+            return Err(Error::Invalid(format!("{} already exists and is not an unfinished download. Choose another folder.", dest.display())));
+        }
+        std::fs::create_dir_all(&dest)?;
+        run_client_sync(&app, &dest, false, &cancel)?;
+        let source = coa_core::client::addon_source(&root);
+        let info = coa_core::client::detect(&dest, source.as_deref()).ok_or_else(|| Error::Invalid("The downloaded client looks incomplete.".into()))?;
+        meta.client_path = Some(info.path.clone());
+        coa_core::fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
+        // a fresh client has no realmlist; this server is on this computer
+        coa_core::client::set_realmlist(&dest, &dir, "127.0.0.1")?;
+        if let Some(src) = source {
+            coa_core::client::install_addon(&dest, &dir, &src)?;
+        }
+        Ok(coa_core::client::detect(&dest, coa_core::client::addon_source(&root).as_deref()).unwrap_or(info))
+    })
+    .await;
+    end_client_job(&state);
+    result
+}
+
+#[tauri::command]
+fn client_cancel(state: State<'_, AppState>) {
+    if let Ok(c) = state.client_cancel.lock() {
+        if let Some(c) = c.as_ref() {
+            c.cancel();
+        }
+    }
+}
+
+fn begin_client_job(state: &AppState) -> std::result::Result<Cancel, UiError> {
+    let mut slot = state.client_cancel.lock().map_err(|_| Error::Invalid("state poisoned".into()))?;
+    if slot.is_some() {
+        return Err(Error::Invalid("The game client is already being checked or downloaded.".into()).into());
+    }
+    let cancel = Cancel::default();
+    *slot = Some(cancel.clone());
+    Ok(cancel)
+}
+
+fn end_client_job(state: &AppState) {
+    if let Ok(mut c) = state.client_cancel.lock() {
+        *c = None;
+    }
+}
+
 /// Start the server if needed, wait until it is ready, then launch the game client.
 #[tauri::command]
 async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
@@ -969,7 +1147,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None) })
+        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
             scan_server,
@@ -1012,6 +1190,12 @@ pub fn run() {
             set_client,
             client_realmlist,
             client_install_addon,
+            client_status,
+            client_download_check,
+            client_plan,
+            client_sync,
+            client_download,
+            client_cancel,
             play,
             friends_status,
             friends_check_internet,

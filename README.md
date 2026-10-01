@@ -11,6 +11,9 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   database and creates your first account. Or import a server you already have.
 * **Start / Stop / PLAY.** One button for the whole server (database, auth, world) with live status, uptime and
   players online. PLAY starts the game client with the right realmlist.
+* **Game client.** Use the client you already have, or let the Manager download it (about 43 GB, resumable, every file
+  verified). A client the Manager looks after is checked for updates like the server: PLAY turns into **UPDATE CLIENT**,
+  and files you changed yourself are never replaced unless you say so.
 * **Safe updates.** The Manager checks for a new server version on start and every five minutes; the main button turns
   into **UPDATE**. Updates are authenticated (Ed25519), back up first, keep files you changed and can be rolled back.
 * **Backups.** Characters, accounts and settings on demand, automatically before every update; verify and restore
@@ -38,15 +41,14 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
 ## Install
 
 Download the installer from the [Releases](https://github.com/Corfirean/coa-server-manager/releases) page
-and run it. You need about 10 GB of free disk space for the server. The Manager does not include the game client;
-use your existing Conquest of Azeroth client.
+and run it. You need about 10 GB of free disk space for the server. The game client (about 43 GB) is separate: point the
+Manager at the one you have, or let it download one for you.
 
 ## Status
 
 Phases 0–10 of the plan in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are done: foundation, import, start/stop,
 config engine, backups, clean install from signed packages, updates, companions, client launch, friends, polish.
-Remaining work (client download/update from the Manager, translation review by native speakers) is listed in
-section 9 of that document. Translation notes: [docs/TRANSLATIONS.md](docs/TRANSLATIONS.md).
+Remaining work (translation review by native speakers, optional extras) is listed in section 9 of that document. Translation notes: [docs/TRANSLATIONS.md](docs/TRANSLATIONS.md).
 
 ## Develop
 ```

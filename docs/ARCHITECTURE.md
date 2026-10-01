@@ -277,9 +277,10 @@ Advanced override, snapshot first.
 
 ### D9. Client integration
 
-The client is a separate object. Manager only: detect (`Wow.exe`/`Ascension.exe` + `Data\`), read/write
-`realmlist.wtf` after backing it up, and copy `Interface\AddOns\CoABotUI` (backing that one directory up only if
-its files differ from the manifest). No touching of `WTF`, `Cache`, other AddOns, or the exe.
+The client is a separate object. By default the Manager only detects it (`Wow.exe`/`Ascension.exe` + `Data\`), reads/writes
+`realmlist.wtf` after backing it up, and copies `Interface\AddOns\CoABotUI` (backing that one directory up only if
+its files differ from the manifest). No touching of `WTF`, `Cache`, other AddOns, or the exe. Downloading or updating
+a client is opt-in and described in section 9 (game client download); an existing client is never changed without asking.
 *Reference machine note:* `C:\games\Ascension` is a heavily modified Ascension client (custom `d3d9.dll`,
 renderer files, many `.bak`s) — client detection must be strictly read-only + additive.
 
@@ -518,13 +519,22 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   Fixed: `clean-base` restores quiet templates, `assemble-tree` ships `coa.conf.dist`, and the Manager creates missing
   module `.conf` files from their `.dist` on install and before each start of a Manager-installed server.
 
-* **Game client download through the Manager** (idea 2026-10-01, researched, not built). The community PTR launcher
-  ("Conquest of AzerothCore" Electron app from `ConquestOfAzerothSetup-0.6.9.exe`) reads its client from
+* **Game client download and update through the Manager** (built 2026-10-01, `coa-core::clientdl`). The community PTR launcher
+  ("Conquest of AzerothCore" Electron app) reads its client from
   `https://launcher-api.coa-development.org/downloads/client/latest.json` (`{schema, version, publishedAt, files:[{path,size,sha256}]}`;
-  200 files, 43.2 GiB: `Ascension.exe`, DLLs and ~40 big `Data/*.MPQ`) and fetches each file as the content-addressed object
-  `.../downloads/client/objects/<sha256>` (Cloudflare, `Accept-Ranges`, immutable cache), 3 attempts, 30 s stall timeout, `.part`
-  files, sha256 check, resume via `Range`. The Manager already has everything needed (resumable verified downloads, free-space
-  check): a "Download game client" card with folder choice, overall progress, update check against `latest.json`, and the
-  existing safety rule (the Manager only ever writes its own client folder, never an existing one without asking). Open points:
-  ask the launcher/community maintainers before putting load on their API; DBCs live inside the MPQ patch archives (extracting
-  them would need an MPQ reader), so the server's `Data\dbc` still comes from our `base` package for now.
+  ~200 files, 43 GiB: `Ascension.exe`, DLLs and ~40 big `Data/*.MPQ`) and fetches each file as the content-addressed object
+  `.../downloads/client/objects/<sha256>`. The Manager uses the same endpoints with its own resumable, hash-verified downloader:
+  * **State** lives in the client folder (`.coa-manager/client-state.json`: manifest version, per file size/mtime/sha256). A
+    routine check (every 5 minutes, like the server) is one small manifest request compared with the recorded version; no game file is read.
+  * **Plan, then apply** (like server updates): files are compared by size and mtime against the state, and hashed only when those
+    no longer match. Each file is `Missing`, `Changed` (still as the Manager left it) or `Modified` (the player changed it, e.g. a
+    custom `d3d9.dll` or a patched exe). Modified files are kept on request (and remembered: asked again only when the published file
+    changes) or replaced after being moved to `.coa-manager/replaced/<time>/`. Objects are staged in `.coa-manager/staging/<sha>` and
+    moved into place only after the hash matches; state is saved after every file, so cancel, crash or reboot resume where they stopped.
+  * **Never touched:** `WTF`, `Cache`, `Errors`, `Logs`, `*.log`, `realmlist.wtf`, `Interface/AddOns/CoABotUI` (those have their own paths).
+  * **UI:** PLAY becomes **UPDATE CLIENT** when a tracked client is outdated (with "Play without updating"); with no client linked it
+    becomes **Set up game client** (choose an existing folder, or download into `<chosen folder>/CoA Client` with a free-space check).
+    An existing client that is not tracked can be adopted from Settings > Game client ("Keep this client up to date").
+    A fresh download gets `realmlist.wtf` for each installed locale (the manifest has none) and the companion addon.
+  * **Open points:** ask the launcher maintainers before putting heavy load on their API; DBCs live inside the MPQ patch archives
+    (extracting them would need an MPQ reader), so the server's `Data\dbc` still comes from our `base` package for now.

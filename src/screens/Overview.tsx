@@ -4,6 +4,8 @@ import { api, asUiError, type ClientInfo, type Human, type Performance, type Pop
 import { cn, formatUptime } from "@/lib/utils";
 import { useHuman, useT } from "@/i18n";
 import { applyServerUpdate, useServerUpdate } from "@/lib/serverUpdate";
+import { checkClient, useClientStatus } from "@/lib/clientUpdate";
+import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -67,7 +69,9 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
   const [failure, setFailure] = useState<Failure | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [pop, setPop] = useState<Population | null>(null);
-  const [client, setClient] = useState<ClientInfo | null>(null);
+  const [client, setClient] = useState<ClientInfo | null | undefined>(undefined);
+  const [dialog, setDialog] = useState<ClientDialogMode | null>(null);
+  const clientStatus = useClientStatus(server.id).status;
   const [playing, setPlaying] = useState(false);
   const [perf, setPerf] = useState<Performance | null>(null);
   const upd = useServerUpdate(server.id);
@@ -272,12 +276,20 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
               {t("btn.stopSmall")}
             </Button>
           )}
-          {client && (
+          {client && clientStatus?.update_available ? (
+            <Button variant="primary" size="xl" disabled={playing} onClick={() => setDialog("update")} className="ml-auto min-w-40">
+              {t("btn.updateClient")}
+            </Button>
+          ) : client ? (
             <Button variant={running ? "primary" : "secondary"} size="xl" disabled={transitioning || playing} onClick={() => void play()} className="ml-auto min-w-40">
               {playing && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
               {running ? t("btn.play") : t("btn.startPlay")}
             </Button>
-          )}
+          ) : client === null ? (
+            <Button variant="secondary" size="xl" onClick={() => setDialog("setup")} className="ml-auto min-w-40">
+              {t("btn.setupClient")}
+            </Button>
+          ) : null}
         </div>
         {anyUp && !running && !transitioning && (
           <p className="mt-3 text-sm text-muted">{t("overview.partial")}</p>
@@ -329,6 +341,19 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
             </pre>
           )}
         </Card>
+      )}
+
+      {dialog && (
+        <ClientDialog
+          serverId={server.id}
+          mode={dialog}
+          onClose={() => setDialog(null)}
+          onChanged={() => {
+            void api.clientInfo(server.id).then(setClient).catch(() => setClient(null));
+            void checkClient(server.id);
+          }}
+          onPlayAnyway={() => void play()}
+        />
       )}
     </div>
   );

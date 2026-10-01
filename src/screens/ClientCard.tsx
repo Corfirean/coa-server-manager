@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, asUiError, type ClientInfo, type UiError } from "@/lib/api";
+import { api, asUiError, type ClientInfo, type ClientStatus, type UiError } from "@/lib/api";
+import { checkClient } from "@/lib/clientUpdate";
+import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useT } from "@/i18n";
@@ -12,8 +14,13 @@ export function ClientCard({ serverId }: { serverId: string }) {
   const [error, setError] = useState<UiError | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<ClientStatus | null>(null);
+  const [dialog, setDialog] = useState<ClientDialogMode | null>(null);
 
-  const refresh = () => api.clientInfo(serverId).then(setInfo).catch((e) => setError(asUiError(e)));
+  const refresh = () => {
+    void api.clientStatus(serverId).then(setStatus).catch(() => setStatus(null));
+    return api.clientInfo(serverId).then(setInfo).catch((e) => setError(asUiError(e)));
+  };
   useEffect(() => {
     void refresh();
   }, [serverId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -48,7 +55,7 @@ export function ClientCard({ serverId }: { serverId: string }) {
       {info === null && (
         <>
           <p className="mt-1 text-sm text-muted">{t("client.intro")}</p>
-          <Button className="mt-4" onClick={() => void choose()} disabled={busy}>{t("client.chooseFolder")}</Button>
+          <Button className="mt-4" onClick={() => setDialog("setup")} disabled={busy}>{t("btn.setupClient")}</Button>
         </>
       )}
       {info && (
@@ -59,6 +66,13 @@ export function ClientCard({ serverId }: { serverId: string }) {
             <dd>
               {hosts.length ? hosts.filter(Boolean).join(", ") : "—"}
               {pointsLocal ? <span className="ml-2 text-ok">{t("client.thisComputer")}</span> : <span className="ml-2 text-warn">{t("client.notThisServer")}</span>}
+            </dd>
+            <dt className="text-muted">{t("client.version")}</dt>
+            <dd>
+              {status?.managed
+                ? status.installed_version ?? t("client.versionUnfinished")
+                : t("client.versionUntracked")}
+              {status?.update_available && <span className="ml-2 text-warn">{t("client.updateAvailable")}</span>}
             </dd>
             <dt className="text-muted">{t("client.addon")}</dt>
             <dd>
@@ -79,12 +93,30 @@ export function ClientCard({ serverId }: { serverId: string }) {
                 {info.addon.installed ? t("client.updateAddon") : t("client.installAddon")}
               </Button>
             )}
+            {status?.update_available && (
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => setDialog("update")}>{t("client.upd.start")}</Button>
+            )}
+            {status && !status.managed && (
+              <Button size="sm" disabled={busy} onClick={() => setDialog("track")}>{t("client.track.button")}</Button>
+            )}
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => void choose()}>{t("client.changeFolder")}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDialog("setup")}>{t("client.downloadInstead")}</Button>
           </div>
         </>
       )}
       {note && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
       {error && <p className="mt-3 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
+      {dialog && (
+        <ClientDialog
+          serverId={serverId}
+          mode={dialog}
+          onClose={() => setDialog(null)}
+          onChanged={() => {
+            void refresh();
+            void checkClient(serverId);
+          }}
+        />
+      )}
     </Card>
   );
 }

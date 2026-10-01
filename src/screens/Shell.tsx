@@ -14,6 +14,7 @@ import { FriendsPage } from "@/screens/FriendsPage";
 import { ConsolePage } from "@/screens/ConsolePage";
 import { Button } from "@/components/ui/button";
 import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
+import { startClientPolling } from "@/lib/clientUpdate";
 
 type Page = "overview" | "bots" | "server" | "players" | "friends" | "backups" | "console" | "settings";
 
@@ -41,8 +42,15 @@ export function Shell(props: {
   const current = NAV.find((n) => n.id === page)!;
   const update = useServerUpdate(props.activeId);
 
-  // Look for a server update when the app starts and then every five minutes.
-  useEffect(() => startServerUpdatePolling(props.activeId), [props.activeId]);
+  // Look for a server and a game client update when the app starts and then every five minutes.
+  useEffect(() => {
+    const stopServer = startServerUpdatePolling(props.activeId);
+    const stopClient = startClientPolling(props.activeId);
+    return () => {
+      stopServer();
+      stopClient();
+    };
+  }, [props.activeId]);
 
   return (
     <div className="flex h-full">

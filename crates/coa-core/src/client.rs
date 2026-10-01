@@ -122,12 +122,40 @@ fn host_ok(h: &str) -> bool {
     !h.is_empty() && h.len() <= 253 && h.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':')) && !h.starts_with('-')
 }
 
+/// Locales a client has game data for (`Data/<locale>/locale-<locale>.MPQ`), e.g. `enUS`.
+fn installed_locales(client: &Path) -> Vec<String> {
+    let mut v: Vec<String> = fs::read_dir(client.join("Data"))
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.len() == 4 && n[..2].bytes().all(|b| b.is_ascii_lowercase()) && n[2..].bytes().all(|b| b.is_ascii_uppercase()))
+                .filter(|n| client.join("Data").join(n).join(format!("locale-{n}.MPQ")).is_file())
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
 /// Point every locale's realmlist at `host`. Each changed file is copied to the backup folder first.
+/// A freshly downloaded client has no realmlist yet; one is created for each installed locale.
 pub fn set_realmlist(client: &Path, meta: &Path, host: &str) -> Result<Vec<String>> {
     if !host_ok(host) {
         return Err(Error::Invalid("That address is not valid.".into()));
     }
     let mut changed = Vec::new();
+    if realmlist_files(client).is_empty() {
+        for loc in installed_locales(client) {
+            let file = client.join("Data").join(&loc).join("realmlist.wtf");
+            fsx::atomic_write(&file, format!("set realmlist {host}
+").as_bytes())?;
+            changed.push(file.to_string_lossy().into_owned());
+        }
+        if !changed.is_empty() {
+            return Ok(changed);
+        }
+    }
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     for file in realmlist_files(client) {
         let old = fs::read(&file)?;
@@ -259,6 +287,22 @@ mod tests {
         assert_eq!(diff, ["Data/ruRU/realmlist.wtf", "Data/enUS/realmlist.wtf"].iter().map(|s| s.to_string()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
         assert!(set_realmlist(&c, &meta, "192.168.0.5").unwrap().is_empty(), "already set: no write, no new backup");
         assert!(set_realmlist(&c, &meta, "bad host; rm -rf").is_err());
+    }
+
+    #[test]
+    fn a_fresh_client_gets_a_realmlist_for_each_installed_locale() {
+        let d = tempfile::tempdir().unwrap();
+        let c = d.path().join("fresh");
+        fs::create_dir_all(c.join("Data/enUS")).unwrap();
+        fs::create_dir_all(c.join("Data/Content")).unwrap();
+        fs::write(c.join("Data/enUS/locale-enUS.MPQ"), b"x").unwrap();
+        fs::write(c.join("Ascension.exe"), b"exe").unwrap();
+        let changed = set_realmlist(&c, &d.path().join("meta"), "127.0.0.1").unwrap();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(fs::read_to_string(c.join("Data/enUS/realmlist.wtf")).unwrap(), "set realmlist 127.0.0.1
+");
+        assert!(!c.join("Data/Content/realmlist.wtf").exists());
+        assert_eq!(detect(&c, None).unwrap().realmlists[0].host.as_deref(), Some("127.0.0.1"));
     }
 
     #[test]

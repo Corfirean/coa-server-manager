@@ -226,6 +226,39 @@ export interface ClientInfo {
   other_addons: number;
 }
 
+export interface ClientStatus {
+  linked: boolean;
+  managed: boolean;
+  installed_version: string | null;
+  latest_version: string | null;
+  latest_bytes: number | null;
+  update_available: boolean;
+}
+
+export interface ClientPlan {
+  version: string;
+  items: { path: string; size: number; kind: "missing" | "changed" | "modified" }[];
+  download_bytes: number;
+  total_files: number;
+  up_to_date_files: number;
+  kept_files: number;
+}
+
+export interface ClientStep {
+  phase: "scan" | "download" | "finish";
+  done: number;
+  total: number;
+  bytes_per_sec: number;
+  file: string | null;
+}
+
+export interface ClientDownloadCheck {
+  needed_bytes: number;
+  free_bytes: number;
+  version: string;
+  dest: string;
+}
+
 export type FriendsMode = "local" | "lan" | "direct" | "private";
 
 export interface FriendsStatus {
@@ -301,6 +334,12 @@ export const api = {
   setClient: (id: string, path: string) => invoke<ClientInfo>("set_client", { id, path }),
   setRealmlist: (id: string, host: string) => invoke<string[]>("client_realmlist", { id, host }),
   installAddon: (id: string) => invoke<void>("client_install_addon", { id }),
+  clientStatus: (id: string) => invoke<ClientStatus>("client_status", { id }),
+  clientDownloadCheck: (parent: string) => invoke<ClientDownloadCheck>("client_download_check", { parent }),
+  clientPlan: (id: string) => invoke<ClientPlan>("client_plan", { id }),
+  clientSync: (id: string, keepModified: boolean) => invoke<void>("client_sync", { id, keepModified }),
+  clientDownload: (id: string, parent: string) => invoke<ClientInfo>("client_download", { id, parent }),
+  clientCancel: () => invoke<void>("client_cancel"),
   play: (id: string) => invoke<DriverOutcome>("play", { id }),
   friendsStatus: (id: string) => invoke<FriendsStatus>("friends_status", { id }),
   friendsCheckInternet: () => invoke<InternetCheck>("friends_check_internet"),

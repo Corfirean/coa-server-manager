@@ -2,6 +2,7 @@ pub mod backup;
 pub mod cleanbase;
 pub mod companions;
 pub mod client;
+pub mod clientdl;
 pub mod config;
 pub mod console;
 pub mod db;

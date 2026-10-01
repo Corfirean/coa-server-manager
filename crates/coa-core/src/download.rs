@@ -35,7 +35,7 @@ impl Cancel {
     pub fn cancel(&self) {
         self.0.store(true, Ordering::SeqCst);
     }
-    fn is_set(&self) -> bool {
+    pub fn is_set(&self) -> bool {
         self.0.load(Ordering::SeqCst)
     }
 }
@@ -70,6 +70,17 @@ pub trait Transport {
 pub struct HttpTransport(reqwest::blocking::Client);
 
 impl HttpTransport {
+    /// For small documents (manifests): gives up when the server stalls instead of waiting forever.
+    pub fn with_total_timeout(secs: u64) -> Result<Self> {
+        reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(secs))
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()
+            .map(HttpTransport)
+            .map_err(|e| Error::Invalid(e.to_string()))
+    }
+
     pub fn new() -> Result<Self> {
         reqwest::blocking::Client::builder()
             .connect_timeout(Duration::from_secs(15))
@@ -130,6 +141,10 @@ fn attempt(client: &dyn Transport, job: &Job, part: &Path, cancel: &Cancel, on_p
         have = 0;
     }
     if have == job.size {
+        if !part.exists() {
+            // an empty file: nothing to request
+            File::create(part)?;
+        }
         return finish(job, part, hasher);
     }
 
@@ -376,6 +391,16 @@ mod tests {
         let e = fetch_with(&m, &j, &Cancel::default(), &|_| {}).unwrap_err();
         assert!(e.to_string().contains("progress is kept"));
         assert!(part_path(&j.dest).exists(), "partial data is kept for the next try");
+    }
+
+    #[test]
+    fn an_empty_file_needs_no_request_and_is_still_created() {
+        let dir = tempfile::tempdir().unwrap();
+        let j = job(dir.path(), b"");
+        let m = Mock::new(Vec::new(), 0, true);
+        fetch_with(&m, &j, &Cancel::default(), &|_| {}).unwrap();
+        assert_eq!(fs::read(&j.dest).unwrap(), Vec::<u8>::new());
+        assert_eq!(m.calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
