@@ -385,9 +385,30 @@ async fn restore_backup_database(state: State<'_, AppState>, id: String, backup_
 }
 
 #[tauri::command]
-fn install_preflight(state: State<'_, AppState>, dest: String) -> Preflight {
-    // The real size is checked again once the signed manifest is known; assume a typical install here.
-    install::preflight(std::path::Path::new(&dest), 6 * 1024 * 1024 * 1024, &state.registry)
+fn install_preflight(state: State<'_, AppState>, dest: String, needed: Option<u64>) -> Preflight {
+    // `needed` is the real size from the signed package list when the screen already has it; the real size is checked
+    // again at install time either way.
+    install::preflight(std::path::Path::new(&dest), needed.unwrap_or(6 * 1024 * 1024 * 1024), &state.registry)
+}
+
+#[derive(Serialize)]
+struct InstallRequirements {
+    /// What is downloaded.
+    download_bytes: u64,
+    /// What the unpacked server takes on the drive (the downloaded parts are removed afterwards).
+    unpacked_bytes: u64,
+    version: String,
+}
+
+/// How big the server is, read from the package's signed list before anything is downloaded.
+#[tauri::command]
+async fn install_requirements(package: Option<String>) -> std::result::Result<InstallRequirements, UiError> {
+    blocking(move || {
+        let (m, _) = coa_core::pkgsource::fetch_manifest(&package_source(package), coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
+        let archive = m.archive.ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
+        Ok(InstallRequirements { download_bytes: archive.parts.iter().map(|p| p.size).sum(), unpacked_bytes: archive.unpacked_size, version: m.version })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -434,6 +455,44 @@ async fn create_account(state: State<'_, AppState>, id: String, username: String
         }
         tracing::info!(%username, administrator, "account created");
         Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn list_accounts(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::accounts::AccountInfo>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::accounts::list(&root)).await
+}
+
+#[tauri::command]
+async fn account_set_password(state: State<'_, AppState>, id: String, name: String, password: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        Ra::connect(&root)?.set_account_password(&name, &password)?;
+        tracing::info!(%name, "account password changed");
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn account_set_access(state: State<'_, AppState>, id: String, name: String, level: u8) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        Ra::connect(&root)?.set_account_access(&name, level)?;
+        tracing::info!(%name, level, "account access level changed");
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn account_rename(state: State<'_, AppState>, id: String, name: String, new_name: String, password: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let mut ra = Ra::connect(&root)?;
+        coa_core::accounts::rename(&root, &mut ra, &name, &new_name, &password)
     })
     .await
 }
@@ -1173,6 +1232,11 @@ pub fn run() {
             restore_backup_configs,
             restore_backup_database,
             install_preflight,
+            install_requirements,
+            list_accounts,
+            account_set_password,
+            account_set_access,
+            account_rename,
             install_new,
             cancel_install,
             create_account,

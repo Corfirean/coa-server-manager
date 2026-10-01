@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { api, asUiError, type InstallStep, type Preflight, type ServerSummary, type UiError } from "@/lib/api";
+import { api, asUiError, type InstallRequirements, type InstallStep, type Preflight, type ServerSummary, type UiError } from "@/lib/api";
+import { formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useT, type Key } from "@/i18n";
@@ -24,6 +25,7 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
   const human = useHuman();
   const [dest, setDest] = useState("C:\\Games\\CoA Server");
   const [pre, setPre] = useState<Preflight | null>(null);
+  const [req, setReq] = useState<InstallRequirements | null>(null);
   const [phase, setPhase] = useState<Phase>("choose");
   const [step, setStep] = useState<InstallStep>({ step: "Preparing your server", percent: 0, detail: null });
   const [error, setError] = useState<UiError | null>(null);
@@ -32,10 +34,18 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
   const [installed, setInstalled] = useState<ServerSummary | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
+  // how big the server is, from the package's signed list (re-read when another package source is entered)
   useEffect(() => {
-    const t = setTimeout(() => void api.installPreflight(dest).then(setPre).catch(() => setPre(null)), 250);
-    return () => clearTimeout(t);
-  }, [dest]);
+    const timer = setTimeout(() => void api.installRequirements(pkg.trim() || undefined).then(setReq).catch(() => setReq(null)), 400);
+    return () => clearTimeout(timer);
+  }, [pkg]);
+
+  // room for the unpacked server plus the download that is removed afterwards
+  const needed = req ? req.unpacked_bytes + req.download_bytes : undefined;
+  useEffect(() => {
+    const timer = setTimeout(() => void api.installPreflight(dest, needed).then(setPre).catch(() => setPre(null)), 250);
+    return () => clearTimeout(timer);
+  }, [dest, needed]);
 
   useEffect(() => {
     const un = listen<InstallStep>("install-progress", (e) => setStep(e.payload));
@@ -135,6 +145,11 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
             <p key={p.code} className="text-sm text-warn">{p.message}</p>
           ))}
         </Card>
+      )}
+      {req && (
+        <p className="text-sm text-muted">
+          {t("install.size", { size: formatBytes(req.unpacked_bytes), download: formatBytes(req.download_bytes), peak: formatBytes(req.unpacked_bytes + req.download_bytes) })}
+        </p>
       )}
       {pre?.ok && <p className="text-sm text-ok">{t("install.ready", { gb: Math.round(pre.free_bytes / (1 << 30)) })}</p>}
 

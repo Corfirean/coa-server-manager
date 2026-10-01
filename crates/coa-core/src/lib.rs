@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod backup;
 pub mod cleanbase;
 pub mod companions;

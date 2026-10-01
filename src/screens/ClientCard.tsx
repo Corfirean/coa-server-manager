@@ -78,6 +78,7 @@ export function ClientCard({ serverId }: { serverId: string }) {
             <dd>
               {info.addon.installed ? (info.addon.version ? t("client.installedVersion", { v: info.addon.version }) : t("client.installed")) : t("client.addonNotInstalled")}
               {info.addon.up_to_date === false && <span className="ml-2 text-warn">{t("client.updateAvailable")}</span>}
+              <span className="mt-1 block text-xs text-muted">{t("client.addonWhat")}</span>
             </dd>
             <dt className="text-muted">{t("client.otherAddons")}</dt>
             <dd>{t("client.leftAsIs", { n: info.other_addons })}</dd>

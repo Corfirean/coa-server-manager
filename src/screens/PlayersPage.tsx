@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api, asUiError, type UiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PasswordInput } from "@/components/ui/password-input";
+import { AccountsCard } from "@/screens/AccountsCard";
 import { useHuman, useT } from "@/i18n";
 
 export function PlayersPage({ serverId }: { serverId: string }) {
@@ -14,6 +16,7 @@ export function PlayersPage({ serverId }: { serverId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [created, setCreated] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -33,6 +36,7 @@ export function PlayersPage({ serverId }: { serverId: string }) {
     try {
       await api.createAccount(serverId, username, password, admin);
       setDone(username);
+      setCreated((n) => n + 1);
       setUsername("");
       setPassword("");
     } catch (e) {
@@ -44,7 +48,7 @@ export function PlayersPage({ serverId }: { serverId: string }) {
 
   const input = "w-72 rounded-md border border-line bg-bg px-3 py-2.5 text-[15px] outline-none focus:border-gold";
   return (
-    <div className="max-w-xl">
+    <div className="max-w-3xl">
       <h1 className="text-2xl font-semibold">{t("players.title")}</h1>
       <p className="mt-1 text-muted">{t("q.players")}</p>
 
@@ -59,7 +63,7 @@ export function PlayersPage({ serverId }: { serverId: string }) {
           </div>
           <div>
             <label htmlFor="acc-pass" className="text-sm text-muted">{t("players.password")}</label>
-            <input id="acc-pass" type="password" className={input + " mt-1 block"} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            <PasswordInput id="acc-pass" className={input + " mt-1 block"} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
           </div>
           <label className="flex cursor-pointer items-start gap-2 text-sm">
             <input type="checkbox" checked={admin} onChange={(e) => setAdmin(e.target.checked)} className="mt-1" />
@@ -79,6 +83,8 @@ export function PlayersPage({ serverId }: { serverId: string }) {
           </p>
         )}
       </Card>
+
+      <AccountsCard serverId={serverId} online={online} reloadKey={created} />
     </div>
   );
 }

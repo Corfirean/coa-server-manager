@@ -53,20 +53,48 @@ pub fn fetch_manifest(source: &Source, trusted_key: &str) -> Result<(Manifest, V
 
 /// Make every archive part available in a verified folder: a local source is used in place, a remote one is
 /// downloaded (resumable) into `download_dir`. `report(fraction 0..1, speed_text)`.
+/// 1536 -> "1.5 KB", 6.3e9 -> "5.9 GB" (binary units, as drive sizes are shown).
+pub fn human_bytes(n: u64) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < units.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 || v >= 100.0 { format!("{} {}", v.round() as u64, units[i]) } else { format!("{v:.1} {}", units[i]) }
+}
+
 pub fn fetch_parts(source: &Source, manifest: &Manifest, download_dir: &Path, cancel: &Cancel, report: &dyn Fn(f64, Option<String>)) -> Result<PathBuf> {
     let archive = manifest.archive.as_ref().ok_or_else(|| Error::InvalidManifest("manifest has no archive".into()))?;
     match source {
         Source::Dir(d) => Ok(d.clone()),
         Source::Url(base) => {
-            let total = archive.parts.len();
-            for (i, part) in archive.parts.iter().enumerate() {
+            let all: u64 = archive.parts.iter().map(|p| p.size).sum::<u64>().max(1);
+            let mut before = 0u64;
+            for part in archive.parts.iter() {
                 let job = Job { url: format!("{}/{}", base.trim_end_matches('/'), part.name), dest: download_dir.join(&part.name), sha256: part.sha256.clone(), size: part.size };
                 download::fetch(&job, cancel, &|p: Progress| {
-                    let frac = (i as f64 + p.downloaded as f64 / p.total.max(1) as f64) / total as f64;
-                    report(frac, Some(format!("{:.1} MB/s", p.bytes_per_sec as f64 / 1e6)));
+                    let done = before + p.downloaded.min(part.size);
+                    // language-neutral so the screen can show it as it is: "3.1 GB / 5.9 GB · 40.6 MB/s"
+                    report(done as f64 / all as f64, Some(format!("{} / {} \u{b7} {:.1} MB/s", human_bytes(done), human_bytes(all), p.bytes_per_sec as f64 / 1e6)));
                 })?;
+                before += part.size;
             }
             Ok(download_dir.to_path_buf())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sizes_are_shown_in_binary_units() {
+        assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(1536), "1.5 KB");
+        assert_eq!(human_bytes(6 * (1 << 30)), "6.0 GB");
+        assert_eq!(human_bytes(150 * (1 << 20)), "150 MB");
     }
 }

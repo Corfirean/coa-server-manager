@@ -49,6 +49,12 @@ export {};
         if(cmd==="client_download"){await run("scan",4,0);await run("download",40,41e6);w.__client="new";return {path:args.parent+"\\CoA Client",executable:"Ascension.exe",realmlists:[{path:"x",host:"127.0.0.1"}],addon:{installed:true,version:"1",up_to_date:true},other_addons:0};}
         if(cmd==="client_cancel"){w.__stop=true;return null;}
       }
+      if(cmd==="install_preflight") return {ok:true,problems:[],free_bytes:210*2**30};
+      if(cmd==="install_requirements") return {download_bytes:Math.round(5.9*2**30),unpacked_bytes:Math.round(11.4*2**30),version:"0.2.0"};
+      if(cmd==="list_accounts"){const w=window as any;w.__acc=w.__acc??[{id:2,name:"ALICE",access:3,online:true,last_login:"2026-10-01 12:04:11",characters:4},{id:5,name:"BOB",access:0,online:false,last_login:null,characters:0},{id:6,name:"CAROL",access:2,online:false,last_login:"2026-09-30 21:40:02",characters:2}];return w.__acc;}
+      if(cmd==="account_set_access"){const a=(window as any).__acc.find((x: any)=>x.name===args.name);if(a)a.access=args.level;return null;}
+      if(cmd==="account_set_password") return null;
+      if(cmd==="account_rename"){const a=(window as any).__acc.find((x: any)=>x.name===args.name);if(a)a.name=String(args.newName).toUpperCase();return null;}
       if(cmd==="client_info"){const c=(window as any).__client??"none";return c==="none"?null:{path:"C:\\games\\CoA Client",executable:"Ascension.exe",realmlists:[{path:"x",host:"127.0.0.1"}],addon:{installed:true,version:"1",up_to_date:true},other_addons:2};}
       if(cmd==="set_client"){(window as any).__client="foreign";return {path:args.path,executable:"Ascension.exe",realmlists:[],addon:{installed:false,version:null,up_to_date:null},other_addons:0};}
       if(cmd==="plugin:event|listen"){const w=window as any;(w.__handlers??={})[args.event]=[...(w.__handlers[args.event]??[]),args.handler];return 1;}

@@ -138,6 +138,23 @@ impl Ra {
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
+    /// Set a new password for an existing account.
+    pub fn set_account_password(&mut self, name: &str, password: &str) -> Result<()> {
+        validate_account(name, password)?;
+        let out = self.command(&format!("account set password {name} {password} {password}"))?;
+        account_reply(&out, "The password was not changed")
+    }
+
+    /// Access level of an account on all realms: 0 player, 1 moderator, 2 game master, 3 administrator.
+    pub fn set_account_access(&mut self, name: &str, level: u8) -> Result<()> {
+        validate_account(name, "placeholder")?;
+        if level > 3 {
+            return Err(Error::Invalid("The access level must be 0 to 3.".into()));
+        }
+        let out = self.command(&format!("account set gmlevel {name} {level} -1"))?;
+        account_reply(&out, "The access level was not changed")
+    }
+
     /// Give `name` administrator rights on all realms (GM level 3).
     pub fn make_administrator(&mut self, name: &str) -> Result<()> {
         validate_account(name, "placeholder")?;
@@ -148,6 +165,16 @@ impl Ra {
             Err(Error::Invalid(format!("Could not set administrator rights: {out}")))
         }
     }
+}
+
+/// The console reports a failed account command in words; anything else (including silence) counts as done.
+fn account_reply(out: &str, what: &str) -> Result<()> {
+    let l = out.to_lowercase();
+    let failed = ["does not exist", "not exist", "not found", "do not match", "don't match", "usage", "unknown", "incorrect", "error"];
+    if failed.iter().any(|m| l.contains(m)) {
+        return Err(Error::Invalid(format!("{what}: {}", out.lines().last().unwrap_or("").trim())));
+    }
+    Ok(())
 }
 
 /// The console answers an unknown sub-command with the list of the ones it knows.
@@ -285,6 +312,28 @@ AC>";
         ra.create_account("Player1", "hunter22").unwrap();
         drop(ra);
         assert_eq!(h.join().unwrap(), ["local", "secretra", "account create Player1 hunter22"]);
+    }
+
+    #[test]
+    fn changes_a_password_and_an_access_level_with_the_expected_commands() {
+        let _lock = serial();
+        let (port, h) = fake_ra("The password was changed");
+        let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+        ra.set_account_password("Player1", "newpass9").unwrap();
+        drop(ra);
+        assert_eq!(h.join().unwrap()[2], "account set password Player1 newpass9 newpass9");
+
+        let (port, h) = fake_ra("You have changed security level of Player1 to 2.");
+        let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+        ra.set_account_access("Player1", 2).unwrap();
+        assert!(ra.set_account_access("Player1", 4).is_err(), "only 0 to 3");
+        drop(ra);
+        assert_eq!(h.join().unwrap()[2], "account set gmlevel Player1 2 -1");
+
+        let (port, _h) = fake_ra("Account not found.");
+        let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+        assert!(ra.set_account_password("Nobody", "newpass9").unwrap_err().to_string().contains("not found"));
+        assert!(ra.set_account_password("x", "newpass9").is_err(), "the name is validated before anything is sent");
     }
 
     #[test]

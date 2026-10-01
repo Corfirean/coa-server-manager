@@ -167,6 +167,22 @@ export interface Preflight {
   free_bytes: number;
 }
 
+export interface InstallRequirements {
+  download_bytes: number;
+  unpacked_bytes: number;
+  version: string;
+}
+
+export interface AccountInfo {
+  id: number;
+  name: string;
+  /** 0 player, 1 moderator, 2 game master, 3 administrator */
+  access: number;
+  online: boolean;
+  last_login: string | null;
+  characters: number;
+}
+
 export interface InstallStep {
   step: string;
   percent: number;
@@ -311,7 +327,12 @@ export const api = {
   deleteBackup: (id: string, backupId: string) => invoke<void>("delete_backup", { id, backupId }),
   restoreConfigs: (id: string, backupId: string) => invoke<RecoveryPoint>("restore_backup_configs", { id, backupId }),
   restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
-  installPreflight: (dest: string) => invoke<Preflight>("install_preflight", { dest }),
+  installPreflight: (dest: string, needed?: number) => invoke<Preflight>("install_preflight", { dest, needed: needed ?? null }),
+  installRequirements: (pkg?: string) => invoke<InstallRequirements>("install_requirements", { package: pkg ?? null }),
+  listAccounts: (id: string) => invoke<AccountInfo[]>("list_accounts", { id }),
+  accountSetPassword: (id: string, name: string, password: string) => invoke<void>("account_set_password", { id, name, password }),
+  accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),
+  accountRename: (id: string, name: string, newName: string, password: string) => invoke<void>("account_rename", { id, name, newName, password }),
   installNew: (dest: string, pkg?: string) => invoke<ServerSummary>("install_new", { dest, package: pkg ?? null }),
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
