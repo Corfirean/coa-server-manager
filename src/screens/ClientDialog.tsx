@@ -163,7 +163,6 @@ export function ClientDialog(props: {
             <div className="mt-4 grid gap-3">
               <button type="button" onClick={() => void useExisting()} className="cursor-pointer rounded-md border border-line bg-card-2 p-4 text-left transition-colors hover:border-gold/50">
                 <span className="block font-medium">{t("client.setup.have")}</span>
-                <span className="mt-1 block text-sm text-muted">{t("client.setup.haveHint")}</span>
               </button>
               <button type="button" onClick={() => void pickParent()} className="cursor-pointer rounded-md border border-line bg-card-2 p-4 text-left transition-colors hover:border-gold/50">
                 <span className="block font-medium">{t("client.setup.download")}</span>
