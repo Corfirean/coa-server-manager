@@ -189,6 +189,32 @@ pub fn set_realmlist(client: &Path, meta: &Path, host: &str) -> Result<Vec<Strin
     Ok(changed)
 }
 
+/// Replace the text of every locale's realmlist with `content` (a named realmlist chosen by the player). Each changed file
+/// is saved to the backup folder first; files that already hold the same lines are left alone. A client without one gets a
+/// file for each installed locale. Returns the files that changed.
+pub fn write_realmlist(client: &Path, meta: &Path, content: &str) -> Result<Vec<String>> {
+    let compact = |t: &str| t.lines().map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n");
+    let mut files = realmlist_files(client);
+    if files.is_empty() {
+        files = installed_locales(client).into_iter().map(|loc| client.join("Data").join(loc).join("realmlist.wtf")).collect();
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let mut changed = Vec::new();
+    for file in files {
+        let old = fs::read(&file).ok();
+        if let Some(old) = &old {
+            if compact(&String::from_utf8_lossy(old)) == compact(content) {
+                continue;
+            }
+            let locale = file.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            fsx::atomic_write(&backup_dir(meta).join(format!("realmlist-{locale}-{stamp}.wtf")), old)?;
+        }
+        fsx::atomic_write(&file, content.as_bytes())?;
+        changed.push(file.to_string_lossy().into_owned());
+    }
+    Ok(changed)
+}
+
 /// Copy the addon into the client. If a different version is there, that one folder is backed up first;
 /// files in it that the package does not contain are left alone.
 pub fn install_addon(client: &Path, meta: &Path, source: &Path) -> Result<()> {

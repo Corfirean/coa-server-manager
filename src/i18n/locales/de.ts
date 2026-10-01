@@ -695,6 +695,32 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "rep.opened": "GitHub wurde im Browser geöffnet. Prüfe den Text, hänge Dateien an und klicke auf „Submit new issue“.",
   "rep.openedLong": "Der Bericht ist für einen Link zu lang und wurde deshalb in die Zwischenablage kopiert. GitHub ist geöffnet: Füge ihn (Strg+V) in die Beschreibung ein, hänge Dateien an und klicke auf „Submit new issue“.",
   "rep.copied": "In die Zwischenablage kopiert.",
+
+  // Realmlist switcher and modules page
+  "realm.label": "Realm",
+  "realm.other": "Anderer",
+  "realm.add": "Realmlist hinzufügen …",
+  "realm.addTitle": "Neue Realmlist",
+  "realm.editTitle": "Realmlist ändern",
+  "realm.name": "Name",
+  "realm.nameHint": "Zum Beispiel Solo oder PTR",
+  "realm.data": "Realmlist-Text",
+  "realm.dataHint": "Was in die realmlist.wtf geschrieben wird, zum Beispiel: set realmlist play.example.com. Du kannst auch nur die Adresse eingeben. Beim Auswählen wird die Realmlist in deinen Spielclient geschrieben; die vorherige Datei wird zuvor gesichert.",
+  "realm.switched": "Das Spiel verwendet jetzt „{name}“.",
+  "realm.edit": "{name} ändern",
+  "realm.delete": "{name} entfernen",
+  "realm.confirmDelete": "Realmlist „{name}“ entfernen? Der Spielclient behält die aktuelle Datei.",
+  "nav.modules": "Module",
+  "q.modules": "Welche Zusatzfunktionen hat der Server?",
+  "mod.title": "Module",
+  "mod.intro": "Zusatzfunktionen, die bereits im Server eingebaut sind. Schalte die gewünschten ein oder aus, lies auf GitHub darüber oder ändere ihre Einstellungen.",
+  "mod.restart": "Änderungen werden nach einem Neustart des Weltservers wirksam.",
+  "mod.switch": "{name} ein- oder ausschalten",
+  "mod.notHere": "Nicht Teil dieses Servers",
+  "mod.github": "GitHub",
+  "mod.settings": "Einstellungen",
+  "mod.default": "Zurück zum Standard ({v})",
+  "mod.saved": "Gespeichert ({n} geändert).",
 };
 
 export default de;

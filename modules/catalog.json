@@ -1,0 +1,131 @@
+{
+  "schema": 1,
+  "modules": [
+    {
+      "id": "spellbook",
+      "name": "Spellbook",
+      "description": {
+        "en": "Restores the Books of Ascension as class trainers: right-click a book to see your class abilities by rank and train them for gold.",
+        "ru": "Возвращает Книги Вознесения как учителей класса: ПКМ по книге показывает умения вашего класса по рангам, их можно изучить за золото.",
+        "de": "Bringt die Bücher des Aufstiegs als Klassenlehrer zurück: Rechtsklick auf ein Buch zeigt die Fähigkeiten deiner Klasse nach Rang, die du für Gold erlernen kannst.",
+        "fr": "Rétablit les Livres de l’Ascension comme maîtres de classe : un clic droit sur un livre affiche les capacités de votre classe par rang, à apprendre contre de l’or.",
+        "es": "Restaura los Libros de Ascensión como instructores de clase: clic derecho en un libro muestra las habilidades de tu clase por rango para aprenderlas por oro."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-spellbook",
+      "conf": "spellbook.conf",
+      "enable_key": "Spellbook.Enable"
+    },
+    {
+      "id": "war-games",
+      "name": "War Games",
+      "description": {
+        "en": "Private arena matches between two groups, arranged by Teri Glozilk in Orgrimmar and Stormwind.",
+        "ru": "Частные матчи на арене между двумя группами: их устраивает Тери Глозилк в Оргриммаре и Штормграде.",
+        "de": "Private Arenakämpfe zwischen zwei Gruppen, vermittelt von Teri Glozilk in Orgrimmar und Sturmwind.",
+        "fr": "Matchs d’arène privés entre deux groupes, organisés par Teri Glozilk à Orgrimmar et à Hurlevent.",
+        "es": "Combates de arena privados entre dos grupos, organizados por Teri Glozilk en Orgrimmar y Ventormenta."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-war-games",
+      "conf": "war_games.conf",
+      "enable_key": "WarGames.Enable"
+    },
+    {
+      "id": "item-recovery",
+      "name": "Item Recovery",
+      "description": {
+        "en": "Answers the client's Item Recovery window from the vendor buyback slots: get back an item you just sold, for the price paid.",
+        "ru": "Отвечает окну «Восстановление предметов» клиента данными выкупа у торговца: можно вернуть недавно проданный предмет за ту же цену.",
+        "de": "Beantwortet das Fenster „Gegenstandswiederherstellung“ des Clients mit den Rückkauf-Plätzen des Händlers: kürzlich verkaufte Gegenstände zum gezahlten Preis zurückholen.",
+        "fr": "Répond à la fenêtre de récupération d’objets du client avec les emplacements de rachat du marchand : récupérez un objet vendu au prix payé.",
+        "es": "Responde a la ventana de recuperación de objetos del cliente con las ranuras de recompra del vendedor: recupera un objeto recién vendido por el precio pagado."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-item-recovery",
+      "conf": "item_recovery.conf",
+      "enable_key": "ItemRecovery.Enable"
+    },
+    {
+      "id": "hero-call-board",
+      "name": "Hero's Call Board",
+      "description": {
+        "en": "The Hero's Call Board (Stormwind) and the Warchief's Command Board (Orgrimmar): 47 daily quests in PvE, Profession and PvP categories.",
+        "ru": "Доска призыва героев (Штормград) и Доска приказов вождя (Оргриммар): 47 ежедневных заданий в категориях PvE, профессии и PvP.",
+        "de": "Das Heldenruf-Brett (Sturmwind) und das Kriegshäuptlings-Befehlsbrett (Orgrimmar): 47 tägliche Quests in den Kategorien PvE, Beruf und PvP.",
+        "fr": "Le tableau d’appel des héros (Hurlevent) et le tableau de commandement du chef de guerre (Orgrimmar) : 47 quêtes quotidiennes JcE, métiers et JcJ.",
+        "es": "El Tablón de Llamada del Héroe (Ventormenta) y el Tablón de Mando del Jefe de Guerra (Orgrimmar): 47 misiones diarias de JcE, profesión y JcJ."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-hero-call-board",
+      "conf": "hero_call_board.conf",
+      "enable_key": "HeroCallBoard.Enable"
+    },
+    {
+      "id": "path-to-ascension",
+      "name": "Path to Ascension",
+      "description": {
+        "en": "The tutorial book of the Ascension client: the server side of its tutorials, objectives and rewards.",
+        "ru": "Обучающая книга клиента Ascension: серверная часть её уроков, целей и наград.",
+        "de": "Das Tutorialbuch des Ascension-Clients: die Serverseite seiner Tutorials, Ziele und Belohnungen.",
+        "fr": "Le livre de tutoriels du client Ascension : la partie serveur de ses tutoriels, objectifs et récompenses.",
+        "es": "El libro de tutoriales del cliente Ascension: la parte del servidor de sus tutoriales, objetivos y recompensas."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-path-to-ascension",
+      "conf": "path_to_ascension.conf",
+      "enable_key": "PathToAscension.Enable"
+    },
+    {
+      "id": "craftsmans-codex",
+      "name": "Craftsman's Codex",
+      "description": {
+        "en": "Restores the Craftsman's Codex: a character may learn one more primary profession than the standard two, once per codex used.",
+        "ru": "Возвращает Кодекс мастера: персонаж может выучить ещё одну основную профессию сверх обычных двух, по разу за использованный кодекс.",
+        "de": "Bringt den Kodex des Handwerkers zurück: Ein Charakter kann einen weiteren Hauptberuf zusätzlich zu den üblichen zwei erlernen, einmal pro benutztem Kodex.",
+        "fr": "Rétablit le Codex de l’artisan : un personnage peut apprendre un métier principal de plus que les deux habituels, une fois par codex utilisé.",
+        "es": "Restaura el Códice del Artesano: un personaje puede aprender una profesión principal más que las dos habituales, una vez por códice usado."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-craftsmans-codex",
+      "conf": "craftsmans_codex.conf",
+      "enable_key": "CraftsmansCodex.Enable"
+    },
+    {
+      "id": "coa-prestige",
+      "name": "Prestige Mode",
+      "description": {
+        "en": "Chromie's Prestige Mode: at level 60 a character winds back to level 1 and levels again with an experience bonus and Prestige rewards.",
+        "ru": "Режим престижа Хроми: на 60 уровне персонаж откатывается на 1 уровень и снова растёт с бонусом к опыту и наградами за престиж.",
+        "de": "Chromies Prestigemodus: Auf Stufe 60 wird ein Charakter auf Stufe 1 zurückgesetzt und levelt erneut mit Erfahrungsbonus und Prestige-Belohnungen.",
+        "fr": "Le mode Prestige de Chromie : au niveau 60, un personnage revient au niveau 1 et remonte avec un bonus d’expérience et des récompenses de prestige.",
+        "es": "El modo Prestigio de Chromie: al nivel 60 un personaje vuelve al nivel 1 y sube de nuevo con bonificación de experiencia y recompensas de prestigio."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-coa-prestige",
+      "conf": "mod-coa-prestige.conf",
+      "enable_key": "CoAPrestige.Enable"
+    },
+    {
+      "id": "coa-challenges",
+      "name": "Challenges",
+      "description": {
+        "en": "The Conquest of Azeroth challenges / trials: lives, rules, objectives, completions and rewards behind the client's Challenge window.",
+        "ru": "Испытания Conquest of Azeroth: жизни, правила, цели, завершения и награды для окна испытаний клиента.",
+        "de": "Die Herausforderungen / Prüfungen von Conquest of Azeroth: Leben, Regeln, Ziele, Abschlüsse und Belohnungen hinter dem Herausforderungsfenster des Clients.",
+        "fr": "Les défis / épreuves de Conquest of Azeroth : vies, règles, objectifs, réussites et récompenses derrière la fenêtre de défis du client.",
+        "es": "Los desafíos / pruebas de Conquest of Azeroth: vidas, reglas, objetivos, finalizaciones y recompensas de la ventana de desafíos del cliente."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-coa-challenges",
+      "conf": "mod-coa-challenges.conf",
+      "enable_key": "CoAChallenges.Enable"
+    },
+    {
+      "id": "teleport-actionbar",
+      "name": "Teleport Action Bar",
+      "description": {
+        "en": "Makes CoA teleport tokens usable from the spellbook collection and from an action bar button, and keeps each stone on its own faction's side.",
+        "ru": "Делает телепорт-жетоны CoA доступными из коллекции книги заклинаний и с кнопки на панели действий и оставляет каждый камень на стороне своей фракции.",
+        "de": "Macht CoA-Teleportmarken aus der Zauberbuch-Sammlung und über eine Aktionsleisten-Schaltfläche nutzbar und hält jeden Stein auf der Seite seiner Fraktion.",
+        "fr": "Rend les jetons de téléportation CoA utilisables depuis la collection du grimoire et depuis un bouton de barre d’action, et garde chaque pierre du côté de sa faction.",
+        "es": "Hace que las fichas de teletransporte de CoA se puedan usar desde la colección del libro de hechizos y desde un botón de la barra de acción, y mantiene cada piedra del lado de su facción."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-teleport-actionbar",
+      "conf": "mod_teleport_actionbar.conf",
+      "enable_key": "TeleportActionBar.Enable"
+    }
+  ]
+}

@@ -695,6 +695,32 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "rep.opened": "GitHub s’est ouvert dans votre navigateur. Vérifiez le texte, joignez les fichiers et appuyez sur « Submit new issue ».",
   "rep.openedLong": "Le rapport est trop long pour un lien : il a été copié dans le presse-papiers. GitHub est ouvert : collez-le (Ctrl+V) dans la description, joignez les fichiers et appuyez sur « Submit new issue ».",
   "rep.copied": "Copié dans le presse-papiers.",
+
+  // Realmlist switcher and modules page
+  "realm.label": "Royaume",
+  "realm.other": "Autre",
+  "realm.add": "Ajouter une realmlist…",
+  "realm.addTitle": "Nouvelle realmlist",
+  "realm.editTitle": "Modifier la realmlist",
+  "realm.name": "Nom",
+  "realm.nameHint": "Par exemple Solo ou PTR",
+  "realm.data": "Texte de la realmlist",
+  "realm.dataHint": "Ce qui sera écrit dans realmlist.wtf, par exemple : set realmlist play.example.com. Vous pouvez aussi saisir seulement l’adresse. Choisir une realmlist l’écrit dans votre client ; l’ancien fichier est d’abord sauvegardé.",
+  "realm.switched": "Le jeu utilise maintenant « {name} ».",
+  "realm.edit": "Modifier {name}",
+  "realm.delete": "Supprimer {name}",
+  "realm.confirmDelete": "Supprimer la realmlist « {name} » ? Le client garde le fichier actuel.",
+  "nav.modules": "Modules",
+  "q.modules": "Quelles fonctions supplémentaires le serveur propose-t-il ?",
+  "mod.title": "Modules",
+  "mod.intro": "Fonctions supplémentaires déjà intégrées au serveur. Activez ou désactivez celles que vous voulez, lisez-en plus sur GitHub ou modifiez leurs réglages.",
+  "mod.restart": "Les changements s’appliquent après le redémarrage du serveur de monde.",
+  "mod.switch": "Activer ou désactiver {name}",
+  "mod.notHere": "Ne fait pas partie de ce serveur",
+  "mod.github": "GitHub",
+  "mod.settings": "Réglages",
+  "mod.default": "Revenir à la valeur par défaut ({v})",
+  "mod.saved": "Enregistré ({n} modifié(s)).",
 };
 
 export default fr;

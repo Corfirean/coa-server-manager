@@ -695,6 +695,32 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "rep.opened": "GitHub se abrió en tu navegador. Revisa el texto, adjunta archivos y pulsa «Submit new issue».",
   "rep.openedLong": "El informe es demasiado largo para un enlace, así que se copió al portapapeles. GitHub está abierto: pégalo (Ctrl+V) en la descripción, adjunta archivos y pulsa «Submit new issue».",
   "rep.copied": "Copiado al portapapeles.",
+
+  // Realmlist switcher and modules page
+  "realm.label": "Reino",
+  "realm.other": "Otro",
+  "realm.add": "Añadir una realmlist…",
+  "realm.addTitle": "Nueva realmlist",
+  "realm.editTitle": "Cambiar la realmlist",
+  "realm.name": "Nombre",
+  "realm.nameHint": "Por ejemplo Solo o PTR",
+  "realm.data": "Texto de la realmlist",
+  "realm.dataHint": "Lo que se escribe en realmlist.wtf, por ejemplo: set realmlist play.example.com. También puedes escribir solo la dirección. Al elegir una realmlist se escribe en tu cliente; el archivo anterior se guarda antes.",
+  "realm.switched": "El juego ahora usa «{name}».",
+  "realm.edit": "Cambiar {name}",
+  "realm.delete": "Eliminar {name}",
+  "realm.confirmDelete": "¿Eliminar la realmlist «{name}»? El cliente conserva el archivo actual.",
+  "nav.modules": "Módulos",
+  "q.modules": "¿Qué funciones adicionales tiene el servidor?",
+  "mod.title": "Módulos",
+  "mod.intro": "Funciones adicionales ya integradas en el servidor. Activa o desactiva las que quieras, léelas en GitHub o cambia sus ajustes.",
+  "mod.restart": "Los cambios se aplican al reiniciar el servidor del mundo.",
+  "mod.switch": "Activar o desactivar {name}",
+  "mod.notHere": "No forma parte de este servidor",
+  "mod.github": "GitHub",
+  "mod.settings": "Ajustes",
+  "mod.default": "Volver al valor por defecto ({v})",
+  "mod.saved": "Guardado ({n} cambiado(s)).",
 };
 
 export default es;

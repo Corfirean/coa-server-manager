@@ -167,6 +167,29 @@ export interface Preflight {
   free_bytes: number;
 }
 
+export interface RealmProfile {
+  id: string;
+  name: string;
+  data: string;
+}
+
+export interface ModuleView {
+  id: string;
+  name: string;
+  description: Record<string, string>;
+  repo: string;
+  /** the module is part of this server build (its configuration exists) */
+  installed: boolean;
+  enabled: boolean;
+}
+
+export interface ModuleSetting {
+  key: string;
+  value: string;
+  default: string | null;
+  doc: string;
+}
+
 export interface ReportContext {
   manager_version: string;
   windows: string;
@@ -336,6 +359,14 @@ export const api = {
   restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
   installPreflight: (dest: string, needed?: number) => invoke<Preflight>("install_preflight", { dest, needed: needed ?? null }),
   installRequirements: (pkg?: string) => invoke<InstallRequirements>("install_requirements", { package: pkg ?? null }),
+  realmlistProfiles: (id: string) => invoke<{ profiles: RealmProfile[]; active: string | null }>("realmlist_profiles", { id }),
+  realmlistSave: (id: string, profileId: string | null, name: string, data: string) => invoke<RealmProfile>("realmlist_save", { id, profileId, name, data }),
+  realmlistDelete: (id: string, profileId: string) => invoke<void>("realmlist_delete", { id, profileId }),
+  realmlistActivate: (id: string, profileId: string) => invoke<string[]>("realmlist_activate", { id, profileId }),
+  modulesList: (id: string) => invoke<ModuleView[]>("modules_list", { id }),
+  moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
+  moduleSettings: (id: string, module: string) => invoke<ModuleSetting[]>("module_settings", { id, module }),
+  moduleSaveSettings: (id: string, module: string, changes: Record<string, string>) => invoke<string[]>("module_save_settings", { id, module, changes }),
   reportContext: (id: string) => invoke<ReportContext>("report_context", { id }),
   listAccounts: (id: string) => invoke<AccountInfo[]>("list_accounts", { id }),
   accountSetPassword: (id: string, name: string, password: string) => invoke<void>("account_set_password", { id, name, password }),

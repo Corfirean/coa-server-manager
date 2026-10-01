@@ -695,6 +695,32 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "rep.opened": "GitHub открыт в браузере. Проверьте текст, прикрепите файлы и нажмите «Submit new issue».",
   "rep.openedLong": "Отчёт слишком длинный для ссылки, поэтому он скопирован в буфер обмена. GitHub открыт: вставьте текст (Ctrl+V) в описание, прикрепите файлы и нажмите «Submit new issue».",
   "rep.copied": "Скопировано в буфер обмена.",
+
+  // Realmlist switcher and modules page
+  "realm.label": "Реалм",
+  "realm.other": "Другой",
+  "realm.add": "Добавить реалмлист…",
+  "realm.addTitle": "Новый реалмлист",
+  "realm.editTitle": "Изменить реалмлист",
+  "realm.name": "Название",
+  "realm.nameHint": "Например: Solo или PTR",
+  "realm.data": "Текст реалмлиста",
+  "realm.dataHint": "То, что попадёт в realmlist.wtf, например: set realmlist play.example.com. Можно ввести и просто адрес. Выбор реалмлиста записывает его в ваш игровой клиент; прежний файл сначала сохраняется.",
+  "realm.switched": "Игра теперь использует «{name}».",
+  "realm.edit": "Изменить {name}",
+  "realm.delete": "Удалить {name}",
+  "realm.confirmDelete": "Удалить реалмлист «{name}»? В игровом клиенте останется текущий файл.",
+  "nav.modules": "Модули",
+  "q.modules": "Какие дополнительные возможности есть у сервера?",
+  "mod.title": "Модули",
+  "mod.intro": "Дополнительные возможности, уже встроенные в сервер. Включайте и выключайте нужные, читайте о них на GitHub или меняйте их настройки.",
+  "mod.restart": "Изменения применятся после перезапуска игрового сервера.",
+  "mod.switch": "Включить или выключить {name}",
+  "mod.notHere": "Нет в этом сервере",
+  "mod.github": "GitHub",
+  "mod.settings": "Настройки",
+  "mod.default": "Вернуть по умолчанию ({v})",
+  "mod.saved": "Сохранено (изменено: {n}).",
 };
 
 export default ru;

@@ -695,6 +695,32 @@ const en = {
   "rep.opened": "GitHub was opened in your browser. Check the text, attach files and press Submit new issue.",
   "rep.openedLong": "The report is too long for a link, so it was copied to the clipboard. GitHub is open: paste it (Ctrl+V) into the description, attach files and press Submit new issue.",
   "rep.copied": "Copied to the clipboard.",
+
+  // Realmlist switcher and modules page
+  "realm.label": "Realm",
+  "realm.other": "Other",
+  "realm.add": "Add a realmlist…",
+  "realm.addTitle": "New realmlist",
+  "realm.editTitle": "Change the realmlist",
+  "realm.name": "Name",
+  "realm.nameHint": "For example Solo or PTR",
+  "realm.data": "Realmlist text",
+  "realm.dataHint": "What goes into realmlist.wtf, for example: set realmlist play.example.com. You can also type just the address. Choosing a realmlist writes it into your game client; the previous file is saved first.",
+  "realm.switched": "The game now uses “{name}”.",
+  "realm.edit": "Change {name}",
+  "realm.delete": "Remove {name}",
+  "realm.confirmDelete": "Remove the realmlist “{name}”? The game client keeps whatever file it has now.",
+  "nav.modules": "Modules",
+  "q.modules": "What extra features does the server have?",
+  "mod.title": "Modules",
+  "mod.intro": "Extra features that are already built into the server. Switch the ones you want on or off, read about them on GitHub, or change their settings.",
+  "mod.restart": "Changes apply after the world server restarts.",
+  "mod.switch": "Turn {name} on or off",
+  "mod.notHere": "Not part of this server",
+  "mod.github": "GitHub",
+  "mod.settings": "Settings",
+  "mod.default": "Back to the default ({v})",
+  "mod.saved": "Saved ({n} changed).",
 } as const;
 
 export default en;

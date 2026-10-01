@@ -460,6 +460,82 @@ async fn create_account(state: State<'_, AppState>, id: String, username: String
 }
 
 #[tauri::command]
+async fn realmlist_profiles(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::realmlist::View, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        Ok(coa_core::realmlist::view(&dir, linked_client(&root)?.as_deref()))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn realmlist_save(state: State<'_, AppState>, id: String, profile_id: Option<String>, name: String, data: String) -> std::result::Result<coa_core::realmlist::Profile, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::realmlist::save_profile(&dir, linked_client(&root)?.as_deref(), profile_id.as_deref(), &name, &data)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn realmlist_delete(state: State<'_, AppState>, id: String, profile_id: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::realmlist::delete_profile(&dir, linked_client(&root)?.as_deref(), &profile_id)
+    })
+    .await
+}
+
+/// Write the chosen realmlist into the linked game client.
+#[tauri::command]
+async fn realmlist_activate(state: State<'_, AppState>, id: String, profile_id: String) -> std::result::Result<Vec<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
+        let changed = coa_core::realmlist::activate(&dir, &client, &profile_id)?;
+        tracing::info!(profile = %profile_id, files = changed.len(), "realmlist switched");
+        Ok(changed)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn modules_list(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::modules::ModuleView>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || Ok(coa_core::modules::list(&root))).await
+}
+
+#[tauri::command]
+async fn module_set_enabled(state: State<'_, AppState>, id: String, module: String, enabled: bool) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::modules::set_enabled(&root, &dir, &module, enabled)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn module_settings(state: State<'_, AppState>, id: String, module: String) -> std::result::Result<Vec<coa_core::modules::Setting>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::modules::settings(&root, &module)).await
+}
+
+#[tauri::command]
+async fn module_save_settings(state: State<'_, AppState>, id: String, module: String, changes: BTreeMap<String, String>) -> std::result::Result<Vec<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::modules::save_settings(&root, &dir, &module, &changes)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn list_accounts(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::accounts::AccountInfo>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::accounts::list(&root)).await
@@ -1007,7 +1083,7 @@ struct FriendsStatus {
 /// Manager to launch an arbitrary address.
 #[tauri::command]
 fn open_link(url: String) -> std::result::Result<(), UiError> {
-    const ALLOWED: &[&str] = &["https://tailscale.com/", "https://login.tailscale.com/", "https://portforward.com/"];
+    const ALLOWED: &[&str] = &["https://tailscale.com/", "https://login.tailscale.com/", "https://portforward.com/", "https://github.com/Corfirean/"];
     // A prefilled "new issue" page of this project: the address must be exactly that page, and its query may carry
     // `&` between the (percent-encoded) title and text.
     const NEW_ISSUE: &str = "https://github.com/Corfirean/coa-server-manager/issues/new";
@@ -1283,6 +1359,14 @@ pub fn run() {
             install_requirements,
             report_context,
             list_accounts,
+            realmlist_profiles,
+            realmlist_save,
+            realmlist_delete,
+            realmlist_activate,
+            modules_list,
+            module_set_enabled,
+            module_settings,
+            module_save_settings,
             account_set_password,
             account_set_access,
             account_rename,

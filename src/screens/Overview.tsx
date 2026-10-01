@@ -6,6 +6,7 @@ import { useHuman, useT } from "@/i18n";
 import { applyServerUpdate, useServerUpdate } from "@/lib/serverUpdate";
 import { checkClient, useClientStatus } from "@/lib/clientUpdate";
 import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
+import { RealmlistMenu } from "@/screens/RealmlistMenu";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -276,12 +277,13 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
               {t("btn.stopSmall")}
             </Button>
           )}
+          {client && <RealmlistMenu serverId={server.id} className="ml-auto" />}
           {client && clientStatus?.update_available ? (
-            <Button variant="primary" size="xl" disabled={playing} onClick={() => setDialog("update")} className="ml-auto min-w-40">
+            <Button variant="primary" size="xl" disabled={playing} onClick={() => setDialog("update")} className="min-w-40">
               {t("btn.updateClient")}
             </Button>
           ) : client ? (
-            <Button variant={running ? "primary" : "secondary"} size="xl" disabled={transitioning || playing} onClick={() => void play()} className="ml-auto min-w-40">
+            <Button variant={running ? "primary" : "secondary"} size="xl" disabled={transitioning || playing} onClick={() => void play()} className="min-w-40">
               {playing && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
               {running ? t("btn.play") : t("btn.startPlay")}
             </Button>
