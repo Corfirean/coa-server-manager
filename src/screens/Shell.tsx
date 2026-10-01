@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Archive, Bot, Gauge, Globe, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
+import { Archive, Bot, Bug, Gauge, Globe, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
 import { type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
 import logo from "@/assets/logo.png";
@@ -11,12 +11,13 @@ import { BackupsPage } from "@/screens/BackupsPage";
 import { PlayersPage } from "@/screens/PlayersPage";
 import { SettingsHome } from "@/screens/SettingsHome";
 import { FriendsPage } from "@/screens/FriendsPage";
+import { ReportPage } from "@/screens/ReportPage";
 import { ConsolePage } from "@/screens/ConsolePage";
 import { Button } from "@/components/ui/button";
 import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
 import { startClientPolling } from "@/lib/clientUpdate";
 
-type Page = "overview" | "bots" | "server" | "players" | "friends" | "backups" | "console" | "settings";
+type Page = "overview" | "bots" | "server" | "players" | "friends" | "backups" | "console" | "report" | "settings";
 
 const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "overview", label: "nav.overview", icon: Gauge, question: "q.overview" },
@@ -26,6 +27,7 @@ const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "friends", label: "nav.friends", icon: Globe, question: "q.friends" },
   { id: "backups", label: "nav.backups", icon: Archive, question: "q.backups" },
   { id: "console", label: "nav.console", icon: Terminal, question: "q.console" },
+  { id: "report", label: "nav.report", icon: Bug, question: "q.report" },
   { id: "settings", label: "nav.settings", icon: Settings, question: "q.settings" },
 ];
 
@@ -108,6 +110,8 @@ export function Shell(props: {
           <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={t(current.label)} question={t(current.question)} />
         ) : page === "console" ? (
           <ConsolePage key={server.id} serverId={server.id} />
+        ) : page === "report" ? (
+          <ReportPage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (
           <FriendsPage key={server.id} serverId={server.id} />
         ) : page === "settings" ? (

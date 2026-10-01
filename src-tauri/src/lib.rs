@@ -1008,12 +1008,60 @@ struct FriendsStatus {
 #[tauri::command]
 fn open_link(url: String) -> std::result::Result<(), UiError> {
     const ALLOWED: &[&str] = &["https://tailscale.com/", "https://login.tailscale.com/", "https://portforward.com/"];
-    if !ALLOWED.iter().any(|p| url.starts_with(p)) || !url.chars().all(|c| c.is_ascii_alphanumeric() || "/:._-?=#%".contains(c)) {
+    // A prefilled "new issue" page of this project: the address must be exactly that page, and its query may carry
+    // `&` between the (percent-encoded) title and text.
+    const NEW_ISSUE: &str = "https://github.com/Corfirean/coa-server-manager/issues/new";
+    let issue = url == NEW_ISSUE || url.starts_with(&format!("{NEW_ISSUE}?"));
+    let chars_ok = url.chars().all(|c| c.is_ascii_alphanumeric() || "/:._-?=#%".contains(c) || (issue && c == '&'));
+    if !(issue || ALLOWED.iter().any(|p| url.starts_with(p))) || !chars_ok || url.len() > 12_000 {
         return Err(Error::Invalid("That link is not allowed.".into()).into());
     }
     // explorer.exe opens the address in the default browser without going through a shell.
     std::process::Command::new("explorer.exe").arg(&url).spawn().map_err(|e| Error::Invalid(e.to_string()))?;
     Ok(())
+}
+
+#[derive(Serialize)]
+struct ReportContext {
+    manager_version: String,
+    windows: String,
+    /// "new" for a server the Manager installed, "imported" for one that was added.
+    install_kind: String,
+    server_version: Option<String>,
+}
+
+/// "Windows 11 (build 26200)" from `ver`; empty if it cannot be read.
+fn windows_version() -> String {
+    let mut cmd = std::process::Command::new("cmd.exe");
+    cmd.args(["/C", "ver"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let out = cmd.output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let build: Option<u32> = out.split("Version").nth(1).and_then(|v| v.trim().trim_end_matches(']').split('.').nth(2)).and_then(|b| b.trim().parse().ok());
+    match build {
+        Some(b) if b >= 22000 => format!("Windows 11 (build {b})"),
+        Some(b) => format!("Windows 10 (build {b})"),
+        None => String::new(),
+    }
+}
+
+/// What the problem report fills in on its own. Nothing here identifies the person or the machine.
+#[tauri::command]
+async fn report_context(state: State<'_, AppState>, id: String) -> std::result::Result<ReportContext, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let (_, meta) = install_meta(&root)?;
+        Ok(ReportContext {
+            manager_version: coa_core::MANAGER_VERSION.to_string(),
+            windows: windows_version(),
+            install_kind: if meta.kind == coa_core::registry::InstallKind::New { "new".into() } else { "imported".into() },
+            server_version: meta.core.version.clone(),
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1233,6 +1281,7 @@ pub fn run() {
             restore_backup_database,
             install_preflight,
             install_requirements,
+            report_context,
             list_accounts,
             account_set_password,
             account_set_access,

@@ -49,6 +49,9 @@ export {};
         if(cmd==="client_download"){await run("scan",4,0);await run("download",40,41e6);w.__client="new";return {path:args.parent+"\\CoA Client",executable:"Ascension.exe",realmlists:[{path:"x",host:"127.0.0.1"}],addon:{installed:true,version:"1",up_to_date:true},other_addons:0};}
         if(cmd==="client_cancel"){w.__stop=true;return null;}
       }
+      if(cmd==="report_context") return {manager_version:"0.3.1",windows:"Windows 11 (build 26200)",install_kind:"new",server_version:"0.261001.10"};
+      if(cmd==="open_link"){(window as any).__lastLink=args.url;return null;}
+      if(cmd==="export_diagnostics") return "C:\\Users\\you\\Desktop\\CoA-Diagnostics-20261001-140000.zip";
       if(cmd==="install_preflight") return {ok:true,problems:[],free_bytes:210*2**30};
       if(cmd==="install_requirements") return {download_bytes:Math.round(5.9*2**30),unpacked_bytes:Math.round(11.4*2**30),version:"0.2.0"};
       if(cmd==="list_accounts"){const w=window as any;w.__acc=w.__acc??[{id:2,name:"ALICE",access:3,online:true,last_login:"2026-10-01 12:04:11",characters:4},{id:5,name:"BOB",access:0,online:false,last_login:null,characters:0},{id:6,name:"CAROL",access:2,online:false,last_login:"2026-09-30 21:40:02",characters:2}];return w.__acc;}

@@ -167,6 +167,13 @@ export interface Preflight {
   free_bytes: number;
 }
 
+export interface ReportContext {
+  manager_version: string;
+  windows: string;
+  install_kind: "new" | "imported";
+  server_version: string | null;
+}
+
 export interface InstallRequirements {
   download_bytes: number;
   unpacked_bytes: number;
@@ -329,6 +336,7 @@ export const api = {
   restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
   installPreflight: (dest: string, needed?: number) => invoke<Preflight>("install_preflight", { dest, needed: needed ?? null }),
   installRequirements: (pkg?: string) => invoke<InstallRequirements>("install_requirements", { package: pkg ?? null }),
+  reportContext: (id: string) => invoke<ReportContext>("report_context", { id }),
   listAccounts: (id: string) => invoke<AccountInfo[]>("list_accounts", { id }),
   accountSetPassword: (id: string, name: string, password: string) => invoke<void>("account_set_password", { id, name, password }),
   accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),
