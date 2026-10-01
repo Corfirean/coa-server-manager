@@ -68,6 +68,14 @@ fn is_excluded(path: &str) -> bool {
         || p.starts_with("interface/addons/coabotui/")
 }
 
+/// Files players customise: graphics wrappers and their configuration. If one exists and differs from the published
+/// file it is left exactly as it is, whatever the "keep my files" choice; it is only created when missing.
+fn is_player_owned(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    matches!(name.as_str(), "d3d8.dll" | "d3d9.dll" | "d3d10core.dll" | "d3d11.dll" | "dxgi.dll" | "dxvk.conf")
+        || matches!(name.rsplit('.').next(), Some("ini" | "conf" | "cfg" | "wtf"))
+}
+
 pub fn parse_manifest(text: &str) -> Result<Manifest> {
     let raw: RawManifest = serde_json::from_str(text).map_err(|e| Error::Invalid(format!("The client list could not be read: {e}")))?;
     if raw.schema != 1 {
@@ -264,6 +272,15 @@ pub fn plan(client: &Path, m: &Manifest, state: &State, cancel: &Cancel, on_step
             None
         };
         done += f.size;
+        if is_player_owned(&f.path) && local.as_deref() != Some(f.sha256.as_str()) {
+            let sha = match local {
+                Some(h) => h,
+                None => hash_file(&path, cancel, &mut |_| {})?,
+            };
+            kept += 1;
+            confirmed.insert(f.path.clone(), Entry { size, mtime, sha256: sha, kept_against: Some(f.sha256.clone()) });
+            continue;
+        }
         if local.as_deref() == Some(f.sha256.as_str()) {
             up_to_date += 1;
             confirmed.insert(f.path.clone(), Entry { size, mtime, sha256: f.sha256.clone(), kept_against: None });
@@ -518,6 +535,43 @@ mod tests {
         assert_eq!(fs::read(d.path().join("Wow.exe")).unwrap(), b"exe-3");
         let saved = fs::read_dir(d.path().join(".coa-manager/replaced")).unwrap().next().unwrap().unwrap().path();
         assert_eq!(fs::read(saved.join("Wow.exe")).unwrap(), b"my patched exe", "the player's version was moved aside, not lost");
+    }
+
+    #[test]
+    fn renderer_files_configs_and_everything_not_in_the_manifest_survive_an_update_untouched() {
+        let d = tempfile::tempdir().unwrap();
+        let v1: Vec<(&str, &[u8])> = vec![("Wow.exe", b"exe-1"), ("d3d9.dll", b"official d3d9"), ("dxvk.conf", b"official conf"), ("Data/common.MPQ", b"common-1")];
+        sync(d.path(), &manifest("v1", &v1), &Server::new(&v1), false).unwrap();
+        // the player's own setup: custom renderer + configs, addons, WTF, realmlist, extra archives, backups
+        let mine: Vec<(&str, &[u8])> = vec![
+            ("d3d9.dll", b"my renderer"),
+            ("dxvk.conf", b"my conf"),
+            ("ModernWoWRenderer.ini", b"cfg"),
+            ("GraphicsEffects.ini.bak", b"bak"),
+            ("Data/enUS/realmlist.wtf", b"set realmlist 127.0.0.1
+"),
+            ("Data/patch-5.MPQ", b"extra archive"),
+            ("Interface/AddOns/ElvUI/ElvUI.toc", b"## Title: Elv"),
+            ("WTF/Account/x/SavedVariables.lua", b"vars"),
+            ("Cache/x.wdb", b"cache"),
+        ];
+        for (p, b) in &mine {
+            let path = d.path().join(p);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b).unwrap();
+        }
+        let before: BTreeMap<String, String> = mine.iter().map(|(p, b)| (p.to_string(), fsx::sha256_bytes(b))).collect();
+        let v2: Vec<(&str, &[u8])> = vec![("Wow.exe", b"exe-2"), ("d3d9.dll", b"official d3d9 v2"), ("dxvk.conf", b"official conf v2"), ("Data/common.MPQ", b"common-2")];
+        let (m2, s2) = (manifest("v2", &v2), Server::new(&v2));
+        for keep in [false, true] {
+            sync(d.path(), &m2, &s2, keep).unwrap();
+            for (p, h) in &before {
+                assert_eq!(&fsx::sha256_file(&d.path().join(p)).unwrap(), h, "{p} must not change (keep_modified={keep})");
+            }
+            assert_eq!(fs::read(d.path().join("Wow.exe")).unwrap(), b"exe-2");
+            assert_eq!(fs::read(d.path().join("Data/common.MPQ")).unwrap(), b"common-2");
+        }
+        assert!(!d.path().join(".coa-manager/replaced").exists(), "nothing of the player's was displaced");
     }
 
     #[test]

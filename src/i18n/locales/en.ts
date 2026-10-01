@@ -610,7 +610,7 @@ const en = {
   "client.upd.summary": "{n} file(s) to download, {size} in total.",
   "client.upd.upToDate": "Your client already matches version {v}.",
   "client.upd.modifiedTitle": "{n} file(s) were changed by you",
-  "client.upd.modifiedText": "For example a custom d3d9.dll or a patched executable. Keep them, or replace them with the official versions; yours are then saved in the client’s .coa-manager folder.",
+  "client.upd.modifiedText": "For example a patched executable. Keep them, or replace them with the official versions; yours are then saved in the client’s .coa-manager folder. Graphics wrappers (d3d9.dll and the like) and config files are always left as they are.",
   "client.upd.keep": "Keep the files I changed",
   "client.upd.more": "… and {n} more",
   "client.upd.start": "Update client",

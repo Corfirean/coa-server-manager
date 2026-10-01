@@ -610,7 +610,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "client.upd.summary": "Файлов к загрузке: {n}, всего {size}.",
   "client.upd.upToDate": "Ваш клиент уже соответствует версии {v}.",
   "client.upd.modifiedTitle": "Файлов, изменённых вами: {n}",
-  "client.upd.modifiedText": "Например, свой d3d9.dll или изменённый exe. Оставьте их или замените официальными версиями; ваши тогда сохранятся в папке .coa-manager внутри клиента.",
+  "client.upd.modifiedText": "Например, изменённый exe. Оставьте их или замените официальными версиями; ваши тогда сохранятся в папке .coa-manager внутри клиента. Графические обёртки (d3d9.dll и подобные) и конфиги всегда остаются как есть.",
   "client.upd.keep": "Оставить файлы, которые я менял",
   "client.upd.more": "… и ещё {n}",
   "client.upd.start": "Обновить клиент",

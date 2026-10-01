@@ -610,7 +610,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "client.upd.summary": "{n} archivo(s) por descargar, {size} en total.",
   "client.upd.upToDate": "Tu cliente ya coincide con la versión {v}.",
   "client.upd.modifiedTitle": "{n} archivo(s) cambiado(s) por ti",
-  "client.upd.modifiedText": "Por ejemplo un d3d9.dll personalizado o un ejecutable modificado. Consérvalos o reemplázalos por las versiones oficiales; los tuyos se guardan entonces en la carpeta .coa-manager del cliente.",
+  "client.upd.modifiedText": "Por ejemplo un ejecutable modificado. Consérvalos o reemplázalos por las versiones oficiales; los tuyos se guardan entonces en la carpeta .coa-manager del cliente. Los wrappers gráficos (d3d9.dll y similares) y los archivos de configuración se dejan siempre como están.",
   "client.upd.keep": "Conservar los archivos que cambié",
   "client.upd.more": "… y {n} más",
   "client.upd.start": "Actualizar cliente",
