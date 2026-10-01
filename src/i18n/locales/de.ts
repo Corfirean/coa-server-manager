@@ -568,6 +568,16 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "comp.despawnCount": "Wie viele abmelden",
   "comp.despawnHint": "Entlastet sofort: Jeder Bot online kostet Serverzeit. Sie bleiben gespeichert und kommen beim nächsten Start zurück, wenn die automatische Anmeldung an ist.",
   "comp.despawnSomeDone": "{n} Begleiter abgemeldet. Sie bleiben gespeichert.",
+
+  // Server update button
+  "btn.update": "AKTUALISIEREN",
+  "btn.updating": "WIRD AKTUALISIERT …",
+  "btn.updateTo": "Auf {v} aktualisieren",
+  "overview.updateAvail": "Ein Server-Update ist verfügbar: {to} (du hast {from}).",
+  "overview.updateConflicts": "Einige Dateien wurden von dir geändert. Entscheide in den Einstellungen, was damit geschehen soll.",
+  "overview.openUpdates": "Updates öffnen",
+  "overview.updatingNote": "Update läuft: Der Server wird gestoppt, gesichert, aktualisiert und zur Prüfung erneut gestartet.",
+  "nav.updateDot": "Update verfügbar",
 };
 
 export default de;

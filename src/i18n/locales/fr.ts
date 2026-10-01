@@ -568,6 +568,16 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "comp.despawnCount": "Combien déconnecter",
   "comp.despawnHint": "Allège aussitôt la charge : chaque bot en ligne coûte du temps serveur. Ils restent enregistrés et reviennent au prochain démarrage si la connexion automatique est activée.",
   "comp.despawnSomeDone": "{n} compagnons déconnectés. Ils restent enregistrés.",
+
+  // Server update button
+  "btn.update": "METTRE À JOUR",
+  "btn.updating": "MISE À JOUR…",
+  "btn.updateTo": "Mettre à jour vers {v}",
+  "overview.updateAvail": "Une mise à jour du serveur est disponible : {to} (vous avez {from}).",
+  "overview.updateConflicts": "Certains fichiers ont été modifiés par vous. Choisissez dans les Paramètres ce qu’il faut en faire.",
+  "overview.openUpdates": "Ouvrir les mises à jour",
+  "overview.updatingNote": "Mise à jour : le serveur est arrêté, sauvegardé, mis à jour puis relancé pour vérifier qu’il fonctionne.",
+  "nav.updateDot": "Mise à jour disponible",
 };
 
 export default fr;

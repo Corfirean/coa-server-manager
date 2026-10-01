@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { api, asUiError, type ClientInfo, type Human, type Performance, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
 import { cn, formatUptime } from "@/lib/utils";
 import { useHuman, useT } from "@/i18n";
+import { applyServerUpdate, useServerUpdate } from "@/lib/serverUpdate";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -58,7 +59,7 @@ function Row({ label, s }: { label: string; s: ServiceStatus }) {
   );
 }
 
-export function Overview({ server, onForget }: { server: ServerSummary; onForget: () => Promise<void> }) {
+export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSummary; onForget: () => Promise<void>; onOpenUpdates: () => void }) {
   const t = useT();
   const human = useHuman();
   const [status, setStatus] = useState<StatusView | null>(null);
@@ -69,6 +70,8 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
   const [client, setClient] = useState<ClientInfo | null>(null);
   const [playing, setPlaying] = useState(false);
   const [perf, setPerf] = useState<Performance | null>(null);
+  const upd = useServerUpdate(server.id);
+  const needsDecision = (upd.preview?.conflicts.length ?? 0) > 0;
   const [startBots, setStartBots] = useState<number | null | undefined>(undefined);
 
   useEffect(() => {
@@ -236,6 +239,17 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
               {transitioning && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
               {t("btn.stop")}
             </Button>
+          ) : upd.available ? (
+            <Button
+              variant="primary"
+              size="xl"
+              disabled={transitioning || upd.applying}
+              onClick={() => (needsDecision ? onOpenUpdates() : void applyServerUpdate(server.id))}
+              className="min-w-56"
+            >
+              {upd.applying && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
+              {upd.applying ? t("btn.updating") : needsDecision ? t("overview.openUpdates") : t("btn.update")}
+            </Button>
           ) : (
             <Button variant="primary" size="xl" disabled={transitioning} onClick={() => run("starting")} className="min-w-56">
               {transitioning && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
@@ -243,8 +257,14 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
             </Button>
           )}
           {running && (
-            <Button variant="ghost" size="sm" disabled={transitioning} onClick={() => run("restarting")}>
+            <Button variant="ghost" size="sm" disabled={transitioning || upd.applying} onClick={() => run("restarting")}>
               {t("btn.restart")}
+            </Button>
+          )}
+          {running && upd.available && (
+            <Button variant="secondary" size="sm" disabled={transitioning || upd.applying} onClick={() => (needsDecision ? onOpenUpdates() : void applyServerUpdate(server.id))}>
+              {upd.applying && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+              {needsDecision ? t("overview.openUpdates") : t("btn.updateTo", { v: upd.preview?.to_version ?? "" })}
             </Button>
           )}
           {anyUp && !running && (
@@ -261,6 +281,24 @@ export function Overview({ server, onForget }: { server: ServerSummary; onForget
         </div>
         {anyUp && !running && !transitioning && (
           <p className="mt-3 text-sm text-muted">{t("overview.partial")}</p>
+        )}
+        {upd.available && upd.preview && (
+          <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3 text-sm">
+            <p>{t("overview.updateAvail", { to: upd.preview.to_version, from: upd.preview.from_version ?? "?" })}</p>
+            {needsDecision && <p className="mt-1 text-muted">{t("overview.updateConflicts")}</p>}
+            {upd.applying && (
+              <div className="mt-2">
+                <p className="text-muted" role="status">{t("overview.updatingNote")}</p>
+                <div className="mt-2 flex justify-between text-xs">
+                  <span>{upd.step ?? ""}</span>
+                  <span className="text-muted">{upd.percent}%</span>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={upd.percent} aria-valuemin={0} aria-valuemax={100}>
+                  <div className="h-full rounded-full bg-gold transition-[width] duration-300" style={{ width: `${upd.percent}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </Card>
 

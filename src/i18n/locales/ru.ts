@@ -568,6 +568,16 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "comp.despawnCount": "Сколько убрать",
   "comp.despawnHint": "Сразу снижает нагрузку: каждый бот в сети отнимает время сервера. Они остаются сохранёнными и вернутся при следующем запуске, если включён автоматический вход.",
   "comp.despawnSomeDone": "Убрано из игры компаньонов: {n}. Они остаются сохранёнными.",
+
+  // Server update button
+  "btn.update": "ОБНОВИТЬ",
+  "btn.updating": "ОБНОВЛЯЮ…",
+  "btn.updateTo": "Обновить до {v}",
+  "overview.updateAvail": "Доступно обновление сервера: {to} (сейчас {from}).",
+  "overview.updateConflicts": "Часть файлов изменена вами. Решите, что с ними делать, в Настройках.",
+  "overview.openUpdates": "Открыть обновления",
+  "overview.updatingNote": "Идёт обновление: сервер останавливается, сохраняется резервная копия, затем он обновляется и запускается снова для проверки.",
+  "nav.updateDot": "Есть обновление",
 };
 
 export default ru;

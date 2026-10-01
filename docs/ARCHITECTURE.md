@@ -517,3 +517,14 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   hour, world thread stalled); (2) no active `coa.conf` (`CoA.Enable = 1`) because packages contain only `*.conf.dist`.
   Fixed: `clean-base` restores quiet templates, `assemble-tree` ships `coa.conf.dist`, and the Manager creates missing
   module `.conf` files from their `.dist` on install and before each start of a Manager-installed server.
+
+* **Game client download through the Manager** (idea 2026-10-01, researched, not built). The community PTR launcher
+  ("Conquest of AzerothCore" Electron app from `ConquestOfAzerothSetup-0.6.9.exe`) reads its client from
+  `https://launcher-api.coa-development.org/downloads/client/latest.json` (`{schema, version, publishedAt, files:[{path,size,sha256}]}`;
+  200 files, 43.2 GiB: `Ascension.exe`, DLLs and ~40 big `Data/*.MPQ`) and fetches each file as the content-addressed object
+  `.../downloads/client/objects/<sha256>` (Cloudflare, `Accept-Ranges`, immutable cache), 3 attempts, 30 s stall timeout, `.part`
+  files, sha256 check, resume via `Range`. The Manager already has everything needed (resumable verified downloads, free-space
+  check): a "Download game client" card with folder choice, overall progress, update check against `latest.json`, and the
+  existing safety rule (the Manager only ever writes its own client folder, never an existing one without asking). Open points:
+  ask the launcher/community maintainers before putting load on their API; DBCs live inside the MPQ patch archives (extracting
+  them would need an MPQ reader), so the server's `Data\dbc` still comes from our `base` package for now.

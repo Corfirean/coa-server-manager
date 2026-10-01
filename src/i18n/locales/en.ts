@@ -568,6 +568,16 @@ const en = {
   "comp.despawnCount": "How many to log out",
   "comp.despawnHint": "Eases the load right away: every online bot costs server time. They stay saved and return at the next start if automatic login is on.",
   "comp.despawnSomeDone": "{n} companions logged out. They stay saved.",
+
+  // Server update button
+  "btn.update": "UPDATE",
+  "btn.updating": "UPDATING…",
+  "btn.updateTo": "Update to {v}",
+  "overview.updateAvail": "A server update is available: {to} (you have {from}).",
+  "overview.updateConflicts": "Some files were changed by you. Choose what to do with them in Settings.",
+  "overview.openUpdates": "Open updates",
+  "overview.updatingNote": "Updating: the server is stopped, backed up, updated and started again to check that it works.",
+  "nav.updateDot": "Update available",
 } as const;
 
 export default en;

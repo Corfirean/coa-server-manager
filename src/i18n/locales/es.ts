@@ -568,6 +568,16 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "comp.despawnCount": "Cuántos desconectar",
   "comp.despawnHint": "Alivia la carga al instante: cada bot conectado cuesta tiempo de servidor. Quedan guardados y vuelven en el próximo inicio si el inicio de sesión automático está activado.",
   "comp.despawnSomeDone": "{n} compañeros desconectados. Quedan guardados.",
+
+  // Server update button
+  "btn.update": "ACTUALIZAR",
+  "btn.updating": "ACTUALIZANDO…",
+  "btn.updateTo": "Actualizar a {v}",
+  "overview.updateAvail": "Hay una actualización del servidor: {to} (tienes {from}).",
+  "overview.updateConflicts": "Algunos archivos los cambiaste tú. Decide en Ajustes qué hacer con ellos.",
+  "overview.openUpdates": "Abrir actualizaciones",
+  "overview.updatingNote": "Actualizando: el servidor se detiene, se respalda, se actualiza y se inicia de nuevo para comprobar que funciona.",
+  "nav.updateDot": "Actualización disponible",
 };
 
 export default es;

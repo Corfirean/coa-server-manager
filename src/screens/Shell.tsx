@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Archive, Bot, Gauge, Globe, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
 import { type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
@@ -13,6 +13,7 @@ import { SettingsHome } from "@/screens/SettingsHome";
 import { FriendsPage } from "@/screens/FriendsPage";
 import { ConsolePage } from "@/screens/ConsolePage";
 import { Button } from "@/components/ui/button";
+import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
 
 type Page = "overview" | "bots" | "server" | "players" | "friends" | "backups" | "console" | "settings";
 
@@ -38,6 +39,10 @@ export function Shell(props: {
   const [page, setPage] = useState<Page>("overview");
   const server = props.servers.find((s) => s.id === props.activeId)!;
   const current = NAV.find((n) => n.id === page)!;
+  const update = useServerUpdate(props.activeId);
+
+  // Look for a server update when the app starts and then every five minutes.
+  useEffect(() => startServerUpdatePolling(props.activeId), [props.activeId]);
 
   return (
     <div className="flex h-full">
@@ -59,6 +64,9 @@ export function Shell(props: {
               >
                 <Icon className={cn("h-[18px] w-[18px]", page === id && "text-gold")} aria-hidden />
                 {t(label)}
+                {id === "settings" && update.available && (
+                  <span className="ml-auto h-2 w-2 rounded-full bg-gold" role="img" aria-label={t("nav.updateDot")} title={t("nav.updateDot")} />
+                )}
               </button>
             </li>
           ))}
@@ -87,7 +95,7 @@ export function Shell(props: {
 
       <main className="h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
-          <Overview key={server.id} server={server} onForget={() => props.onForget(server.id)} />
+          <Overview key={server.id} server={server} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} />
         ) : page === "bots" || page === "server" ? (
           <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={t(current.label)} question={t(current.question)} />
         ) : page === "console" ? (
