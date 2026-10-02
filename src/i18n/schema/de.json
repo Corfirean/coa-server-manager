@@ -546,6 +546,10 @@
   "AllowTwoSide.Interaction.Auction": {
    "t": "Gemeinsames Auktionshaus",
    "d": "Spieler der Allianz und der Horde nutzen dasselbe Auktionshaus."
+  },
+  "Achievement.RealmFirstBlockBots": {
+   "t": "Bots erhalten kein „Server-Erster“",
+   "d": "Begleiter (Bots) können keine „Server-Erster“-Erfolge erringen und nehmen sie echten Spielern daher nie weg. Benötigt einen Server-Build vom 02.10.2026 oder neuer."
   }
  },
  "options": {

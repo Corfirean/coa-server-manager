@@ -546,6 +546,10 @@
   "AllowTwoSide.Interaction.Auction": {
    "t": "Casa de subastas compartida",
    "d": "Jugadores de la Alianza y de la Horda usan la misma casa de subastas."
+  },
+  "Achievement.RealmFirstBlockBots": {
+   "t": "Los bots no logran «Primero del reino»",
+   "d": "Los acompañantes (bots) no pueden conseguir los logros «Primero del reino», así que nunca se los quitan a los jugadores reales. Requiere una versión del servidor del 2 de octubre de 2026 o posterior."
   }
  },
  "options": {

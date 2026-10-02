@@ -546,6 +546,10 @@
   "AllowTwoSide.Interaction.Auction": {
    "t": "Hôtel des ventes commun",
    "d": "Les joueurs de l'Alliance et de la Horde utilisent le même hôtel des ventes."
+  },
+  "Achievement.RealmFirstBlockBots": {
+   "t": "Les bots n'obtiennent pas les « Premier du royaume »",
+   "d": "Les compagnons (bots) ne peuvent pas obtenir les hauts faits « Premier du royaume » et ne les prennent donc jamais aux vrais joueurs. Nécessite une version du serveur du 2 octobre 2026 ou plus récente."
   }
  },
  "options": {

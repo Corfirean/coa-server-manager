@@ -66,6 +66,7 @@ R = [
     ("AllowTwoSide.Interaction.Group", "bool", "accounts", "Cross-faction groups", "Alliance and Horde players can form groups together.", False, None, None, None, False, "world", False),
     ("AllowTwoSide.Interaction.Guild", "bool", "accounts", "Cross-faction guilds", "Alliance and Horde players can join the same guild.", False, None, None, None, False, "world", False),
     ("AllowTwoSide.Interaction.Auction", "bool", "accounts", "Shared auction house", "Alliance and Horde players can use the same auction house.", False, None, None, None, False, "world", False),
+    ("Achievement.RealmFirstBlockBots", "bool", "gameplay", "Bots cannot take 'Realm First!'", "Companions (bots) cannot earn 'Realm First!' achievements, so they never take a server first away from real players. Needs a server build from 2026-10-02 or later.", True, None, None, None, False, "world", False),
 ]
 enums = {
     "GameType": [(0, "Normal"), (1, "Player vs Player"), (6, "Roleplay"), (8, "Roleplay + PvP")],

@@ -832,6 +832,17 @@
       "advanced": false,
       "restartRequired": "world",
       "dangerous": false
+    },
+    {
+      "key": "Achievement.RealmFirstBlockBots",
+      "type": "bool",
+      "category": "gameplay",
+      "title": "Bots cannot take 'Realm First!'",
+      "description": "Companions (bots) cannot earn 'Realm First!' achievements, so they never take a server first away from real players. Needs a server build from 2026-10-02 or later.",
+      "default": true,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
     }
   ]
 }
