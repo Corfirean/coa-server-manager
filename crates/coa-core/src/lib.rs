@@ -8,6 +8,7 @@ pub mod config;
 pub mod console;
 pub mod db;
 pub mod diag;
+pub mod docker;
 pub mod download;
 pub mod driver;
 pub mod error;

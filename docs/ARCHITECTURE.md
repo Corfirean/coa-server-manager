@@ -337,6 +337,37 @@ Base package (≈3.2 GB; Data 3.8 GB + mysql data) is split into ≤ 1.9 GB part
 with a parts manifest. Reproducibility: pinned runner image label, recorded compiler/vcpkg versions, source SHAs,
 build timestamp written into RELEASE.json.
 
+### D13. Linux: the servers run in Docker (experimental)
+
+Linux has no repack launcher and no Win32 process API, and the host should need nothing but Docker. A server folder
+that contains `Settings/docker.json` is a **Docker installation**; every other folder is a repack, handled by the
+code above without any change. `driver::run`, `process::observe` and `layout::scan` check for the marker first and
+hand over to `coa_core::docker`; nothing else needed to change for start, stop, status and the server list.
+
+* **Containers** (`docker/lifecycle.rs`): `coa-<project>-db` (official `mysql:8.4`, data in a named volume, not
+  published on the host), `-world` and `-auth` (a small runtime image holding only the shared libraries; the
+  binaries are mounted from `Core/`, so an update replaces files and never rebuilds an image). The image tag is a
+  hash of its Dockerfile.
+* **Why the `docker` command line and not `docker compose`**: the compose plugin is missing from some distributions'
+  Docker packages, and the plan is to ask for as little as possible on the host. The command line is wrapped by a
+  `Docker` trait (`docker/cli.rs`), so the logic is tested with an in-memory fake.
+* **Same folder shape as a repack where it matters**: `Core/configs`, `Core/Logs`, `Settings/repack.json`
+  (ports, RA login), `Settings/database.json` and `Data/`. Configuration editing, log tailing and the RA console
+  therefore work as they do on Windows. The container runs as the owner of the folder and starts in `Core/`.
+* **Settings forced by environment** (the core reads `AC_<KEY>` before the `.conf`): `AC_BIND_IP=0.0.0.0` (the
+  published address, `bindAddress`, decides who can connect), `AC_DATA_DIR`, `AC_LOGS_DIR`, `AC_RA_ENABLE`,
+  `AC_RA_IP`, and `AC_UPDATES_ENABLE_DATABASES=0`: the server's own database updater needs a `mysql` client program and
+  stops the server without one; the Manager applies database updates itself (section 1.4). The remote console is published
+  on `127.0.0.1` only.
+* **Secrets** go to `docker` by environment (`--env NAME` without a value), never on a command line.
+* **Order**: database healthy, then world listening, then auth. The auth server exits when no realm is online.
+  Readiness is a connection that stays open: Docker's proxy accepts connections on a published port before the server
+  inside listens, so a plain connect proves nothing.
+* **Configuration path in the binaries**: Linux builds must use `-DCONF_DIR=configs` (see `coa-server-build`),
+  otherwise the core looks for module configs in a path baked in at build time.
+* **Not done yet**: installation and the database setup (schemas, `acore` user), backups and database access through the
+  container, updates, port conflict detection, the firewall and exposure checks, and the client under Wine/Proton.
+
 ---------------------------------------------------------------------------------------------------------
 
 ## 3. Flows

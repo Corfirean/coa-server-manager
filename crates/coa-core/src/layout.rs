@@ -110,15 +110,15 @@ pub struct ScanReport {
     pub modifies_files: bool,
 }
 
-fn exists(root: &Path, rel: &str) -> bool {
+pub(crate) fn exists(root: &Path, rel: &str) -> bool {
     root.join(rel).exists()
 }
 
-fn item(key: &'static str, label: &'static str, present: bool, detail: Option<String>) -> Item {
+pub(crate) fn item(key: &'static str, label: &'static str, present: bool, detail: Option<String>) -> Item {
     Item { key, label, status: if present { Status::Found } else { Status::Missing }, detail }
 }
 
-fn hash_exe(path: &Path, release: Option<&ReleaseJson>, name: &str) -> Option<ExeInfo> {
+pub(crate) fn hash_exe(path: &Path, release: Option<&ReleaseJson>, name: &str) -> Option<ExeInfo> {
     let meta = fs::metadata(path).ok()?;
     if !meta.is_file() {
         return None;
@@ -192,7 +192,7 @@ pub fn detect_client(dir: &Path) -> Option<ClientInfo> {
     None
 }
 
-fn count_bot_keys(conf: &Path) -> usize {
+pub(crate) fn count_bot_keys(conf: &Path) -> usize {
     fs::read_to_string(conf)
         .map(|t| t.lines().filter(|l| l.trim_start().starts_with("CoaBots.")).count())
         .unwrap_or(0)
@@ -204,6 +204,9 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         return Err(crate::error::Error::Invalid(format!("{} is not a folder", root.display())));
     }
     let root = fsx::canonicalize_lenient(root)?;
+    if crate::docker::is_docker(&root) {
+        return crate::docker::scan(&root);
+    }
     let mut notes = Vec::new();
 
     let release: Option<ReleaseJson> = fsx::read_json(&root.join("RELEASE.json")).ok();

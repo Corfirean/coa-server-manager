@@ -293,6 +293,9 @@ fn service(root: &Path, name: &'static str, exe: PathBuf, port: u16, listen: &[(
 
 /// Snapshot the three services of an installation without touching anything.
 pub fn observe(root: &Path, ports: &Ports) -> Observed {
+    if crate::docker::is_docker(root) {
+        return crate::docker::observe(root, ports);
+    }
     let listen = listeners();
     let (world, auth, mysql) = crate::layout::executables(root);
     Observed {

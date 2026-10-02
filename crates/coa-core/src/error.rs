@@ -52,6 +52,7 @@ pub enum ErrorCode {
     DiskFull,
     OperationInProgress,
     StartupFailed,
+    DockerUnavailable,
     HashMismatch,
     PathRejected,
     PackageNotPublished,
@@ -127,6 +128,11 @@ impl ErrorCode {
                 "Server could not start",
                 "A service stopped while starting. Check the details for the cause.",
                 &[FixAutomatically, ShowDetails],
+            ),
+            ErrorCode::DockerUnavailable => (
+                "Docker is not available",
+                "This server runs in Docker. Install Docker, start it, and make sure your user account may use it, then try again.",
+                &[Retry, ShowDetails],
             ),
             ErrorCode::HashMismatch => (
                 "A downloaded file is damaged",
