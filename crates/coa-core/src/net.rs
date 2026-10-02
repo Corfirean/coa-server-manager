@@ -88,8 +88,14 @@ pub struct Tailscale {
     pub connected: bool,
 }
 
+#[cfg(windows)]
 fn tailscale_exe() -> Option<PathBuf> {
     ["C:/Program Files/Tailscale/tailscale.exe", "C:/Program Files (x86)/Tailscale/tailscale.exe"].iter().map(PathBuf::from).find(|p| p.is_file())
+}
+
+#[cfg(not(windows))]
+fn tailscale_exe() -> Option<PathBuf> {
+    ["/usr/bin/tailscale", "/usr/local/bin/tailscale", "/usr/sbin/tailscale"].iter().map(PathBuf::from).find(|p| p.is_file())
 }
 
 pub fn parse_tailscale_ip(out: &str) -> Option<String> {

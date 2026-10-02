@@ -70,9 +70,22 @@ struct StatusView {
     path_exists: bool,
 }
 
+/// Where the Manager keeps its own state (server list, logs). `%LOCALAPPDATA%` on Windows, the XDG data folder elsewhere.
 fn data_dir() -> PathBuf {
+    #[cfg(windows)]
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    #[cfg(not(windows))]
+    let base = unix_data_home(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"));
     base.join("CoAServerManager")
+}
+
+/// `$XDG_DATA_HOME` when it is an absolute path (the spec says to ignore relative ones), else `~/.local/share`.
+#[cfg(not(windows))]
+fn unix_data_home(xdg: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> PathBuf {
+    xdg.map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| home.map(|h| PathBuf::from(h).join(".local/share")))
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 fn path_of(state: &AppState, id: &str) -> Result<PathBuf> {
@@ -1120,8 +1133,12 @@ fn open_link(url: String) -> std::result::Result<(), UiError> {
     if !(issue || catalog || ALLOWED.iter().any(|p| url.starts_with(p))) || !chars_ok || url.len() > 12_000 {
         return Err(Error::Invalid("That link is not allowed.".into()).into());
     }
-    // explorer.exe opens the address in the default browser without going through a shell.
-    std::process::Command::new("explorer.exe").arg(&url).spawn().map_err(|e| Error::Invalid(e.to_string()))?;
+    // The system opener launches the default browser without going through a shell.
+    #[cfg(windows)]
+    let opener = "explorer.exe";
+    #[cfg(not(windows))]
+    let opener = "xdg-open";
+    std::process::Command::new(opener).arg(&url).spawn().map_err(|e| Error::Invalid(e.to_string()))?;
     Ok(())
 }
 
@@ -1441,4 +1458,31 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::unix_data_home;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    fn os(s: &str) -> Option<OsString> {
+        Some(s.into())
+    }
+
+    #[test]
+    fn data_home_prefers_an_absolute_xdg_folder() {
+        assert_eq!(unix_data_home(os("/data/xdg"), os("/home/u")), PathBuf::from("/data/xdg"));
+    }
+
+    #[test]
+    fn data_home_ignores_a_relative_xdg_folder_and_falls_back_to_home() {
+        assert_eq!(unix_data_home(os("relative/dir"), os("/home/u")), PathBuf::from("/home/u/.local/share"));
+        assert_eq!(unix_data_home(None, os("/home/u")), PathBuf::from("/home/u/.local/share"));
+    }
+
+    #[test]
+    fn data_home_without_any_variable_uses_the_temp_folder() {
+        assert_eq!(unix_data_home(None, None), std::env::temp_dir());
+    }
 }
