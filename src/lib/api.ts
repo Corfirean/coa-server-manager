@@ -186,8 +186,8 @@ export interface ModuleView {
   enabled: boolean;
   /** can be turned on and off (a part the game client needs is only configured) */
   switchable: boolean;
-  /** early (experimental), beta (still being tested) or release (stable) */
-  status: "early" | "beta" | "release";
+  /** soon (planned, not available yet), early (experimental), beta (still being tested) or release (stable) */
+  status: "soon" | "early" | "beta" | "release";
   icon: string;
   /** a page of the Manager that is hidden while the module is off */
   page: string | null;

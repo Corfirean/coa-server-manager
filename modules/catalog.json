@@ -67,6 +67,54 @@
       "icon": "wotlk"
     },
     {
+      "id": "ah-bot",
+      "name": "Auction House Bot",
+      "description": {
+        "en": "Fills the auction house with realistic, adjustable listings.",
+        "ru": "Наполняет аукцион реалистичными настраиваемыми лотами.",
+        "de": "Füllt das Auktionshaus mit realistischen, einstellbaren Angeboten.",
+        "fr": "Remplit l'hôtel des ventes d'annonces réalistes et réglables.",
+        "es": "Llena la casa de subastas con ofertas realistas y ajustables."
+      },
+      "repo": "https://github.com/NathanHandley/mod-ah-bot-plus",
+      "conf": "mod_ahbot.conf",
+      "switchable": false,
+      "status": "soon",
+      "icon": "gavel"
+    },
+    {
+      "id": "npc-enchanter",
+      "name": "NPC Enchanter",
+      "description": {
+        "en": "An NPC that enchants your gear for you.",
+        "ru": "НПС, который зачаровывает ваше снаряжение.",
+        "de": "Ein NPC, der deine Ausrüstung für dich verzaubert.",
+        "fr": "Un PNJ qui enchante votre équipement pour vous.",
+        "es": "Un PNJ que encanta tu equipo por ti."
+      },
+      "repo": "https://github.com/azerothcore/mod-npc-enchanter",
+      "conf": "npc_enchanter.conf",
+      "switchable": false,
+      "status": "soon",
+      "icon": "sparkles"
+    },
+    {
+      "id": "playerbots",
+      "name": "Playerbots",
+      "description": {
+        "en": "An alternative bot system with random bots and full AI.",
+        "ru": "Альтернативная система ботов со случайными ботами и полным ИИ.",
+        "de": "Ein alternatives Bot-System mit Zufalls-Bots und voller KI.",
+        "fr": "Un système de bots alternatif avec bots aléatoires et IA complète.",
+        "es": "Un sistema de bots alternativo con bots aleatorios e IA completa."
+      },
+      "repo": "https://github.com/Zyth45/mod-playerbots",
+      "conf": "playerbots.conf",
+      "switchable": false,
+      "status": "soon",
+      "icon": "swords"
+    },
+    {
       "id": "client-compat",
       "name": "Client compatibility",
       "description": {

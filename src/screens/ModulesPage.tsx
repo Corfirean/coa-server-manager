@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
-import { Bot, Flame, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, type LucideProps } from "lucide-react";
+import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, type LucideProps } from "lucide-react";
 import { api, asUiError, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,10 +22,14 @@ const TILES: Record<string, { icon: ComponentType<LucideProps>; from: string; to
   plug: { icon: Plug, from: "from-amber-500", to: "to-orange-700" },
   tbc: { icon: Flame, from: "from-lime-500", to: "to-emerald-800" },
   wotlk: { icon: Snowflake, from: "from-sky-400", to: "to-blue-700" },
+  gavel: { icon: Gavel, from: "from-yellow-500", to: "to-amber-700" },
+  sparkles: { icon: Sparkles, from: "from-fuchsia-500", to: "to-purple-700" },
+  swords: { icon: Swords, from: "from-rose-500", to: "to-red-800" },
 };
 const DEFAULT_TILE = { icon: Puzzle, from: "from-slate-500", to: "to-slate-700" };
 
 const STATUS: Record<string, { label: Key; hint: Key; tone: string }> = {
+  soon: { label: "mod.status.soon", hint: "mod.hint.soon", tone: "border-violet-400/50 bg-violet-400/10 text-violet-300" },
   early: { label: "mod.status.early", hint: "mod.hint.early", tone: "border-warn/50 bg-warn/10 text-warn" },
   beta: { label: "mod.status.beta", hint: "mod.hint.beta", tone: "border-sky-400/50 bg-sky-400/10 text-sky-300" },
   release: { label: "mod.status.release", hint: "mod.hint.release", tone: "border-ok/50 bg-ok/10 text-ok" },
@@ -101,7 +105,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
       <p className="mt-3 text-sm text-muted">{t("mod.intro")}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted" aria-label={t("mod.legend")}>
-        {(["early", "beta", "release"] as const).map((s) => (
+        {(["soon", "early", "beta", "release"] as const).map((s) => (
           <span key={s} className="flex items-center gap-2">
             <StatusBadge status={s} />
             {t(STATUS[s].hint)}
@@ -116,7 +120,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
         {modules === null && !error && <p className="text-muted">{t("overview.checking")}</p>}
         {modules?.length === 0 && <Card className="p-6 text-center text-muted sm:col-span-2">{t("mod.empty")}</Card>}
         {modules?.map((m) => (
-          <Card key={m.id} className={cn("flex flex-col gap-4 p-5 transition-colors", !m.installed && "opacity-60", open === m.id && "border-gold/50")}>
+          <Card key={m.id} className={cn("flex flex-col gap-4 p-5 transition-colors", !m.installed && "opacity-60", open === m.id && "border-gold/50")} aria-label={m.status === "soon" ? `${m.name}: ${t("mod.status.soon")}` : undefined}>
             <div className="flex items-start gap-4">
               <Tile icon={m.icon} off={!m.enabled || !m.installed} />
               <div className="min-w-0 flex-1">
@@ -138,7 +142,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
                 </button>
               )}
               {m.installed && !m.switchable && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
-              {!m.installed && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
+              {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
             <div className="mt-auto flex items-center gap-2">
               <button

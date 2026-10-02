@@ -1115,7 +1115,9 @@ fn open_link(url: String) -> std::result::Result<(), UiError> {
     const NEW_ISSUE: &str = "https://github.com/Corfirean/coa-server-manager/issues/new";
     let issue = url == NEW_ISSUE || url.starts_with(&format!("{NEW_ISSUE}?"));
     let chars_ok = url.chars().all(|c| c.is_ascii_alphanumeric() || "/:._-?=#%".contains(c) || (issue && c == '&'));
-    if !(issue || ALLOWED.iter().any(|p| url.starts_with(p))) || !chars_ok || url.len() > 12_000 {
+    // the GitHub page of a module that is in the bundled catalog (some are not ours)
+    let catalog = coa_core::modules::catalog().iter().any(|e| e.repo == url);
+    if !(issue || catalog || ALLOWED.iter().any(|p| url.starts_with(p))) || !chars_ok || url.len() > 12_000 {
         return Err(Error::Invalid("That link is not allowed.".into()).into());
     }
     // explorer.exe opens the address in the default browser without going through a shell.

@@ -36,7 +36,7 @@ pub struct Entry {
     #[serde(default = "yes")]
     pub default_on: bool,
     /// How far along it is: `early` (experimental, may change or break), `beta` (works, still being tested) or
-    /// `release` (stable).
+    /// `release` (stable); `soon` is a place held for a module that is planned but not part of any build yet.
     #[serde(default = "release")]
     pub status: String,
     /// Which icon the page draws (a name the page knows).
@@ -286,9 +286,10 @@ mod tests {
         // it may be empty (modules are added to it one by one); whatever is in it must be complete
         for e in &c {
             assert!(e.description.contains_key("en") && e.description.len() == 5, "{} has all five descriptions", e.id);
-            assert!(e.repo.starts_with("https://github.com/Corfirean/") && e.conf.ends_with(".conf"), "{}", e.id);
+            assert!(e.repo.starts_with("https://github.com/") && e.conf.ends_with(".conf"), "{}", e.id);
             assert!(!e.switchable || e.enable_key.ends_with(".Enable"), "{} needs the setting that switches it", e.id);
-            assert!(["early", "beta", "release"].contains(&e.status.as_str()), "{} has an unknown status", e.id);
+            assert!(["soon", "early", "beta", "release"].contains(&e.status.as_str()), "{} has an unknown status", e.id);
+            assert!(e.status != "soon" || !e.switchable, "{} is only announced, so it cannot be switched", e.id);
         }
         let mut ids: Vec<_> = c.iter().map(|e| e.id.as_str()).collect();
         ids.sort();

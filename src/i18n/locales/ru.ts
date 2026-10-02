@@ -766,6 +766,8 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "col.companions.text": "Ваши скакуны и спутники изучаются навсегда.",
   "col.riding": "Максимальная верховая езда с первого входа",
   "col.riding.text": "Все ранги верховой езды и полёт в холодных краях даже на 1 уровне.",
+  "mod.status.soon": "Скоро",
+  "mod.hint.soon": "В планах: пока недоступен.",
 };
 
 export default ru;

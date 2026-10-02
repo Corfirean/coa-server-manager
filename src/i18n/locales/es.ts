@@ -766,6 +766,8 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "col.companions.text": "Tus monturas y mascotas se aprenden para siempre.",
   "col.riding": "Equitación máxima desde el primer inicio",
   "col.riding.text": "Todos los rangos de equitación y vuelo en clima frío, desde el nivel 1.",
+  "mod.status.soon": "Pronto",
+  "mod.hint.soon": "Previsto: aún no disponible.",
 };
 
 export default es;

@@ -766,6 +766,8 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "col.companions.text": "Deine Reittiere und Begleiter werden dauerhaft gelernt.",
   "col.riding": "Maximales Reiten ab dem ersten Login",
   "col.riding.text": "Alle Reitstufen und Kaltwetterflug, schon auf Stufe 1.",
+  "mod.status.soon": "Bald",
+  "mod.hint.soon": "Geplant: noch nicht verfügbar.",
 };
 
 export default de;

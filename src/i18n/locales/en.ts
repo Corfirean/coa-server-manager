@@ -766,6 +766,8 @@ const en = {
   "col.companions.text": "Mounts and companions you own are learned for good.",
   "col.riding": "Maximum riding from the first login",
   "col.riding.text": "All riding ranks and Cold Weather Flying, even at level 1.",
+  "mod.status.soon": "Soon",
+  "mod.hint.soon": "Planned: not available yet.",
 } as const;
 
 export default en;

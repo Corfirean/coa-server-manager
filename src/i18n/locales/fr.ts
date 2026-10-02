@@ -766,6 +766,8 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "col.companions.text": "Vos montures et compagnons sont appris définitivement.",
   "col.riding": "Monte maximale dès la première connexion",
   "col.riding.text": "Tous les rangs de monte et le vol par temps froid, dès le niveau 1.",
+  "mod.status.soon": "Bientôt",
+  "mod.hint.soon": "Prévu : pas encore disponible.",
 };
 
 export default fr;
