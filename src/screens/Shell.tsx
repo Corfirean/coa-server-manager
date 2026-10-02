@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Archive, Bot, Bug, Gauge, Globe, Puzzle, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
-import { type ServerSummary } from "@/lib/api";
+import { api, type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
 import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,21 @@ export function Shell(props: {
   const current = NAV.find((n) => n.id === page)!;
   const update = useServerUpdate(props.activeId);
 
+  // A module that is switched off takes its page away (the companions' "Bots" page, for one).
+  const [hiddenPages, setHiddenPages] = useState<string[]>([]);
+  const reloadModules = useCallback(() => {
+    void api
+      .modulesList(props.activeId)
+      .then((list) => setHiddenPages(list.filter((m) => m.page && m.installed && m.switchable && !m.enabled).map((m) => m.page as string)))
+      .catch(() => setHiddenPages([]));
+  }, [props.activeId]);
+  useEffect(() => {
+    reloadModules();
+  }, [reloadModules]);
+  useEffect(() => {
+    if (hiddenPages.includes(page)) setPage("overview");
+  }, [hiddenPages, page]);
+
   // Look for a server and a game client update when the app starts and then every five minutes.
   useEffect(() => {
     const stopServer = startServerUpdatePolling(props.activeId);
@@ -64,7 +79,7 @@ export function Shell(props: {
           {t("app.name")}
         </div>
         <ul className="flex flex-col gap-0.5">
-          {NAV.map(({ id, label, icon: Icon }) => (
+          {NAV.filter((n) => !hiddenPages.includes(n.id)).map(({ id, label, icon: Icon }) => (
             <li key={id}>
               <button
                 onClick={() => setPage(id)}
@@ -107,13 +122,13 @@ export function Shell(props: {
 
       <main className="h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
-          <Overview key={server.id} server={server} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} />
+          <Overview key={server.id} server={server} companions={!hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} />
         ) : page === "bots" || page === "server" ? (
           <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={t(current.label)} question={t(current.question)} />
         ) : page === "console" ? (
           <ConsolePage key={server.id} serverId={server.id} />
         ) : page === "modules" ? (
-          <ModulesPage key={server.id} serverId={server.id} />
+          <ModulesPage key={server.id} serverId={server.id} onChanged={reloadModules} />
         ) : page === "report" ? (
           <ReportPage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (

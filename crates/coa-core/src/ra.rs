@@ -155,6 +155,13 @@ impl Ra {
         account_reply(&out, "The access level was not changed")
     }
 
+    /// Delete an account together with its characters (the console's `account delete`).
+    pub fn delete_account(&mut self, name: &str) -> Result<()> {
+        validate_account(name, "placeholder")?;
+        let out = self.command(&format!("account delete {name}"))?;
+        account_reply(&out, "The account was not deleted")
+    }
+
     /// Give `name` administrator rights on all realms (GM level 3).
     pub fn make_administrator(&mut self, name: &str) -> Result<()> {
         validate_account(name, "placeholder")?;

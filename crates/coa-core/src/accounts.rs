@@ -84,6 +84,32 @@ pub fn rename(root: &Path, ra: &mut Ra, old: &str, new: &str, password: &str) ->
     Ok(())
 }
 
+/// Accounts the Manager and the companions use themselves; they can never be deleted from here.
+fn is_reserved(upper_name: &str) -> bool {
+    upper_name == "COAMANAGER" || upper_name.starts_with("COABOT")
+}
+
+/// Delete an account and, with it, all of its characters. Needs the world console. Refuses the Manager's and the
+/// companions' own accounts, an account that is not there and one that is logged in right now.
+pub fn delete(root: &Path, ra: &mut Ra, name: &str) -> Result<()> {
+    let name = upper(name)?;
+    if is_reserved(&name) {
+        return Err(Error::Invalid("This account belongs to the Manager or the companions and cannot be deleted.".into()));
+    }
+    let db = Db::from_repack(root, Account::Admin)?;
+    match db.query(&format!("SELECT online FROM acore_auth.account WHERE username = '{name}';"))?.trim() {
+        "" => return Err(Error::Invalid("That account does not exist.".into())),
+        "0" => {}
+        _ => return Err(Error::Invalid("The account is logged in right now; log it out first.".into())),
+    }
+    ra.delete_account(&name)?;
+    if db.query(&format!("SELECT COUNT(*) FROM acore_auth.account WHERE username = '{name}';"))?.trim() != "0" {
+        return Err(Error::Invalid("The account was not deleted.".into()));
+    }
+    tracing::info!(%name, "account deleted");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,6 +126,16 @@ mod tests {
     #[test]
     fn the_internal_accounts_are_filtered_out_by_the_query() {
         assert!(LIST_SQL.contains("COABOTHOST%") && LIST_SQL.contains("COAMANAGER"));
+    }
+
+    #[test]
+    fn the_managers_and_the_companions_accounts_are_never_deletable() {
+        for n in ["COAMANAGER", "COABOTHOST1", "COABOT12", "COABOTS"] {
+            assert!(is_reserved(n), "{n}");
+        }
+        for n in ["ALICE", "MYCOABOT", "BOT1"] {
+            assert!(!is_reserved(n), "{n}");
+        }
     }
 
     #[test]

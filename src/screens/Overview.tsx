@@ -62,7 +62,7 @@ function Row({ label, s }: { label: string; s: ServiceStatus }) {
   );
 }
 
-export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSummary; onForget: () => Promise<void>; onOpenUpdates: () => void }) {
+export function Overview({ server, companions = true, onForget, onOpenUpdates }: { server: ServerSummary; /** the companions module is on */ companions?: boolean; onForget: () => Promise<void>; onOpenUpdates: () => void }) {
   const t = useT();
   const human = useHuman();
   const [status, setStatus] = useState<StatusView | null>(null);
@@ -230,10 +230,10 @@ export function Overview({ server, onForget, onOpenUpdates }: { server: ServerSu
           </div>
           <div>
             <dt className="text-muted">{t("overview.players")}</dt>
-            <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.companions", { n: pop.bots_online })}</span> : null}</dd>
+            <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{companions && pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.companions", { n: pop.bots_online })}</span> : null}</dd>
           </div>
         </dl>
-        {startBots !== undefined && (
+        {companions && startBots !== undefined && (
           <p className="mt-3 text-xs text-muted">{startBots === null ? t("overview.startBotsOff") : t("overview.startBots", { n: startBots })}</p>
         )}
         {perf && <TickRate perf={perf} />}

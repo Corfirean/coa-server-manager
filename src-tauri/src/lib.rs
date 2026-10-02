@@ -589,6 +589,16 @@ async fn account_rename(state: State<'_, AppState>, id: String, name: String, ne
     .await
 }
 
+#[tauri::command]
+async fn account_delete(state: State<'_, AppState>, id: String, name: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let mut ra = Ra::connect(&root)?;
+        coa_core::accounts::delete(&root, &mut ra, &name)
+    })
+    .await
+}
+
 fn install_meta(root: &std::path::Path) -> Result<(PathBuf, InstallMeta)> {
     let dir = meta_dir(root)?;
     let (_, meta) = MetaDir::open(&dir)?;
@@ -1388,6 +1398,7 @@ pub fn run() {
             account_set_password,
             account_set_access,
             account_rename,
+            account_delete,
             install_new,
             cancel_install,
             create_account,

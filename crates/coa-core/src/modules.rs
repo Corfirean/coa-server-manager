@@ -23,8 +23,36 @@ pub struct Entry {
     pub repo: String,
     /// File in `Core/configs/modules` that holds this module's settings.
     pub conf: String,
-    /// The setting that switches the whole module on or off (1 / 0).
+    /// The name an older server build gave that file (used when `conf` is not there).
+    #[serde(default)]
+    pub alt_conf: Option<String>,
+    /// The setting that switches the whole module on or off (1 / 0). Empty for a part that cannot be switched off.
+    #[serde(default)]
     pub enable_key: String,
+    /// Can be turned on and off here. A part the game client needs to talk to the server is only configured.
+    #[serde(default = "yes")]
+    pub switchable: bool,
+    /// What the module is when its setting is not in the file: a server from before the setting existed runs it.
+    #[serde(default = "yes")]
+    pub default_on: bool,
+    /// How far along it is: `early` (experimental, may change or break), `beta` (works, still being tested) or
+    /// `release` (stable).
+    #[serde(default = "release")]
+    pub status: String,
+    /// Which icon the page draws (a name the page knows).
+    #[serde(default)]
+    pub icon: String,
+    /// A page of the Manager that only makes sense while the module is on (it is hidden while it is off).
+    #[serde(default)]
+    pub page: Option<String>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn release() -> String {
+    "release".into()
 }
 
 #[derive(Deserialize)]
@@ -61,31 +89,61 @@ pub struct ModuleView {
     /// The module's configuration is present on this server (otherwise it is not part of this server build).
     pub installed: bool,
     pub enabled: bool,
+    pub switchable: bool,
+    pub status: String,
+    pub icon: String,
+    pub page: Option<String>,
 }
 
 pub fn list(root: &Path) -> Vec<ModuleView> {
     list_in(&catalog(), root)
 }
 
+/// The configuration file name this server uses for the module: the current one, or the name an older build gave it.
+fn conf_name(root: &Path, e: &Entry) -> String {
+    let there = |n: &str| dir(root).join(n).is_file() || dir(root).join(format!("{n}.dist")).is_file();
+    if there(&e.conf) {
+        return e.conf.clone();
+    }
+    match &e.alt_conf {
+        Some(alt) if there(alt) => alt.clone(),
+        _ => e.conf.clone(),
+    }
+}
+
 fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     cat.iter()
         .cloned()
         .map(|e| {
-            let conf = dir(root).join(&e.conf);
-            let dist = dir(root).join(format!("{}.dist", e.conf));
+            let name = conf_name(root, &e);
+            let conf = dir(root).join(&name);
+            let dist = dir(root).join(format!("{name}.dist"));
             let installed = conf.is_file() || dist.is_file();
             // the active file decides; without one the documented default is what the server will use
-            let enabled = read(&conf).or_else(|| read(&dist)).and_then(|c| c.get(&e.enable_key).map(truthy)).unwrap_or(false);
-            ModuleView { id: e.id, name: e.name, description: e.description, repo: e.repo, installed, enabled }
+            let enabled = !e.switchable
+                || read(&conf).or_else(|| read(&dist)).and_then(|c| c.get(&e.enable_key).map(truthy)).unwrap_or(e.default_on);
+            ModuleView {
+                id: e.id,
+                name: e.name,
+                description: e.description,
+                repo: e.repo,
+                installed,
+                enabled,
+                switchable: e.switchable,
+                status: e.status,
+                icon: e.icon,
+                page: e.page,
+            }
         })
         .collect()
 }
 
 /// The active file, created from its `.dist` when it does not exist yet.
 fn active_file(root: &Path, e: &Entry) -> Result<PathBuf> {
-    let conf = dir(root).join(&e.conf);
+    let name = conf_name(root, e);
+    let conf = dir(root).join(&name);
     if !conf.is_file() {
-        let dist = dir(root).join(format!("{}.dist", e.conf));
+        let dist = dir(root).join(format!("{name}.dist"));
         if !dist.is_file() {
             return Err(Error::Invalid("This module is not part of this server.".into()));
         }
@@ -106,9 +164,12 @@ pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
 
 fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     let e = entry_in(cat, id)?;
+    if !e.switchable || e.enable_key.is_empty() {
+        return Err(Error::Invalid("This part cannot be switched off.".into()));
+    }
     let conf = active_file(root, &e)?;
     let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
-    if file.get(&e.enable_key).map(truthy) == Some(on) {
+    if file.get(&e.enable_key).map(truthy).unwrap_or(e.default_on) == on && file.get(&e.enable_key).is_some() {
         return Ok(());
     }
     backup(meta, &conf)?;
@@ -134,8 +195,9 @@ pub fn settings(root: &Path, id: &str) -> Result<Vec<Setting>> {
 
 fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
     let e = entry_in(cat, id)?;
-    let conf = dir(root).join(&e.conf);
-    let dist = read(&dir(root).join(format!("{}.dist", e.conf)));
+    let name = conf_name(root, &e);
+    let conf = dir(root).join(&name);
+    let dist = read(&dir(root).join(format!("{name}.dist")));
     let active = read(&conf).or_else(|| dist.clone()).ok_or_else(|| Error::Invalid("This module is not part of this server.".into()))?;
     Ok(active
         .entries()
@@ -192,7 +254,13 @@ mod tests {
             description: ["en", "ru", "de", "fr", "es"].iter().map(|l| (l.to_string(), format!("{name} ({l})"))).collect(),
             repo: format!("https://github.com/Corfirean/example/{id}"),
             conf: conf.into(),
+            alt_conf: None,
             enable_key: key.into(),
+            switchable: true,
+            default_on: true,
+            status: "beta".into(),
+            icon: String::new(),
+            page: None,
         };
         vec![one("war-games", "War Games", "war_games.conf", "WarGames.Enable"), one("spellbook", "Spellbook", "spellbook.conf", "Spellbook.Enable")]
     }
@@ -212,7 +280,9 @@ mod tests {
         // it may be empty (modules are added to it one by one); whatever is in it must be complete
         for e in &c {
             assert!(e.description.contains_key("en") && e.description.len() == 5, "{} has all five descriptions", e.id);
-            assert!(e.repo.starts_with("https://github.com/Corfirean/") && e.conf.ends_with(".conf") && e.enable_key.ends_with(".Enable"), "{}", e.id);
+            assert!(e.repo.starts_with("https://github.com/Corfirean/") && e.conf.ends_with(".conf"), "{}", e.id);
+            assert!(!e.switchable || e.enable_key.ends_with(".Enable"), "{} needs the setting that switches it", e.id);
+            assert!(["early", "beta", "release"].contains(&e.status.as_str()), "{} has an unknown status", e.id);
         }
         let mut ids: Vec<_> = c.iter().map(|e| e.id.as_str()).collect();
         ids.sort();
@@ -263,5 +333,46 @@ mod tests {
             assert!(save_settings_in(&test_catalog(), &root, &meta, "war-games", &c).is_err(), "{bad:?}");
         }
         assert!(!fs::read_to_string(dir(&root).join("war_games.conf")).unwrap().contains("Injected"));
+    }
+
+    #[test]
+    fn an_older_file_name_is_used_when_the_current_one_is_missing_and_a_part_that_cannot_be_switched_stays_on() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        fs::write(dir(&root).join("old_name.conf"), "CoA.Enable = 0\r\nCoA.UnlockAllVanity = 1\r\n").unwrap();
+        let compat = Entry {
+            id: "compat".into(),
+            name: "Compat".into(),
+            description: ["en", "ru", "de", "fr", "es"].iter().map(|l| (l.to_string(), "x".to_string())).collect(),
+            repo: "https://github.com/Corfirean/x".into(),
+            conf: "coa.conf".into(),
+            alt_conf: Some("old_name.conf".into()),
+            enable_key: String::new(),
+            switchable: false,
+            default_on: true,
+            status: "release".into(),
+            icon: String::new(),
+            page: None,
+        };
+        let cat = vec![compat];
+        let v = list_in(&cat, &root).remove(0);
+        assert!(v.installed && v.enabled && !v.switchable, "found under the old name, never reported as off");
+        assert_eq!(settings_in(&cat, &root, "compat").unwrap().len(), 2);
+        let change = BTreeMap::from([("CoA.UnlockAllVanity".to_string(), "0".to_string())]);
+        assert_eq!(save_settings_in(&cat, &root, &meta, "compat", &change).unwrap(), ["CoA.UnlockAllVanity"]);
+        assert!(fs::read_to_string(dir(&root).join("old_name.conf")).unwrap().contains("CoA.UnlockAllVanity = 0"));
+        assert!(set_enabled_in(&cat, &root, &meta, "compat", false).is_err(), "cannot be switched off");
+    }
+
+    #[test]
+    fn a_module_whose_setting_is_not_in_the_file_counts_as_on_and_can_be_switched_off() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        fs::write(dir(&root).join("war_games.conf"), "WarGames.ChallengeSeconds = 60\r\n").unwrap();
+        let cat = test_catalog();
+        assert!(list_in(&cat, &root).into_iter().find(|m| m.id == "war-games").unwrap().enabled, "a missing key means the default (on)");
+        set_enabled_in(&cat, &root, &meta, "war-games", false).unwrap();
+        assert!(fs::read_to_string(dir(&root).join("war_games.conf")).unwrap().contains("WarGames.Enable = 0"));
+        assert!(!list_in(&cat, &root).into_iter().find(|m| m.id == "war-games").unwrap().enabled);
     }
 }

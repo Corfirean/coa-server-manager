@@ -9,7 +9,7 @@ import { useHuman, useT, type Key } from "@/i18n";
 const LEVELS = [0, 1, 2, 3] as const;
 const inputClass = "w-64 rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold";
 
-type Editor = { name: string; mode: "password" | "rename" };
+type Editor = { name: string; mode: "password" | "rename" | "delete"; characters?: number };
 
 /** Everyone who can log in to the server, with the changes an owner usually needs: password, access level, name. */
 export function AccountsCard({ serverId, online, reloadKey }: { serverId: string; online: boolean | null; reloadKey: number }) {
@@ -19,6 +19,7 @@ export function AccountsCard({ serverId, online, reloadKey }: { serverId: string
   const [listError, setListError] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [newName, setNewName] = useState("");
+  const [confirmName, setConfirmName] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
@@ -48,6 +49,7 @@ export function AccountsCard({ serverId, online, reloadKey }: { serverId: string
       setEditor(null);
       setPassword("");
       setNewName("");
+      setConfirmName("");
       await load();
     } catch (e) {
       setError(asUiError(e));
@@ -120,6 +122,9 @@ export function AccountsCard({ serverId, online, reloadKey }: { serverId: string
                     <Button size="sm" variant="ghost" disabled={!online || busy !== null || a.online} onClick={() => { setEditor({ name: a.name, mode: "rename" }); setError(null); setNote(null); }}>
                       {t("acc.rename")}
                     </Button>
+                    <Button size="sm" variant="ghost" className="text-bad hover:text-bad" disabled={!online || busy !== null || a.online} onClick={() => { setEditor({ name: a.name, mode: "delete", characters: a.characters }); setConfirmName(""); setError(null); setNote(null); }}>
+                      {t("acc.delete")}
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -129,7 +134,31 @@ export function AccountsCard({ serverId, online, reloadKey }: { serverId: string
       )}
       {online === false && accounts && accounts.length > 0 && <p className="mt-3 text-xs text-muted">{t("acc.needsRunning")}</p>}
 
-      {editor && (
+      {editor && editor.mode === "delete" && (
+        <div className="mt-4 rounded-md border border-bad/40 bg-bad/5 p-4" role="alertdialog" aria-label={t("acc.deleteFor", { name: editor.name })}>
+          <p className="font-medium text-bad">{t("acc.deleteFor", { name: editor.name })}</p>
+          <p className="mt-2 text-sm">{t("acc.deleteWarn", { n: editor.characters ?? 0 })}</p>
+          <div className="mt-3">
+            <label htmlFor="acc-confirm" className="text-sm text-muted">{t("acc.deleteConfirm", { name: editor.name })}</label>
+            <input id="acc-confirm" className={inputClass + " mt-1 block"} value={confirmName} onChange={(e) => setConfirmName(e.target.value)} autoComplete="off" />
+          </div>
+          <div className="mt-4 flex gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              className="bg-bad text-white hover:bg-bad/90"
+              disabled={busy !== null || confirmName.trim().toUpperCase() !== editor.name.toUpperCase()}
+              onClick={() => void run("delete", () => api.accountDelete(serverId, editor.name), t("acc.deleted", { name: editor.name }))}
+            >
+              {busy === "delete" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+              {t("acc.deleteButton")}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setEditor(null); setConfirmName(""); }}>{t("common.cancel")}</Button>
+          </div>
+        </div>
+      )}
+
+      {editor && editor.mode !== "delete" && (
         <div className="mt-4 rounded-md border border-line bg-black/20 p-4">
           <p className="font-medium">{editor.mode === "password" ? t("acc.changeFor", { name: editor.name }) : t("acc.renameFor", { name: editor.name })}</p>
           {editor.mode === "rename" && (

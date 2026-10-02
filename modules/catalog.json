@@ -1,4 +1,87 @@
 {
   "schema": 1,
-  "modules": []
+  "modules": [
+    {
+      "id": "companions",
+      "name": "CoA Companions",
+      "description": {
+        "en": "Companion bots for groups, dungeons and your guild.",
+        "ru": "Боты-компаньоны для групп, подземелий и гильдии.",
+        "de": "Begleiter-Bots für Gruppen, Dungeons und deine Gilde.",
+        "fr": "Des bots compagnons pour les groupes, les donjons et votre guilde.",
+        "es": "Bots acompañantes para grupos, mazmorras y tu hermandad."
+      },
+      "repo": "https://github.com/Corfirean/mod-coa-playerbots",
+      "conf": "mod_coa_playerbots.conf",
+      "enable_key": "CoaBots.Enable",
+      "status": "beta",
+      "icon": "bot",
+      "page": "bots"
+    },
+    {
+      "id": "content-scaling",
+      "name": "Content Scaling",
+      "description": {
+        "en": "Scales dungeons and raids to your group, with solo modes.",
+        "ru": "Подстраивает подземелья и рейды под вашу группу, есть соло-режимы.",
+        "de": "Passt Dungeons und Schlachtzüge an deine Gruppe an, mit Solo-Modi.",
+        "fr": "Adapte donjons et raids à votre groupe, avec des modes solo.",
+        "es": "Adapta mazmorras y bandas a tu grupo, con modos en solitario."
+      },
+      "repo": "https://github.com/Corfirean/mod-coa-content-scaling",
+      "conf": "mod-coa-content-scaling.conf",
+      "enable_key": "CoAContentScaling.Enable",
+      "status": "early",
+      "icon": "scaling"
+    },
+    {
+      "id": "tbc-content",
+      "name": "TBC Content",
+      "description": {
+        "en": "Outland dungeons and raids, scaled to your level range.",
+        "ru": "Подземелья и рейды Запределья, подогнанные под ваши уровни.",
+        "de": "Dungeons und Schlachtzüge der Scherbenwelt, an deine Stufen angepasst.",
+        "fr": "Donjons et raids de l'Outreterre, adaptés à vos niveaux.",
+        "es": "Mazmorras y bandas de Terrallende, adaptadas a tus niveles."
+      },
+      "repo": "https://github.com/Corfirean/mod-coa-content-scaling/tree/main/content-packs/mod-coa-tbc-content",
+      "conf": "mod-coa-tbc-content.conf",
+      "enable_key": "CoATBC.Enable",
+      "status": "early",
+      "icon": "tbc"
+    },
+    {
+      "id": "wotlk-content",
+      "name": "WotLK Content",
+      "description": {
+        "en": "Northrend dungeons and raids, scaled to your level range.",
+        "ru": "Подземелья и рейды Нордскола, подогнанные под ваши уровни.",
+        "de": "Dungeons und Schlachtzüge Nordends, an deine Stufen angepasst.",
+        "fr": "Donjons et raids du Norfendre, adaptés à vos niveaux.",
+        "es": "Mazmorras y bandas de Rasganorte, adaptadas a tus niveles."
+      },
+      "repo": "https://github.com/Corfirean/mod-coa-content-scaling/tree/main/content-packs/mod-coa-wotlk-content",
+      "conf": "mod-coa-wotlk-content.conf",
+      "enable_key": "CoAWotLK.Enable",
+      "status": "early",
+      "icon": "wotlk"
+    },
+    {
+      "id": "client-compat",
+      "name": "Client compatibility",
+      "description": {
+        "en": "Client-server link and appearance unlocks.",
+        "ru": "Связь клиента с сервером и разблокировка внешних видов.",
+        "de": "Verbindung Client–Server und Aussehen-Freischaltungen.",
+        "fr": "Lien client-serveur et déblocage des apparences.",
+        "es": "Enlace cliente-servidor y desbloqueo de apariencias."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
+      "conf": "coa.conf",
+      "alt_conf": "mod_ascension_compat.conf",
+      "switchable": false,
+      "status": "release",
+      "icon": "plug"
+    }
+  ]
 }

@@ -184,6 +184,13 @@ export interface ModuleView {
   /** the module is part of this server build (its configuration exists) */
   installed: boolean;
   enabled: boolean;
+  /** can be turned on and off (a part the game client needs is only configured) */
+  switchable: boolean;
+  /** early (experimental), beta (still being tested) or release (stable) */
+  status: "early" | "beta" | "release";
+  icon: string;
+  /** a page of the Manager that is hidden while the module is off */
+  page: string | null;
 }
 
 export interface ModuleSetting {
@@ -386,6 +393,7 @@ export const api = {
   accountSetPassword: (id: string, name: string, password: string) => invoke<void>("account_set_password", { id, name, password }),
   accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),
   accountRename: (id: string, name: string, newName: string, password: string) => invoke<void>("account_rename", { id, name, newName, password }),
+  accountDelete: (id: string, name: string) => invoke<void>("account_delete", { id, name }),
   installNew: (dest: string, pkg?: string) => invoke<ServerSummary>("install_new", { dest, package: pkg ?? null }),
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
