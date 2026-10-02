@@ -484,6 +484,13 @@ impl Env for RepackEnv<'_> {
 
     fn validate(&self) -> Result<()> {
         use crate::process::{observe, ServiceState};
+        // The check start is the first start of the new build: give the module configs the settings the update added
+        // (as a normal start does), or the server logs a "missing property" line for every one of them.
+        if let Ok((_, meta)) = crate::registry::MetaDir::open(self.meta_dir) {
+            if meta.kind == crate::registry::InstallKind::New {
+                let _ = crate::config::materialize_module_configs(self.root);
+            }
+        }
         let started = crate::driver::run(self.root, crate::driver::Verb::StartAll)?;
         let ports = crate::layout::read_ports(self.root);
         let healthy = started.ok && {
