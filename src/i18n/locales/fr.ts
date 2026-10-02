@@ -768,6 +768,10 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "col.riding.text": "Tous les rangs de monte et le vol par temps froid, dès le niveau 1.",
   "mod.status.soon": "Bientôt",
   "mod.hint.soon": "Prévu : pas encore disponible.",
+  "set.tab.collections": "Collections",
+  "set.tab.all": "Tous les réglages",
+  "set.searchAll": "Rechercher dans tous les réglages par nom ou description…",
+  "set.search": "Rechercher un réglage…",
 };
 
 export default fr;

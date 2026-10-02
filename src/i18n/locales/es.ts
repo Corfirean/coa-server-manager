@@ -768,6 +768,10 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "col.riding.text": "Todos los rangos de equitación y vuelo en clima frío, desde el nivel 1.",
   "mod.status.soon": "Pronto",
   "mod.hint.soon": "Previsto: aún no disponible.",
+  "set.tab.collections": "Colecciones",
+  "set.tab.all": "Todos los ajustes",
+  "set.searchAll": "Buscar en todos los ajustes por nombre o descripción…",
+  "set.search": "Buscar ajustes…",
 };
 
 export default es;

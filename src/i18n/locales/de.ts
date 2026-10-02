@@ -768,6 +768,10 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "col.riding.text": "Alle Reitstufen und Kaltwetterflug, schon auf Stufe 1.",
   "mod.status.soon": "Bald",
   "mod.hint.soon": "Geplant: noch nicht verfügbar.",
+  "set.tab.collections": "Sammlungen",
+  "set.tab.all": "Alle Einstellungen",
+  "set.searchAll": "Alle Einstellungen nach Name oder Beschreibung durchsuchen…",
+  "set.search": "Einstellungen durchsuchen…",
 };
 
 export default de;

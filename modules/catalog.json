@@ -102,7 +102,7 @@
     },
     {
       "id": "playerbots",
-      "name": "Playerbots",
+      "name": "SQUID's Playerbots",
       "description": {
         "en": "An alternative bot system with random bots and full AI.",
         "ru": "Альтернативная система ботов со случайными ботами и полным ИИ.",

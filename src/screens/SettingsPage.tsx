@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw, Search } from "lucide-react";
 import {
   api,
   asUiError,
+  type AllSetting,
   type FieldError,
   type JsonValue,
+  type ModuleSetting,
   type PresetInfo,
   type PresetPreview,
   type SaveReport,
@@ -16,8 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { AllSettingsCard } from "@/screens/AllSettingsCard";
-import { CollectionsCard } from "@/screens/CollectionsCard";
+import { CollectionRows, RawRows, collectionsOf } from "@/screens/ExtraRows";
 import { CompanionsCard } from "@/screens/CompanionsCard";
 import { useHuman, useI18n, useSchemaText, useT, type Key } from "@/i18n";
 
@@ -164,6 +165,14 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState(false);
+  // Beside the curated settings the server page offers the collection switches and every other documented setting. They are
+  // searched together and saved with the rest, so the page has one search box, one set of tabs and one save bar.
+  const [query, setQuery] = useState("");
+  const [raw, setRaw] = useState<AllSetting[] | null>(null);
+  const [rawEdits, setRawEdits] = useState<Record<string, string>>({});
+  const [onlyChanged, setOnlyChanged] = useState(false);
+  const [cols, setCols] = useState<ModuleSetting[]>([]);
+  const [colEdits, setColEdits] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -181,13 +190,40 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
   useEffect(() => {
     setView(null);
     setSaved(null);
+    setCategory("");
     void load();
     void api.presets(scope).then(setPresets);
     void api.status(serverId).then((s) => setRunning(s.observed.world.state === "running"));
+    setQuery("");
+    setRaw(null);
+    setRawEdits({});
+    setColEdits({});
+    setCols([]);
+    if (scope === "server") void api.moduleSettings(serverId, "client-compat").then(setCols).catch(() => setCols([]));
   }, [load, scope, serverId]);
+
+  const needRaw = scope === "server" && (category === "@all" || query.trim() !== "");
+  useEffect(() => {
+    if (needRaw && !raw) void api.allSettings(serverId).then(setRaw).catch(() => setRaw([]));
+  }, [needRaw, raw, serverId]);
 
   const valueOf = (s: SettingView): JsonValue => (s.key in draft ? draft[s.key] : s.value);
   const dirtyKeys = useMemo(() => Object.keys(draft).filter((k) => view && draft[k] !== view.settings.find((s) => s.key === k)?.value), [draft, view]);
+  const editRaw = (key: string, value: string | null) =>
+    setRawEdits((e) => {
+      const n = { ...e };
+      if (value === null) delete n[key];
+      else n[key] = value;
+      return n;
+    });
+  const editCol = (key: string, value: string | null) =>
+    setColEdits((e) => {
+      const n = { ...e };
+      if (value === null) delete n[key];
+      else n[key] = value;
+      return n;
+    });
+  const pending = dirtyKeys.length + Object.keys(rawEdits).length + Object.keys(colEdits).length;
 
   if (fatal) {
     return (
@@ -208,7 +244,34 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
   const advancedCount = (id: string) => view.settings.filter((s) => s.category === id && s.advanced).length;
   const basicCount = (id: string) => view.settings.filter((s) => s.category === id && !s.advanced).length;
 
-  async function save(changes: Record<string, JsonValue>) {
+  const SHOWN = 40; // the long list of other settings is drawn in part; searching narrows it
+  const q = query.trim().toLowerCase();
+  const searching = q !== "";
+  const hit = (...parts: string[]) => parts.some((x) => x.toLowerCase().includes(q));
+  const curatedKeys = new Set(view.settings.map((s) => s.key));
+  const collections = collectionsOf(cols);
+  const curatedHits = searching ? view.settings.filter((s) => hit(s.key, sx.title(s), sx.description(s))) : [];
+  const collectionHits = searching ? collections.filter((c) => hit(c.item.key, t(c.label), t(c.text))) : [];
+  const rawHits = (raw ?? []).filter(
+    (s) => !curatedKeys.has(s.key) && (!onlyChanged || s.changed || s.key in rawEdits) && (!searching || hit(s.key, s.doc)),
+  );
+  const rowOf = (s: SettingView) => (
+    <Row
+      key={s.key}
+      s={s}
+      value={valueOf(s)}
+      error={errors[s.key] ?? null}
+      onChange={(v) => setDraft((d) => ({ ...d, [s.key]: v }))}
+      onReset={() => setDraft((d) => ({ ...d, [s.key]: s.default }))}
+    />
+  );
+  const tabs = [
+    ...view.categories.filter((c) => basicCount(c.id) + advancedCount(c.id) > 0).map((c) => ({ id: c.id, label: sx.category(scope, c) })),
+    ...(collections.length ? [{ id: "@collections", label: t("set.tab.collections") }] : []),
+    ...(scope === "server" ? [{ id: "@all", label: t("set.tab.all") }] : []),
+  ];
+
+  async function save(changes: Record<string, JsonValue>): Promise<boolean> {
     const local: Record<string, string> = {};
     for (const [k, v] of Object.entries(changes)) {
       const s = view!.settings.find((x) => x.key === k)!;
@@ -216,9 +279,9 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       if (m) local[k] = m;
     }
     setErrors(local);
-    if (Object.keys(local).length) return;
+    if (Object.keys(local).length) return false;
     const dangerous = Object.keys(changes).filter((k) => view!.settings.find((s) => s.key === k)?.dangerous);
-    if (dangerous.length && !window.confirm(t("set.confirmCareful", { n: dangerous.length }))) return;
+    if (dangerous.length && !window.confirm(t("set.confirmCareful", { n: dangerous.length }))) return false;
     setBusy(true);
     setSaveErr(null);
     try {
@@ -227,12 +290,42 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       setPreview(null);
       await load();
       void api.status(serverId).then((s) => setRunning(s.observed.world.state === "running"));
+      return true;
     } catch (e) {
       const ui = asUiError(e);
       setSaveErr(ui);
       const map: Record<string, string> = {};
       (ui.fields ?? ([] as FieldError[])).forEach((f) => (map[f.key] = f.message));
       setErrors(map);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** The save bar saves all three kinds of edits: the curated settings, the collection switches and the other documented ones. */
+  async function saveEverything() {
+    if (dirtyKeys.length && !(await save(Object.fromEntries(dirtyKeys.map((k) => [k, draft[k]]))))) return;
+    const extra = [...Object.keys(rawEdits), ...Object.keys(colEdits)];
+    if (!extra.length) return;
+    setBusy(true);
+    setSaveErr(null);
+    try {
+      if (Object.keys(rawEdits).length) {
+        await api.allSettingsSave(serverId, rawEdits);
+        setRawEdits({});
+        setRaw(await api.allSettings(serverId));
+      }
+      if (Object.keys(colEdits).length) {
+        await api.moduleSaveSettings(serverId, "client-compat", colEdits);
+        setColEdits({});
+        setCols(await api.moduleSettings(serverId, "client-compat"));
+      }
+      const more = extra.map((key) => ({ key, title: key, restart: "world" as const, dangerous: false }));
+      setSaved((prev) => ({ changed: [...(prev?.changed ?? []), ...more], restart: prev?.restart ?? "world", snapshot: prev?.snapshot ?? null }));
+      void api.status(serverId).then((st) => setRunning(st.observed.world.state === "running"));
+    } catch (e) {
+      setSaveErr(asUiError(e));
     } finally {
       setBusy(false);
     }
@@ -363,83 +456,100 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
         </Card>
       )}
 
-      <div className="mt-6 flex flex-wrap gap-1 border-b border-line" role="tablist">
-        {view.categories
-          .filter((c) => basicCount(c.id) + advancedCount(c.id) > 0)
-          .map((c) => (
-            <button
-              key={c.id}
-              role="tab"
-              aria-selected={category === c.id}
-              onClick={() => setCategory(c.id)}
-              className={cn(
-                "-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm",
-                category === c.id ? "border-gold text-ink" : "border-transparent text-muted hover:text-ink",
+      <Card className="mt-6 p-0">
+        <div className="border-b border-line px-5 pb-0 pt-4">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted" aria-hidden />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t(scope === "server" ? "set.searchAll" : "set.search")}
+              aria-label={t(scope === "server" ? "set.searchAll" : "set.search")}
+              className="selectable w-full rounded-md border border-line bg-bg py-2 pl-9 pr-3 text-sm outline-none focus:border-gold"
+            />
+          </label>
+          <div className="mt-3 flex flex-wrap gap-1" role="tablist">
+            {tabs.map((c) => (
+              <button
+                key={c.id}
+                role="tab"
+                aria-selected={!searching && category === c.id}
+                onClick={() => {
+                  setQuery("");
+                  setCategory(c.id);
+                }}
+                className={cn(
+                  "-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm",
+                  !searching && category === c.id ? "border-gold text-ink" : "border-transparent text-muted hover:text-ink",
+                )}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="px-5 pb-5 pt-2">
+          {searching ? (
+            <>
+              {curatedHits.length + collectionHits.length + rawHits.length === 0 && <p className="py-4 text-sm text-muted">{t("all.none")}</p>}
+              <div className="divide-y divide-line">{curatedHits.map(rowOf)}</div>
+              {collectionHits.length > 0 && <CollectionRows items={collectionHits} edits={colEdits} onChange={editCol} />}
+              <RawRows items={rawHits.slice(0, SHOWN)} edits={rawEdits} onChange={editRaw} />
+              {rawHits.length > SHOWN && <p className="pt-3 text-xs text-muted">{t("all.count", { shown: SHOWN, total: rawHits.length })}</p>}
+            </>
+          ) : category === "@collections" ? (
+            <>
+              <p className="py-3 text-sm text-muted">{t("col.intro")}</p>
+              <CollectionRows items={collections} edits={colEdits} onChange={editCol} />
+            </>
+          ) : category === "@all" ? (
+            <>
+              <p className="py-3 text-sm text-muted">{t("all.intro")}</p>
+              <label className="flex cursor-pointer items-center gap-2 pb-2 text-sm">
+                <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
+                {t("all.onlyChanged")}
+              </label>
+              {raw === null ? <p className="py-3 text-sm text-muted">{t("set.loading")}</p> : <RawRows items={rawHits.slice(0, SHOWN)} edits={rawEdits} onChange={editRaw} />}
+              {rawHits.length > SHOWN && <p className="pt-3 text-xs text-muted">{t("all.count", { shown: SHOWN, total: rawHits.length })}</p>}
+            </>
+          ) : (
+            <>
+              <div className="divide-y divide-line">{basic.map(rowOf)}</div>
+
+              {advanced.length > 0 && (
+                <div className="mt-2">
+                  {/* A tab whose settings are all advanced has nothing else to show, so its settings are listed directly. */}
+                  {basic.length > 0 && (
+                    <button
+                      onClick={() => setShowAdvanced((v) => !v)}
+                      aria-expanded={showAdvanced}
+                      className="flex cursor-pointer items-center gap-1 py-2 text-sm text-muted hover:text-ink"
+                    >
+                      {showAdvanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+                      {t("set.advanced", { n: advanced.length })}
+                    </button>
+                  )}
+                  {(showAdvanced || basic.length === 0) && <div className="divide-y divide-line">{advanced.map(rowOf)}</div>}
+                </div>
               )}
-            >
-              {sx.category(scope, c)}
-            </button>
-          ))}
-      </div>
-
-      <div className="divide-y divide-line">
-        {basic.map((s) => (
-          <Row
-            key={s.key}
-            s={s}
-            value={valueOf(s)}
-            error={errors[s.key] ?? null}
-            onChange={(v) => setDraft((d) => ({ ...d, [s.key]: v }))}
-            onReset={() => setDraft((d) => ({ ...d, [s.key]: s.default }))}
-          />
-        ))}
-      </div>
-
-      {advanced.length > 0 && (
-        <div className="mt-4">
-          {/* A tab whose settings are all advanced has nothing else to show, so its settings are listed directly. */}
-          {basic.length > 0 && (
-            <button
-              onClick={() => setShowAdvanced((v) => !v)}
-              aria-expanded={showAdvanced}
-              className="flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink"
-            >
-              {showAdvanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
-              {t("set.advanced", { n: advanced.length })}
-            </button>
-          )}
-          {(showAdvanced || basic.length === 0) && (
-            <div className="divide-y divide-line">
-              {advanced.map((s) => (
-                <Row
-                  key={s.key}
-                  s={s}
-                  value={valueOf(s)}
-                  error={errors[s.key] ?? null}
-                  onChange={(v) => setDraft((d) => ({ ...d, [s.key]: v }))}
-                  onReset={() => setDraft((d) => ({ ...d, [s.key]: s.default }))}
-                />
-              ))}
-            </div>
+            </>
           )}
         </div>
-      )}
+      </Card>
 
       {view.unknown_keys > 0 && (
         <p className="mt-6 text-xs text-muted">{t("set.unknownKept", { n: view.unknown_keys })}</p>
       )}
 
-      {scope === "server" && <CollectionsCard serverId={serverId} />}
-      {scope === "server" && <AllSettingsCard serverId={serverId} />}
-
-      {dirtyKeys.length > 0 && (
+      {pending > 0 && (
         <div className="fixed bottom-0 left-60 right-0 flex items-center justify-between border-t border-line bg-[#0b0c0e]/95 px-10 py-3">
-          <span className="text-sm text-muted">{tn("set.unsaved", dirtyKeys.length)}</span>
+          <span className="text-sm text-muted">{tn("set.unsaved", pending)}</span>
           <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={() => { setDraft({}); setErrors({}); }}>
+            <Button variant="ghost" size="sm" onClick={() => { setDraft({}); setErrors({}); setRawEdits({}); setColEdits({}); }}>
               {t("set.discard")}
             </Button>
-            <Button variant="primary" size="sm" disabled={busy} onClick={() => void save(Object.fromEntries(dirtyKeys.map((k) => [k, draft[k]])))}>
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void saveEverything()}>
               {t("set.save")}
             </Button>
           </div>

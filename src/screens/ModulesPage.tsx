@@ -104,15 +104,6 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
       <p className="mt-1 text-muted">{t("q.modules")}</p>
       <p className="mt-3 text-sm text-muted">{t("mod.intro")}</p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted" aria-label={t("mod.legend")}>
-        {(["soon", "early", "beta", "release"] as const).map((s) => (
-          <span key={s} className="flex items-center gap-2">
-            <StatusBadge status={s} />
-            {t(STATUS[s].hint)}
-          </span>
-        ))}
-      </div>
-
       {changed && <p className="mt-4 rounded-md border border-gold/40 bg-gold/5 px-3 py-2 text-sm" role="status">{t("mod.restart")}</p>}
       {error && <p className="mt-3 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
 

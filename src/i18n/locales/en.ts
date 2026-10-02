@@ -768,6 +768,10 @@ const en = {
   "col.riding.text": "All riding ranks and Cold Weather Flying, even at level 1.",
   "mod.status.soon": "Soon",
   "mod.hint.soon": "Planned: not available yet.",
+  "set.tab.collections": "Collections",
+  "set.tab.all": "All settings",
+  "set.searchAll": "Search all settings by name or description…",
+  "set.search": "Search settings…",
 } as const;
 
 export default en;

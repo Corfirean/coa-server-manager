@@ -768,6 +768,10 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "col.riding.text": "Все ранги верховой езды и полёт в холодных краях даже на 1 уровне.",
   "mod.status.soon": "Скоро",
   "mod.hint.soon": "В планах: пока недоступен.",
+  "set.tab.collections": "Коллекции",
+  "set.tab.all": "Все настройки",
+  "set.searchAll": "Поиск по всем настройкам: название или описание…",
+  "set.search": "Поиск по настройкам…",
 };
 
 export default ru;
