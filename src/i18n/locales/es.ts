@@ -772,6 +772,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "set.tab.all": "Otros",
   "set.searchAll": "Buscar en todos los ajustes por nombre o descripción…",
   "set.search": "Buscar ajustes…",
+  "upd.current": "Estás al día (versión {v}).",
 };
 
 export default es;

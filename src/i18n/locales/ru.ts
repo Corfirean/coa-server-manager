@@ -772,6 +772,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "set.tab.all": "Остальные",
   "set.searchAll": "Поиск по всем настройкам: название или описание…",
   "set.search": "Поиск по настройкам…",
+  "upd.current": "У вас последняя версия ({v}).",
 };
 
 export default ru;

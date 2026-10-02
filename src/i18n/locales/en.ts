@@ -772,6 +772,7 @@ const en = {
   "set.tab.all": "Other settings",
   "set.searchAll": "Search all settings by name or description…",
   "set.search": "Search settings…",
+  "upd.current": "You are up to date (version {v}).",
 } as const;
 
 export default en;

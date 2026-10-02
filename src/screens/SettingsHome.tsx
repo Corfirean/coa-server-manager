@@ -147,7 +147,14 @@ export function SettingsHome({ serverId }: { serverId: string }) {
           </p>
         )}
 
-        {preview && (
+        {preview && preview.from_version === preview.to_version && preview.items.every((i) => i.action === "skip") && (
+          // The same version with no file to change: the database scripts of this package are all in the ledger already.
+          <div className="mt-5 border-t border-line pt-4">
+            <p className="font-medium text-ok" role="status">{t("upd.current", { v: preview.to_version })}</p>
+          </div>
+        )}
+
+        {preview && !(preview.from_version === preview.to_version && preview.items.every((i) => i.action === "skip")) && (
           <div className="mt-5 border-t border-line pt-4">
             <p className="font-medium">
               {preview.from_version ? t("upd.availableFrom", { to: preview.to_version, from: preview.from_version }) : t("upd.available", { to: preview.to_version })}
