@@ -125,9 +125,9 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
         {modules?.length === 0 && <Card className="p-6 text-center text-muted sm:col-span-2">{t("mod.empty")}</Card>}
         {modules?.map((m, i) => (
           <Fragment key={m.id}>
-          <Card className={cn("flex flex-col gap-4 p-5 transition-colors", !m.installed && "opacity-60", open === m.id && "border-gold/50")} aria-label={m.status === "soon" ? `${m.name}: ${t("mod.status.soon")}` : undefined}>
+          <Card className={cn("flex flex-col gap-4 p-5 transition-colors", (!m.installed || m.status === "soon") && "opacity-60", open === m.id && "border-gold/50")} aria-label={m.status === "soon" ? `${m.name}: ${t("mod.status.soon")}` : undefined}>
             <div className="flex items-start gap-4">
-              <Tile icon={m.icon} off={!m.enabled || !m.installed} />
+              <Tile icon={m.icon} off={!m.enabled || !m.installed || m.status === "soon"} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <h2 className="font-semibold leading-tight">{m.name}</h2>
@@ -146,7 +146,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
                   <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", m.enabled ? "left-[22px]" : "left-0.5")} />
                 </button>
               )}
-              {m.installed && !m.switchable && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
+              {m.installed && !m.switchable && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
               {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
             <div className="mt-auto flex items-center gap-2">
@@ -158,7 +158,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
               >
                 <GithubMark className="h-4 w-4" />
               </button>
-              {m.installed && (
+              {m.installed && m.status !== "soon" && (
                 <Button size="sm" variant="ghost" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
                   <Settings2 className="h-3.5 w-3.5" aria-hidden /> {t("mod.settings")}
                 </Button>
