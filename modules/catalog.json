@@ -94,9 +94,11 @@
       },
       "repo": "https://github.com/azerothcore/mod-npc-enchanter",
       "conf": "npc_enchanter.conf",
-      "switchable": false,
-      "status": "soon",
-      "icon": "sparkles"
+      "switchable": true,
+      "status": "early",
+      "icon": "sparkles",
+      "enable_key": "Enchanter.Enable",
+      "default_on": true
     },
     {
       "id": "playerbots",
