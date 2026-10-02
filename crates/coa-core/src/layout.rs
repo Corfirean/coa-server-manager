@@ -229,7 +229,10 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         .collect();
     database_schemas.sort();
 
-    let bot_conf = modules_dir.join("mod_coa_playerbots.conf");
+    // A fresh repack ships `mod_coa_playerbots.conf.dist` and only writes the active file when someone changes it.
+    let bot_active = modules_dir.join("mod_coa_playerbots.conf");
+    let bot_dist = modules_dir.join("mod_coa_playerbots.conf.dist");
+    let bot_conf = if bot_active.is_file() { bot_active } else { bot_dist };
     let bot_config_keys = count_bot_keys(&bot_conf);
     let banner_revision = banner_revision_in_log(&root.join("Core/Logs/Server.log"));
 
@@ -473,6 +476,18 @@ mod tests {
         assert_eq!(r.classification, Classification::Incompatible);
         assert!(r.suggested_path.is_none());
         assert_eq!(r.hint, Some("not-repack"));
+    }
+
+    #[test]
+    fn the_companions_are_found_by_their_documented_default_file_when_no_active_one_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("repack");
+        testkit::fake_repack(&root);
+        let modules = root.join("Core/configs/modules");
+        fs::rename(modules.join("mod_coa_playerbots.conf"), modules.join("mod_coa_playerbots.conf.dist")).unwrap();
+        let r = scan(&root).unwrap();
+        assert!(r.items.iter().any(|i| i.key == "companions" && i.status == Status::Found), "found through the .dist");
+        assert_eq!(r.bot_config_keys, 2);
     }
 
     #[test]

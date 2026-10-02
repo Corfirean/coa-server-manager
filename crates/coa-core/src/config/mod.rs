@@ -67,7 +67,12 @@ pub fn targets(root: &Path, scope: Scope) -> Result<Targets> {
         Scope::Bots => {
             let conf = root.join("Core/configs/modules/mod_coa_playerbots.conf");
             if !conf.is_file() {
-                return Err(Error::Invalid("CoA Companions (bots) are not installed on this server.".into()));
+                // The server ships the documented defaults as `.dist` and uses them until an active file exists: make it.
+                let dist = root.join("Core/configs/modules/mod_coa_playerbots.conf.dist");
+                if !dist.is_file() {
+                    return Err(Error::Invalid("CoA Companions (bots) are not installed on this server.".into()));
+                }
+                fsx::atomic_write(&conf, &fs::read(&dist)?)?;
             }
             Ok(Targets { read: conf.clone(), writes: vec![conf], generated: None })
         }
@@ -753,9 +758,15 @@ Logger.x=6,Console Server
     }
 
     #[test]
-    fn bots_scope_requires_the_module_config() {
+    fn bots_scope_requires_the_module_config_or_its_default_file() {
         let (_d, root, _m) = fixture();
-        fs::remove_file(root.join("Core/configs/modules/mod_coa_playerbots.conf")).unwrap();
-        assert!(load(&root, Scope::Bots).is_err());
+        let modules = root.join("Core/configs/modules");
+        let conf = modules.join("mod_coa_playerbots.conf");
+        let text = fs::read(&conf).unwrap();
+        fs::remove_file(&conf).unwrap();
+        assert!(load(&root, Scope::Bots).is_err(), "neither file: not installed");
+        fs::write(modules.join("mod_coa_playerbots.conf.dist"), &text).unwrap();
+        assert!(load(&root, Scope::Bots).is_ok(), "only the default file: it is made");
+        assert!(conf.is_file());
     }
 }
