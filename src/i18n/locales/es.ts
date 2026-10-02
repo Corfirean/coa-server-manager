@@ -726,7 +726,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "mod.empty": "Aquí todavía no hay nada. Los módulos opcionales aparecerán en esta página a medida que se añadan.",
   // Settings page: the full searchable list
   "all.title": "Todos los ajustes del servidor",
-  "all.intro": "Cada ajuste documentado del servidor del mundo, con su explicación. Cambia solo lo que entiendas: un valor incorrecto puede romper el servidor. La configuración anterior se guarda antes y se puede restaurar.",
+  "all.intro": "Todos los demás ajustes documentados del servidor del mundo, con su explicación. Los de las otras pestañas no se repiten aquí, pero la búsqueda de arriba lo encuentra todo. Cambia solo lo que entiendas: un valor incorrecto puede romper el servidor. La configuración anterior se guarda antes y se puede restaurar.",
   "all.search": "Buscar por nombre o descripción…",
   "all.onlyChanged": "Solo los cambiados",
   "all.count": "Mostrando {shown} de {total}. Usa la búsqueda para acotar.",
@@ -769,7 +769,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "mod.status.soon": "Pronto",
   "mod.hint.soon": "Previsto: aún no disponible.",
   "set.tab.collections": "Colecciones",
-  "set.tab.all": "Todos los ajustes",
+  "set.tab.all": "Otros",
   "set.searchAll": "Buscar en todos los ajustes por nombre o descripción…",
   "set.search": "Buscar ajustes…",
 };

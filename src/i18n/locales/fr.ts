@@ -726,7 +726,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "mod.empty": "Il n’y a encore rien ici. Les modules optionnels apparaîtront sur cette page au fur et à mesure de leur ajout.",
   // Settings page: the full searchable list
   "all.title": "Tous les réglages du serveur",
-  "all.intro": "Chaque réglage documenté du serveur de monde, avec son explication. Ne modifiez que ce que vous comprenez : une mauvaise valeur peut casser le serveur. La configuration précédente est sauvegardée d'abord et peut être restaurée.",
+  "all.intro": "Tous les autres réglages documentés du serveur de monde, avec leur explication. Ceux des autres onglets ne sont pas répétés ici, mais la recherche ci-dessus trouve tout. Ne modifiez que ce que vous comprenez : une mauvaise valeur peut casser le serveur. La configuration précédente est sauvegardée d'abord et peut être restaurée.",
   "all.search": "Rechercher par nom ou description…",
   "all.onlyChanged": "Seulement les modifiés",
   "all.count": "{shown} sur {total} affichés. Utilisez la recherche pour affiner.",
@@ -769,7 +769,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "mod.status.soon": "Bientôt",
   "mod.hint.soon": "Prévu : pas encore disponible.",
   "set.tab.collections": "Collections",
-  "set.tab.all": "Tous les réglages",
+  "set.tab.all": "Autres",
   "set.searchAll": "Rechercher dans tous les réglages par nom ou description…",
   "set.search": "Rechercher un réglage…",
 };

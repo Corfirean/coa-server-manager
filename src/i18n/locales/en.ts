@@ -726,7 +726,7 @@ const en = {
   "mod.empty": "There is nothing here yet. Optional modules will appear on this page as they are added.",
   // Settings page: the full searchable list
   "all.title": "All server settings",
-  "all.intro": "Every documented setting of the world server, with its explanation. Change only what you understand: a wrong value can break the server. The previous configuration is saved first and can be restored.",
+  "all.intro": "All other documented settings of the world server, with their explanations. The ones shown on the other tabs are not repeated here, but the search above finds everything. Change only what you understand: a wrong value can break the server. The previous configuration is saved first and can be restored.",
   "all.search": "Search by name or description…",
   "all.onlyChanged": "Only changed",
   "all.count": "Showing {shown} of {total}. Search to narrow it down.",
@@ -769,7 +769,7 @@ const en = {
   "mod.status.soon": "Soon",
   "mod.hint.soon": "Planned: not available yet.",
   "set.tab.collections": "Collections",
-  "set.tab.all": "All settings",
+  "set.tab.all": "Other settings",
   "set.searchAll": "Search all settings by name or description…",
   "set.search": "Search settings…",
 } as const;

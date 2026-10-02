@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentType } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, type LucideProps } from "lucide-react";
 import { api, asUiError, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -34,6 +34,18 @@ const STATUS: Record<string, { label: Key; hint: Key; tone: string }> = {
   beta: { label: "mod.status.beta", hint: "mod.hint.beta", tone: "border-sky-400/50 bg-sky-400/10 text-sky-300" },
   release: { label: "mod.status.release", hint: "mod.hint.release", tone: "border-ok/50 bg-ok/10 text-ok" },
 };
+
+function SettingsPanel({ className, children }: { className?: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, []);
+  return (
+    <div ref={ref} className={className}>
+      <Card className="border-gold/50 p-5">{children}</Card>
+    </div>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const { t } = useI18n();
@@ -97,6 +109,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
   }
 
   const selected = modules?.find((m) => m.id === open) ?? null;
+  const selectedAt = modules?.findIndex((m) => m.id === open) ?? -1;
 
   return (
     <div className="max-w-4xl">
@@ -110,8 +123,9 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         {modules === null && !error && <p className="text-muted">{t("overview.checking")}</p>}
         {modules?.length === 0 && <Card className="p-6 text-center text-muted sm:col-span-2">{t("mod.empty")}</Card>}
-        {modules?.map((m) => (
-          <Card key={m.id} className={cn("flex flex-col gap-4 p-5 transition-colors", !m.installed && "opacity-60", open === m.id && "border-gold/50")} aria-label={m.status === "soon" ? `${m.name}: ${t("mod.status.soon")}` : undefined}>
+        {modules?.map((m, i) => (
+          <Fragment key={m.id}>
+          <Card className={cn("flex flex-col gap-4 p-5 transition-colors", !m.installed && "opacity-60", open === m.id && "border-gold/50")} aria-label={m.status === "soon" ? `${m.name}: ${t("mod.status.soon")}` : undefined}>
             <div className="flex items-start gap-4">
               <Tile icon={m.icon} off={!m.enabled || !m.installed} />
               <div className="min-w-0 flex-1">
@@ -151,15 +165,16 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
               )}
             </div>
           </Card>
+          {/* The settings open right under the row of the card they belong to, so they are never out of sight below a long grid. */}
+          {selected && selectedAt >= 0 && Math.floor(selectedAt / 2) === Math.floor(i / 2) && (i % 2 === 1 || i === modules.length - 1) && (
+            <SettingsPanel key={selected.id} className="sm:col-span-2">
+              <h2 className="font-semibold">{t("mod.settingsOf", { name: selected.name })}</h2>
+              <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} />
+            </SettingsPanel>
+          )}
+          </Fragment>
         ))}
       </div>
-
-      {selected && (
-        <Card className="mt-4 p-5">
-          <h2 className="font-semibold">{t("mod.settingsOf", { name: selected.name })}</h2>
-          <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} />
-        </Card>
-      )}
     </div>
   );
 }
