@@ -101,6 +101,11 @@ pub struct ScanReport {
     pub database_schemas: Vec<String>,
     pub client: Option<ClientInfo>,
     pub notes: Vec<String>,
+    /// When the chosen folder is not a server but a repack's main folder is right next to it (its parent, or a folder
+    /// inside it): the folder the person most likely meant.
+    pub suggested_path: Option<String>,
+    /// "not-repack": a server was found but it is not laid out like the CoA Repack the Manager works with.
+    pub hint: Option<&'static str>,
     /// Always false: a scan never modifies anything.
     pub modifies_files: bool,
 }
@@ -294,6 +299,16 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         notes.push("This looks like a game client folder, not a server folder.".into());
     }
 
+    let (suggested_path, hint) = if classification == Classification::Incompatible && !looks_like_client {
+        match find_repack_nearby(&root) {
+            Some(p) => (Some(p.to_string_lossy().into_owned()), None),
+            None if root.join("worldserver.exe").is_file() || has_exes => (None, Some("not-repack")),
+            None => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
     Ok(ScanReport {
         path: root.to_string_lossy().into_owned(),
         classification,
@@ -308,8 +323,32 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         database_schemas,
         client,
         notes,
+        suggested_path,
+        hint,
         modifies_files: false,
     })
+}
+
+fn is_repack_root(p: &Path) -> bool {
+    p.join("Core/worldserver.exe").is_file() && p.join("Scripts/manage.py").is_file()
+}
+
+/// People often pick the `Core` folder (it holds worldserver.exe) or the folder an archive was unpacked into, with the real
+/// server one level inside. Look at the parent, then at the folders inside (two levels), for the repack's main folder.
+fn find_repack_nearby(root: &Path) -> Option<PathBuf> {
+    if let Some(parent) = root.parent() {
+        if is_repack_root(parent) {
+            return Some(parent.to_path_buf());
+        }
+    }
+    let subdirs = |dir: &Path| -> Vec<PathBuf> {
+        fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).take(200).collect()).unwrap_or_default()
+    };
+    let first = subdirs(root);
+    if let Some(p) = first.iter().find(|p| is_repack_root(p)) {
+        return Some(p.clone());
+    }
+    first.iter().flat_map(|d| subdirs(d)).find(|p| is_repack_root(p))
 }
 
 /// Paths of the executables used by an installation, if present.
@@ -403,6 +442,37 @@ mod tests {
         fs::write(root.join("Core/worldserver.exe"), b"w").unwrap();
         fs::write(root.join("Core/authserver.exe"), b"a").unwrap();
         assert_eq!(scan(&root).unwrap().classification, Classification::UnknownCustom);
+    }
+
+    #[test]
+    fn the_core_folder_or_an_outer_folder_points_at_the_real_server_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let repack = dir.path().join("CoA-Repack");
+        testkit::fake_repack(&repack);
+        let core = scan(&repack.join("Core")).unwrap();
+        assert_eq!(core.classification, Classification::Incompatible);
+        assert!(Path::new(core.suggested_path.as_deref().unwrap()).ends_with("CoA-Repack"));
+
+        let outer = tempfile::tempdir().unwrap();
+        testkit::fake_repack(&outer.path().join("unpacked").join("CoA-Repack"));
+        let r = scan(outer.path()).unwrap();
+        assert_eq!(r.classification, Classification::Incompatible);
+        assert!(Path::new(r.suggested_path.as_deref().unwrap()).ends_with("CoA-Repack"), "found two levels down");
+
+        let healthy = scan(&repack).unwrap();
+        assert!(healthy.suggested_path.is_none() && healthy.hint.is_none());
+    }
+
+    #[test]
+    fn a_plain_azerothcore_folder_is_told_apart_from_a_wrong_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("acore");
+        fs::create_dir_all(&plain).unwrap();
+        fs::write(plain.join("worldserver.exe"), b"w").unwrap();
+        let r = scan(&plain).unwrap();
+        assert_eq!(r.classification, Classification::Incompatible);
+        assert!(r.suggested_path.is_none());
+        assert_eq!(r.hint, Some("not-repack"));
     }
 
     #[test]

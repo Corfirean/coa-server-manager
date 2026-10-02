@@ -113,7 +113,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "import.custom.title": "Найден нестандартный сервер",
   "import.custom.text": "Эта сборка не распознана. Часть функций обновления и установки будет отключена.",
   "import.incompatible.title": "Это не папка сервера",
-  "import.incompatible.text": "Выберите папку, в которой лежат Core, Data и mysql (или ваш worldserver.exe).",
+  "import.incompatible.text": "Выберите главную папку сервера: ту, где лежат папки Core, Data, mysql, Scripts и Settings (а не саму папку Core).",
   "import.techDetails": "Показать технические подробности",
   "import.detected": "Найдено",
   "import.notInstalled": "Не установлено",
@@ -735,6 +735,10 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "all.useDefault": "Вернуть значение по умолчанию ({v})",
   "all.save": "Сохранить изменения: {n}",
   "all.saved": "Сохранено. Перезапустите сервер, чтобы изменения вступили в силу.",
+  "import.suggest.title": "Возможно, вы имели в виду эту папку?",
+  "import.suggest.text": "Выбранная папка является частью сервера. Главная папка сервера:",
+  "import.suggest.use": "Использовать эту папку",
+  "import.notRepack": "Похоже на отдельный сервер AzerothCore. Менеджер работает со структурой CoA Repack (папка, где лежат Core, mysql, Scripts и Settings). Выберите «Установить новый сервер» или подключите CoA Repack.",
 };
 
 export default ru;

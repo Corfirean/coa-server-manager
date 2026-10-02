@@ -113,7 +113,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "import.custom.title": "Servidor personalizado detectado",
   "import.custom.text": "Esta versión no se reconoce. Algunas funciones de actualización e instalación estarán desactivadas.",
   "import.incompatible.title": "Esta no es una carpeta de servidor",
-  "import.incompatible.text": "Elige la carpeta que contiene Core, Data y mysql (o tu worldserver.exe).",
+  "import.incompatible.text": "Elige la carpeta principal del servidor: la que contiene las carpetas Core, Data, mysql, Scripts y Settings (no la carpeta Core en sí).",
   "import.techDetails": "Mostrar detalles técnicos",
   "import.detected": "Detectado",
   "import.notInstalled": "No instalado",
@@ -735,6 +735,10 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "all.useDefault": "Usar el valor predeterminado ({v})",
   "all.save": "Guardar {n} cambio(s)",
   "all.saved": "Guardado. Reinicia el servidor para aplicar los cambios.",
+  "import.suggest.title": "¿Quisiste decir esta carpeta?",
+  "import.suggest.text": "La carpeta elegida pertenece a un servidor. La carpeta principal del servidor es:",
+  "import.suggest.use": "Usar esta carpeta",
+  "import.notRepack": "Parece un servidor AzerothCore independiente. El Manager funciona con la estructura del CoA Repack (una carpeta que contiene Core, mysql, Scripts y Settings). Usa «Instalar un servidor nuevo» o importa un CoA Repack.",
 };
 
 export default es;

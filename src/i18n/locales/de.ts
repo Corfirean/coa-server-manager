@@ -113,7 +113,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "import.custom.title": "Angepasster Server erkannt",
   "import.custom.text": "Dieser Build wird nicht erkannt. Einige Update- und Installationsfunktionen sind deaktiviert.",
   "import.incompatible.title": "Das ist kein Serverordner",
-  "import.incompatible.text": "Wähle den Ordner, der Core, Data und mysql (oder deine worldserver.exe) enthält.",
+  "import.incompatible.text": "Wähle den Hauptordner des Servers: den, der die Ordner Core, Data, mysql, Scripts und Settings enthält (nicht den Ordner Core selbst).",
   "import.techDetails": "Technische Details anzeigen",
   "import.detected": "Erkannt",
   "import.notInstalled": "Nicht installiert",
@@ -735,6 +735,10 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "all.useDefault": "Standardwert verwenden ({v})",
   "all.save": "{n} Änderung(en) speichern",
   "all.saved": "Gespeichert. Starte den Server neu, um die Änderungen zu übernehmen.",
+  "import.suggest.title": "Meintest du diesen Ordner?",
+  "import.suggest.text": "Der gewählte Ordner gehört zu einem Server. Der Hauptordner des Servers ist:",
+  "import.suggest.use": "Diesen Ordner verwenden",
+  "import.notRepack": "Das sieht nach einem eigenständigen AzerothCore-Server aus. Der Manager arbeitet mit dem Aufbau des CoA Repack (ein Ordner mit Core, mysql, Scripts und Settings). Nutze stattdessen „Neuen Server installieren“ oder binde ein CoA Repack ein.",
 };
 
 export default de;

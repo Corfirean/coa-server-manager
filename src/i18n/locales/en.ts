@@ -113,7 +113,7 @@ const en = {
   "import.custom.title": "Custom server detected",
   "import.custom.text": "This build is not recognised. Some update and install features will be disabled.",
   "import.incompatible.title": "This is not a server folder",
-  "import.incompatible.text": "Choose the folder that contains Core, Data and mysql (or your worldserver.exe).",
+  "import.incompatible.text": "Choose the main server folder: the one that contains the folders Core, Data, mysql, Scripts and Settings (not the Core folder itself).",
   "import.techDetails": "Show technical details",
   "import.detected": "Detected",
   "import.notInstalled": "Not installed",
@@ -735,6 +735,10 @@ const en = {
   "all.useDefault": "Use the default ({v})",
   "all.save": "Save {n} change(s)",
   "all.saved": "Saved. Restart the server to apply the changes.",
+  "import.suggest.title": "Did you mean this folder?",
+  "import.suggest.text": "The folder you chose belongs to a server. The server's main folder is:",
+  "import.suggest.use": "Use this folder",
+  "import.notRepack": "This looks like a standalone AzerothCore server. The Manager works with the CoA Repack layout (a folder that contains Core, mysql, Scripts and Settings). Use \"Install a new server\" instead, or import a CoA Repack.",
 } as const;
 
 export default en;

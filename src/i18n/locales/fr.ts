@@ -113,7 +113,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "import.custom.title": "Serveur personnalisé détecté",
   "import.custom.text": "Cette version n’est pas reconnue. Certaines fonctions de mise à jour et d’installation seront désactivées.",
   "import.incompatible.title": "Ce n’est pas un dossier de serveur",
-  "import.incompatible.text": "Choisissez le dossier qui contient Core, Data et mysql (ou votre worldserver.exe).",
+  "import.incompatible.text": "Choisissez le dossier principal du serveur : celui qui contient les dossiers Core, Data, mysql, Scripts et Settings (et non le dossier Core lui-même).",
   "import.techDetails": "Afficher les détails techniques",
   "import.detected": "Détecté",
   "import.notInstalled": "Non installé",
@@ -735,6 +735,10 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "all.useDefault": "Utiliser la valeur par défaut ({v})",
   "all.save": "Enregistrer {n} modification(s)",
   "all.saved": "Enregistré. Redémarrez le serveur pour appliquer les changements.",
+  "import.suggest.title": "Vouliez-vous ce dossier ?",
+  "import.suggest.text": "Le dossier choisi fait partie d'un serveur. Le dossier principal du serveur est :",
+  "import.suggest.use": "Utiliser ce dossier",
+  "import.notRepack": "Cela ressemble à un serveur AzerothCore autonome. Le Manager fonctionne avec la structure du CoA Repack (un dossier contenant Core, mysql, Scripts et Settings). Utilisez plutôt « Installer un nouveau serveur » ou importez un CoA Repack.",
 };
 
 export default fr;

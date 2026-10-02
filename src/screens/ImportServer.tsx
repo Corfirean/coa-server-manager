@@ -39,6 +39,19 @@ export function ImportServer(props: {
     }
   }
 
+  async function scanPath(path: string) {
+    setError(null);
+    setBusy(true);
+    setReport(null);
+    try {
+      setReport(await api.scan(path));
+    } catch (e) {
+      setError(asUiError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function add() {
     if (!report) return;
     setBusy(true);
@@ -117,6 +130,18 @@ export function ImportServer(props: {
               </li>
             ))}
           </ul>
+
+          {report.suggested_path && (
+            <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3" role="status">
+              <p className="font-medium">{t("import.suggest.title")}</p>
+              <p className="mt-1 text-sm text-muted">{t("import.suggest.text")}</p>
+              <p className="selectable mt-1 break-all text-sm">{report.suggested_path}</p>
+              <Button className="mt-2" size="sm" variant="primary" disabled={busy} onClick={() => void scanPath(report.suggested_path!)}>
+                {t("import.suggest.use")}
+              </Button>
+            </div>
+          )}
+          {report.hint === "not-repack" && <p className="mt-3 text-sm text-warn">{t("import.notRepack")}</p>}
 
           {report.notes.map((n) => (
             <p key={n} className="mt-3 text-sm text-warn">

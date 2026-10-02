@@ -26,6 +26,9 @@ export interface ScanReport {
   bot_config_keys: number;
   client: { path: string; executable: string } | null;
   notes: string[];
+  /** the repack's main folder when the chosen folder is part of it */
+  suggested_path?: string | null;
+  hint?: "not-repack" | null;
   modifies_files: boolean;
 }
 
