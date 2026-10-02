@@ -754,6 +754,18 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "mod.legend": "Modulstatus",
   "mod.alwaysOn": "Immer an",
   "mod.settingsOf": "{name}: Einstellungen",
+  "col.title": "Aussehen und Sammlungen",
+  "col.intro": "Schalter für die Sammlungen und Erleichterungen des Spielclients. Sie gelten nach dem Neustart des Weltservers.",
+  "col.appearances": "Alle Aussehen freischalten (Transmog)",
+  "col.appearances.text": "Alle Aussehen stehen von Anfang an im Schrank bereit.",
+  "col.vanity": "Die ganze Vanity-Sammlung freischalten",
+  "col.vanity.text": "Jedes Vanity-Objekt gehört jedem Konto.",
+  "col.auto": "Aussehen automatisch sammeln",
+  "col.auto.text": "Erhaltene Gegenstände werden der Sammlung hinzugefügt.",
+  "col.companions": "Besitz an Reittieren und Begleitern lehren",
+  "col.companions.text": "Deine Reittiere und Begleiter werden dauerhaft gelernt.",
+  "col.riding": "Maximales Reiten ab dem ersten Login",
+  "col.riding.text": "Alle Reitstufen und Kaltwetterflug, schon auf Stufe 1.",
 };
 
 export default de;

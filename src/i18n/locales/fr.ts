@@ -754,6 +754,18 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "mod.legend": "Statut du module",
   "mod.alwaysOn": "Toujours actif",
   "mod.settingsOf": "{name} : réglages",
+  "col.title": "Apparences et collections",
+  "col.intro": "Réglages des collections et facilités du client de jeu. Ils s'appliquent après le redémarrage du serveur de monde.",
+  "col.appearances": "Débloquer toutes les apparences (transmo)",
+  "col.appearances.text": "Toutes les apparences sont disponibles dès le départ.",
+  "col.vanity": "Débloquer toute la collection Vanity",
+  "col.vanity.text": "Chaque objet Vanity appartient à chaque compte.",
+  "col.auto": "Collecter les apparences automatiquement",
+  "col.auto.text": "Les objets obtenus sont ajoutés à la collection.",
+  "col.companions": "Apprendre les montures et compagnons possédés",
+  "col.companions.text": "Vos montures et compagnons sont appris définitivement.",
+  "col.riding": "Monte maximale dès la première connexion",
+  "col.riding.text": "Tous les rangs de monte et le vol par temps froid, dès le niveau 1.",
 };
 
 export default fr;

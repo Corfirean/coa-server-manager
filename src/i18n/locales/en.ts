@@ -754,6 +754,18 @@ const en = {
   "mod.legend": "Module status",
   "mod.alwaysOn": "Always on",
   "mod.settingsOf": "{name}: settings",
+  "col.title": "Appearances and collections",
+  "col.intro": "Switches for the collections and conveniences of the game client. They apply after the world server restarts.",
+  "col.appearances": "Unlock every appearance (transmog)",
+  "col.appearances.text": "All appearances are available in the wardrobe from the start.",
+  "col.vanity": "Unlock the whole vanity collection",
+  "col.vanity.text": "Every vanity entry is owned by every account.",
+  "col.auto": "Collect appearances automatically",
+  "col.auto.text": "Items a character obtains are added to the collection.",
+  "col.companions": "Teach owned mounts and companions",
+  "col.companions.text": "Mounts and companions you own are learned for good.",
+  "col.riding": "Maximum riding from the first login",
+  "col.riding.text": "All riding ranks and Cold Weather Flying, even at level 1.",
 } as const;
 
 export default en;

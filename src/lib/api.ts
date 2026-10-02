@@ -191,6 +191,8 @@ export interface ModuleView {
   icon: string;
   /** a page of the Manager that is hidden while the module is off */
   page: string | null;
+  /** not shown on the Modules page */
+  hidden: boolean;
 }
 
 export interface ModuleSetting {

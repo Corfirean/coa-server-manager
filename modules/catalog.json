@@ -81,7 +81,8 @@
       "alt_conf": "mod_ascension_compat.conf",
       "switchable": false,
       "status": "release",
-      "icon": "plug"
+      "icon": "plug",
+      "hidden": true
     }
   ]
 }

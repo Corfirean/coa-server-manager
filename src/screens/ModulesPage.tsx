@@ -70,7 +70,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
 
   const load = useCallback(async () => {
     try {
-      setModules(await api.modulesList(serverId));
+      setModules((await api.modulesList(serverId)).filter((m) => !m.hidden));
     } catch (e) {
       setError(asUiError(e));
     }

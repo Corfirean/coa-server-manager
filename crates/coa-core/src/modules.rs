@@ -45,6 +45,9 @@ pub struct Entry {
     /// A page of the Manager that only makes sense while the module is on (it is hidden while it is off).
     #[serde(default)]
     pub page: Option<String>,
+    /// Not shown on the Modules page; its settings are offered elsewhere (a server setting card).
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 fn yes() -> bool {
@@ -93,6 +96,7 @@ pub struct ModuleView {
     pub status: String,
     pub icon: String,
     pub page: Option<String>,
+    pub hidden: bool,
 }
 
 pub fn list(root: &Path) -> Vec<ModuleView> {
@@ -133,6 +137,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 status: e.status,
                 icon: e.icon,
                 page: e.page,
+                hidden: e.hidden,
             }
         })
         .collect()
@@ -261,6 +266,7 @@ mod tests {
             status: "beta".into(),
             icon: String::new(),
             page: None,
+            hidden: false,
         };
         vec![one("war-games", "War Games", "war_games.conf", "WarGames.Enable"), one("spellbook", "Spellbook", "spellbook.conf", "Spellbook.Enable")]
     }
@@ -353,6 +359,7 @@ mod tests {
             status: "release".into(),
             icon: String::new(),
             page: None,
+            hidden: false,
         };
         let cat = vec![compat];
         let v = list_in(&cat, &root).remove(0);

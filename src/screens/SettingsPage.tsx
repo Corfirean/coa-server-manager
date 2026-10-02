@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AllSettingsCard } from "@/screens/AllSettingsCard";
+import { CollectionsCard } from "@/screens/CollectionsCard";
 import { CompanionsCard } from "@/screens/CompanionsCard";
 import { useHuman, useI18n, useSchemaText, useT, type Key } from "@/i18n";
 
@@ -428,6 +429,7 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
         <p className="mt-6 text-xs text-muted">{t("set.unknownKept", { n: view.unknown_keys })}</p>
       )}
 
+      {scope === "server" && <CollectionsCard serverId={serverId} />}
       {scope === "server" && <AllSettingsCard serverId={serverId} />}
 
       {dirtyKeys.length > 0 && (

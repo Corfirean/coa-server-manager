@@ -754,6 +754,18 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "mod.legend": "Estado del módulo",
   "mod.alwaysOn": "Siempre activo",
   "mod.settingsOf": "{name}: ajustes",
+  "col.title": "Apariencias y colecciones",
+  "col.intro": "Ajustes de las colecciones y comodidades del cliente del juego. Se aplican al reiniciar el servidor del mundo.",
+  "col.appearances": "Desbloquear todas las apariencias (transfiguración)",
+  "col.appearances.text": "Todas las apariencias están disponibles desde el principio.",
+  "col.vanity": "Desbloquear toda la colección Vanity",
+  "col.vanity.text": "Cada objeto Vanity pertenece a cada cuenta.",
+  "col.auto": "Recoger apariencias automáticamente",
+  "col.auto.text": "Los objetos que obtiene un personaje se añaden a la colección.",
+  "col.companions": "Enseñar monturas y mascotas que posees",
+  "col.companions.text": "Tus monturas y mascotas se aprenden para siempre.",
+  "col.riding": "Equitación máxima desde el primer inicio",
+  "col.riding.text": "Todos los rangos de equitación y vuelo en clima frío, desde el nivel 1.",
 };
 
 export default es;
