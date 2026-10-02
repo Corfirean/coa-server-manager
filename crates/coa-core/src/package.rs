@@ -298,10 +298,14 @@ pub fn extract(parts_dir: &Path, manifest: &Manifest, dest: &Path, progress: &dy
         let mut hasher = Sha256::new();
         let mut buf = vec![0u8; 1 << 20];
         let mut size = 0u64;
+        let mut head = Vec::with_capacity(4);
         loop {
             let n = entry.read(&mut buf)?;
             if n == 0 {
                 break;
+            }
+            if head.len() < 4 {
+                head.extend_from_slice(&buf[..n.min(4 - head.len())]);
             }
             size += n as u64;
             if size > want.size {
@@ -314,6 +318,13 @@ pub fn extract(parts_dir: &Path, manifest: &Manifest, dest: &Path, progress: &dy
         let actual = hex::encode(hasher.finalize());
         if size != want.size || !actual.eq_ignore_ascii_case(&want.sha256) {
             return Err(Error::HashMismatch { path: rel, expected: want.sha256.clone(), actual });
+        }
+        // The archive does not carry per-file modes, so a Linux binary or script would be extracted unusable.
+        // Recognise them by content (ELF header or `#!`); Windows has no execute bit and ignores this.
+        #[cfg(unix)]
+        if head.starts_with(b"\x7fELF") || head.starts_with(b"#!") {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
         }
         done += size;
         progress(done, archive.unpacked_size);
@@ -371,6 +382,31 @@ mod tests {
             .collect();
         fs::write(src.join("Data/dbc/big.dbc"), big).unwrap();
         (d, src)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_makes_binaries_and_scripts_executable_and_nothing_else() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("src");
+        for (p, c) in [
+            ("Core/worldserver", &b"\x7fELF\x02\x01\x01 binary"[..]),
+            ("Scripts/tool.sh", &b"#!/bin/sh\necho hi\n"[..]),
+            ("Core/configs/worldserver.conf.dist", &b"Setting = 1\n"[..]),
+        ] {
+            let f = src.join(p);
+            fs::create_dir_all(f.parent().unwrap()).unwrap();
+            fs::write(f, c).unwrap();
+        }
+        let out = d.path().join("out");
+        let m = build(&src, &out, &opts(64 * 1024), &|_| {}).unwrap();
+        let dest = d.path().join("dest");
+        extract(&out, &m, &dest, &|_, _| {}).unwrap();
+        let mode = |p: &str| fs::metadata(dest.join(p)).unwrap().permissions().mode() & 0o111;
+        assert_ne!(mode("Core/worldserver"), 0, "ELF binary must be executable");
+        assert_ne!(mode("Scripts/tool.sh"), 0, "script with a shebang must be executable");
+        assert_eq!(mode("Core/configs/worldserver.conf.dist"), 0, "plain files stay non-executable");
     }
 
     #[test]

@@ -267,6 +267,7 @@ mod tests {
     fn drive_root_and_missing_folder_are_rejected() {
         let meta = InstallMeta::new(InstallKind::New, Path::new("C:/nope"));
         assert!(MetaDir::create(Path::new("C:/definitely/missing/folder"), &meta).is_err());
-        assert!(metadata_dir_for(Path::new("C:/")).is_err());
+        let root = if cfg!(windows) { "C:/" } else { "/" };
+        assert!(metadata_dir_for(Path::new(root)).is_err());
     }
 }

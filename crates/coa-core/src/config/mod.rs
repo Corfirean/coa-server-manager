@@ -328,9 +328,23 @@ pub struct SnapshotInfo {
 }
 
 pub(crate) fn take_snapshot(meta_dir: &Path, scope: Scope, reason: &str, files: &[(PathBuf, Vec<u8>)]) -> Result<String> {
-    let id = format!("{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S%3f"), scope.name());
-    let dir = snapshot_root(meta_dir).join(&id);
-    fs::create_dir_all(&dir)?;
+    let root = snapshot_root(meta_dir);
+    fs::create_dir_all(&root)?;
+    // The id is a timestamp to the millisecond. Two snapshots of the same scope can land in the same one (a restore
+    // snapshots the current state just before reading the snapshot it restores), and reusing the folder would overwrite
+    // the files about to be restored. Take a fresh folder, with a numeric suffix when the name is already used.
+    let base = format!("{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S%3f"), scope.name());
+    let (id, dir) = (1u32..)
+        .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
+        .find_map(|id| {
+            let dir = root.join(&id);
+            match fs::create_dir(&dir) {
+                Ok(()) => Some(Ok((id, dir))),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(e) => Some(Err(e)),
+            }
+        })
+        .expect("the suffix range is unbounded")?;
     let mut entries = Vec::new();
     for (i, (path, bytes)) in files.iter().enumerate() {
         let stored = format!("{i}_{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
@@ -714,6 +728,21 @@ Spellbook.New = 5
         assert_eq!(fs::read(&conf).unwrap(), original);
         assert!(list_snapshots(&meta).len() >= 2, "restore took its own snapshot");
         assert!(restore_snapshot(&meta, "../evil").is_err());
+    }
+
+    #[test]
+    fn snapshots_taken_in_the_same_millisecond_keep_their_own_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ids = std::collections::HashSet::new();
+        for i in 0..40 {
+            let path = dir.path().join("worldserver.conf");
+            let id = take_snapshot(dir.path(), Scope::Server, "test", &[(path, format!("version {i}").into_bytes())]).unwrap();
+            assert!(ids.insert(id.clone()), "snapshot id {id} was handed out twice");
+        }
+        for info in list_snapshots(dir.path()) {
+            assert_eq!(info.files.len(), 1);
+        }
+        assert_eq!(list_snapshots(dir.path()).len(), 40.min(KEEP_SNAPSHOTS));
     }
 
     #[test]
