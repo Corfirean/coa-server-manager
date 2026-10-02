@@ -17,6 +17,7 @@ export {};
     worldserver:null,authserver:null,banner_revision:"3567e2f8e9d5",bot_config_keys:71,client:null,
     notes:["worldserver.exe differs from the one listed in RELEASE.json (release 2026-09-11); this looks like a customised build."],modifies_files:false};
   const svc=(n: string,p: number,st: string)=>({name:n,state:st,pid:st==="running"?100:null,port:p,port_ready:st==="running",conflict:null,uptime_secs:st==="running"?4206:null});
+  { const q = new URLSearchParams(location.search); const w0 = window as any; if (q.get("client")) w0.__client = q.get("client"); if (q.get("modified")) w0.__modified = true; }
   (window as any).__TAURI_INTERNALS__ = {
     transformCallback: (cb: unknown)=>cb, unregisterCallback(){}, convertFileSrc:(x: unknown)=>x,
     invoke: async (cmd: string, args?: any)=>{

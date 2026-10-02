@@ -773,6 +773,8 @@ const en = {
   "set.searchAll": "Search all settings by name or description…",
   "set.search": "Search settings…",
   "upd.current": "You are up to date (version {v}).",
+  "client.job.checking": "Checking the client…",
+  "client.job.updating": "Updating the client",
 } as const;
 
 export default en;

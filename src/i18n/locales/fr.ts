@@ -773,6 +773,8 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "set.searchAll": "Rechercher dans tous les réglages par nom ou description…",
   "set.search": "Rechercher un réglage…",
   "upd.current": "Vous êtes à jour (version {v}).",
+  "client.job.checking": "Vérification du client…",
+  "client.job.updating": "Mise à jour du client",
 };
 
 export default fr;

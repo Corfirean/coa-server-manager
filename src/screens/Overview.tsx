@@ -1,7 +1,8 @@
+import { dismissClientJob, startClientUpdate, stopClientJob, syncClient, useClientJob } from "@/lib/clientJob";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { api, asUiError, type ClientInfo, type Human, type Performance, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
-import { cn, formatUptime } from "@/lib/utils";
+import { cn, formatBytes, formatUptime } from "@/lib/utils";
 import { useHuman, useT } from "@/i18n";
 import { applyServerUpdate, useServerUpdate } from "@/lib/serverUpdate";
 import { checkClient, useClientStatus } from "@/lib/clientUpdate";
@@ -74,6 +75,10 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates }:
   const [dialog, setDialog] = useState<ClientDialogMode | null>(null);
   const clientStatus = useClientStatus(server.id).status;
   const [playing, setPlaying] = useState(false);
+  const job = useClientJob(server.id);
+  const jobBusy = job.phase === "scanning" || job.phase === "working";
+  const jobPct = job.step && job.step.total > 0 ? Math.min(100, Math.floor((job.step.done / job.step.total) * 100)) : 0;
+  const [keepMine, setKeepMine] = useState(true);
   const [perf, setPerf] = useState<Performance | null>(null);
   const upd = useServerUpdate(server.id);
   const needsDecision = (upd.preview?.conflicts.length ?? 0) > 0;
@@ -90,6 +95,10 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates }:
       .catch(() => setStartBots(undefined));
   }, [server.id]);
   const alive = useRef(true);
+
+  useEffect(() => {
+    if (job.phase === "done" || job.phase === "current") void api.clientInfo(server.id).then(setClient).catch(() => undefined);
+  }, [job.phase, server.id]);
 
   const poll = useCallback(async () => {
     try {
@@ -279,8 +288,35 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates }:
           )}
           <div className="ml-auto flex items-center gap-3">
           {client && <RealmlistMenu serverId={server.id} />}
-          {client && clientStatus?.update_available ? (
-            <Button variant="primary" size="xl" disabled={playing} onClick={() => setDialog("update")} className="min-w-40">
+          {client && jobBusy ? (
+            <div
+              className="relative flex h-16 min-w-64 items-center overflow-hidden rounded-md border border-gold/50 bg-card-2"
+              role="progressbar"
+              aria-valuenow={jobPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={job.phase === "scanning" ? t("client.job.checking") : t("client.job.updating")}
+            >
+              <div className="absolute inset-y-0 left-0 bg-gold/35 transition-[width] duration-300" style={{ width: `${jobPct}%` }} />
+              <div className="relative z-10 flex min-w-0 flex-1 flex-col px-5 leading-tight">
+                <span className="text-sm font-semibold uppercase tracking-wide">{job.phase === "scanning" ? t("client.job.checking") : t("client.job.updating")}</span>
+                <span className="truncate text-xs text-muted">
+                  {jobPct}%
+                  {job.step && job.step.phase === "download" && job.step.bytes_per_sec > 0 ? ` · ${t("client.dl.speed", { speed: formatBytes(job.step.bytes_per_sec) })}` : ""}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => stopClientJob(server.id)}
+                title={t("client.dl.cancel")}
+                aria-label={t("client.dl.cancel")}
+                className="relative z-10 flex h-full w-12 cursor-pointer items-center justify-center text-muted hover:text-ink"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          ) : client && (clientStatus?.update_available || job.phase === "choose") ? (
+            <Button variant="primary" size="xl" disabled={playing || job.phase === "choose"} onClick={() => void startClientUpdate(server.id)} className="min-w-40">
               {t("btn.updateClient")}
             </Button>
           ) : client ? (
@@ -297,6 +333,34 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates }:
         </div>
         {anyUp && !running && !transitioning && (
           <p className="mt-3 text-sm text-muted">{t("overview.partial")}</p>
+        )}
+        {job.phase === "choose" && job.plan && (
+          <div className="mt-4 rounded-md border border-warn/40 bg-warn/5 p-3 text-sm">
+            <p className="font-medium">{t("client.upd.modifiedTitle", { n: job.plan.items.filter((i) => i.kind === "modified").length })}</p>
+            <p className="mt-1 text-muted">{t("client.upd.modifiedText")}</p>
+            <label className="mt-3 flex cursor-pointer items-center gap-2">
+              <input type="checkbox" checked={keepMine} onChange={(e) => setKeepMine(e.target.checked)} className="h-4 w-4 accent-[#c9a24a]" />
+              <span>{t("client.upd.keep")}</span>
+            </label>
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" variant="primary" onClick={() => void syncClient(server.id, keepMine)}>{t("client.upd.start")}</Button>
+              <Button size="sm" variant="ghost" onClick={() => dismissClientJob(server.id)}>{t("client.upd.later")}</Button>
+            </div>
+          </div>
+        )}
+        {job.phase === "done" && <p className="mt-3 text-sm text-ok" role="status">{t("client.upd.done")}</p>}
+        {job.phase === "current" && <p className="mt-3 text-sm text-ok" role="status">{t("client.upd.upToDate", { v: job.plan?.version ?? "" })}</p>}
+        {job.phase === "stopped" && (
+          <p className="mt-3 flex items-center gap-3 text-sm text-muted" role="status">
+            {t("client.dl.cancelled")}
+            <Button size="sm" variant="ghost" onClick={() => void startClientUpdate(server.id)}>{t("client.dl.resume")}</Button>
+          </p>
+        )}
+        {job.phase === "failed" && job.error && (
+          <p className="mt-3 flex flex-wrap items-center gap-3 text-sm text-bad" role="alert">
+            {job.error.human.code === "unknown" ? job.error.technical : human(job.error.human).message}
+            <Button size="sm" variant="ghost" onClick={() => void startClientUpdate(server.id)}>{t("client.dl.retry")}</Button>
+          </p>
         )}
         {upd.available && upd.preview && (
           <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3 text-sm">

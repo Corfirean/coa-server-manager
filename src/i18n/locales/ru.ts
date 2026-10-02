@@ -773,6 +773,8 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "set.searchAll": "Поиск по всем настройкам: название или описание…",
   "set.search": "Поиск по настройкам…",
   "upd.current": "У вас последняя версия ({v}).",
+  "client.job.checking": "Проверка клиента…",
+  "client.job.updating": "Обновление клиента",
 };
 
 export default ru;
