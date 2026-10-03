@@ -1,4 +1,5 @@
-//! Database access through the MySQL client tools bundled with the repack (`mysql`, `mysqldump`, `mysqladmin`).
+//! Database access through the MySQL client tools bundled with the repack (`mysql`, `mysqldump`, `mysqladmin`), or,
+//! for a Docker installation, the same tools run inside the database container with `docker exec`.
 //!
 //! Passwords travel only in the child's environment (`MYSQL_PWD`), never on a command line or in a log.
 
@@ -45,6 +46,8 @@ pub struct Db {
     user: &'static str,
     password: Secret,
     realm: crate::realms::Mode,
+    /// Name of the database container of a Docker installation; the client tools then run inside it.
+    container: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +92,9 @@ impl Db {
         let creds: Credentials = fsx::read_json(&root.join("Settings/database.json"))
             .map_err(|_| Error::Invalid("The database settings of this server could not be read.".into()))?;
         let ports: Ports = read_ports(root);
+        if crate::docker::is_docker(root) {
+            return Db::in_container(root, creds, account);
+        }
         let bin = root.join("mysql/bin");
         if !bin.join("mysqldump.exe").is_file() || !bin.join("mysql.exe").is_file() {
             return Err(Error::Invalid("The bundled database tools are missing.".into()));
@@ -97,7 +103,20 @@ impl Db {
             Account::Admin => ("root", creds.root_password),
             Account::App => ("acore", creds.app_password),
         };
-        Ok(Db { bin, port: ports.mysql, user, password: Secret(password), realm: crate::realms::state(root)?.active })
+        Ok(Db { bin, port: ports.mysql, user, password: Secret(password), realm: crate::realms::state(root)?.active, container: None })
+    }
+
+    /// The database of a Docker installation: the client tools of the database image, run with `docker exec`. The
+    /// database is not published on the host, so nothing about this depends on a port or on tools installed here.
+    fn in_container(root: &Path, creds: Credentials, account: Account) -> Result<Db> {
+        let container = crate::docker::Config::load(root)?.database_container();
+        let (user, password) = match account {
+            Account::Admin => ("root", creds.root_password),
+            Account::App => ("acore", creds.app_password),
+        };
+        // Inside the container the server listens on its standard port; the commands below connect to it over TCP on
+        // the container's own loopback, exactly like the commands of a repack do on the host.
+        Ok(Db { bin: PathBuf::new(), port: 3306, user, password: Secret(password), realm: crate::realms::state(root)?.active, container: Some(container) })
     }
 
     pub fn for_realm(mut self, realm: crate::realms::Mode) -> Self { self.realm = realm; self }
@@ -132,7 +151,15 @@ impl Db {
     }
 
     fn command(&self, tool: &str) -> Command {
-        let mut c = Command::new(self.bin.join(tool));
+        let mut c = match &self.container {
+            None => Command::new(self.bin.join(tool)),
+            Some(name) => {
+                // `-e MYSQL_PWD` without a value takes it from this process's environment: never on a command line.
+                let mut c = Command::new("docker");
+                c.args(["exec", "-i", "-e", "MYSQL_PWD", name, tool.trim_end_matches(".exe")]);
+                c
+            }
+        };
         c.env("MYSQL_PWD", self.password.expose())
             .arg("--protocol=tcp")
             .arg("--host=127.0.0.1")
@@ -147,7 +174,8 @@ impl Db {
 
     fn fail(&self, stderr: &[u8]) -> Error {
         let text = String::from_utf8_lossy(stderr);
-        let code = if text.contains("2003") || text.contains("Can't connect") { ErrorCode::DatabaseNotRunning } else { ErrorCode::Unknown };
+        let down = text.contains("2003") || text.contains("Can't connect") || text.contains("is not running") || text.contains("No such container");
+        let code = if down { ErrorCode::DatabaseNotRunning } else { ErrorCode::Unknown };
         match code {
             ErrorCode::DatabaseNotRunning => Error::Invalid("The database is not running. Start the server first.".into()),
             _ => Error::Invalid(format!("database command failed: {}", text.trim().lines().last().unwrap_or(""))),
@@ -377,5 +405,88 @@ mod realm_tests {
     fn routes_schema_identifiers_without_rewriting_account_values() {
         let sql = "SELECT * FROM `acore_characters`.characters WHERE name='acore_world' AND x=\"acore_characters\"; -- acore_world\nSELECT * FROM acore_world.items;";
         assert_eq!(route_sql(sql, crate::realms::Mode::Wildcard), "SELECT * FROM `acore_characters_wildcard`.characters WHERE name='acore_world' AND x=\"acore_characters\"; -- acore_world\nSELECT * FROM acore_world_wildcard.items;");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    const ROOT_PW: &str = "rootpw-ZZ1";
+    const APP_PW: &str = "apppw-QQ2";
+
+    fn folder(docker: bool) -> (tempfile::TempDir, PathBuf) {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("srv");
+        std::fs::create_dir_all(root.join("Settings")).unwrap();
+        std::fs::write(root.join("Settings/database.json"), format!(r#"{{"rootPassword":"{ROOT_PW}","appPassword":"{APP_PW}"}}"#)).unwrap();
+        if docker {
+            std::fs::write(root.join("Settings/docker.json"), r#"{"project":"t1"}"#).unwrap();
+        }
+        (d, root)
+    }
+
+    fn args(c: &Command) -> Vec<String> {
+        c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+    }
+
+    fn env_of(c: &Command, key: &str) -> Option<String> {
+        c.get_envs().find(|(k, _)| *k == OsStr::new(key)).and_then(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+    }
+
+    #[test]
+    fn a_docker_installation_runs_the_client_tools_inside_the_database_container() {
+        let (_d, root) = folder(true);
+        let db = Db::from_repack(&root, Account::Admin).unwrap();
+        for (tool, program) in [("mysql.exe", "mysql"), ("mysqldump.exe", "mysqldump"), ("mysqladmin.exe", "mysqladmin")] {
+            let c = db.command(tool);
+            assert_eq!(c.get_program(), "docker");
+            let a = args(&c);
+            assert_eq!(&a[..6], ["exec", "-i", "-e", "MYSQL_PWD", "coa-t1-db", program]);
+            assert!(a.contains(&"--protocol=tcp".to_string()) && a.contains(&"--host=127.0.0.1".to_string()) && a.contains(&"--port=3306".to_string()));
+            assert!(a.contains(&"--user=root".to_string()));
+            assert!(a.iter().all(|x| !x.contains(ROOT_PW)), "the password must not be on the command line");
+            assert_eq!(env_of(&c, "MYSQL_PWD").as_deref(), Some(ROOT_PW));
+        }
+        let app = Db::from_repack(&root, Account::App).unwrap().command("mysql.exe");
+        assert!(args(&app).contains(&"--user=acore".to_string()));
+        assert_eq!(env_of(&app, "MYSQL_PWD").as_deref(), Some(APP_PW));
+    }
+
+    #[test]
+    fn a_repack_still_uses_its_bundled_tools_on_the_host() {
+        let (_d, root) = folder(false);
+        std::fs::create_dir_all(root.join("mysql/bin")).unwrap();
+        for f in ["mysql.exe", "mysqldump.exe"] {
+            std::fs::write(root.join("mysql/bin").join(f), b"x").unwrap();
+        }
+        std::fs::write(root.join("Settings/repack.json"), r#"{"mysqlPort":3999}"#).unwrap();
+        let c = Db::from_repack(&root, Account::Admin).unwrap().command("mysql.exe");
+        assert_eq!(c.get_program(), root.join("mysql/bin").join("mysql.exe").as_os_str());
+        let a = args(&c);
+        assert!(!a.contains(&"exec".to_string()));
+        assert!(a.contains(&"--port=3999".to_string()) && a.contains(&"--host=127.0.0.1".to_string()));
+        assert_eq!(env_of(&c, "MYSQL_PWD").as_deref(), Some(ROOT_PW));
+    }
+
+    #[test]
+    fn a_docker_installation_does_not_need_tools_in_the_server_folder() {
+        let (_d, root) = folder(true);
+        assert!(!root.join("mysql").exists());
+        assert!(Db::from_repack(&root, Account::Admin).is_ok());
+        // ...but a broken Docker settings file is reported, not ignored.
+        std::fs::write(root.join("Settings/docker.json"), r#"{"project":"Bad Name"}"#).unwrap();
+        assert!(Db::from_repack(&root, Account::Admin).is_err());
+    }
+
+    #[test]
+    fn a_stopped_database_container_is_reported_as_a_database_that_is_not_running() {
+        let (_d, root) = folder(true);
+        let db = Db::from_repack(&root, Account::Admin).unwrap();
+        for text in ["Error response from daemon: container abc is not running", "Error response from daemon: No such container: coa-t1-db", "ERROR 2003 (HY000): Can't connect to MySQL server"] {
+            assert!(db.fail(text.as_bytes()).to_string().contains("not running"), "{text}");
+        }
+        assert!(db.fail(b"ERROR 1045 (28000): Access denied for user 'root'").to_string().contains("Access denied"));
     }
 }
