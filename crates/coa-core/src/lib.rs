@@ -31,6 +31,7 @@ pub mod repair;
 pub mod schema_check;
 pub mod net;
 pub mod package;
+pub mod platform;
 pub mod ra;
 pub mod allsettings;
 pub mod modules;
