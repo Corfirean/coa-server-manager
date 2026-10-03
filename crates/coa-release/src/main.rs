@@ -6,6 +6,7 @@
 //!   coa-release extract-schema-base --package DIR --fixture NEW-coa-schema-fixture-DIR
 //!   coa-release schema-contract --repack FIXTURE --tree DIR --core DIR [--bots DIR] [--repairs DIR]
 //!   coa-release clean-base  --repack DIR --core DIR --tree DIR --out DIR [--bots DIR] [--data DIR]
+//!   coa-release export-baseline --server DIR --out DIR   (the three databases of a prepared server, for a Linux package)
 //!   coa-release sign        --dir DIR        (key: env COA_SIGNING_KEY, or ~/.coa-manager/signing/manifest-signing.key)
 //!   coa-release verify      --dir DIR        (against the public key built into this tool)
 
@@ -92,6 +93,12 @@ fn run() -> Result<(), String> {
             let data = a.get("data").map(PathBuf::from);
             coa_core::cleanbase::build(&coa_core::cleanbase::Params { repack: &repack, core: &core, bots: bots.as_deref(), tree: &tree, data: data.as_deref(), out: &out }, &|s| eprintln!("{s}")).map_err(e)?;
             println!("clean base tree at {}", out.display());
+        }
+        "export-baseline" => {
+            let done = coa_core::release::export_baseline(&PathBuf::from(need(&a, "server")?), &PathBuf::from(need(&a, "out")?)).map_err(e)?;
+            for (kind, bytes) in done {
+                println!("{kind}.sql.zst: {:.1} MB", bytes as f64 / 1e6);
+            }
         }
         "sign" => {
             let dir = PathBuf::from(need(&a, "dir")?);

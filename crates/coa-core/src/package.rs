@@ -21,6 +21,12 @@ pub const DEFAULT_PART_SIZE: u64 = 1_900_000_000;
 /// Archive path of the one-time database credentials shipped with a base package.
 pub const BOOTSTRAP_CREDENTIALS: &str = "Settings/database.bootstrap.json";
 
+/// Folder of a Linux (Docker) package that holds the starting databases: `<kind>.sql.zst` for `auth`, `characters`
+/// and `world`, in the format of the Manager's own backups. They hold the state in which every migration of the package is
+/// already applied (a world database cannot be rebuilt from the repository's SQL files: some migrations are guarded and
+/// only apply to the maintainers' own database).
+pub const BASELINE_DIR: &str = "Database/baseline";
+
 /// Files that never belong in a shipped package: per-install state, logs, secrets, old binaries.
 pub fn excluded(rel: &str) -> bool {
     if rel.replace('\\', "/").to_lowercase().starts_with(".realms/") { return true; }

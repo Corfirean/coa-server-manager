@@ -374,8 +374,45 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   commands do on the host (password through `MYSQL_PWD`, never on a command line). Nothing else changes: accounts,
   backups, the population query, migrations and the RA service account all go through `Db`, and the host needs no
   MySQL client. A repack keeps using its bundled tools.
-* **Not done yet**: installation and the database setup (schemas, `acore` user), updates, port conflict detection,
+* **Health of the database container** is a ping over TCP, like every connection the Manager makes. On a new volume the
+  image first runs a temporary server that answers on its socket but takes no network connection; a socket ping reported
+  the container healthy about four seconds before TCP worked (measured: 10 s against 14 s).
+* **Main configuration files**: a package carries only `worldserver.conf.dist` and `authserver.conf.dist` (the release
+  tool leaves active files out). On Windows the launcher writes them at each start; on Docker `ensure_main_configs` creates
+  them from the templates when they are missing, at installation and at every start, and never overwrites one.
+* **Installing a new server** (`docker/install.rs`, separate from `install::install_base`, which is not touched). Same
+  order of events: signed manifest, space and folder checks, verified download, extraction into `<dest>.installing`,
+  database, then one rename. The package must hold `Core/worldserver`, `Core/authserver`, the `.dist` templates,
+  `_migrations/` and **`Database/baseline/{auth,characters,world}.sql.zst`**. The baseline is a dump, in the format of the
+  Manager's backups, of databases in which **every migration of the package is already applied**; the installer imports
+  it, records those migrations as applied (`baseline = 1`, a few bulk statements) and creates the `acore` account, the
+  realm port and the console account. It is the same arrangement as a Windows package, which ships its prepared database.
+  The databases are **not rebuilt from the repository's SQL**: some migrations are guards generated from the maintainers'
+  live database (`rev_20260903_01_live_class_baseline` refuses to run unless the table holds exactly the rows it expects),
+  so replaying the SQL files from the base scripts fails, in any order. `coa-release export-baseline --server DIR --out DIR`
+  produces the dumps from a prepared server (repack or Docker). The game data stays where the person has it
+  (`dataDir` in `docker.json`, mounted read-only). A failure removes the containers, the volume and the staging folder.
+* **Not done yet**: wiring the installer into the screens, downloading the game data, updates, port conflict detection,
   the firewall and exposure checks, the Wildcard realm profiles, and the client under Wine/Proton.
+
+### D14. Keeping Windows and Linux apart
+
+A fix for one platform must not be able to break the other. The rules:
+
+1. **Platform code lives in its own modules**: `coa_core::docker` for Linux and Docker; the repack code (`driver`, `process`,
+   `install`, `layout` and the bundled-tool half of `db`) for Windows. A new Linux feature is a new file there, not an edit
+   of a repack function.
+2. **Shared modules hold platform-neutral logic only** (manifest, signing, download, extraction, migrations, backups,
+   configuration editing, the registry).
+3. **The difference enters in as few places as possible**: the early `is_docker` return at the top of `driver::run`,
+   `process::observe`, `layout::scan` and `Db::from_repack`, and the platform checks of the Tauri layer. Everything past
+   that point belongs to one platform.
+4. **No `cfg` in the middle of a shared algorithm.** Where one is unavoidable (file modes, a path comparison), it is small,
+   commented, and the other platform's branch is the code that was there before.
+5. **Reuse by calling, not by editing**: a Linux feature that needs a helper from a Windows-side file makes it
+   `pub(crate)` and calls it (visibility only); it does not change what the helper does.
+6. **Both platforms are tested on every pull request** (`check.yml`: Windows and Linux). Tests of one platform's behaviour
+   are marked for that platform, so they cannot fail on the other.
 
 ---------------------------------------------------------------------------------------------------------
 
