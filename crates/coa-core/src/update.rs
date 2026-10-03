@@ -486,9 +486,13 @@ impl Env for RepackEnv<'_> {
         use crate::process::{observe, ServiceState};
         // The check start is the first start of the new build: give the module configs the settings the update added
         // (as a normal start does), or the server logs a "missing property" line for every one of them.
-        if let Ok((_, meta)) = crate::registry::MetaDir::open(self.meta_dir) {
-            if meta.kind == crate::registry::InstallKind::New {
+        match crate::registry::MetaDir::open(self.meta_dir) {
+            Ok((_, meta)) if meta.kind == crate::registry::InstallKind::New => {
                 let _ = crate::config::materialize_module_configs(self.root);
+            }
+            // An imported server gets the files it lacks (nothing it has is changed).
+            _ => {
+                let _ = crate::config::create_missing_module_configs(self.root);
             }
         }
         let started = crate::driver::run(self.root, crate::driver::Verb::StartAll)?;

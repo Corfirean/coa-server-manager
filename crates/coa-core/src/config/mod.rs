@@ -131,6 +131,17 @@ pub struct SettingsView {
 /// so a server updated to a build with a new setting gets that setting's documented default. Files the launcher writes
 /// itself are skipped. Returns what was created (`name.conf`) or extended (`name.conf (+n keys)`).
 pub fn materialize_module_configs(root: &Path) -> Result<Vec<String>> {
+    materialize(root, true)
+}
+
+/// Only the missing active files, created from their `.dist`; a file that exists is not touched at all. This is what a
+/// server the Manager imported (not installed) gets: without its file a module logs a "missing property" line for every
+/// setting it reads, and some modules read them on every world tick.
+pub fn create_missing_module_configs(root: &Path) -> Result<Vec<String>> {
+    materialize(root, false)
+}
+
+fn materialize(root: &Path, extend_existing: bool) -> Result<Vec<String>> {
     let dir = root.join("Core").join("configs").join("modules");
     let mut created = Vec::new();
     let Ok(entries) = fs::read_dir(&dir) else { return Ok(created) };
@@ -155,6 +166,8 @@ pub fn materialize_module_configs(root: &Path) -> Result<Vec<String>> {
                 }
             }
             created.push(format!("{stem}.conf"));
+        } else if !extend_existing {
+            continue;
         } else if let (Ok(have), Ok(dist)) = (fs::read(&active), fs::read(e.path())) {
             if let (Ok(mut conf), Ok(dist)) = (parser::ConfFile::parse_bytes(&have), parser::ConfFile::parse_bytes(&dist)) {
                 let plan = merge::apply(&mut conf, &dist);
@@ -628,6 +641,24 @@ Spellbook.New = 5
         assert!(sb.contains("Spellbook.New = 5"), "new documented key was added: {sb}");
         assert!(!m.join("coa_bugreport.conf").exists());
         assert!(materialize_module_configs(&root).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_imported_server_only_gets_the_files_it_lacks() {
+        let (_d, root, _m) = fixture();
+        let m = root.join("Core/configs/modules");
+        fs::create_dir_all(&m).unwrap();
+        fs::write(m.join("dynamicxp.conf.dist"), "Dynamic.XP.Reminder.Interval = 40
+").unwrap();
+        fs::write(m.join("spellbook.conf.dist"), "Spellbook.Enable = 1
+Spellbook.New = 5
+").unwrap();
+        fs::write(m.join("spellbook.conf"), "Spellbook.Enable = 0
+").unwrap();
+        assert_eq!(create_missing_module_configs(&root).unwrap(), vec!["dynamicxp.conf".to_string()]);
+        assert!(fs::read_to_string(m.join("dynamicxp.conf")).unwrap().contains("Dynamic.XP.Reminder.Interval = 40"));
+        assert_eq!(fs::read_to_string(m.join("spellbook.conf")).unwrap(), "Spellbook.Enable = 0
+", "an existing file stays byte for byte");
     }
 
     #[test]
