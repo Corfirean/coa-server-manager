@@ -50,6 +50,9 @@ export interface StatusView {
   path_exists: boolean;
 }
 
+export type RealmMode = "coa" | "wildcard";
+export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; supported: boolean; recovery_pending: boolean }
+
 export interface Human {
   code: string;
   title: string;
@@ -149,6 +152,7 @@ export interface SaveReport {
 export type BackupKind = "quick" | "full" | "config" | "database";
 
 export interface RecoveryPoint {
+    realm?: RealmMode;
   schema: number;
   id: string;
   kind: BackupKind;
@@ -193,6 +197,7 @@ export interface ModuleView {
   page: string | null;
   /** not shown on the Modules page */
   hidden: boolean;
+  compatibility?: "compatible" | "experimental" | "unsupported";
 }
 
 export interface ModuleSetting {
@@ -361,6 +366,8 @@ export interface ConsoleLine {
 }
 
 export const api = {
+    realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
+    realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
   add: (path: string) => invoke<ServerSummary>("add_server", { path }),

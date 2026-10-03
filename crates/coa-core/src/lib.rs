@@ -29,6 +29,7 @@ pub mod ra;
 pub mod allsettings;
 pub mod modules;
 pub mod realmlist;
+pub mod realms;
 pub mod registry;
 pub mod release;
 pub mod update;

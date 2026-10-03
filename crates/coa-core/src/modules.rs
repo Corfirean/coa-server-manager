@@ -97,6 +97,7 @@ pub struct ModuleView {
     pub icon: String,
     pub page: Option<String>,
     pub hidden: bool,
+    pub compatibility: String,
 }
 
 pub fn list(root: &Path) -> Vec<ModuleView> {
@@ -116,6 +117,7 @@ fn conf_name(root: &Path, e: &Entry) -> String {
 }
 
 fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
+    let wildcard = crate::realms::state(root).map(|s| s.active == crate::realms::Mode::Wildcard).unwrap_or(true);
     cat.iter()
         .cloned()
         .map(|e| {
@@ -126,14 +128,16 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             // the active file decides; without one the documented default is what the server will use
             let enabled = !e.switchable
                 || read(&conf).or_else(|| read(&dist)).and_then(|c| c.get(&e.enable_key).map(truthy)).unwrap_or(e.default_on);
+            let blocked = wildcard && matches!(e.id.as_str(), "companions" | "playerbots");
             ModuleView {
+                compatibility: if blocked { "unsupported" } else if wildcard && e.id != "client-compat" { "experimental" } else { "compatible" }.into(),
                 id: e.id,
                 name: e.name,
                 description: e.description,
                 repo: e.repo,
                 installed,
-                enabled,
-                switchable: e.switchable,
+                enabled: enabled && !blocked,
+                switchable: e.switchable && !blocked,
                 status: e.status,
                 icon: e.icon,
                 page: e.page,
@@ -164,6 +168,7 @@ fn backup(meta: &Path, conf: &Path) -> Result<()> {
 }
 
 pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
+    if on { crate::realms::guard_module(root, id)?; }
     set_enabled_in(&catalog(), root, meta, id, on)
 }
 
@@ -217,6 +222,7 @@ fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
 
 /// Change values of settings the module already has. A value is one line of at most 500 characters.
 pub fn save_settings(root: &Path, meta: &Path, id: &str, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
+    crate::realms::guard_module(root, id)?;
     save_settings_in(&catalog(), root, meta, id, changes)
 }
 

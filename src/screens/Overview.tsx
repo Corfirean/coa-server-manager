@@ -8,6 +8,7 @@ import { applyServerUpdate, useServerUpdate } from "@/lib/serverUpdate";
 import { checkClient, useClientStatus } from "@/lib/clientUpdate";
 import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { RealmlistMenu } from "@/screens/RealmlistMenu";
+import { RealmPicker } from "@/screens/RealmPicker";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -63,11 +64,12 @@ function Row({ label, s }: { label: string; s: ServiceStatus }) {
   );
 }
 
-export function Overview({ server, companions = true, onForget, onOpenUpdates }: { server: ServerSummary; /** the companions module is on */ companions?: boolean; onForget: () => Promise<void>; onOpenUpdates: () => void }) {
+export function Overview({ server, companions = true, onForget, onOpenUpdates, onRealmChanged }: { server: ServerSummary; /** the companions module is on */ companions?: boolean; onForget: () => Promise<void>; onOpenUpdates: () => void; onRealmChanged: () => void }) {
   const t = useT();
   const human = useHuman();
   const [status, setStatus] = useState<StatusView | null>(null);
   const [action, setAction] = useState<Action>(null);
+  const [realmBusy, setRealmBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [pop, setPop] = useState<Population | null>(null);
@@ -197,10 +199,10 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates }:
   const all = [mysql, auth, world];
   const running = all.every((s) => s.state === "running");
   const anyUp = all.some((s) => s.state !== "stopped");
-  const transitioning = action !== null || status.busy;
+  const transitioning = action !== null || status.busy || realmBusy;
   const conflict = all.find((s) => s.conflict)?.conflict ?? null;
 
-  const headline = transitioning
+  const headline = realmBusy ? t("realm.switching") : transitioning
     ? action === "stopping"
       ? t("status.stopping")
       : t("status.starting")
@@ -215,6 +217,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates }:
     <div className="w-full max-w-4xl">
       <h1 className="text-2xl font-semibold">{server.name}</h1>
       <p className="selectable mt-0.5 text-xs text-muted">{server.path}</p>
+      <RealmPicker serverId={server.id} running={anyUp} disabled={transitioning || upd.applying} onBusy={setRealmBusy} onChanged={() => { onRealmChanged(); void poll(); }} />
 
       <Card className="mt-6 p-7">
         <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{t("overview.server")}</div>

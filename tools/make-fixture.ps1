@@ -3,7 +3,8 @@
 param(
     [string]$Source = 'C:\games\CoA-Repack',
     [string]$Target = 'C:\games\coa-fixture',
-    [int]$PortBase = 13000
+    [int]$PortBase = 13000,
+    [string]$DatabaseArchive = ''
 )
 $ErrorActionPreference = 'Stop'
 if ((Resolve-Path $Source).Path -eq $Target) { throw 'source and target are the same' }
@@ -27,7 +28,8 @@ foreach ($d in 'bin', 'lib', 'share') { Copy-Tree "mysql\$d" }
 Copy-Item "$Source\RELEASE.json", "$Source\MANIFEST.json" $Target
 
 # Pristine packaged database (never the live data directory).
-& 'C:\Program Files\7-Zip\7z.exe' x "$Source\mysql\data.7z" "-o$Target\mysql" -y | Out-Null
+if (-not $DatabaseArchive) { $DatabaseArchive = "$Source\mysql\data.7z" }
+& 'C:\Program Files\7-Zip\7z.exe' x $DatabaseArchive "-o$Target\mysql" -y | Out-Null
 if (-not (Test-Path "$Target\mysql\data\acore_characters")) { throw 'database extraction failed' }
 
 New-Item -ItemType Junction -Path "$Target\Data" -Target "$Source\Data" | Out-Null

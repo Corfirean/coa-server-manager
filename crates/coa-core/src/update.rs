@@ -476,9 +476,24 @@ impl Env for RepackEnv<'_> {
     fn migrate(&self, manifest: &Manifest, staged: &Path) -> Result<ApplyReport> {
         let (root, meta) = (self.root, self.meta_dir);
         crate::backup::with_database(root, |db| {
-            crate::migrations::apply_pending(db, &manifest.migrations, staged, &|| {
-                Ok(crate::backup::create(root, meta, crate::backup::Kind::Database, crate::backup::Trigger::BeforeMigration, None, &|_| {})?.id)
-            })
+            let realms = crate::realms::state(root)?;
+            let mut result = crate::migrations::apply_pending(db, &manifest.migrations, staged, &|| {
+                Ok(crate::backup::create(root, meta, crate::backup::Kind::Full, crate::backup::Trigger::BeforeMigration, None, &|_| {})?.id)
+            })?;
+            if realms.wildcard_created && result.failed.is_none() {
+                let other = if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa };
+                let other_db = db.clone().for_realm(other);
+                let shared_snapshot = result.snapshot.clone();
+                let migrations: Vec<_> = manifest.migrations.iter().filter(|m| m.db != "auth").cloned().collect();
+                let extra = crate::migrations::apply_pending(&other_db, &migrations, staged, &|| {
+                    if let Some(id) = &shared_snapshot { return Ok(id.clone()); }
+                    Ok(crate::backup::create(root, meta, crate::backup::Kind::Full, crate::backup::Trigger::BeforeMigration, None, &|_| {})?.id)
+                })?;
+                result.applied.extend(extra.applied);
+                result.failed = extra.failed;
+                if result.snapshot.is_none() { result.snapshot = extra.snapshot; }
+            }
+            Ok(result)
         })
     }
 

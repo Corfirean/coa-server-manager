@@ -44,6 +44,7 @@ pub struct Db {
     port: u16,
     user: &'static str,
     password: Secret,
+    realm: crate::realms::Mode,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +68,8 @@ fn no_window(cmd: &mut Command) {
 pub const SCHEMAS: [(&str, &str); 3] = [("characters", "acore_characters"), ("auth", "acore_auth"), ("world", "acore_world")];
 
 pub fn schema_of(kind: &str) -> Result<&'static str> {
+    if let Some(kind) = kind.strip_prefix("wildcard-") { return crate::realms::Mode::Wildcard.schema(kind); }
+    if let Some(kind) = kind.strip_prefix("coa-") { return crate::realms::Mode::Coa.schema(kind); }
     SCHEMAS.iter().find(|(k, _)| *k == kind).map(|(_, s)| *s).ok_or_else(|| Error::Invalid(format!("unknown database {kind}")))
 }
 
@@ -87,7 +90,38 @@ impl Db {
             Account::Admin => ("root", creds.root_password),
             Account::App => ("acore", creds.app_password),
         };
-        Ok(Db { bin, port: ports.mysql, user, password: Secret(password) })
+        Ok(Db { bin, port: ports.mysql, user, password: Secret(password), realm: crate::realms::state(root)?.active })
+    }
+
+    pub fn for_realm(mut self, realm: crate::realms::Mode) -> Self { self.realm = realm; self }
+
+    pub fn realm_schema<'a>(&self, name: &'a str) -> &'a str {
+        if self.realm == crate::realms::Mode::Wildcard {
+            match name {
+                "acore_world" => "acore_world_wildcard",
+                "acore_characters" => "acore_characters_wildcard",
+                _ => name,
+            }
+        } else { name }
+    }
+
+    pub fn clone_structure(&self, source: &str, dest: &str, cache: &Path) -> Result<()> {
+        if !ident_ok(source) || !ident_ok(dest) { return Err(Error::Invalid("Invalid schema name.".into())); }
+        let path = cache.join("characters-structure.sql");
+        self.dump_structure_to(source, &path)?;
+        self.run_sql_file(dest, &path)?;
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    pub fn dump_structure_to(&self, source: &str, path: &Path) -> Result<()> {
+        if !ident_ok(source) { return Err(Error::Invalid("Invalid schema name.".into())); }
+        let mut c = self.command("mysqldump.exe");
+        c.args(["--no-data", "--no-tablespaces", "--skip-comments", "--default-character-set=utf8mb4", source]);
+        c.stdout(Stdio::from(File::create(&path)?));
+        let out = c.output()?;
+        if !out.status.success() { return Err(self.fail(&out.stderr)); }
+        Ok(())
     }
 
     fn command(&self, tool: &str) -> Command {
@@ -123,9 +157,10 @@ impl Db {
     pub fn query(&self, sql: &str) -> Result<String> {
         let mut c = self.command("mysql.exe");
         c.args(["--batch", "--skip-column-names", "--connect-timeout=5"]);
+        c.args(["--default-character-set=utf8mb4", "--max-allowed-packet=128M"]);
         c.stdin(Stdio::piped());
         let mut child = c.spawn()?;
-        child.stdin.take().expect("piped").write_all(sql.as_bytes())?;
+        child.stdin.take().expect("piped").write_all(route_sql(sql, self.realm).as_bytes())?;
         let out = child.wait_with_output()?;
         if !out.status.success() {
             return Err(self.fail(&out.stderr));
@@ -134,6 +169,7 @@ impl Db {
     }
 
     pub fn schema_exists(&self, name: &str) -> Result<bool> {
+        let name = self.realm_schema(name);
         if !ident_ok(name) {
             return Err(Error::Invalid("bad schema name".into()));
         }
@@ -141,6 +177,7 @@ impl Db {
     }
 
     pub fn tables(&self, schema: &str) -> Result<Vec<String>> {
+        let schema = self.realm_schema(schema);
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
         }
@@ -150,6 +187,7 @@ impl Db {
 
     /// Bytes of data + index the schema occupies (used to estimate backup size).
     pub fn schema_bytes(&self, schema: &str) -> Result<u64> {
+        let schema = self.realm_schema(schema);
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
         }
@@ -159,6 +197,7 @@ impl Db {
 
     /// Stored routines / triggers / views make a table-level swap unsafe; count them.
     pub fn extra_objects(&self, schema: &str) -> Result<u64> {
+        let schema = self.realm_schema(schema);
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
         }
@@ -170,6 +209,7 @@ impl Db {
 
     /// Consistent dump of one schema, zstd-compressed to `out`. Returns (compressed bytes, sha256 of the file).
     pub fn dump_to(&self, schema: &str, out: &Path) -> Result<(u64, String)> {
+        let schema = self.realm_schema(schema);
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
         }
@@ -203,8 +243,14 @@ impl Db {
 
     /// Run a plain SQL file against `schema`; the first error aborts and is returned.
     pub fn run_sql_file(&self, schema: &str, file: &Path) -> Result<()> {
+        let schema = self.realm_schema(schema);
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
+        }
+        if self.realm == crate::realms::Mode::Wildcard {
+            let sql = std::fs::read_to_string(file)?;
+            self.query(&format!("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci; USE `{schema}`;\n{sql}"))?;
+            return Ok(());
         }
         let mut c = self.command("mysql.exe");
         c.args(["--default-character-set=utf8mb4", "--init-command=SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci", "--max-allowed-packet=128M"]);
@@ -219,6 +265,7 @@ impl Db {
 
     /// Import a dump produced by `dump_to` into `schema` (which must already exist and be empty).
     pub fn import_from(&self, schema: &str, dump: &Path) -> Result<()> {
+        let schema = self.realm_schema(schema);
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
         }
@@ -277,4 +324,51 @@ pub fn write_console_credentials(root: &Path, password: &str) -> Result<()> {
 
 pub fn valid_identifier(name: &str) -> bool {
     ident_ok(name)
+}
+
+// Route only SQL identifiers. User names, values, comments and longer identifiers remain untouched.
+fn route_sql(sql: &str, realm: crate::realms::Mode) -> String {
+    if realm == crate::realms::Mode::Coa { return sql.into(); }
+    let bytes = sql.as_bytes();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        if matches!(bytes[i], b'\'' | b'"') {
+            let quote = bytes[i]; i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' { i = (i + 2).min(bytes.len()); }
+                else if bytes[i] == quote {
+                    i += 1;
+                    if i < bytes.len() && bytes[i] == quote { i += 1; } else { break; }
+                } else { i += 1; }
+            }
+            out.push_str(&sql[start..i]);
+        } else if bytes[i] == b'#' || sql[i..].starts_with("--") || sql[i..].starts_with("/*") {
+            if sql[i..].starts_with("/*") {
+                i = sql[i + 2..].find("*/").map(|p| i + p + 4).unwrap_or(bytes.len());
+            } else { i = sql[i..].find('\n').map(|p| i + p).unwrap_or(bytes.len()); }
+            out.push_str(&sql[start..i]);
+        } else if bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' {
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') { i += 1; }
+            out.push_str(match &sql[start..i] {
+                "acore_world" => "acore_world_wildcard",
+                "acore_characters" => "acore_characters_wildcard",
+                other => other,
+            });
+        } else {
+            let c = sql[i..].chars().next().unwrap(); out.push(c); i += c.len_utf8();
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod realm_tests {
+    use super::*;
+    #[test]
+    fn routes_schema_identifiers_without_rewriting_account_values() {
+        let sql = "SELECT * FROM `acore_characters`.characters WHERE name='acore_world' AND x=\"acore_characters\"; -- acore_world\nSELECT * FROM acore_world.items;";
+        assert_eq!(route_sql(sql, crate::realms::Mode::Wildcard), "SELECT * FROM `acore_characters_wildcard`.characters WHERE name='acore_world' AND x=\"acore_characters\"; -- acore_world\nSELECT * FROM acore_world_wildcard.items;");
+    }
 }

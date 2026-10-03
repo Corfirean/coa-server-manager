@@ -51,7 +51,7 @@ export function Shell(props: {
   const reloadModules = useCallback(() => {
     void api
       .modulesList(props.activeId)
-      .then((list) => setHiddenPages(list.filter((m) => m.page && (!m.installed || (m.switchable && !m.enabled))).map((m) => m.page as string)))
+      .then((list) => setHiddenPages(list.filter((m) => m.page && (!m.installed || m.compatibility === "unsupported" || (m.switchable && !m.enabled))).map((m) => m.page as string)))
       .catch(() => setHiddenPages([]));
   }, [props.activeId]);
   useEffect(() => {
@@ -122,7 +122,7 @@ export function Shell(props: {
 
       <main className="h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
-          <Overview key={server.id} server={server} companions={!hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} />
+          <Overview key={server.id} server={server} companions={!hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} onRealmChanged={reloadModules} />
         ) : page === "bots" || page === "server" ? (
           <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={t(current.label)} question={t(current.question)} />
         ) : page === "console" ? (
