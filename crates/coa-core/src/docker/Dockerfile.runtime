@@ -1,0 +1,7 @@
+# Runtime image of the CoA server. It holds only the shared libraries the server binaries need (checked with ldd on
+# Ubuntu 26.04: libmysqlclient24, ICU 78, ncurses 6 and readline 8); the binaries themselves are mounted from the
+# server folder, so an update replaces files and does not rebuild this image.
+FROM ubuntu:26.04
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libmysqlclient24 libicu78 libncurses6 libreadline8t64 \
+    && rm -rf /var/lib/apt/lists/*

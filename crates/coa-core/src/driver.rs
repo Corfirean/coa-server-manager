@@ -80,6 +80,9 @@ fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
 /// Run a launcher verb to completion (blocking; call from a worker thread).
 pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
+    if crate::docker::is_docker(&root) {
+        return crate::docker::run(&root, verb);
+    }
     if verb == Verb::StartAll {
         crate::realms::before_start(&root)?;
         if root.join("Settings/realm-profile.json").exists() {

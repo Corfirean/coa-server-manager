@@ -104,6 +104,8 @@ const en = {
   "err.operation_in_progress.message": "The server is busy starting or stopping. Wait a moment and try again.",
   "err.startup_failed.title": "Server could not start",
   "err.startup_failed.message": "A service stopped while starting. Check the details for the cause.",
+  "err.docker_unavailable.title": "Docker is not available",
+  "err.docker_unavailable.message": "This server runs in Docker. Install Docker, start it, and make sure your user account may use it, then try again.",
   "err.hash_mismatch.title": "A downloaded file is damaged",
   "err.hash_mismatch.message": "The file did not match its checksum and was not used.",
   "err.path_rejected.title": "That location is not allowed",

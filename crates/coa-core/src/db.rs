@@ -77,6 +77,13 @@ fn ident_ok(name: &str) -> bool {
     !name.is_empty() && name.len() <= 64 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// (root password, application password) from `Settings/database.json`.
+pub(crate) fn credentials(root: &Path) -> Result<(String, String)> {
+    let c: Credentials = fsx::read_json(&root.join("Settings/database.json"))
+        .map_err(|_| Error::Invalid("The database settings of this server could not be read.".into()))?;
+    Ok((c.root_password, c.app_password))
+}
+
 impl Db {
     pub fn from_repack(root: &Path, account: Account) -> Result<Db> {
         let creds: Credentials = fsx::read_json(&root.join("Settings/database.json"))
