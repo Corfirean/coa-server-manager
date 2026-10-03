@@ -4,12 +4,14 @@ import ru from "./locales/ru";
 import de from "./locales/de";
 import fr from "./locales/fr";
 import es from "./locales/es";
+import zh from "./locales/zh";
 import ruSchema from "./schema/ru.json";
 import deSchema from "./schema/de.json";
 import frSchema from "./schema/fr.json";
 import esSchema from "./schema/es.json";
+import zhSchema from "./schema/zh.json";
 
-export type Locale = "en" | "ru" | "de" | "fr" | "es";
+export type Locale = "en" | "ru" | "de" | "fr" | "es" | "zh";
 export type Key = keyof typeof en;
 type Vars = Record<string, string | number>;
 
@@ -19,9 +21,10 @@ export const LOCALES: { id: Locale; name: string }[] = [
   { id: "de", name: "Deutsch" },
   { id: "fr", name: "Français" },
   { id: "es", name: "Español" },
+  { id: "zh", name: "简体中文" },
 ];
 
-const DICTS: Record<Locale, Partial<Record<Key, string>>> = { en, ru, de, fr, es };
+const DICTS: Record<Locale, Partial<Record<Key, string>>> = { en, ru, de, fr, es, zh };
 const STORAGE_KEY = "coa-locale";
 
 function initialLocale(): Locale {
@@ -95,7 +98,7 @@ interface SchemaOverlay {
   options: Record<string, string>;
   presets: Record<string, { t: string; d: string }>;
 }
-const SCHEMA: Partial<Record<Locale, SchemaOverlay>> = { ru: ruSchema, de: deSchema, fr: frSchema, es: esSchema };
+const SCHEMA: Partial<Record<Locale, SchemaOverlay>> = { ru: ruSchema, de: deSchema, fr: frSchema, es: esSchema, zh: zhSchema };
 
 export function useSchemaText() {
   const { locale } = useContext(I18n);

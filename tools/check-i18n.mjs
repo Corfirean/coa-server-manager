@@ -22,7 +22,7 @@ const en = load("en");
 let errors = 0;
 
 console.log(`en: ${en.size} keys (source of truth)`);
-for (const loc of ["ru", "de", "fr", "es"]) {
+for (const loc of ["ru", "de", "fr", "es", "zh"]) {
   const d = load(loc);
   let missing = 0;
   for (const [k, v] of d) {
@@ -41,7 +41,7 @@ for (const loc of ["ru", "de", "fr", "es"]) {
 // Settings-schema overlays (src/i18n/schema/<locale>.json) must cover every setting, category, option and preset.
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const schemas = ["bots", "server"].map((sc) => ({ sc, d: JSON.parse(readFileSync(join(root, "schemas", `${sc}.json`), "utf8")), p: JSON.parse(readFileSync(join(root, "schemas", "presets", `${sc}.json`), "utf8")).presets }));
-for (const loc of ["ru", "de", "fr", "es"]) {
+for (const loc of ["ru", "de", "fr", "es", "zh"]) {
   const o = JSON.parse(readFileSync(join(root, "src", "i18n", "schema", `${loc}.json`), "utf8"));
   let miss = 0;
   for (const { sc, d, p } of schemas) {

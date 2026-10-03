@@ -1,6 +1,7 @@
-//! The game client is a separate object: detected read-only, and touched only in two narrow ways -
+//! The game client is a separate object: detected read-only, with targeted updates to
 //! `realmlist.wtf` (backed up first) and the `Interface/AddOns/CoABotUI` folder (backed up when it differs).
-//! WTF, Cache, other addons and the executable are never modified.
+//! The selected realm in WTF/Config.wtf is synchronized while the client is closed.
+//! Cache, other addons and the executable are never modified.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -14,6 +15,67 @@ use crate::fsx;
 
 pub const ADDON_NAME: &str = "CoABotUI";
 const EXECUTABLES: [&str; 3] = ["Ascension.exe", "Wow.exe", "WoW.exe"];
+
+pub fn is_running(client: &Path) -> bool {
+    EXECUTABLES.iter().any(|exe| {
+        let path = client.join(exe);
+        let path = dunce::canonicalize(&path).unwrap_or(path);
+        !crate::process::find_by_exe(&path).is_empty()
+    })
+}
+
+fn realm_config(old: &[u8], realm: &str) -> Vec<u8> {
+    let eol: &[u8] = if old.windows(2).any(|w| w == b"\r\n") { b"\r\n" } else { b"\n" };
+    let mut out = Vec::new();
+    let mut replaced = false;
+    for line in old.split_inclusive(|b| *b == b'\n') {
+        let body = line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(line);
+        let mut words = body.split(|b| b.is_ascii_whitespace()).filter(|w| !w.is_empty());
+        let matches = words.next().is_some_and(|w| w.eq_ignore_ascii_case(b"SET"))
+            && words.next().is_some_and(|w| w.eq_ignore_ascii_case(b"realmName"));
+        if matches {
+            if line.starts_with(b"\xef\xbb\xbf") { out.extend_from_slice(b"\xef\xbb\xbf"); }
+            out.extend_from_slice(format!("SET realmName \"{realm}\"").as_bytes());
+            if line.ends_with(b"\r\n") { out.extend_from_slice(b"\r\n"); }
+            else if line.ends_with(b"\n") { out.push(b'\n'); }
+            replaced = true;
+        } else {
+            out.extend_from_slice(line);
+        }
+    }
+    if !replaced {
+        if !out.is_empty() && !out.ends_with(b"\n") { out.extend_from_slice(eol); }
+        out.extend_from_slice(format!("SET realmName \"{realm}\"").as_bytes());
+        out.extend_from_slice(eol);
+    }
+    out
+}
+
+pub fn sync_realm(client: &Path, meta: &Path, mode: crate::realms::Mode) -> Result<bool> {
+    sync_realm_when_closed(client, meta, mode, is_running(client))
+}
+
+fn sync_realm_when_closed(client: &Path, meta: &Path, mode: crate::realms::Mode, running: bool) -> Result<bool> {
+    if running { return Ok(false); }
+    let file = client.join("WTF/Config.wtf");
+    let old = match fs::read(&file) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(e.into()),
+    };
+    let realm = match mode {
+        crate::realms::Mode::Coa => "Conquest of Azeroth",
+        crate::realms::Mode::Wildcard => "Wildcard",
+    };
+    let new = realm_config(&old, realm);
+    if new == old { return Ok(true); }
+    if file.exists() {
+        let saved = backup_dir(meta).join(format!("config-realm-{}.wtf", uuid::Uuid::new_v4()));
+        fsx::atomic_write(&saved, &old)?;
+    }
+    fsx::atomic_write(&file, &new)?;
+    Ok(true)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Realmlist {
@@ -252,6 +314,45 @@ pub fn launch(client: &Path) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn realm_selection_preserves_other_settings_bytes_and_line_endings() {
+        let old = b"\xef\xbb\xbfSET realmName \"Wildcard\"\r\nSET accountName \"\xff\"\r\nset REALMNAME \"old\"\r\nSET realmList \"127.0.0.1\"";
+        let expected = b"\xef\xbb\xbfSET realmName \"Conquest of Azeroth\"\r\nSET accountName \"\xff\"\r\nSET realmName \"Conquest of Azeroth\"\r\nSET realmList \"127.0.0.1\"";
+        assert_eq!(realm_config(old, "Conquest of Azeroth"), expected);
+        assert_eq!(realm_config(b"SET sound 1", "Wildcard"), b"SET sound 1\nSET realmName \"Wildcard\"\n");
+    }
+
+    #[test]
+    fn realm_sync_backs_up_config_and_is_idempotent() {
+        let d = tempfile::tempdir().unwrap();
+        let c = fake_client(d.path());
+        let meta = d.path().join("meta");
+        let original = b"SET sound 1\r\nSET realmName \"Wildcard\"\r\n";
+        fs::write(c.join("WTF/Config.wtf"), original).unwrap();
+        assert!(sync_realm(&c, &meta, crate::realms::Mode::Coa).unwrap());
+        let backups: Vec<_> = fs::read_dir(backup_dir(&meta)).unwrap().flatten().collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(fs::read(backups[0].path()).unwrap(), original);
+        assert!(sync_realm(&c, &meta, crate::realms::Mode::Coa).unwrap());
+        assert_eq!(fs::read_dir(backup_dir(&meta)).unwrap().count(), 1);
+        assert!(sync_realm(&c, &meta, crate::realms::Mode::Wildcard).unwrap());
+        assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), original);
+    }
+
+    #[test]
+    fn running_client_defers_realm_update_until_closed() {
+        let d = tempfile::tempdir().unwrap();
+        let c = fake_client(d.path());
+        let meta = d.path().join("meta");
+        let original = b"SET realmName \"Wildcard\"\n";
+        fs::write(c.join("WTF/Config.wtf"), original).unwrap();
+        assert!(!sync_realm_when_closed(&c, &meta, crate::realms::Mode::Coa, true).unwrap());
+        assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), original);
+        assert!(!backup_dir(&meta).exists());
+        assert!(sync_realm_when_closed(&c, &meta, crate::realms::Mode::Coa, false).unwrap());
+        assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), b"SET realmName \"Conquest of Azeroth\"\n");
+    }
 
     fn fake_client(d: &Path) -> PathBuf {
         let c = d.join("wow");

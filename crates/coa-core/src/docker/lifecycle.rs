@@ -363,6 +363,7 @@ fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, port: u16, ra
     // on every interface of the container (the published address decides who can connect).
     let env = |k: &str, v: &str| ["--env".to_string(), format!("{k}={v}")];
     a.extend(env("AC_BIND_IP", "0.0.0.0"));
+    a.extend(env(if kind == GameKind::World { "AC_WORLD_SERVER_PORT" } else { "AC_REALM_SERVER_PORT" }, &inner_port.to_string()));
     a.extend(env("AC_LOGS_DIR", &format!("{CORE}/Logs")));
     // The Manager applies database updates itself. The server's own updater would need a `mysql` client program inside
     // the container and stops the server when it cannot find one.
@@ -374,6 +375,7 @@ fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, port: u16, ra
         a.extend(["--publish".into(), format!("127.0.0.1:{ra_port}:{RA_PORT}")]);
         a.extend(env("AC_RA_ENABLE", "1"));
         a.extend(env("AC_RA_IP", "0.0.0.0"));
+        a.extend(env("AC_RA_PORT", &RA_PORT.to_string()));
         // Saving every character can take a while.
         a.extend(["--stop-timeout".into(), "180".into()]);
         a.extend(["--env".into(), "AC_WORLD_DATABASE_INFO".into(), "--env".into(), "AC_CHARACTER_DATABASE_INFO".into()]);
@@ -703,6 +705,21 @@ mod tests {
         assert!(runs[1].args.iter().any(|a| a == "0.0.0.0:8085:8085"));
         assert!(runs[1].args.iter().any(|a| a == "127.0.0.1:3443:3443"), "the console stays private");
         assert!(runs[2].args.iter().any(|a| a == "0.0.0.0:3724:3724"));
+    }
+
+    #[test]
+    fn custom_host_ports_keep_the_container_listeners_on_the_mapped_ports() {
+        let (_d, root) = server("ports");
+        let cfg = Config::load(&root).unwrap();
+        let n = cfg.names();
+        let world = game_args(&cfg, &n, GameKind::World, &root, 18085, 13443, None);
+        let auth = game_args(&cfg, &n, GameKind::Auth, &root, 13724, 0, None);
+        assert!(world.iter().any(|a| a == "127.0.0.1:18085:8085"));
+        assert!(world.iter().any(|a| a == "127.0.0.1:13443:3443"));
+        assert!(world.iter().any(|a| a == "AC_WORLD_SERVER_PORT=8085"));
+        assert!(world.iter().any(|a| a == "AC_RA_PORT=3443"));
+        assert!(auth.iter().any(|a| a == "127.0.0.1:13724:3724"));
+        assert!(auth.iter().any(|a| a == "AC_REALM_SERVER_PORT=3724"));
     }
 
     #[test]

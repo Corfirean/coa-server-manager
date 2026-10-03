@@ -545,6 +545,10 @@ async fn realm_select(state: State<'_, AppState>, id: String, mode: coa_core::re
             if !out.ok { return Err(Error::Invalid(out.output)); }
         }
         let view = coa_core::realms::select(&root, mode)?;
+        let (dir, meta) = install_meta(&root)?;
+        if let Some(client) = meta.client_path {
+            coa_core::client::sync_realm(std::path::Path::new(&client), &dir, view.active)?;
+        }
         if restart {
             let out = driver::run(&root, Verb::StartAll)?;
             if !out.ok { return Err(Error::Invalid(format!("Realm selected, but startup failed: {}", out.output))); }
@@ -1120,19 +1124,27 @@ fn end_client_job(state: &AppState) {
 #[tauri::command]
 async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
     let root = path_of(&state, &id)?;
-    let (_, _, client) = client_of(&root)?;
+    let (dir, _, client) = client_of(&root)?;
     let client = client.unwrap();
+    if coa_core::client::is_running(&client) {
+        return Err(Error::Invalid("Close the game client before pressing Play so its selected realm can be updated.".into()).into());
+    }
     let ready = {
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
         [&o.mysql, &o.auth, &o.world].iter().all(|s| s.state == coa_core::process::ServiceState::Running)
     };
     if !ready {
-        let out = run_verb(&state, id, Verb::StartAll).await?;
+        let out = run_verb(&state, id.clone(), Verb::StartAll).await?;
         if !out.ok {
             return Ok(out);
         }
     }
+    let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
+        let mode = coa_core::realms::state(&root)?.active;
+        if !coa_core::client::sync_realm(&client, &dir, mode)? {
+            return Err(Error::Invalid("Close the game client before pressing Play so its selected realm can be updated.".into()));
+        }
         coa_core::client::launch(&client)?;
         Ok(DriverOutcome { ok: true, exit_code: None, code: None, human: None, output: String::new() })
     })

@@ -1,0 +1,601 @@
+{
+ "categories": {
+  "bots.general": "常规",
+  "bots.population": "人口与数量",
+  "bots.login": "登录",
+  "bots.roles": "职责分配",
+  "bots.openworld": "野外世界",
+  "bots.quests": "任务系统",
+  "bots.combat": "战斗",
+  "bots.dungeon": "地下城",
+  "bots.battlegrounds": "战场",
+  "bots.social": "社交与互助",
+  "bots.advanced": "高级设置",
+  "server.gameplay": "游戏玩法",
+  "server.rates": "倍率",
+  "server.characters": "角色",
+  "server.world": "游戏世界",
+  "server.network": "网络",
+  "server.accounts": "账号",
+  "server.logging": "日志",
+  "server.performance": "性能",
+  "server.advanced": "高级设置"
+ },
+ "units": {
+  "ms": "毫秒",
+  "%": "%",
+  "yards": "码",
+  "levels": "级",
+  "x": "倍",
+  "min": "分钟",
+  "copper": "铜币"
+ },
+ "settings": {
+  "CoaBots.RandomSpawn.DefaultCount": {
+   "t": "单次生成命令创建数量",
+   "d": "当生成命令未指定数量时，默认创建的机器人数量。"
+  },
+  "CoaBots.RandomSpawn.MaxCount": {
+   "t": "单次最大生成上限",
+   "d": "单次生成命令的安全上限。批量创建过多可能导致服务器短暂卡顿，建议仅在无其他玩家在线时调高。"
+  },
+  "CoaBots.LeveledSpawn.Brackets": {
+   "t": "新机器人等级分布",
+   "d": "新生成机器人的等级分布区间与权重（例如 1-20:40 表示等级 1 到 20 占比 40）。"
+  },
+  "CoaBots.RandomSpawn.AutoLogin": {
+   "t": "新机器人立即上线",
+   "d": "新创建的机器人立即登录游戏，而不是留在数据库中等待。"
+  },
+  "CoaBots.RandomSpawn.AccountPrefix": {
+   "t": "机器人账号前缀",
+   "d": "机器人所使用的账号名称前缀。修改此项会导致现有机器人无法自动登录。"
+  },
+  "CoaBots.RandomSpawn.BatchSize": {
+   "t": "每批次生成数量",
+   "d": "将创建过程分批分散进行以保证服务器流畅。数值越大越快，但可能引起卡顿。"
+  },
+  "CoaBots.RandomSpawn.BatchIntervalMs": {
+   "t": "批次生成间隔",
+   "d": "每次批量生成之间的间隔时间。数值越小生成越快，但可能引起卡顿。"
+  },
+  "CoaBots.AutoLoginOnStartup": {
+   "t": "开机自动登录机器人",
+   "d": "服务器每次启动时，现有的机器人自动登录上线。"
+  },
+  "CoaBots.AutoLogin.MaxCount": {
+   "t": "最大在线机器人数量",
+   "d": "服务器启动时自动登录的机器人上限数量。"
+  },
+  "CoaBots.AutoLogin.BatchSize": {
+   "t": "每批次登录数量",
+   "d": "将登录分散进行。数值越高上线越快，但对服务器负载更大。"
+  },
+  "CoaBots.AutoLogin.BatchIntervalMs": {
+   "t": "批次登录间隔",
+   "d": "每次批量登录之间的间隔时间。"
+  },
+  "CoaBots.SpecBalance.TankTargetPct": {
+   "t": "坦克职业目标比例",
+   "d": "机器人中坦克专精的目标占比百分比。"
+  },
+  "CoaBots.SpecBalance.HealerTargetPct": {
+   "t": "治疗职业目标比例",
+   "d": "机器人中治疗专精的目标占比百分比。"
+  },
+  "CoaBots.TalentBuildsPath": {
+   "t": "天赋数据文件路径",
+   "d": "社区天赋方案配置文件的保存路径。留空则使用内置搜索。"
+  },
+  "CoaBots.World.Enable": {
+   "t": "野外差事与漫游",
+   "d": "允许机器人在野外世界中游荡、采集、钓鱼与刷怪。"
+  },
+  "CoaBots.World.ThinkIntervalMs": {
+   "t": "差事决策间隔",
+   "d": "每个机器人重新评估其当前差事的时间间隔。"
+  },
+  "CoaBots.World.IdleBeforeErrandMs": {
+   "t": "开始差事前发呆时间",
+   "d": "机器人在无所事事多久后会开始新的差事活动。"
+  },
+  "CoaBots.World.AreaRadius": {
+   "t": "差事搜索区域半径",
+   "d": "机器人寻找采集或刷怪地点的最大范围。"
+  },
+  "CoaBots.World.ServiceRadius": {
+   "t": "城镇设施搜索半径",
+   "d": "机器人寻找商人、修理工和邮箱的最大距离。"
+  },
+  "CoaBots.World.VerboseLog": {
+   "t": "详细差事日志",
+   "d": "将差事的每一步都记录到日志中。适用于调试，机器人较多时会产生大量日志。"
+  },
+  "CoaBots.Grind.SearchRadius": {
+   "t": "刷怪搜索半径",
+   "d": "机器人寻找野怪进行刷怪升级的范围半径。"
+  },
+  "CoaBots.Grind.MaxLevelAbove": {
+   "t": "刷怪最高超出自身等级",
+   "d": "机器人在野外刷怪时愿意挑战高于自身多少级的怪物。"
+  },
+  "CoaBots.Profile.IntentMinMs": {
+   "t": "意图持续最短时间",
+   "d": "机器人保持从事同一种活动的最短持续时间。"
+  },
+  "CoaBots.Profile.IntentMaxMs": {
+   "t": "意图持续最长时间",
+   "d": "机器人保持从事同一种活动的最长持续时间。"
+  },
+  "CoaBots.WorldBrain.Enable": {
+   "t": "自主任务AI",
+   "d": "机器人会自主接取并完成任务。关闭时机器人只会采集、钓鱼、刷怪和游荡。"
+  },
+  "CoaBots.WorldBrain.MaxActiveQuests": {
+   "t": "最大同时进行任务数",
+   "d": "单个机器人任务日志中同时拥有的最大任务数量。"
+  },
+  "CoaBots.WorldBrain.AcceptEliteQuests": {
+   "t": "单人接取精英任务",
+   "d": "单人机器人是否接取精英任务。默认关闭，因为通常无法单人完成。"
+  },
+  "CoaBots.WorldBrain.QuestLevelBelow": {
+   "t": "接取低于自身等级任务",
+   "d": "机器人仍愿意接取低于自身多少级的低级任务。"
+  },
+  "CoaBots.WorldBrain.QuestLevelAbove": {
+   "t": "接取高于自身等级任务",
+   "d": "机器人愿意接取高于自身多少级的高级任务。"
+  },
+  "CoaBots.WorldBrain.MaxMobLevelAbove": {
+   "t": "任务怪最高超出等级",
+   "d": "任务目标怪物允许超出机器人自身等级的上限。"
+  },
+  "CoaBots.WorldBrain.MaxObjectiveDistance": {
+   "t": "任务目标最远距离",
+   "d": "目标地点超过此距离的任务将不会被接取。"
+  },
+  "CoaBots.WorldBrain.GiverSearchRadius": {
+   "t": "任务发布者搜索半径",
+   "d": "机器人寻找可接任务 NPC 的搜索范围。"
+  },
+  "CoaBots.WorldBrain.SearchRadius": {
+   "t": "任务目标搜索半径",
+   "d": "机器人在目标区域内寻找任务怪或任务道具的扫描范围。"
+  },
+  "CoaBots.WorldBrain.EngageRange": {
+   "t": "开战交战距离",
+   "d": "机器人发现任务目标怪并开始主动进入战斗的距离。"
+  },
+  "CoaBots.WorldBrain.ApproachTimeoutMs": {
+   "t": "接近目标超时时间",
+   "d": "机器人向已选定目标移动的最长允许时间。"
+  },
+  "CoaBots.WorldBrain.SearchTimeoutMs": {
+   "t": "区域搜索超时时间",
+   "d": "机器人在空无一物的区域中搜索多久后会尝试寻找下一个地点。"
+  },
+  "CoaBots.WorldBrain.TravelTimeoutMs": {
+   "t": "路途总时长上限",
+   "d": "前往某区域的整个行程允许花费的最长时间。"
+  },
+  "CoaBots.WorldBrain.MaxBadAreasPerObjective": {
+   "t": "每个目标放弃前尝试区域数",
+   "d": "机器人经历多少个无果区域后彻底搁置该任务。"
+  },
+  "CoaBots.WorldBrain.QuestSuspendMs": {
+   "t": "任务短期搁置时长",
+   "d": "机器人暂时放弃某个卡住的任务后，将其搁置的时长。"
+  },
+  "CoaBots.WorldBrain.QuestSuspendMaxMs": {
+   "t": "任务长期搁置最长时间",
+   "d": "任务在反复失败后被搁置的最长封存时间。"
+  },
+  "CoaBots.WorldBrain.GatherDetours": {
+   "t": "路过顺手采集草药矿石",
+   "d": "具备采集技能的机器人在行进路线附近发现资源点时会顺道采集。"
+  },
+  "CoaBots.WorldBrain.SessionBreaks": {
+   "t": "像玩家一样休息发呆",
+   "d": "机器人在做任务之余会回城闲逛几分钟，模拟真实玩家的行为习惯。"
+  },
+  "CoaBots.WorldBrain.MountDistanceMin": {
+   "t": "骑乘最小距离",
+   "d": "旅途距离超过此值与最大值之间的随机距离时，机器人会召唤坐骑。"
+  },
+  "CoaBots.WorldBrain.MountDistanceMax": {
+   "t": "骑乘最大距离",
+   "d": "旅途距离超过此数值时，机器人必定会召唤坐骑。"
+  },
+  "CoaBots.WorldBrain.TaxiMinDistance": {
+   "t": "公共飞行路线起用距离",
+   "d": "超过此距离且已探索过航线的长途旅行将乘坐公共飞行管理员。"
+  },
+  "CoaBots.WorldBrain.TemporaryParties": {
+   "t": "临时组队做任务",
+   "d": "相同等级且在做同一个任务的机器人会临时组成队伍互相协助。"
+  },
+  "CoaBots.WorldBrain.PartyMaxSize": {
+   "t": "临时队伍最大人数",
+   "d": "临时任务小队允许容纳的最大成员数量。"
+  },
+  "CoaBots.WorldBrain.PartyRadius": {
+   "t": "组队判定范围",
+   "d": "机器人相距多近时会互相邀请临时组队。"
+  },
+  "CoaBots.WorldBrain.PartyMinMinutes": {
+   "t": "临时组队最短时长",
+   "d": "临时队伍的最短维持时间。"
+  },
+  "CoaBots.WorldBrain.PartyMaxMinutes": {
+   "t": "临时组队最长时长",
+   "d": "临时队伍的最长维持时间。"
+  },
+  "CoaBots.WorldBrain.HelpOthers": {
+   "t": "路过协助陷入苦战的玩家",
+   "d": "路过的同阵营机器人会主动协助处于危险中的玩家，且不抢夺掉落和经验。"
+  },
+  "CoaBots.WorldBrain.HelpRadius": {
+   "t": "求助援助范围",
+   "d": "机器人相距战斗多近时会加入战局协助。"
+  },
+  "CoaBots.WorldBrain.HelpHealthPct": {
+   "t": "提供援助生命值阈值",
+   "d": "当正在战斗的玩家生命值低于此百分比时机器人会介入援助。"
+  },
+  "CoaBots.WorldBrain.ResurrectOthers": {
+   "t": "复活阵亡玩家",
+   "d": "拥有复活法术的机器人会为附近的友方玩家尸体施放复活术。"
+  },
+  "CoaBots.WorldBrain.PlannerMinMs": {
+   "t": "决策规划最小间隔",
+   "d": "机器人规划下一次行动的最短间隔时间。"
+  },
+  "CoaBots.WorldBrain.PlannerMaxMs": {
+   "t": "决策规划最大间隔",
+   "d": "机器人规划下一次行动的最长间隔时间。"
+  },
+  "CoaBots.WorldBrain.ScanMinMs": {
+   "t": "扫描目标最小间隔",
+   "d": "在目标区域内扫描怪物与物体的最短时间间隔。"
+  },
+  "CoaBots.WorldBrain.ScanMaxMs": {
+   "t": "扫描目标最大间隔",
+   "d": "在目标区域内扫描怪物与物体的最长时间间隔。"
+  },
+  "CoaBots.WorldBrain.Weight.TravelPer100Yards": {
+   "t": "权重偏好：每100码路程惩罚",
+   "d": "机器人在评估下一步行动时代价权重的考量系数。仅在熟悉AI规划器时修改。"
+  },
+  "CoaBots.WorldBrain.Weight.CrowdPerBot": {
+   "t": "权重偏好：同区域拥挤度惩罚",
+   "d": "机器人在评估下一步行动时代价权重的考量系数。仅在熟悉AI规划器时修改。"
+  },
+  "CoaBots.WorldBrain.Weight.AreaOccupancy": {
+   "t": "权重偏好：区域占用惩罚",
+   "d": "机器人在评估下一步行动时代价权重的考量系数。仅在熟悉AI规划器时修改。"
+  },
+  "CoaBots.WorldBrain.Weight.Accept": {
+   "t": "权重偏好：接取任务偏好",
+   "d": "机器人在评估下一步行动时代价权重的考量系数。仅在熟悉AI规划器时修改。"
+  },
+  "CoaBots.WorldBrain.Weight.TurnIn": {
+   "t": "权重偏好：交付任务偏好",
+   "d": "机器人在评估下一步行动时代价权重的考量系数。仅在熟悉AI规划器时修改。"
+  },
+  "CoaBots.WorldBrain.Weight.Overlap": {
+   "t": "权重偏好：同路线任务重叠奖励",
+   "d": "机器人在评估下一步行动时代价权重的考量系数。仅在熟悉AI规划器时修改。"
+  },
+  "CoaBots.WorldBrain.Weight.TargetReserved": {
+   "t": "权重偏好：目标已被他人锁定惩罚",
+   "d": "机器人在评估下一步行动时代价权重的考量系数。仅在熟悉AI规划器时修改。"
+  },
+  "CoaBots.LfgFill.Enable": {
+   "t": "地下城查找器机器人补位",
+   "d": "当单人排随机地下城时，机器人会自动补齐缺少的坦克、治疗和输出角色。"
+  },
+  "CoaBots.AutoQueueDungeon.Enable": {
+   "t": "机器人自主排地下城",
+   "d": "实验性功能：空闲的坦克机器人会自主报名排地下城，并由上述补位机制补齐队伍。"
+  },
+  "CoaBots.BGFill.Enable": {
+   "t": "战场机器人自动补位",
+   "d": "当有玩家排战场时，双方阵营会自动填充机器人以便迅速开赛。"
+  },
+  "CoaBots.BGFill.TargetPlayersPerTeam": {
+   "t": "战场每队目标人数",
+   "d": "每支队伍自动补齐到的人数。0 表示补满该战场的标准人数。"
+  },
+  "CoaBots.Healer.CriticalHealPct": {
+   "t": "紧急强效治疗生命阈值",
+   "d": "当队友生命值低于此百分比时，治疗职业会切换至最强救急技能。"
+  },
+  "CoaBots.Combat.VerboseLog": {
+   "t": "详细战斗决策日志",
+   "d": "将战斗中的技能决策写入日志。内容非常庞大，建议仅在排查特定问题时开启。"
+  },
+  "Rate.XP.Kill": {
+   "t": "击杀怪物经验倍率",
+   "d": "击杀怪物所获得经验值的乘数倍率。默认为 1。"
+  },
+  "Rate.XP.Quest": {
+   "t": "完成任务经验倍率",
+   "d": "完成任务所获得经验值的乘数倍率。"
+  },
+  "Rate.XP.Quest.DF": {
+   "t": "日常与随机地下城任务经验倍率",
+   "d": "完成地下城查找器奖励及日常任务所获得经验值的乘数倍率。"
+  },
+  "Rate.XP.Explore": {
+   "t": "探索地图经验倍率",
+   "d": "发现新区域探索地图时获得经验值的乘数倍率。"
+  },
+  "Rate.Drop.Item.Normal": {
+   "t": "普通物品掉落率",
+   "d": "白色普通品质物品掉落几率的乘数倍率。"
+  },
+  "Rate.Drop.Money": {
+   "t": "金币掉落倍率",
+   "d": "怪物掉落金币数量的乘数倍率。"
+  },
+  "Rate.Honor": {
+   "t": "荣誉点数获取倍率",
+   "d": "通过PvP获得的荣誉点数乘数倍率。"
+  },
+  "Rate.Reputation.Gain": {
+   "t": "声望获取倍率",
+   "d": "所获阵营声望的乘数倍率。"
+  },
+  "Rate.Rest.InGame": {
+   "t": "在线双倍经验消耗速度",
+   "d": "游戏在线时消耗双倍休息充分经验的速度。"
+  },
+  "Rate.Creature.Normal.Damage": {
+   "t": "普通怪物伤害倍率",
+   "d": "普通怪物造成的伤害乘数。大幅改变游戏战斗难度。"
+  },
+  "Rate.Creature.Normal.HP": {
+   "t": "普通怪物生命值倍率",
+   "d": "普通怪物的生命值上限乘数。大幅改变游戏战斗难度。"
+  },
+  "PlayerLimit": {
+   "t": "最大同时在线玩家数",
+   "d": "服务器允许同时在线的最大玩家数量。设为 0 表示无限制。"
+  },
+  "GameType": {
+   "t": "服务器类型",
+   "d": "在服务器列表（Realm List）中显示的类型标识。"
+  },
+  "RealmZone": {
+   "t": "服务器区域语言分组",
+   "d": "向客户端展示的语言/地理区域代码。"
+  },
+  "PlayerSaveInterval": {
+   "t": "角色数据自动保存间隔",
+   "d": "在线玩家角色数据写入数据库的时间间隔。"
+  },
+  "CharactersPerAccount": {
+   "t": "每个账号最大角色数",
+   "d": "单个账号在所有服务器可创建的角色总数上限。"
+  },
+  "CharactersPerRealm": {
+   "t": "单个服务器最大角色数",
+   "d": "单个账号在此服务器上允许创建的角色数量上限。"
+  },
+  "StartPlayerLevel": {
+   "t": "新角色初始等级",
+   "d": "新创建的角色出生时的初始等级。"
+  },
+  "StartPlayerMoney": {
+   "t": "新角色初始金币",
+   "d": "新角色出生时背包携带的铜币数（10000 铜币 = 1 金币）。"
+  },
+  "MaxPlayerLevel": {
+   "t": "最高等级上限",
+   "d": "角色能够达到的最高等级。游戏客户端原生最高支持 80 级。"
+  },
+  "SkipCinematics": {
+   "t": "跳过开场动画",
+   "d": "新创建的角色是否跳过开场过场动画。"
+  },
+  "DurabilityLoss.OnDeath": {
+   "t": "死亡耐久度损失比例",
+   "d": "角色死亡时装备耐久度损失的百分比。"
+  },
+  "Death.SicknessLevel": {
+   "t": "最高复活虚弱等级",
+   "d": "高于此等级的角色在天使处复活会获得复活虚弱。设置为 -10 则彻底关闭。"
+  },
+  "LeaveGroupOnLogout.Enabled": {
+   "t": "下线自动退组",
+   "d": "玩家退出游戏注销登录时自动移出当前队伍。"
+  },
+  "GM.LoginState": {
+   "t": "GM登录默认状态",
+   "d": "游戏管理员登录时是否默认开启 GM 模式。"
+  },
+  "AllowTwoSide.Accounts": {
+   "t": "同账号双阵营创建",
+   "d": "允许同一个账号下同时创建联盟和部落角色。"
+  },
+  "AllowTwoSide.Interaction.Chat": {
+   "t": "跨阵营聊天",
+   "d": "允许联盟与部落玩家在公共频道互相交流发言。"
+  },
+  "AutoBroadcast.On": {
+   "t": "定时系统全服广播",
+   "d": "按固定时间间隔循环广播数据库中配置的系统公告信息。"
+  },
+  "AutoBroadcast.Timer": {
+   "t": "系统广播间隔时间",
+   "d": "两次自动广播消息之间的时间间隔。"
+  },
+  "Warden.Enabled": {
+   "t": "反作弊系统 (Warden)",
+   "d": "启用客户端反作弊检测机制。在局域网/单人私服上通常可保持关闭。"
+  },
+  "MapUpdateInterval": {
+   "t": "地图循环更新间隔",
+   "d": "世界服务器更新地图周期的间隔。越低越平滑但消耗更多CPU。"
+  },
+  "MapUpdate.Threads": {
+   "t": "地图处理CPU核心数",
+   "d": "用于处理世界地图更新的CPU核心线程数。多张地图活动时调高可大幅提升性能。世界服务器重启后生效。"
+  },
+  "MinWorldUpdateTime": {
+   "t": "最小世界更新时间",
+   "d": "世界循环之间的最短更新时间。调高可降低CPU占用率。"
+  },
+  "ThreadPool": {
+   "t": "后台工作线程数",
+   "d": "后台工作线程池大小。人口较多时增加此值有助于提高并发吞吐。"
+  },
+  "Network.Threads": {
+   "t": "网络IO线程数",
+   "d": "处理网络连接的线程数。小规模私服通常设置为 1 即可。"
+  },
+  "Ra.Enable": {
+   "t": "远程控制台 (RA)",
+   "d": "允许管理器和自动化脚本向服务器发送控制台指令。仅监听本地回环地址即可。"
+  },
+  "Ra.IP": {
+   "t": "远程控制台监听地址",
+   "d": "远程控制台绑定的IP地址。请保持 127.0.0.1 以防止来自外网的未授权访问。"
+  },
+  "Updates.EnableDatabases": {
+   "t": "启动时自动执行数据库升级",
+   "d": "允许服务器在启动时自行更改数据库。请保持 0：管理器会安全跟踪并执行数据库迁移。"
+  },
+  "Rate.Drop.Item.Uncommon": {
+   "t": "优秀(绿色)物品掉落率",
+   "d": "优秀品质（绿色装备）掉落频率的乘数倍率。"
+  },
+  "Rate.Drop.Item.Rare": {
+   "t": "精良(蓝色)物品掉落率",
+   "d": "精良品质（蓝色装备）掉落频率的乘数倍率。"
+  },
+  "Rate.Drop.Item.Epic": {
+   "t": "史诗(紫色)物品掉落率",
+   "d": "史诗品质（紫色装备）掉落频率的乘数倍率。"
+  },
+  "Rate.Drop.Item.Legendary": {
+   "t": "传说(橙色)物品掉落率",
+   "d": "传说品质（橙色装备）掉落频率的乘数倍率。"
+  },
+  "Rate.Talent": {
+   "t": "每级天赋点数倍率",
+   "d": "角色每升一级所获得天赋点数的乘数倍率。"
+  },
+  "Rate.Skill.Discovery": {
+   "t": "专业配方领悟几率",
+   "d": "制造物品时领悟新配方的几率乘数倍率。"
+  },
+  "Rate.RepairCost": {
+   "t": "装备修理费用倍率",
+   "d": "修理装备费用的乘数。设置为 0 则免费修理。"
+  },
+  "Rate.Auction.Cut": {
+   "t": "拍卖行手续费抽成比例",
+   "d": "拍卖行完成交易所扣除的手续费抽成乘数。设置为 0 则不抽成。"
+  },
+  "Rate.ArenaPoints": {
+   "t": "竞技场点数获取倍率",
+   "d": "所获竞技场点数的乘数倍率。"
+  },
+  "Rate.XP.Pet": {
+   "t": "猎人宠物经验倍率",
+   "d": "猎人宠物获得经验值的乘数倍率。"
+  },
+  "Instance.IgnoreLevel": {
+   "t": "无视地下城等级要求",
+   "d": "允许任何等级的角色进入地下城和团队副本。"
+  },
+  "Instance.IgnoreRaid": {
+   "t": "无团队队伍进入团本",
+   "d": "玩家无需身处团队队伍中即可进入团队副本。"
+  },
+  "Instance.ResetTimeHour": {
+   "t": "副本进度重置时间点",
+   "d": "地下城与团队副本进度重置的小时（0-23点）。"
+  },
+  "MaxPrimaryTradeSkill": {
+   "t": "角色主专业技能上限",
+   "d": "单个角色允许学习的主要专业（例如锻造、草药学）数量上限。"
+  },
+  "AlwaysMaxSkillForLevel": {
+   "t": "武器技能自动升满",
+   "d": "武器及其他熟练度技能自动保持在当前角色等级上限，无需反复练习。"
+  },
+  "ActivateWeather": {
+   "t": "天气系统",
+   "d": "开启或关闭降雨、降雪以及风暴等动态天气效果。"
+  },
+  "Group.Raid.LevelRestriction": {
+   "t": "团队副本邀请最低等级",
+   "d": "低于此等级的角色无法被邀请加入团队队伍。"
+  },
+  "AllowTwoSide.Interaction.Group": {
+   "t": "跨阵营组队",
+   "d": "允许联盟和部落玩家共同组成队伍。"
+  },
+  "AllowTwoSide.Interaction.Guild": {
+   "t": "跨阵营公会",
+   "d": "允许联盟和部落玩家加入同一个公会。"
+  },
+  "AllowTwoSide.Interaction.Auction": {
+   "t": "全阵营共享拍卖行",
+   "d": "联盟和部落玩家共享同一拍卖行市场。"
+  },
+  "Achievement.RealmFirstBlockBots": {
+   "t": "禁止机器人获取“服务器第一”成就",
+   "d": "随从（机器人）无法获得“服务器第一！”成就，绝不抢占真实玩家的第一名荣誉。需要 2026-10-02 或更新的服务器核心版本。"
+  }
+ },
+ "options": {
+  "GameType.0": "普通",
+  "GameType.1": "PvP",
+  "GameType.6": "角色扮演 (RP)",
+  "GameType.8": "角色扮演 + PvP (RP-PvP)",
+  "SkipCinematics.0": "全部播放",
+  "SkipCinematics.1": "仅跳过非首个角色",
+  "SkipCinematics.2": "全部跳过",
+  "GM.LoginState.0": "关闭",
+  "GM.LoginState.1": "开启",
+  "GM.LoginState.2": "保持上次状态"
+ },
+ "presets": {
+  "balanced": {
+   "t": "均衡模式",
+   "d": "推荐的日常设置：任务、地下城补位、战场补位均开启，日志安静。"
+  },
+  "solo-friendly": {
+   "t": "单人友好",
+   "d": "机器人会协助你并补齐你的队伍，世界人口较少且稳定。"
+  },
+  "living-world": {
+   "t": "生机世界",
+   "d": "更热闹的世界：更多机器人、休息漫步、采集资源并偶尔组队。"
+  },
+  "performance": {
+   "t": "性能优先",
+   "d": "更少的机器人以及更低的运算消耗——适合配置较低的电脑。"
+  },
+  "vanilla": {
+   "t": "标准倍率",
+   "d": "所有内容均保持标准速度 (1倍)。"
+  },
+  "relaxed": {
+   "t": "休闲惬意",
+   "d": "升级更快，掉落更多，适合轻松体验游戏 (2倍 / 3倍)。"
+  },
+  "fast": {
+   "t": "快速体验",
+   "d": "极快的成长进度，适合测试或短时间游玩 (5倍)。"
+  },
+  "defaults": {
+   "t": "推荐默认值",
+   "d": "所有设置恢复为默认值。"
+  }
+ }
+}
