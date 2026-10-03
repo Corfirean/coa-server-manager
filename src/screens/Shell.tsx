@@ -51,7 +51,7 @@ export function Shell(props: {
   const reloadModules = useCallback(() => {
     void api
       .modulesList(props.activeId)
-      .then((list) => setHiddenPages(list.filter((m) => m.page && m.installed && m.switchable && !m.enabled).map((m) => m.page as string)))
+      .then((list) => setHiddenPages(list.filter((m) => m.page && (!m.installed || (m.switchable && !m.enabled))).map((m) => m.page as string)))
       .catch(() => setHiddenPages([]));
   }, [props.activeId]);
   useEffect(() => {
