@@ -27,11 +27,14 @@ pub fn normalize_lexical(path: &Path) -> PathBuf {
 
 fn key(path: &Path) -> Vec<String> {
     path.components()
-        .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        .map(|c| {
+            let c = c.as_os_str().to_string_lossy();
+            if cfg!(windows) { c.to_lowercase() } else { c.into_owned() }
+        })
         .collect()
 }
 
-/// Case-insensitive component-wise prefix test (Windows semantics).
+/// Component-wise prefix test: case-insensitive on Windows, exact elsewhere (`/srv/CoA` and `/srv/coa` are two folders).
 pub fn starts_with_ci(path: &Path, prefix: &Path) -> bool {
     let (p, q) = (key(path), key(prefix));
     p.len() >= q.len() && p[..q.len()] == q[..]
