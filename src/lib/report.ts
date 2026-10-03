@@ -60,4 +60,4 @@ export function issueUrl(title: string, body: string): string {
 }
 
 /** Links longer than this are not reliable in every browser; the full text is then copied to the clipboard instead. */
-export const MAX_LINK = 6500;
+export const MAX_LINK = 2000;

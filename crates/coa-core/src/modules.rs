@@ -313,6 +313,25 @@ mod tests {
     }
 
     #[test]
+    fn the_content_scaling_switch_persists_the_master_flag_and_preserves_other_settings() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let e = entry_in(&catalog(), "content-scaling").unwrap();
+        assert_eq!(e.enable_key, "CoAContentScaling.Enable");
+        let defaults = "CoAContentScaling.Enable = 1\nCoAContentScaling.ScaleItems = 1\nCoAContentScaling.GroupScaling.Enable = 1\n";
+        fs::write(dir(&root).join(format!("{}.dist", e.conf)), defaults).unwrap();
+        set_enabled(&root, &meta, &e.id, false).unwrap();
+        let active = read(&dir(&root).join(&e.conf)).unwrap();
+        assert_eq!(active.get("CoAContentScaling.Enable"), Some("0"));
+        assert_eq!(active.get("CoAContentScaling.ScaleItems"), Some("1"));
+        assert_eq!(active.get("CoAContentScaling.GroupScaling.Enable"), Some("1"));
+        assert!(!list(&root).into_iter().find(|m| m.id == e.id).unwrap().enabled);
+        set_enabled(&root, &meta, &e.id, true).unwrap();
+        assert_eq!(read(&dir(&root).join(&e.conf)).unwrap().get("CoAContentScaling.Enable"), Some("1"));
+        assert!(list(&root).into_iter().find(|m| m.id == e.id).unwrap().enabled);
+    }
+
+    #[test]
     fn switching_a_module_creates_its_file_saves_the_old_one_and_changes_only_that_line() {
         let d = tempfile::tempdir().unwrap();
         let (root, meta) = server(d.path());
