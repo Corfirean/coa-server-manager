@@ -23,6 +23,7 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   module settings are separate, and only one world runs. Switching a running server saves characters and restarts it.
   CoA companions are unavailable on Wildcard; other optional modules are experimental. Backups include both realms,
   and database updates apply to both.
+  See [realm profiles and validation](docs/WILDCARD.md).
 * **Companions (bots).** Fill the world with level-appropriate bots, see progress, stop spawning, take them offline,
   despawn N to relieve the server, and choose how many log in at server start.
 * **Realmlist switcher.** Keep named realmlists (for example *Solo* and *PTR*) and switch the game client between them from a

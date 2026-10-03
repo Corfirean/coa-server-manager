@@ -33,7 +33,7 @@ adapter before the next start.
 - Native migration probe applied once to each realm and once to auth; repeating it did nothing.
 - Restoring Wildcard characters removed a fixture-only change and preserved the CoA probe value.
 - Core gameplay wrapper: `VERIFY ALL: PASSED`, gameplay stage only, real clock. First login (7 assertions),
-  level rolls/reroll (31), skill card rolls (13), stat path (12). The latter two item-grant scenarios passed on isolated
+  level rolls/reroll (31), skill card rolls (13), stat path (12). The level-roll and skill-card scenarios passed on isolated
   reruns after failing in the shared batch; the wrapper records two batch-sensitive cases.
 - Browser demo verified active profile, hidden Bots navigation and module compatibility labels. Screenshots show
   mock IPC; native checks above exercised the actual backend and server.
