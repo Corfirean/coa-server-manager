@@ -365,8 +365,13 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   inside listens, so a plain connect proves nothing.
 * **Configuration path in the binaries**: Linux builds must use `-DCONF_DIR=configs` (see `coa-server-build`),
   otherwise the core looks for module configs in a path baked in at build time.
-* **Not done yet**: installation and the database setup (schemas, `acore` user), backups and database access through the
-  container, updates, port conflict detection, the firewall and exposure checks, and the client under Wine/Proton.
+* **Database access** (`db.rs`): for a Docker installation `Db` runs `mysql`, `mysqldump` and `mysqladmin` inside the
+  database container with `docker exec -i`, connecting over TCP on the container's loopback exactly as the repack's
+  commands do on the host (password through `MYSQL_PWD`, never on a command line). Nothing else changes: accounts,
+  backups, the population query, migrations and the RA service account all go through `Db`, and the host needs no
+  MySQL client. A repack keeps using its bundled tools.
+* **Not done yet**: installation and the database setup (schemas, `acore` user), updates, port conflict detection,
+  the firewall and exposure checks, the Wildcard realm profiles, and the client under Wine/Proton.
 
 ---------------------------------------------------------------------------------------------------------
 
