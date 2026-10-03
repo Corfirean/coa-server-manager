@@ -1,0 +1,14 @@
+name: changelog
+# Checks the changelog.d/ fragment files with the shared rules (https://github.com/Corfirean/coa-server-build/blob/main/changelog/GUIDE.md).
+on:
+  push:
+    paths: ['changelog.d/**']
+  pull_request:
+    paths: ['changelog.d/**']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: Corfirean/coa-server-build/.github/workflows/changelog-check.yml@main
