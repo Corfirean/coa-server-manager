@@ -1123,8 +1123,7 @@ fn open_link(url: String) -> std::result::Result<(), UiError> {
     if !(issue || catalog || ALLOWED.iter().any(|p| url.starts_with(p))) || !chars_ok || url.len() > 12_000 {
         return Err(Error::Invalid("That link is not allowed.".into()).into());
     }
-    // explorer.exe opens the address in the default browser without going through a shell.
-    std::process::Command::new("explorer.exe").arg(&url).spawn().map_err(|e| Error::Invalid(e.to_string()))?;
+    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| Error::Invalid(e.to_string()))?;
     Ok(())
 }
 
