@@ -63,6 +63,8 @@ pub struct RecoveryPoint {
     pub created_at: String,
     pub manager_version: String,
     pub components: Vec<Component>,
+    #[serde(default)]
+    pub realm: crate::realms::Mode,
 }
 
 fn backups_dir(meta: &Path) -> PathBuf {
@@ -127,6 +129,8 @@ pub fn config_files(root: &Path) -> Vec<String> {
     if root.join("RELEASE.json").is_file() {
         out.push("RELEASE.json".into());
     }
+    walk(root, &root.join("Settings/realm-profiles"), &mut out);
+    if root.join("Settings/realm-profile.json").is_file() { out.push("Settings/realm-profile.json".into()); }
     out.sort();
     out
 }
@@ -191,16 +195,24 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
 
     let build = || -> Result<Vec<Component>> {
         let mut components = Vec::new();
-        for name in wanted_databases(kind) {
-            let schema = db::schema_of(name)?;
+        let realm = crate::realms::state(root)?;
+        let mut databases: Vec<(String, &str)> = wanted_databases(kind).iter()
+            .map(|name| Ok((name.to_string(), realm.active.schema(name)?))).collect::<Result<_>>()?;
+        if realm.wildcard_created && kind != Kind::Config {
+            let other = if realm.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa };
+            databases.push((format!("{}-characters", other.name()), other.schema("characters")?));
+            if kind == Kind::Full { databases.push((format!("{}-world", other.name()), other.schema("world")?)); }
+        }
+        for (name, schema) in databases {
             progress(&format!("Backing up {name} database"));
             let component = with_database(root, |db| {
+                let db = db.clone().for_realm(crate::realms::Mode::Coa);
                 let size = db.schema_bytes(schema)?;
                 fsx::require_space(&partial, size / 2 + 32 * 1024 * 1024)?;
                 let tables = db.tables(schema)?.len();
                 let file = format!("{name}.sql.zst");
                 let (bytes, sha) = db.dump_to(schema, &partial.join(&file))?;
-                Ok(Component { name: (*name).into(), path: file, bytes, sha256: Some(sha), tables: Some(tables), files: None })
+                Ok(Component { name, path: file, bytes, sha256: Some(sha), tables: Some(tables), files: None })
             })?;
             components.push(component);
         }
@@ -219,6 +231,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
         }
     };
     let point = RecoveryPoint {
+        realm: crate::realms::state(root)?.active,
         schema: 1,
         id: id.clone(),
         kind,
@@ -289,6 +302,9 @@ pub fn delete(meta: &Path, id: &str) -> Result<()> {
 /// Put configuration files back. Files the backup does not contain are left alone. A safety point is taken first.
 pub fn restore_configs(root: &Path, meta: &Path, id: &str) -> Result<RecoveryPoint> {
     let point = get(meta, id)?;
+    if point.realm != crate::realms::state(root)?.active {
+        return Err(Error::Invalid("Select the realm this backup belongs to before restoring it.".into()));
+    }
     let comp = point.components.iter().find(|c| c.name == "configs").ok_or_else(|| Error::Invalid("this backup has no configuration".into()))?;
     if !verify(meta, id)?.ok {
         return Err(Error::Invalid("This backup is damaged and cannot be restored.".into()));
@@ -314,6 +330,9 @@ pub struct DbRestore {
 /// import into a staging schema, sanity-check it, then swap tables atomically and keep the old schema.
 pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Result<DbRestore> {
     let point = get(meta, id)?;
+    if point.realm != crate::realms::state(root)?.active {
+        return Err(Error::Invalid("Select the realm this backup belongs to before restoring it.".into()));
+    }
     let comp = point.components.iter().find(|c| c.name == name && c.sha256.is_some()).ok_or_else(|| Error::Invalid(format!("this backup has no {name} database")))?;
     if !verify(meta, id)?.ok {
         return Err(Error::Invalid("This backup is damaged and cannot be restored.".into()));
@@ -322,7 +341,7 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
     if now.world.state != ServiceState::Stopped || now.auth.state != ServiceState::Stopped {
         return Err(Error::Invalid("Stop the server before restoring a database.".into()));
     }
-    let live = db::schema_of(name)?;
+    let live = if name.contains('-') { db::schema_of(name)? } else { point.realm.schema(name)? };
     let expected_tables = comp.tables.unwrap_or(0);
     let dump = point_dir(meta, id)?.join(&comp.path);
     let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
@@ -331,6 +350,7 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
     let safety = create(root, meta, Kind::Database, Trigger::BeforeRestore, Some(format!("before restoring {name} from {id}")), &|_| {})?;
 
     with_database(root, |db| {
+        let db = db.clone().for_realm(crate::realms::Mode::Coa);
         let staging = format!("{live}_restore_{stamp}");
         let old = format!("{live}_before_restore_{stamp}");
         if db.schema_exists(&staging)? || db.schema_exists(&old)? {

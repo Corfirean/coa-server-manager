@@ -80,6 +80,17 @@ fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
 /// Run a launcher verb to completion (blocking; call from a worker thread).
 pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
+    if verb == Verb::StartAll {
+        crate::realms::before_start(&root)?;
+        if root.join("Settings/realm-profile.json").exists() {
+            let db = crate::db::Db::from_repack(&root, crate::db::Account::Admin)?;
+            if !db.ping() {
+                let out = run(&root, Verb::StartMysql)?;
+                if !out.ok { return Ok(out); }
+            }
+            crate::realms::setup_realmlist(&root)?;
+        }
+    }
     let (python, script) = launcher(&root)?;
     let mut cmd = Command::new(&python);
     cmd.arg("-B").arg(&script).arg(verb.arg()).current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());

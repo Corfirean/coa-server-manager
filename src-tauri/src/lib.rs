@@ -189,6 +189,7 @@ async fn run_verb(state: &AppState, id: String, verb: Verb) -> std::result::Resu
 
 #[tauri::command]
 async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
+    let _guard = BusyGuard::acquire(&state, &id)?;
     // Servers installed before module configs were created automatically get them now (missing files only). Imported
     // servers only get the module files they lack (see below); nothing they have is changed.
     if let Ok(root) = path_of(&state, &id) {
@@ -209,12 +210,14 @@ async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Re
         })
         .await;
     }
-    let out = run_verb(&state, id.clone(), Verb::StartAll).await?;
+    let root = path_of(&state, &id)?;
+    let out = blocking(move || driver::run(&root, Verb::StartAll)).await?;
     if out.ok {
         if let Ok(root) = path_of(&state, &id) {
             // Companions requested while the server was stopped are created now (once; a failure is only logged).
             let r = root.clone();
             let _ = tauri::async_runtime::spawn_blocking(move || -> Result<()> {
+                if coa_core::realms::guard_module(&r, "companions").is_err() { return Ok(()); }
                 let pending = meta_dir(&r)?.join("companions.pending.json");
                 if let Ok(v) = coa_core::fsx::read_json::<serde_json::Value>(&pending) {
                     let _ = std::fs::remove_file(&pending);
@@ -278,6 +281,7 @@ async fn save_settings(
     changes: BTreeMap<String, Value>,
 ) -> std::result::Result<config::SaveReport, UiError> {
     let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let meta = meta_dir(&root)?;
         config::save(&root, &meta, scope, &changes)
@@ -513,8 +517,34 @@ async fn modules_list(state: State<'_, AppState>, id: String) -> std::result::Re
 }
 
 #[tauri::command]
+async fn realm_profiles(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::realms::View, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::realms::view(&root)).await
+}
+
+#[tauri::command]
+async fn realm_select(state: State<'_, AppState>, id: String, mode: coa_core::realms::Mode, restart: bool) -> std::result::Result<coa_core::realms::View, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    let result = blocking(move || {
+        if restart {
+            let out = driver::run(&root, Verb::StopAll)?;
+            if !out.ok { return Err(Error::Invalid(out.output)); }
+        }
+        let view = coa_core::realms::select(&root, mode)?;
+        if restart {
+            let out = driver::run(&root, Verb::StartAll)?;
+            if !out.ok { return Err(Error::Invalid(format!("Realm selected, but startup failed: {}", out.output))); }
+        }
+        Ok(view)
+    }).await;
+    result
+}
+
+#[tauri::command]
 async fn module_set_enabled(state: State<'_, AppState>, id: String, module: String, enabled: bool) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
         coa_core::modules::set_enabled(&root, &dir, &module, enabled)
@@ -531,6 +561,7 @@ async fn module_settings(state: State<'_, AppState>, id: String, module: String)
 #[tauri::command]
 async fn module_save_settings(state: State<'_, AppState>, id: String, module: String, changes: BTreeMap<String, String>) -> std::result::Result<Vec<String>, UiError> {
     let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
         coa_core::modules::save_settings(&root, &dir, &module, &changes)
@@ -547,6 +578,7 @@ async fn all_settings(state: State<'_, AppState>, id: String) -> std::result::Re
 #[tauri::command]
 async fn all_settings_save(state: State<'_, AppState>, id: String, changes: BTreeMap<String, String>) -> std::result::Result<Vec<String>, UiError> {
     let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
         coa_core::allsettings::save(&root, &dir, &changes)
@@ -1395,6 +1427,8 @@ pub fn run() {
             realmlist_delete,
             realmlist_activate,
             modules_list,
+            realm_profiles,
+            realm_select,
             module_set_enabled,
             module_settings,
             module_save_settings,

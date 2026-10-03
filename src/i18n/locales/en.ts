@@ -1,5 +1,17 @@
 /** English is the source of truth: every key must exist here; other locales fall back to it. */
 const en = {
+  "realm.profileLabel": "Realm",
+  "realm.switching": "Switching realm…",
+  "realm.create": "Create Wildcard realm",
+  "realm.restart": "Switch and restart",
+  "realm.select": "Select realm",
+  "realm.active": "Active: {name}",
+  "realm.separate": "One world runs at a time. Each realm keeps its own characters, progress and module settings.",
+  "realm.modules": "CoA companions are unavailable here. Content Scaling and other modules remain experimental on Wildcard.",
+  "realm.update": "Update the server to a build with Wildcard support to create this realm.",
+  "realm.recovery": "A realm switch was interrupted. Select a realm to recover the saved configuration.",
+  "realm.unsupported": "Unavailable on Wildcard: class mechanics have not been validated.",
+  "realm.experimental": "Experimental on Wildcard · gameplay compatibility is not yet verified.",
   "app.name": "CoA Server Manager",
 
   "nav.overview": "Overview",

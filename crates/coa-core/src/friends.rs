@@ -117,7 +117,8 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
         return Err(Error::Invalid("That address is not valid.".into()));
     }
     let db = Db::from_repack(root, Account::Admin)?;
-    db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}', localAddress='{host}' WHERE id=1;"))?;
+    let realm = crate::realms::state(root)?.active.realm_id();
+    db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}', localAddress='{host}' WHERE id={realm};"))?;
     Ok(())
 }
 

@@ -134,6 +134,8 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
                   <StatusBadge status={m.status} />
                 </div>
                 <p className="mt-1.5 line-clamp-2 text-sm text-muted">{m.description[locale] ?? m.description.en}</p>
+                {m.compatibility === "unsupported" && <p className="mt-2 text-xs text-warn">{t("realm.unsupported")}</p>}
+                {m.compatibility === "experimental" && <p className="mt-2 text-xs text-warn">{t("realm.experimental")}</p>}
               </div>
               {m.installed && m.switchable && (
                 <button
@@ -146,7 +148,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
                   <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", m.enabled ? "left-[22px]" : "left-0.5")} />
                 </button>
               )}
-              {m.installed && !m.switchable && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
+              {m.installed && !m.switchable && m.status !== "soon" && m.compatibility !== "unsupported" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
               {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
             <div className="mt-auto flex items-center gap-2">
@@ -158,7 +160,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
               >
                 <GithubMark className="h-4 w-4" />
               </button>
-              {m.installed && m.status !== "soon" && (
+              {m.installed && m.status !== "soon" && m.compatibility !== "unsupported" && (
                 <Button size="sm" variant="ghost" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
                   <Settings2 className="h-3.5 w-3.5" aria-hidden /> {t("mod.settings")}
                 </Button>

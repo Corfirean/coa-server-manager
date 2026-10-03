@@ -436,6 +436,7 @@ fn quiet_debug_loggers(root: &Path) -> Result<Vec<String>> {
 
 /// Apply validated `changes`. Nothing is written unless every change is valid; previous contents are snapshotted first.
 pub fn save(root: &Path, meta_dir: &Path, scope: Scope, changes: &BTreeMap<String, Value>) -> Result<SaveReport> {
+    if scope == Scope::Bots { crate::realms::guard_module(root, "companions")?; }
     let raws = validate(root, scope, changes)?;
     let schema = scope.schema();
     let t = targets(root, scope)?;

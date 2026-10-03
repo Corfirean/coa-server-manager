@@ -697,6 +697,18 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "rep.copied": "In die Zwischenablage kopiert.",
 
   // Realmlist switcher and modules page
+  "realm.profileLabel": "Realm",
+  "realm.switching": "Realm wird gewechselt…",
+  "realm.create": "Wildcard-Realm erstellen",
+  "realm.restart": "Wechseln und neu starten",
+  "realm.select": "Realm auswählen",
+  "realm.active": "Aktiv: {name}",
+  "realm.separate": "Es läuft jeweils eine Welt. Jeder Realm behält eigene Charaktere, Fortschritte und Moduleinstellungen.",
+  "realm.modules": "CoA-Begleiter sind hier nicht verfügbar. Content Scaling und andere Module sind auf Wildcard experimentell.",
+  "realm.update": "Aktualisiere den Server auf eine Version mit Wildcard-Unterstützung, um diesen Realm zu erstellen.",
+  "realm.recovery": "Ein Realm-Wechsel wurde unterbrochen. Wähle einen Realm, um die gespeicherte Konfiguration wiederherzustellen.",
+  "realm.unsupported": "Auf Wildcard nicht verfügbar: Die Klassenmechanik wurde noch nicht geprüft.",
+  "realm.experimental": "Experimentell auf Wildcard · Spielkompatibilität noch nicht geprüft.",
   "realm.label": "Realm",
   "realm.other": "Anderer",
   "realm.add": "Realmlist hinzufügen …",

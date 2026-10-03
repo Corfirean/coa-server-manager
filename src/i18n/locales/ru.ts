@@ -2,6 +2,18 @@ import type en from "./en";
 
 /** Русский. Черновой перевод; требует проверки носителем перед релизом. */
 const ru: Partial<Record<keyof typeof en, string>> = {
+  "realm.profileLabel": "Реалм",
+  "realm.switching": "Переключение реалма…",
+  "realm.create": "Создать реалм Wildcard",
+  "realm.restart": "Переключить и перезапустить",
+  "realm.select": "Выбрать реалм",
+  "realm.active": "Активен: {name}",
+  "realm.separate": "Работает один мир. У каждого реалма свои персонажи, прогресс и настройки модулей.",
+  "realm.modules": "CoA-боты здесь недоступны. Скалирование и другие модули пока экспериментальны для Wildcard.",
+  "realm.update": "Для создания реалма обновите сервер до сборки с поддержкой Wildcard.",
+  "realm.recovery": "Переключение прервалось. Выберите реалм, чтобы восстановить сохранённые настройки.",
+  "realm.unsupported": "Недоступен в Wildcard: классовые механики ещё не проверены.",
+  "realm.experimental": "Экспериментально в Wildcard · игровая совместимость пока не проверена.",
   "nav.overview": "Обзор",
   "nav.bots": "Боты",
   "nav.server": "Сервер",

@@ -33,7 +33,11 @@ export function BackupsPage({ serverId }: { serverId: string }) {
   const human = useHuman();
   const w = (iso: string) => when(iso, t, locale);
   const trigger = (x: string) => (TRIGGER_KEYS.includes(x) ? t(`bk.trigger.${x}` as Key) : x);
-  const dbLabel = (x: string) => (DB_KEYS.includes(x) ? t(`bk.db.${x}` as Key) : x);
+  const dbLabel = (x: string) => {
+    const [realm, kind] = x.split("-");
+    if (kind && DB_KEYS.includes(kind)) return `${realm === "coa" ? "CoA" : "Wildcard"} · ${t(`bk.db.${kind}` as Key)}`;
+    return DB_KEYS.includes(x) ? t(`bk.db.${x}` as Key) : x;
+  };
   const [points, setPoints] = useState<RecoveryPoint[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [step, setStep] = useState<string | null>(null);
@@ -174,7 +178,7 @@ export function BackupsPage({ serverId }: { serverId: string }) {
             <div>
               <p className="font-medium">{p.label && p.trigger === "manual" && p.label !== "e2e" ? p.label : trigger(p.trigger)}</p>
               <p className="text-sm text-muted">
-                {w(p.created_at)} · {t(`bk.kind.${p.kind}` as Key)} · {size(p.components.reduce((a, c) => a + c.bytes, 0))}
+                {w(p.created_at)} · {p.realm === "wildcard" ? "Wildcard" : "CoA"} · {t(`bk.kind.${p.kind}` as Key)} · {size(p.components.reduce((a, c) => a + c.bytes, 0))}
               </p>
             </div>
             <div className="flex shrink-0 gap-1">
