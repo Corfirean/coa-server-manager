@@ -21,7 +21,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --workspace -- --test-threads=1
       - name: Build, sign and publish
         uses: tauri-apps/tauri-action@v0
         env:
