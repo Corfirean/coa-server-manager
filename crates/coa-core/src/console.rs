@@ -51,6 +51,19 @@ fn classify(l: &str) -> Level {
     }
 }
 
+/// The last `max_lines` lines of some text (after filtering), classified and redacted like the lines of a log file.
+pub fn lines_from_text(text: &str, filter: Option<&str>, max_lines: usize) -> Vec<Line> {
+    let needle = filter.map(str::to_lowercase).filter(|n| !n.is_empty());
+    let out: Vec<Line> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter(|l| needle.as_ref().map(|n| l.to_lowercase().contains(n)).unwrap_or(true))
+        .map(|l| Line { level: classify(l), text: crate::diag::redact(l) })
+        .collect();
+    let skip = out.len().saturating_sub(max_lines);
+    out.into_iter().skip(skip).collect()
+}
+
 /// The last `max_lines` lines (after filtering) from the last ~512 KB of a log. Works on multi-gigabyte files.
 pub fn tail(path: &Path, filter: Option<&str>, max_lines: usize) -> Result<Vec<Line>> {
     const WINDOW: u64 = 512 * 1024;

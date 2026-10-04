@@ -206,6 +206,10 @@ pub fn drift(root: &Path) -> Result<Vec<String>> {
 }
 
 pub fn load(root: &Path, scope: Scope) -> Result<SettingsView> {
+    // A Docker server that was added but never started has no active world configuration yet; create it from its template.
+    if scope == Scope::Server && crate::docker::is_docker(root) {
+        let _ = crate::docker::ensure_main_configs(root);
+    }
     let schema = scope.schema();
     let t = targets(root, scope)?;
     let conf = load_conf(&t.read)?;
@@ -298,6 +302,10 @@ pub fn validate(root: &Path, scope: Scope, changes: &BTreeMap<String, Value>) ->
             }
             Some(s) => match s.to_raw(value) {
                 Ok(raw) => {
+                    if let Some(problem) = crate::docker::setting_problem(key, &raw).filter(|_| crate::docker::is_docker(root)) {
+                        errors.push(FieldError { key: key.clone(), message: problem.into() });
+                        continue;
+                    }
                     raws.insert(key.clone(), raw);
                 }
                 Err(m) => errors.push(FieldError { key: key.clone(), message: m }),

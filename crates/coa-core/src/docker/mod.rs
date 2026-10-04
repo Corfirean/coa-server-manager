@@ -18,9 +18,12 @@ mod cli;
 pub mod fixture;
 pub mod install;
 mod lifecycle;
+pub mod logs;
+pub mod sharing;
 
 pub use cli::{Call, Docker, Output, SystemDocker};
 pub use lifecycle::{check_docker, observe, observe_with, run, run_with};
+pub use sharing::{bind_is_open, exposure, set_open};
 pub(crate) use lifecycle::destroy;
 
 use std::net::IpAddr;
@@ -186,6 +189,15 @@ pub(crate) fn env_name(key: &str) -> String {
     out
 }
 
+/// A reason a value cannot work on a Docker server, for settings that name a path: the server runs in a container that sees only
+/// its own `Core` folder (as `/srv/core`, its working directory), so a path elsewhere on this computer does not exist for it.
+pub fn setting_problem(key: &str, raw: &str) -> Option<&'static str> {
+    let raw = raw.trim().trim_matches('"');
+    let outside = Path::new(raw).is_absolute() && !raw.starts_with("/srv/core/");
+    (key.eq_ignore_ascii_case("CoaBots.TalentBuildsPath") && !raw.is_empty() && outside)
+        .then_some("must be a path inside the server's Core folder (for example reference/ascensionsidekick-level-builds.json), because the server runs in a container that cannot see other folders")
+}
+
 /// Name of the runtime image: it follows the content of its Dockerfile, so changing the libraries builds a new image.
 pub(crate) fn runtime_image() -> String {
     format!("coa-runtime:{}", &fsx::sha256_bytes(RUNTIME_DOCKERFILE.as_bytes())[..12])
@@ -251,6 +263,17 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_outside_the_core_folder_is_refused_for_a_docker_server() {
+        let key = "CoaBots.TalentBuildsPath";
+        assert!(setting_problem(key, "reference/builds.json").is_none());
+        assert!(setting_problem(key, "").is_none());
+        assert!(setting_problem(key, "\"/srv/core/reference/builds.json\"").is_none());
+        assert!(setting_problem(key, "/home/ana/builds.json").is_some());
+        assert!(setting_problem("Rate.XP.Kill", "/home/ana/x").is_none(), "only settings that name a path");
+    }
 
     #[test]
     fn setting_names_become_the_variables_the_core_reads() {

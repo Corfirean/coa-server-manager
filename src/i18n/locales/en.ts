@@ -101,6 +101,7 @@ const en = {
   "status.attention": "Needs attention",
   "status.running": "Running",
   "status.stopped": "Stopped",
+  "status.crashed": "Stopped unexpectedly",
 
   "btn.start": "START SERVER",
   "btn.stop": "STOP SERVER",

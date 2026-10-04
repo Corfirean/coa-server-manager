@@ -422,6 +422,14 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   DivxTac.dll deadlocks the world loading screen under wine-mono. `COA_PROTONPATH`, `COA_WINEPREFIX` or
   `client-launch.json` in the Manager's folder (`proton_path`, `prefix`, `runner`) override the detection. Whether the client
   runs is read from `/proc` (under Wine the command line holds the Windows form of the path). Output goes to `client.log`.
+* **Sharing with friends** (`docker/sharing.rs`): who can reach the game is decided by the address the container ports are
+  published on, `bindAddress` in `docker.json`; the `BindIP` of the configuration files is forced to `0.0.0.0` inside the
+  containers and changes nothing. Opening and closing therefore edit `bindAddress` (and set `CoA.AllowRemoteClients`), "servers
+  open" and the exposure check are computed from it (the database is never published, the console only on `127.0.0.1`), and
+  there is no firewall row on Linux. Settings the backend fixes (`docker::FORCED_KEYS`) are not offered; a test keeps that list
+  equal to the variables the containers get. A world that restarts itself (exit code 2) is restarted by Docker once it has come
+  up. The database console shows `docker logs`, and the file-based screens read Linux locations (the desktop folder from the
+  user directories file, memory from `/proc/meminfo`, the distribution name for the problem report).
 * **Not done yet**: downloading the game data, updates, port conflict detection, the firewall and exposure checks, the
   Wildcard realm profiles, and the client under Wine/Proton.
 

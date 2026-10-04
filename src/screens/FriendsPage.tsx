@@ -170,7 +170,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
         <ul className="mt-2 divide-y divide-line">
           <Line ok={st.server_running}>{t("fr.st.running")}</Line>
           <Line ok={st.servers_open}>{t("fr.st.open")}</Line>
-          <Line ok={st.firewall.auth && st.firewall.world}>{t("fr.st.firewall")}</Line>
+          {st.firewall && <Line ok={st.firewall.auth && st.firewall.world}>{t("fr.st.firewall")}</Line>}
           <Line ok={st.exposure.filter((e) => e.what === "database" || e.what === "server console").every((e) => !e.reachable_from_network)}>
             {t("fr.st.private")}
           </Line>

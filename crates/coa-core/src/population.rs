@@ -71,7 +71,15 @@ pub fn hardware() -> Hardware {
 
 #[cfg(not(windows))]
 pub fn hardware() -> Hardware {
-    Hardware { cores: std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(2), ram_gb: 8.0, free_ram_gb: 4.0 }
+    let (total, free) = std::fs::read_to_string("/proc/meminfo").ok().and_then(|t| parse_meminfo(&t)).unwrap_or((8.0, 4.0));
+    Hardware { cores: std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(2), ram_gb: total, free_ram_gb: free }
+}
+
+/// (total, available) memory in GB from the text of `/proc/meminfo`.
+#[cfg(not(windows))]
+fn parse_meminfo(text: &str) -> Option<(f64, f64)> {
+    let kb = |key: &str| -> Option<f64> { text.lines().find_map(|l| l.strip_prefix(key)?.trim().strip_suffix("kB")?.trim().parse::<f64>().ok()) };
+    Some((kb("MemTotal:")? / (1u64 << 20) as f64, kb("MemAvailable:")? / (1u64 << 20) as f64))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +112,16 @@ pub fn sizes(h: &Hardware) -> Vec<SizeOption> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(windows))]
+    #[test]
+    fn memory_is_read_from_proc_meminfo() {
+        let t = "MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable:   16777216 kB\nBuffers: 1 kB\n";
+        let (total, free) = parse_meminfo(t).unwrap();
+        assert!((total - 62.5).abs() < 0.01 && (free - 16.0).abs() < 0.01, "{total} {free}");
+        assert!(parse_meminfo("nothing useful").is_none());
+        assert!(hardware().ram_gb > 0.0);
+    }
 
     #[test]
     fn parses_counts_and_never_goes_negative() {

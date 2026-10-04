@@ -80,6 +80,9 @@ fn bind_targets(root: &Path) -> Vec<PathBuf> {
 
 /// Whether the configuration currently lets other computers reach the login and world servers.
 pub fn bind_is_open(root: &Path) -> bool {
+    if crate::docker::is_docker(root) {
+        return crate::docker::bind_is_open(root);
+    }
     let files = bind_targets(root);
     !files.is_empty()
         && files
@@ -90,6 +93,9 @@ pub fn bind_is_open(root: &Path) -> bool {
 /// Open (`0.0.0.0`) or close (`127.0.0.1`) the login and world servers to other computers. The database and the server
 /// console are never touched. Returns true if anything changed (a restart is then needed). The old files are snapshotted.
 pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
+    if crate::docker::is_docker(root) {
+        return crate::docker::set_open(root, meta, open);
+    }
     let want = if open { "\"0.0.0.0\"" } else { "\"127.0.0.1\"" };
     let mut originals = Vec::new();
     let mut edits = Vec::new();

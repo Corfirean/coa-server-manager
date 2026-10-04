@@ -420,7 +420,8 @@ export interface FriendsStatus {
   lan_addresses: LanAddress[];
   exposure: { port: number; what: string; reachable_from_network: boolean; listening: boolean }[];
   servers_open: boolean;
-  firewall: { auth: boolean; world: boolean };
+  /** null where there is no Windows firewall to ask about (Linux). */
+  firewall: { auth: boolean; world: boolean } | null;
   tailscale: { installed: boolean; ip: string | null; connected: boolean };
   server_running: boolean;
   auth_port: number;
