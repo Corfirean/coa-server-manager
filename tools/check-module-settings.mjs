@@ -23,6 +23,11 @@ for (const [value, expected] of [["0", "None"], ["1", "Light"], ["2", "Full"], [
 }
 const difficulty = moduleField("CoAContentScaling.Difficulty.DamageMultiplier", "ru");
 if (difficulty.type !== "range" || difficulty.min !== 0.25 || difficulty.max !== 2) throw new Error("Damage slider bounds disagree with the server");
+for (const key of ["CoAContentScaling.LFG.AllowPartialGroups", "CoAContentScaling.World.Leech.Enable"]) {
+  if (moduleField(key, "ru")?.type !== "bool") throw new Error(`${key}: expected a toggle`);
+}
+const leech = moduleField("CoAContentScaling.World.Leech.Percent", "ru");
+if (leech?.type !== "float" || leech.min !== 0 || leech.max !== 100 || leech.advanced) throw new Error("Life steal must use a visible percentage field from 0 to 100");
 const sample = [
   { key: "AuctionHouseBot.ListProportion.CategoryWeapon.QualityNormal", value: "20", default: "10" },
   { key: "AuctionHouseBot.ListProportion.CategoryWeapon.QualityRare", value: "7", default: "5" },

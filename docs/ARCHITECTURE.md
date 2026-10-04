@@ -578,6 +578,11 @@ The reference install classifies as **Healthy (customised)**: repack shape, bina
   * **UI:** PLAY becomes **UPDATE CLIENT** when a tracked client is outdated (with "Play without updating"); with no client linked it
     becomes **Set up game client** (choose an existing folder, or download into `<chosen folder>/CoA Client` with a free-space check).
     An existing client that is not tracked can be adopted from Settings > Game client ("Keep this client up to date").
-    A fresh download gets `realmlist.wtf` for each installed locale (the manifest has none) and the companion addon.
+    A fresh download gets `realmlist.wtf` for each installed locale (the manifest has none) and, for local hosts, the companion addon.
+  * **Joining another server:** the welcome screen offers hosting or joining. Joining uses a separate player profile in
+    the Manager's `remote-client/connection.json`, storing the host address and client folder without a server registry entry,
+    installation metadata, database or server processes. Only Overview and application Settings appear in the sidebar.
+    Downloading, adopting and updating clients use the same verified downloader; Play applies the saved realmlist without
+    forcing a local realm selection. The player can return to hosting without removing their saved connection.
   * **Open points:** ask the launcher maintainers before putting heavy load on their API; DBCs live inside the MPQ patch archives
     (extracting them would need an MPQ reader), so the server's `Data\dbc` still comes from our `base` package for now.

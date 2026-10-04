@@ -929,6 +929,68 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
     .await
 }
 
+const REMOTE_CLIENT_ID: &str = "@remote-client";
+
+fn remote_dir() -> PathBuf { data_dir().join("remote-client") }
+
+#[tauri::command]
+fn remote_connection() -> std::result::Result<coa_core::remote_client::Profile, UiError> {
+    Ok(coa_core::remote_client::load(&remote_dir())?)
+}
+
+#[tauri::command]
+fn remote_connect(state: State<'_, AppState>, host: String) -> std::result::Result<coa_core::remote_client::Profile, UiError> {
+    let job = state.client_cancel.lock().unwrap();
+    if job.is_some() { return Err(Error::Invalid("Wait for the client operation to finish.".into()).into()); }
+    let dir = remote_dir();
+    let mut profile = coa_core::remote_client::load(&dir)?;
+    let host = host.trim();
+    if host.is_empty() { return Err(Error::Invalid("Enter the host's IP address or hostname.".into()).into()); }
+    profile.host = host.into();
+    coa_core::remote_client::save(&dir, &profile)?;
+    Ok(profile)
+}
+
+struct ClientContext {
+    dir: PathBuf,
+    path: Option<PathBuf>,
+    source: Option<PathBuf>,
+    host: String,
+    root: Option<PathBuf>,
+}
+
+fn client_context(state: &AppState, id: &str) -> Result<ClientContext> {
+    if id == REMOTE_CLIENT_ID {
+        let dir = remote_dir();
+        let profile = coa_core::remote_client::load(&dir)?;
+        return Ok(ClientContext { dir, path: profile.client_path.map(PathBuf::from), source: None, host: profile.host, root: None });
+    }
+    let root = path_of(state, id)?;
+    let (dir, meta) = install_meta(&root)?;
+    let source = coa_core::client::addon_source(&root);
+    Ok(ClientContext { dir, path: meta.client_path.map(PathBuf::from), source, host: "127.0.0.1".into(), root: Some(root) })
+}
+
+impl ClientContext {
+    fn linked(&self) -> Option<PathBuf> {
+        self.path.clone().filter(|p| coa_core::client::detect(p, None).is_some())
+    }
+    fn require(&self) -> Result<PathBuf> {
+        self.linked().ok_or_else(|| Error::Invalid("Set up a game client first.".into()))
+    }
+    fn link(&self, path: &str) -> Result<()> {
+        if let Some(root) = &self.root {
+            let (_, mut meta) = install_meta(root)?;
+            meta.client_path = Some(path.into());
+            coa_core::fsx::atomic_write_json(&self.dir.join("install.json"), &meta)
+        } else {
+            let mut profile = coa_core::remote_client::load(&self.dir)?;
+            profile.client_path = Some(path.into());
+            coa_core::remote_client::save(&self.dir, &profile)
+        }
+    }
+}
+
 fn client_of(root: &std::path::Path) -> Result<(PathBuf, InstallMeta, Option<PathBuf>)> {
     let (dir, meta) = install_meta(root)?;
     let client = meta.client_path.clone().map(PathBuf::from).ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
@@ -937,22 +999,19 @@ fn client_of(root: &std::path::Path) -> Result<(PathBuf, InstallMeta, Option<Pat
 
 #[tauri::command]
 fn client_info(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::client::ClientInfo>, UiError> {
-    let root = path_of(&state, &id)?;
-    let (_, meta) = install_meta(&root)?;
-    let source = coa_core::client::addon_source(&root);
-    Ok(meta.client_path.and_then(|p| coa_core::client::detect(std::path::Path::new(&p), source.as_deref())))
+    let ctx = client_context(&state, &id)?;
+    Ok(ctx.path.and_then(|p| coa_core::client::detect(&p, ctx.source.as_deref())))
 }
 
 #[tauri::command]
 fn set_client(state: State<'_, AppState>, id: String, path: String) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
-    let root = path_of(&state, &id)?;
-    let (dir, mut meta) = install_meta(&root)?;
-    let source = coa_core::client::addon_source(&root);
-    let info = coa_core::client::detect(std::path::Path::new(&path), source.as_deref())
+    let job = state.client_cancel.lock().unwrap();
+    if job.is_some() { return Err(Error::Invalid("Wait for the client operation to finish.".into()).into()); }
+    let ctx = client_context(&state, &id)?;
+    let info = coa_core::client::detect(std::path::Path::new(&path), ctx.source.as_deref())
         .ok_or_else(|| Error::Invalid("This folder does not look like a game client (it needs Data and the game executable).".into()))?;
-    meta.client_path = Some(info.path.clone());
-    coa_core::fsx::atomic_write_json(&dir.join("install.json"), &meta).map_err(UiError::from)?;
-    Ok(info)
+    ctx.link(&info.path)?;
+    Ok(coa_core::client::detect(std::path::Path::new(&info.path), ctx.source.as_deref()).unwrap_or(info))
 }
 
 #[tauri::command]
@@ -991,9 +1050,9 @@ fn linked_client(root: &std::path::Path) -> Result<Option<PathBuf>> {
 /// Cheap: one small manifest request and the local state file; no game file is read.
 #[tauri::command]
 async fn client_status(state: State<'_, AppState>, id: String) -> std::result::Result<ClientStatus, UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     blocking(move || {
-        let client = linked_client(&root)?;
+        let client = ctx.linked();
         let latest = coa_core::clientdl::fetch_latest().ok();
         let local = client.as_deref().map(coa_core::clientdl::local);
         let managed = local.as_ref().map(|l| l.managed).unwrap_or(false);
@@ -1040,10 +1099,10 @@ async fn client_download_check(parent: String) -> std::result::Result<ClientDown
 /// Compare the linked client with the published one. Hashes files only where the recorded state cannot vouch for them.
 #[tauri::command]
 async fn client_plan(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::clientdl::Plan, UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let result = blocking(move || {
-        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
+        let client = ctx.require()?;
         let manifest = coa_core::clientdl::fetch_latest()?;
         let current = coa_core::clientdl::load_state(&client).unwrap_or_default();
         coa_core::clientdl::plan(&client, &manifest, &current, &cancel, &|s| {
@@ -1058,11 +1117,13 @@ async fn client_plan(app: AppHandle, state: State<'_, AppState>, id: String) -> 
 /// Bring the linked client to the published version. `keep_modified` leaves files the player changed alone.
 #[tauri::command]
 async fn client_sync(app: AppHandle, state: State<'_, AppState>, id: String, keep_modified: bool) -> std::result::Result<(), UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let result = blocking(move || {
-        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
-        run_client_sync(&app, &client, keep_modified, &cancel)
+        let client = ctx.require()?;
+        run_client_sync(&app, &client, keep_modified, &cancel)?;
+        if ctx.root.is_none() && !ctx.host.is_empty() { coa_core::client::set_realmlist(&client, &ctx.dir, &ctx.host)?; }
+        Ok(())
     })
     .await;
     end_client_job(&state);
@@ -1086,13 +1147,12 @@ fn run_client_sync(app: &AppHandle, client: &std::path::Path, keep_modified: boo
     Ok(())
 }
 
-/// Download the whole client into `<parent>/CoA Client`, then link it to this server.
+/// Download the client into `<parent>/CoA Client`, then link it to a host or player profile.
 #[tauri::command]
 async fn client_download(app: AppHandle, state: State<'_, AppState>, id: String, parent: String) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let result = blocking(move || {
-        let (dir, mut meta) = install_meta(&root)?;
         let parent = PathBuf::from(&parent);
         if !parent.is_dir() {
             return Err(Error::Invalid("Choose an existing folder to put the game client in.".into()));
@@ -1105,16 +1165,11 @@ async fn client_download(app: AppHandle, state: State<'_, AppState>, id: String,
         }
         std::fs::create_dir_all(&dest)?;
         run_client_sync(&app, &dest, false, &cancel)?;
-        let source = coa_core::client::addon_source(&root);
-        let info = coa_core::client::detect(&dest, source.as_deref()).ok_or_else(|| Error::Invalid("The downloaded client looks incomplete.".into()))?;
-        meta.client_path = Some(info.path.clone());
-        coa_core::fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
-        // a fresh client has no realmlist; this server is on this computer
-        coa_core::client::set_realmlist(&dest, &dir, "127.0.0.1")?;
-        if let Some(src) = source {
-            coa_core::client::install_addon(&dest, &dir, &src)?;
-        }
-        Ok(coa_core::client::detect(&dest, coa_core::client::addon_source(&root).as_deref()).unwrap_or(info))
+        let info = coa_core::client::detect(&dest, ctx.source.as_deref()).ok_or_else(|| Error::Invalid("The downloaded client looks incomplete.".into()))?;
+        ctx.link(&info.path)?;
+        if !ctx.host.is_empty() { coa_core::client::set_realmlist(&dest, &ctx.dir, &ctx.host)?; }
+        if let Some(src) = &ctx.source { coa_core::client::install_addon(&dest, &ctx.dir, src)?; }
+        Ok(coa_core::client::detect(&dest, ctx.source.as_deref()).unwrap_or(info))
     })
     .await;
     end_client_job(&state);
@@ -1149,6 +1204,17 @@ fn end_client_job(state: &AppState) {
 /// Launch the game client independently of the local server.
 #[tauri::command]
 async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
+    if id == REMOTE_CLIENT_ID {
+        let ctx = client_context(&state, &id)?;
+        let client = ctx.require()?;
+        return blocking(move || {
+            if ctx.host.is_empty() { return Err(Error::Invalid("Enter the host's IP address or hostname first.".into())); }
+            if coa_core::client::is_running(&client) { return Err(Error::Invalid("The game is already running.".into())); }
+            coa_core::client::set_realmlist(&client, &ctx.dir, &ctx.host)?;
+            coa_core::client::launch(&client)?;
+            Ok(DriverOutcome { ok: true, exit_code: None, code: None, human: None, output: String::new() })
+        }).await;
+    }
     let root = path_of(&state, &id)?;
     let (dir, _, client) = client_of(&root)?;
     let client = client.unwrap();
@@ -1501,6 +1567,8 @@ pub fn run() {
             open_link,
             companion_sizes,
             add_companions,
+            remote_connection,
+            remote_connect,
             client_info,
             set_client,
             client_realmlist,

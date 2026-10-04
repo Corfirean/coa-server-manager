@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useT } from "@/i18n";
 
-export function ClientCard({ serverId }: { serverId: string }) {
+export function ClientCard({ serverId, remote = false }: { serverId: string; remote?: boolean }) {
   const t = useT();
   const human = useHuman();
   const [info, setInfo] = useState<ClientInfo | null | undefined>(undefined);
@@ -33,6 +33,7 @@ export function ClientCard({ serverId }: { serverId: string }) {
       const msg = await fn();
       if (msg) setNote(msg);
       await refresh();
+      void checkClient(serverId);
     } catch (e) {
       setError(asUiError(e));
     } finally {
@@ -54,7 +55,7 @@ export function ClientCard({ serverId }: { serverId: string }) {
       {info === undefined && <p className="mt-2 text-sm text-muted">{t("client.looking")}</p>}
       {info === null && (
         <>
-          <p className="mt-1 text-sm text-muted">{t("client.intro")}</p>
+          <p className="mt-1 text-sm text-muted">{t(remote ? "remote.clientIntro" : "client.intro")}</p>
           <Button className="mt-4" onClick={() => setDialog("setup")} disabled={busy}>{t("btn.setupClient")}</Button>
         </>
       )}
@@ -65,7 +66,7 @@ export function ClientCard({ serverId }: { serverId: string }) {
             <dt className="text-muted">{t("client.connectsTo")}</dt>
             <dd>
               {hosts.length ? hosts.filter(Boolean).join(", ") : "—"}
-              {pointsLocal ? <span className="ml-2 text-ok">{t("client.thisComputer")}</span> : <span className="ml-2 text-warn">{t("client.notThisServer")}</span>}
+              {!remote && (pointsLocal ? <span className="ml-2 text-ok">{t("client.thisComputer")}</span> : <span className="ml-2 text-warn">{t("client.notThisServer")}</span>)}
             </dd>
             <dt className="text-muted">{t("client.version")}</dt>
             <dd>
@@ -74,27 +75,29 @@ export function ClientCard({ serverId }: { serverId: string }) {
                 : t("client.versionUntracked")}
               {status?.update_available && <span className="ml-2 text-warn">{t("client.updateAvailable")}</span>}
             </dd>
+            {!remote && <>
             <dt className="text-muted">{t("client.addon")}</dt>
             <dd>
               {info.addon.installed ? (info.addon.version ? t("client.installedVersion", { v: info.addon.version }) : t("client.installed")) : t("client.addonNotInstalled")}
               {info.addon.up_to_date === false && <span className="ml-2 text-warn">{t("client.updateAvailable")}</span>}
               <span className="mt-1 block text-xs text-muted">{t("client.addonWhat")}</span>
             </dd>
+            </>}
             <dt className="text-muted">{t("client.otherAddons")}</dt>
             <dd>{t("client.leftAsIs", { n: info.other_addons })}</dd>
           </dl>
           <div className="mt-4 flex flex-wrap gap-2">
-            {!pointsLocal && (
+            {!remote && !pointsLocal && (
               <Button size="sm" disabled={busy} onClick={() => void run(async () => { await api.setRealmlist(serverId, "127.0.0.1"); return t("client.pointedNote"); })}>
                 {t("client.pointLocal")}
               </Button>
             )}
-            {(!info.addon.installed || info.addon.up_to_date === false) && (
+            {!remote && (!info.addon.installed || info.addon.up_to_date === false) && (
               <Button size="sm" disabled={busy} onClick={() => void run(async () => { await api.installAddon(serverId); return t("client.addonNote"); })}>
                 {info.addon.installed ? t("client.updateAddon") : t("client.installAddon")}
               </Button>
             )}
-            {status?.update_available && (
+            {(status?.update_available || (remote && status?.managed)) && (
               <Button size="sm" variant="primary" disabled={busy} onClick={() => setDialog("update")}>{t("client.upd.start")}</Button>
             )}
             {status && !status.managed && (
