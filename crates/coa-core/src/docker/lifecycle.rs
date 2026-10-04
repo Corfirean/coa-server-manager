@@ -59,6 +59,7 @@ pub fn run_with(d: &dyn Docker, root: &Path, verb: Verb) -> Result<DriverOutcome
     let cfg = Config::load(root)?;
     let mut log = Log::default();
     let result = match verb {
+        Verb::StartWorld => return Err(crate::Error::Invalid("Starting a secondary world is not supported for Docker servers.".into())),
         Verb::StartAll => start(d, root, &cfg, true, &mut log),
         Verb::StartMysql => start(d, root, &cfg, false, &mut log),
         Verb::StopAll => stop(d, &cfg, &mut log),
@@ -429,11 +430,11 @@ pub fn observe(root: &Path, ports: &Ports) -> Observed {
 pub fn observe_with(d: &dyn Docker, root: &Path, ports: &Ports) -> Observed {
     let unknown = |name: &'static str, port: u16| ServiceStatus { name, state: ServiceState::Unknown, pid: None, port, port_ready: false, conflict: None, uptime_secs: None };
     let Ok(cfg) = Config::load(root) else {
-        return Observed { mysql: unknown("mysql", ports.mysql), auth: unknown("auth", ports.auth), world: unknown("world", ports.world) };
+        return Observed { mysql: unknown("mysql", ports.mysql), auth: unknown("auth", ports.auth), world: unknown("world", ports.world), secondary_world: None };
     };
     let n = cfg.names();
     let Ok(state) = inspect(d, &[&n.db, &n.world, &n.auth]) else {
-        return Observed { mysql: unknown("mysql", ports.mysql), auth: unknown("auth", ports.auth), world: unknown("world", ports.world) };
+        return Observed { mysql: unknown("mysql", ports.mysql), auth: unknown("auth", ports.auth), world: unknown("world", ports.world), secondary_world: None };
     };
     let ip = connect_ip(&cfg);
     let listening = |c: Option<&Container>, port: u16| c.is_some_and(Container::running) && d.port_open(SocketAddr::new(ip, port));
@@ -441,6 +442,7 @@ pub fn observe_with(d: &dyn Docker, root: &Path, ports: &Ports) -> Observed {
         mysql: status("mysql", state.get(&n.db), ports.mysql, state.get(&n.db).is_some_and(|c| c.health.as_deref() == Some("healthy"))),
         auth: status("auth", state.get(&n.auth), ports.auth, listening(state.get(&n.auth), ports.auth)),
         world: status("world", state.get(&n.world), ports.world, listening(state.get(&n.world), ports.world)),
+        secondary_world: None,
     }
 }
 
@@ -739,6 +741,14 @@ mod tests {
         assert!(run_with(&sim, &root, Verb::StartMysql).unwrap().ok);
         assert_eq!(sim.calls_of("run").len(), 1);
         assert!(sim.calls_of("build").is_empty());
+    }
+
+    #[test]
+    fn secondary_world_start_is_rejected_without_touching_containers() {
+        let (_d, root) = server("t1");
+        let sim = Sim::new();
+        assert!(run_with(&sim, &root, Verb::StartWorld).is_err());
+        assert!(sim.calls.borrow().is_empty());
     }
 
     #[test]

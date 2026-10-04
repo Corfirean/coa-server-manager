@@ -10,7 +10,7 @@ Repair reports unresolved schema damage. It does not guess ALTER statements or r
 
 ## Release schema contracts
 
-`clean-base` clears the character migration ledger after rebuilding the character database and captures `Scripts/database-schema.json`. It contains expected table/column names, types, nullability, defaults and generated/auto-increment attributes. Installation and migration validation inspect this contract; older packages receive the narrower character-save checks, clearly labelled in the UI. Required custom columns with no default that initial character saves do not supply are also reported.
+`clean-base` clears the character migration ledger after rebuilding the character database and captures `Scripts/database-schema.json`. It contains expected table/column names and column types. Installation and migration validation inspect this contract; older packages receive the narrower character-save checks, clearly labelled in the UI.
 
 For each update, capture a fresh contract **from a disposable database already migrated to the exact packaged core**, into the release tree before `pack-update`:
 

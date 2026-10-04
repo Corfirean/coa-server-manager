@@ -1,5 +1,13 @@
 # CoA Server Manager changelog
 
+## 0.6.1 — 2026-10-04
+
+- PLAY launches only the client with the selected realmlist; starting the local server remains a separate action.
+- Server multipliers accept decimals typed with a dot or comma. Talent and rested experience descriptions now explain their actual behavior.
+- Added database and file checks, and Repair with backups and signed package verification. Unresolved schema damage is reported instead of guessed repairs.
+- Fixed character database rebuilds retaining migration history that could skip required SQL. Applied migration hash changes are now rejected.
+- Added optional simultaneous CoA and Wildcard worlds on Windows, with separate processes, ports and status indicators.
+
 ## 0.6.0 — 2026-10-03
 
 - Added Simplified Chinese for the interface and all server and bot settings.
