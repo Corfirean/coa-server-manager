@@ -40,3 +40,25 @@ const enabledZero = auctionTypeChanges(zero, true);
 if (enabledZero[weapon[0].key] !== "1" || enabledZero[weapon[1].key] !== "0") throw new Error("Zero-default types must become enabled without adding missing keys");
 for (const label of [...Object.values(auctionCategories), ...Object.values(auctionQualities)]) if (label.length !== 6 || label.some(t => !t)) throw new Error("Incomplete auction type/quality translation");
 console.log(`${ids.size} module controls: all six languages, unique keys, ranges and legacy aliases verified`);
+let squidSource = readFileSync(new URL("src/lib/squidSettings.ts", root), "utf8");
+squidSource = squidSource.replace('import { moduleField } from "@/lib/moduleSettings";', `import { moduleField } from "data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}";`);
+const { squidSettingsView } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(squidSource)).toString("base64")}`);
+const squidSample = [
+  { key: "AiPlayerbot.Enabled", value: "1", default: "0", doc: "" },
+  { key: "PlayerbotsDatabaseInfo", value: "private connection", default: "", doc: "" },
+  { key: "Playerbots.Updates.EnableDatabases", value: "0", default: "1", doc: "" },
+  { key: "AiPlayerbot.MaxRandomBots", value: "600", default: "500", doc: "" },
+  { key: "AiPlayerbot.RandomBotTalk", value: "0", default: "1", doc: "" },
+  { key: "AiPlayerbot.FollowDistance", value: "1.5", default: "1.5", doc: "" },
+  { key: "AiPlayerbot.RandomBotAccountPrefix", value: '"rndbot"', default: '"rndbot"', doc: "Account prefix" },
+];
+for (const locale of ["en", "ru", "de", "fr", "es", "zh"]) {
+  const view = squidSettingsView(squidSample, locale);
+  if (view.settings.length !== 4 || view.settings.some(s => s.key === "AiPlayerbot.Enabled" || s.key.startsWith("Playerbots"))) throw new Error("Bots must hide master switches and managed connections");
+  const count = view.settings.find(s => s.key === "AiPlayerbot.MaxRandomBots");
+  if (count.value !== 600 || count.default !== 500 || count.category !== "squid.population") throw new Error("SQUID population values/defaults must be numeric and preserved");
+  if (view.settings.find(s => s.key === "AiPlayerbot.RandomBotTalk").value !== false) throw new Error("SQUID switches must use boolean values");
+  if (view.settings.find(s => s.key === "AiPlayerbot.FollowDistance").value !== 1.5) throw new Error("SQUID decimal settings must preserve fractions");
+  if (view.categories.some(c => !c.title)) throw new Error("SQUID categories must be translated");
+}
+console.log("SQUID Bots view: typed values, upstream defaults, categories and hidden managed settings verified");

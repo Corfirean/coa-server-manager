@@ -118,7 +118,8 @@
       "status": "early",
       "icon": "swords",
       "enable_key": "AiPlayerbot.Enabled",
-      "default_on": false
+      "default_on": false,
+      "page": "bots"
     },
     {
       "id": "client-compat",

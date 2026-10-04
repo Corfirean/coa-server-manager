@@ -15,6 +15,7 @@ import {
   type SettingView,
   type UiError,
 } from "@/lib/api";
+import { squidSettingsView } from "@/lib/squidSettings";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -153,9 +154,10 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
   );
 }
 
-export function SettingsPage(props: { serverId: string; scope: Scope; title: string; question: string }) {
+export function SettingsPage(props: { serverId: string; scope: Scope; botModule?: "companions" | "playerbots"; title: string; question: string }) {
   const { serverId, scope } = props;
-  const { t, tn } = useI18n();
+  const { t, tn, locale } = useI18n();
+  const squid = scope === "bots" && props.botModule === "playerbots";
   const sx = useSchemaText();
   const human = useHuman();
   const [view, setView] = useState<SettingsView | null>(null);
@@ -181,7 +183,7 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
 
   const load = useCallback(async () => {
     try {
-      const v = await api.settings(serverId, scope);
+      const v = squid ? squidSettingsView(await api.moduleSettings(serverId, "playerbots"), locale) : await api.settings(serverId, scope);
       setView(v);
       setDraft({});
       setErrors({});
@@ -190,14 +192,14 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
     } catch (e) {
       setFatal(asUiError(e));
     }
-  }, [serverId, scope]);
+  }, [serverId, scope, squid, locale]);
 
   useEffect(() => {
     setView(null);
     setSaved(null);
     setCategory("");
     void load();
-    void api.presets(scope).then(setPresets);
+    if (squid) setPresets([]); else void api.presets(scope).then(setPresets);
     void api.status(serverId).then((s) => setRunning(s.observed.world.state === "running"));
     setQuery("");
     setRaw(null);
@@ -290,7 +292,10 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
     setBusy(true);
     setSaveErr(null);
     try {
-      const report = await api.save(serverId, scope, changes);
+      const report: SaveReport = squid ? {
+        changed: (await api.moduleSaveSettings(serverId, "playerbots", Object.fromEntries(Object.entries(changes).map(([key, value]) => [key, typeof value === "boolean" ? value ? "1" : "0" : String(value)])))).map(key => ({ key, title: view!.settings.find(s => s.key === key)!.title, restart: "world", dangerous: false })),
+        restart: "world", snapshot: null,
+      } : await api.save(serverId, scope, changes);
       setSaved(report);
       setPreview(null);
       await load();
@@ -338,7 +343,9 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
 
   async function openPreset(id: string) {
     setSaved(null);
-    setPreview(await api.previewPreset(serverId, scope, id));
+    if (squid) {
+      setPreview({ id: "defaults", title: t("set.restoreDefaults"), description: "", changes: view!.settings.filter(s => s.value !== s.default).map(s => ({ key: s.key, title: s.title, from: s.value, to: s.default, dangerous: false })) });
+    } else setPreview(await api.previewPreset(serverId, scope, id));
   }
 
   async function restartNow() {
@@ -356,9 +363,9 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
   return (
     <div className="max-w-3xl pb-24">
       <h1 className="text-2xl font-semibold">{props.title}</h1>
-      <p className="mt-1 text-muted">{props.question}</p>
+      <p className="mt-1 text-muted">{squid ? "SQUID’s Playerbots" : props.question}</p>
 
-      {scope === "bots" && <CompanionsCard serverId={serverId} />}
+      {scope === "bots" && !squid && <CompanionsCard serverId={serverId} />}
 
       {view.drift_keys.length > 0 && (
         <Card className="mt-5 border-warn/40 p-4" role="status">
@@ -372,7 +379,7 @@ export function SettingsPage(props: { serverId: string; scope: Scope; title: str
       )}
 
       <div className="mt-5 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted">{t("set.presets")}</span>
+        {presets.length > 0 && <span className="text-sm text-muted">{t("set.presets")}</span>}
         {presets.map((p) => (
           <Button key={p.id} size="sm" title={sx.preset(p).description} onClick={() => void openPreset(p.id)}>
             {sx.preset(p).title}

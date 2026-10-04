@@ -162,7 +162,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
               >
                 <GithubMark className="h-4 w-4" />
               </button>
-              {m.installed && m.has_settings && m.status !== "soon" && m.compatibility !== "unsupported" && (
+              {!m.page && m.installed && m.has_settings && m.status !== "soon" && m.compatibility !== "unsupported" && (
                 <Button size="sm" variant="ghost" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
                   <Settings2 className="h-3.5 w-3.5" aria-hidden /> {t("mod.settings")}
                 </Button>
@@ -170,7 +170,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
             </div>
           </Card>
           {/* The settings open right under the row of the card they belong to, so they are never out of sight below a long grid. */}
-          {selected?.has_settings && selectedAt >= 0 && Math.floor(selectedAt / 2) === Math.floor(i / 2) && (i % 2 === 1 || i === modules.length - 1) && (
+          {selected?.has_settings && !selected.page && selectedAt >= 0 && Math.floor(selectedAt / 2) === Math.floor(i / 2) && (i % 2 === 1 || i === modules.length - 1) && (
             <SettingsPanel key={selected.id} className="sm:col-span-2">
               <h2 className="font-semibold">{t("mod.settingsOf", { name: selected.name })}</h2>
               <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} />
