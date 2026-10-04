@@ -42,6 +42,7 @@ pub mod release;
 pub mod report;
 pub mod release_schema;
 pub mod update;
+pub mod wine;
 pub mod upnp;
 pub mod signing;
 pub mod srp6;

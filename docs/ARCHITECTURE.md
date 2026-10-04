@@ -416,6 +416,12 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   the containers the databases of the selected realm (`acore_world_wildcard` ...). The switch itself (configuration swap,
   database copy, journal) is the shared code; `prepare_launcher` has nothing to patch, and Wildcard support is read from
   `Core/worldserver` as it is from `Core/worldserver.exe`.
+* **The game client starts under Wine on a Linux host** (`wine.rs`; `client::launch` and `client::is_running` hand over):
+  umu-launcher with a Proton build when `umu-run` is installed (the newest GE-Proton found for Steam, or umu's own choice),
+  else plain Wine; `WINEPREFIX` defaults to `~/Games/umu/coa-client`; `WINEDLLOVERRIDES=divxtac=d` is always set, because
+  DivxTac.dll deadlocks the world loading screen under wine-mono. `COA_PROTONPATH`, `COA_WINEPREFIX` or
+  `client-launch.json` in the Manager's folder (`proton_path`, `prefix`, `runner`) override the detection. Whether the client
+  runs is read from `/proc` (under Wine the command line holds the Windows form of the path). Output goes to `client.log`.
 * **Not done yet**: downloading the game data, updates, port conflict detection, the firewall and exposure checks, the
   Wildcard realm profiles, and the client under Wine/Proton.
 
