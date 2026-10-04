@@ -142,6 +142,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
             {t("fr.st.private")}
           </Line>
         </ul>
+        {st.secondary_world_port && <p className="mt-3 text-sm text-muted">{t("realm.secondPort", { port: st.secondary_world_port })}</p>}
       </Card>
 
       <div className="mt-6 grid gap-3">

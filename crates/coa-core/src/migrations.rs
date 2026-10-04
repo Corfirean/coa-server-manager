@@ -123,17 +123,27 @@ pub fn status(store: &dyn Store, list: &[Migration]) -> Result<Vec<Item>> {
     Ok(list
         .iter()
         .map(|m| {
-            let row = rows.iter().find(|r| r.db == m.db && r.id == m.id);
+            // Manager records are appended after the core's updates table and are authoritative.
+            let row = recorded(&rows, m);
+            let changed = row.is_some_and(|r| hash_changed(r, m));
             Item {
                 id: m.id.clone(),
                 db: m.db.clone(),
-                status: row.map(|r| r.status).unwrap_or(Status::Pending),
+                status: if changed { Status::Failed } else { row.map(|r| r.status).unwrap_or(Status::Pending) },
                 destructive: m.destructive,
                 baseline: row.map(|r| r.baseline).unwrap_or(false),
-                error: row.and_then(|r| r.error.clone()),
+                error: if changed { Some("An already applied SQL file changed. Publish a new migration instead of replaying it.".into()) } else { row.and_then(|r| r.error.clone()) },
             }
         })
         .collect())
+}
+
+fn recorded<'a>(rows: &'a [LedgerRow], m: &Migration) -> Option<&'a LedgerRow> {
+    rows.iter().rev().find(|r| r.db == m.db && r.id == m.id)
+}
+
+fn hash_changed(row: &LedgerRow, m: &Migration) -> bool {
+    row.status == Status::Applied && row.sha256 != "0".repeat(64) && !row.sha256.eq_ignore_ascii_case(&m.sha256)
 }
 
 /// Record migrations as already present without running them (adopting an existing server whose database
@@ -163,7 +173,12 @@ pub struct ApplyReport {
 pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot: &dyn Fn() -> Result<String>) -> Result<ApplyReport> {
     let rows = store.load()?;
     // The list order is the release's order of application (released updates, then pending, then modules).
-    let todo: Vec<&Migration> = list.iter().filter(|m| !rows.iter().any(|r| r.db == m.db && r.id == m.id && r.status == Status::Applied)).collect();
+    for m in list {
+        if recorded(&rows, m).is_some_and(|r| hash_changed(r, m)) {
+            return Err(Error::Invalid(format!("Applied database update {} ({}) has a different checksum. A new migration is required; it was not replayed.", m.id, m.db)));
+        }
+    }
+    let todo: Vec<&Migration> = list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).collect();
 
     // Resolve and verify every file before running anything.
     let mut files = Vec::new();
@@ -252,6 +267,27 @@ mod tests {
 
     fn no_snapshot() -> Result<String> {
         panic!("no snapshot expected")
+    }
+
+    #[test]
+    fn manager_failure_overrides_an_old_core_update_record() {
+        let (d, list) = setup(&[("characters", "same_id", "SELECT 1;")]);
+        let store = Mem::default();
+        let old = LedgerRow { db: "characters".into(), id: "same_id".into(), sha256: "0".repeat(64), status: Status::Applied, error: None, baseline: true };
+        let failed = LedgerRow { sha256: list[0].sha256.clone(), status: Status::Failed, error: Some("previous failure".into()), baseline: false, ..old.clone() };
+        store.rows.borrow_mut().extend([old, failed]);
+        assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
+        assert_eq!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap().applied, ["same_id"]);
+    }
+
+    #[test]
+    fn changed_applied_sql_is_reported_and_never_replayed() {
+        let (d, list) = setup(&[("characters", "same_id", "SELECT 1;")]);
+        let store = Mem::default();
+        store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "same_id".into(), sha256: "a".repeat(64), status: Status::Applied, error: None, baseline: false });
+        assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
+        assert!(store.ran.borrow().is_empty());
     }
 
     #[test]

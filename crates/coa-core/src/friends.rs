@@ -118,7 +118,8 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     }
     let db = Db::from_repack(root, Account::Admin)?;
     let realm = crate::realms::state(root)?.active.realm_id();
-    db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}', localAddress='{host}' WHERE id={realm};"))?;
+    let where_realms = if crate::realms::state(root)?.simultaneous { "id IN (1,2)".into() } else { format!("id={realm}") };
+    db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}', localAddress='{host}' WHERE {where_realms};"))?;
     Ok(())
 }
 

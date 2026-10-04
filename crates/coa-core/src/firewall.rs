@@ -78,13 +78,21 @@ fn run_elevated(commands: &[String]) -> Result<()> {
 
 /// Make sure both rules exist (adds only the missing ones) and confirm afterwards.
 pub fn ensure_rules(ports: &Ports) -> Result<Status> {
+    ensure_rules_with_secondary(ports, None)
+}
+
+pub fn ensure_rules_with_secondary(ports: &Ports, secondary: Option<u16>) -> Result<Status> {
     let have = status();
-    let cmds = plan(ports, &have);
+    let mut cmds = plan(ports, &have);
+    let second_name = secondary.map(|port| format!("CoA Server Manager - Second World {port}"));
+    if let (Some(port), Some(name)) = (secondary, &second_name) {
+        if !rule_exists(name) { cmds.push(add_cmd(name, port)); }
+    }
     if !cmds.is_empty() {
         run_elevated(&cmds)?;
     }
     let now = status();
-    if now.auth && now.world {
+    if now.auth && now.world && second_name.as_ref().is_none_or(|name| rule_exists(name)) {
         Ok(now)
     } else {
         Err(Error::Invalid("The firewall rules could not be confirmed after the change.".into()))

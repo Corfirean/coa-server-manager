@@ -162,7 +162,7 @@ pub fn with_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result
     let result = f(&db);
     if !mysql_was_up {
         let now = process::observe(root, &read_ports(root));
-        if now.world.state == ServiceState::Stopped && now.auth.state == ServiceState::Stopped {
+        if now.world.state == ServiceState::Stopped && now.auth.state == ServiceState::Stopped && !crate::multiworld::is_running(root) {
             let _ = driver::run(root, Verb::StopAll);
         }
     }
@@ -338,7 +338,7 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
         return Err(Error::Invalid("This backup is damaged and cannot be restored.".into()));
     }
     let now = process::observe(root, &read_ports(root));
-    if now.world.state != ServiceState::Stopped || now.auth.state != ServiceState::Stopped {
+    if now.world.state != ServiceState::Stopped || now.auth.state != ServiceState::Stopped || crate::multiworld::is_running(root) {
         return Err(Error::Invalid("Stop the server before restoring a database.".into()));
     }
     let live = if name.contains('-') { db::schema_of(name)? } else { point.realm.schema(name)? };

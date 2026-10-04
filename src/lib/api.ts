@@ -45,13 +45,20 @@ export interface ServiceStatus {
 }
 
 export interface StatusView {
-  observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus };
+  observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus; secondary_world?: ServiceStatus | null };
   busy: boolean;
   path_exists: boolean;
 }
 
 export type RealmMode = "coa" | "wildcard";
-export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; supported: boolean; recovery_pending: boolean }
+export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean }
+export interface DatabaseCheck {
+  realm: RealmMode;
+  migrations: { id: string; db: string; status: "applied" | "pending" | "failed"; error: string | null }[];
+  problems: { database: string; table: string; column: string; detail: string }[];
+  full_schema: boolean;
+}
+export interface RepairReport { restored: string[]; applied: string[]; backup: string; database: DatabaseCheck[]; error: string | null }
 
 export interface Human {
   code: string;
@@ -343,6 +350,7 @@ export interface FriendsStatus {
   server_running: boolean;
   auth_port: number;
   world_port: number;
+  secondary_world_port?: number | null;
 }
 
 export interface InternetCheck {
@@ -368,6 +376,9 @@ export interface ConsoleLine {
 export const api = {
     realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
     realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
+    realmSimultaneous: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_simultaneous", { id, enabled }),
+    checkDatabase: (id: string) => invoke<DatabaseCheck[]>("check_database", { id }),
+    repairServer: (id: string) => invoke<RepairReport>("repair_server", { id }),
   defaultInstallDir: () => invoke<string>("default_install_dir"),
   scan: (path: string) => invoke<ScanReport>("scan_server", { path }),
   add: (path: string) => invoke<ServerSummary>("add_server", { path }),

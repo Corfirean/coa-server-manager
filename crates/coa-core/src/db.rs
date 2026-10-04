@@ -101,6 +101,7 @@ impl Db {
     }
 
     pub fn for_realm(mut self, realm: crate::realms::Mode) -> Self { self.realm = realm; self }
+    pub fn realm(&self) -> crate::realms::Mode { self.realm }
 
     pub fn realm_schema<'a>(&self, name: &'a str) -> &'a str {
         if self.realm == crate::realms::Mode::Wildcard {

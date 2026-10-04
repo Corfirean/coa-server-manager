@@ -261,6 +261,13 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
         package::extract(&parts_dir, &m, &staging_root, &|done, total| say("Unpacking", 50 + (done * 30 / total.max(1)) as u8, None))?;
         say("Preparing database", 82, None);
         bootstrap_database(&staging_root)?;
+        crate::backup::with_database(&staging_root, |db| {
+            let problems = crate::schema_check::check(db, &staging_root)?;
+            if let Some(p) = problems.first() {
+                return Err(Error::Invalid(format!("The packaged database is incomplete: {}.{}.{}: {}.", p.database, p.table, p.column, p.detail)));
+            }
+            Ok(())
+        })?;
         fs::remove_file(staging_root.join(MARKER))?;
 
         // 4. Commit: the only moment the destination changes.

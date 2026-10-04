@@ -61,6 +61,7 @@ pub struct Observed {
     pub mysql: ServiceStatus,
     pub auth: ServiceStatus,
     pub world: ServiceStatus,
+    pub secondary_world: Option<ServiceStatus>,
 }
 
 pub fn read_state_record(root: &Path, name: &str) -> Option<ProcessIdentity> {
@@ -298,10 +299,15 @@ pub fn observe(root: &Path, ports: &Ports) -> Observed {
     }
     let listen = listeners();
     let (world, auth, mysql) = crate::layout::executables(root);
+    let secondary = crate::multiworld::root(root);
+    let secondary_world = if crate::realms::state(root).is_ok_and(|s| s.simultaneous) || crate::multiworld::is_running(root) {
+        Some(service(&secondary, "world-secondary", secondary.join("Core/worldserver.exe"), crate::layout::read_ports(&secondary).world, &listen))
+    } else { None };
     Observed {
         mysql: service(root, "mysql", mysql, ports.mysql, &listen),
         auth: service(root, "auth", auth, ports.auth, &listen),
         world: service(root, "world", world, ports.world, &listen),
+        secondary_world,
     }
 }
 

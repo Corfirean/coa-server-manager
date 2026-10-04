@@ -349,7 +349,7 @@
   },
   "Rate.Rest.InGame": {
    "t": "Ruhebonus beim Spielen",
-   "d": "Geschwindigkeit, mit der Ruhe-Erfahrung beim Spielen aufgebraucht wird."
+   "d": "Geschwindigkeit, mit der Erholungsbonus online in einem Ruhebereich aufgebaut wird."
   },
   "Rate.Creature.Normal.Damage": {
    "t": "Monsterschaden",
@@ -484,8 +484,8 @@
    "d": "Multiplikator dafür, wie oft legendäre (orange) Gegenstände fallen."
   },
   "Rate.Talent": {
-   "t": "Talentpunkte",
-   "d": "Multiplikator für die Talentpunkte, die ein Charakter pro Stufe erhält."
+   "t": "Standard-Talentpunkte (AzerothCore)",
+   "d": "Gilt nur für Standardtalente von AzerothCore. CoA-Klassen- und Spezialisierungspunkte stammen aus Clientdaten und ignorieren diesen Multiplikator."
   },
   "Rate.Skill.Discovery": {
    "t": "Chance auf Rezeptentdeckung",

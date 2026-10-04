@@ -23,6 +23,7 @@ pub const BOOTSTRAP_CREDENTIALS: &str = "Settings/database.bootstrap.json";
 
 /// Files that never belong in a shipped package: per-install state, logs, secrets, old binaries.
 pub fn excluded(rel: &str) -> bool {
+    if rel.replace('\\', "/").to_lowercase().starts_with(".realms/") { return true; }
     let l = rel.to_lowercase();
     let name = l.rsplit('/').next().unwrap_or("");
     l.starts_with(".state/")

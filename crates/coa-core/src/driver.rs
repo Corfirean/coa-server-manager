@@ -17,6 +17,7 @@ use crate::fsx;
 pub enum Verb {
     StartAll,
     StartMysql,
+    StartWorld,
     StopAll,
 }
 
@@ -25,13 +26,14 @@ impl Verb {
         match self {
             Verb::StartAll => "start-all",
             Verb::StartMysql => "start-mysql",
+            Verb::StartWorld => "start-world",
             Verb::StopAll => "stop-all",
         }
     }
 
     fn timeout(self) -> Duration {
         match self {
-            Verb::StartAll => Duration::from_secs(420),
+            Verb::StartAll | Verb::StartWorld => Duration::from_secs(420),
             Verb::StartMysql => Duration::from_secs(120),
             Verb::StopAll => Duration::from_secs(240),
         }
@@ -83,6 +85,7 @@ pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
     if crate::docker::is_docker(&root) {
         return crate::docker::run(&root, verb);
     }
+    if verb == Verb::StopAll { crate::multiworld::stop(&root)?; }
     if verb == Verb::StartAll {
         crate::realms::before_start(&root)?;
         if root.join("Settings/realm-profile.json").exists() {
@@ -146,6 +149,7 @@ pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
         }
     };
     tracing::info!(?verb, ok, ?code, "driver: launcher verb finished");
+    if ok && verb == Verb::StartAll { crate::multiworld::start(&root)?; }
     Ok(DriverOutcome { ok, exit_code, code, human: code.map(ErrorCode::human), output })
 }
 

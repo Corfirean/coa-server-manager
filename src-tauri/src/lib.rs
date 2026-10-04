@@ -559,6 +559,32 @@ async fn realm_select(state: State<'_, AppState>, id: String, mode: coa_core::re
 }
 
 #[tauri::command]
+async fn realm_simultaneous(state: State<'_, AppState>, id: String, enabled: bool) -> std::result::Result<coa_core::realms::View, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::multiworld::set_enabled(&root, enabled)).await
+}
+
+#[tauri::command]
+async fn check_database(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::repair::DatabaseCheck>, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::repair::check(&root, &meta_dir(&root)?)).await
+}
+
+#[tauri::command]
+async fn repair_server(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::repair::Report, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let dir = meta_dir(&root)?;
+        coa_core::repair::run(&root, &dir, &package_source(None), &update_source(None), coa_core::signing::EMBEDDED_PUBLIC_KEY, &|step,percent| {
+            let _ = app.emit("repair-progress", serde_json::json!({ "id": id, "step": step, "percent": percent }));
+        })
+    }).await
+}
+
+#[tauri::command]
 async fn module_set_enabled(state: State<'_, AppState>, id: String, module: String, enabled: bool) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
@@ -689,7 +715,7 @@ async fn apply_update(
         let (dir, _) = install_meta(&root)?;
         // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
         let observed = coa_core::process::observe(&root, &layout::read_ports(&root));
-        if observed.world.state != coa_core::process::ServiceState::Stopped || observed.auth.state != coa_core::process::ServiceState::Stopped {
+        if observed.world.state != coa_core::process::ServiceState::Stopped || observed.auth.state != coa_core::process::ServiceState::Stopped || coa_core::multiworld::is_running(&root) {
             let out = driver::run(&root, Verb::StopAll)?;
             if !out.ok {
                 return Err(Error::Invalid("The server could not be stopped, so the update was not started.".into()));
@@ -1120,7 +1146,7 @@ fn end_client_job(state: &AppState) {
     }
 }
 
-/// Start the server if needed, wait until it is ready, then launch the game client.
+/// Launch the game client independently of the local server.
 #[tauri::command]
 async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
     let root = path_of(&state, &id)?;
@@ -1129,17 +1155,6 @@ async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<Dri
     if coa_core::client::is_running(&client) {
         return Err(Error::Invalid("Close the game client before pressing Play so its selected realm can be updated.".into()).into());
     }
-    let ready = {
-        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
-        [&o.mysql, &o.auth, &o.world].iter().all(|s| s.state == coa_core::process::ServiceState::Running)
-    };
-    if !ready {
-        let out = run_verb(&state, id.clone(), Verb::StartAll).await?;
-        if !out.ok {
-            return Ok(out);
-        }
-    }
-    let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let mode = coa_core::realms::state(&root)?.active;
         if !coa_core::client::sync_realm(&client, &dir, mode)? {
@@ -1163,6 +1178,7 @@ struct FriendsStatus {
     server_running: bool,
     auth_port: u16,
     world_port: u16,
+    secondary_world_port: Option<u16>,
 }
 
 /// Open one of a few known help pages in the default browser. Anything else is refused, so a page can never ask the
@@ -1243,6 +1259,7 @@ async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::
             server_running: coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running,
             auth_port: ports.auth,
             world_port: ports.world,
+            secondary_world_port: coa_core::realms::state(&root)?.secondary_world_port.filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.simultaneous)),
         })
     })
     .await
@@ -1296,6 +1313,8 @@ async fn friends_enable(
         let meta = meta_dir(&root)?;
         let ports = layout::read_ports(&root);
         let mut note = None;
+        let realms = coa_core::realms::state(&root)?;
+        let secondary = realms.secondary_world_port.filter(|_| realms.simultaneous);
         let host = match mode {
             Mode::Local => "127.0.0.1".to_string(),
             Mode::Lan => coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("This computer has no network address.".into()))?.to_string(),
@@ -1305,7 +1324,7 @@ async fn friends_enable(
         let open = mode != Mode::Local;
         let changed = friends::set_open(&root, &meta, open)?;
         if open {
-            coa_core::firewall::ensure_rules(&ports)?;
+            coa_core::firewall::ensure_rules_with_secondary(&ports, secondary)?;
         }
         if mode == Mode::Direct && use_upnp {
             match coa_core::upnp::discover() {
@@ -1313,6 +1332,7 @@ async fn friends_enable(
                     let lan = coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("No local address.".into()))?;
                     coa_core::upnp::add_mapping(&gw, ports.auth, lan, "Auth")?;
                     coa_core::upnp::add_mapping(&gw, ports.world, lan, "World")?;
+                    if let Some(port) = secondary { coa_core::upnp::add_mapping(&gw, port, lan, "Second world")?; }
                     note = Some("Your router was asked to forward the game ports.".to_string());
                 }
                 None => note = Some("Your router does not support automatic setup; forward the two game ports by hand or use the private network.".to_string()),
@@ -1453,6 +1473,9 @@ pub fn run() {
             modules_list,
             realm_profiles,
             realm_select,
+            realm_simultaneous,
+            check_database,
+            repair_server,
             module_set_enabled,
             module_settings,
             module_save_settings,

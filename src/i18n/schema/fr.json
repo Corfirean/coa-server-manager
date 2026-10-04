@@ -349,7 +349,7 @@
   },
   "Rate.Rest.InGame": {
    "t": "Bonus de repos en jeu",
-   "d": "Vitesse à laquelle l’expérience de repos est consommée pendant que vous jouez."
+   "d": "Vitesse d’accumulation du bonus de repos en ligne dans une zone de repos."
   },
   "Rate.Creature.Normal.Damage": {
    "t": "Dégâts des monstres",
@@ -484,8 +484,8 @@
    "d": "Multiplicateur de la fréquence de butin des objets légendaires (orange)."
   },
   "Rate.Talent": {
-   "t": "Points de talent",
-   "d": "Multiplicateur des points de talent gagnés par niveau."
+   "t": "Points de talent standards (AzerothCore)",
+   "d": "Affecte uniquement les talents standards AzerothCore. Les points de classe et de spécialisation CoA proviennent des données du client et ignorent ce multiplicateur."
   },
   "Rate.Skill.Discovery": {
    "t": "Chance de découvrir des recettes",

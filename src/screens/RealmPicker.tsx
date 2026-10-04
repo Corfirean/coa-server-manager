@@ -44,7 +44,7 @@ export function RealmPicker({ serverId, running, disabled, onChanged, onBusy }: 
       </Button>}
       {view && <span className="ml-auto text-xs text-muted">{t("realm.active", { name: view.active === "coa" ? "CoA" : "Wildcard" })}</span>}
     </div>
-    <p className="mt-3 text-sm text-muted">{t("realm.separate")}</p>
+    <p className="mt-3 text-sm text-muted">{t(view?.simultaneous ? "realm.bothRunning" : "realm.separate")}</p>
     {selected === "wildcard" && <p className="mt-2 text-sm text-warn">{t("realm.modules")}</p>}
     {view && !view.supported && <p className="mt-2 text-sm text-warn">{t("realm.update")}</p>}
     {view?.recovery_pending && <p className="mt-2 text-sm text-warn">{t("realm.recovery")}</p>}

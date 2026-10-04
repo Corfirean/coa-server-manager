@@ -349,7 +349,7 @@
   },
   "Rate.Rest.InGame": {
    "t": "Bonificación de descanso al jugar",
-   "d": "Velocidad a la que se consume la experiencia de descanso mientras juegas."
+   "d": "Velocidad de acumulación de experiencia de descanso mientras estás conectado en una zona de descanso."
   },
   "Rate.Creature.Normal.Damage": {
    "t": "Daño de los monstruos",
@@ -484,8 +484,8 @@
    "d": "Multiplicador de la frecuencia con que caen objetos legendarios (naranjas)."
   },
   "Rate.Talent": {
-   "t": "Puntos de talento",
-   "d": "Multiplicador de los puntos de talento que gana un personaje por nivel."
+   "t": "Puntos de talento estándar (AzerothCore)",
+   "d": "Solo afecta a los talentos estándar de AzerothCore. Los puntos de clase y especialización de CoA proceden de los datos del cliente e ignoran este multiplicador."
   },
   "Rate.Skill.Discovery": {
    "t": "Probabilidad de descubrir recetas",

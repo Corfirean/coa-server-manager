@@ -64,7 +64,9 @@ pub fn run(root: &Path, meta: &InstallMeta) -> Report {
 
     let ports = layout::read_ports(root);
     let o = process::observe(root, &ports);
-    for (title, s) in [("Database", &o.mysql), ("Login server", &o.auth), ("World server", &o.world)] {
+    let mut services = vec![("Database", &o.mysql), ("Login server", &o.auth), ("World server", &o.world)];
+    if let Some(second) = &o.secondary_world { services.push(("Second world", second)); }
+    for (title, s) in services {
         let (lvl, text) = match (s.state, &s.conflict) {
             (ServiceState::Running, _) => (Level::Ok, "Running".to_string()),
             (_, Some(conf)) => (Level::Fail, format!("Port {} is used by another program (process {}).", conf.port, conf.pid)),
@@ -124,6 +126,8 @@ pub struct FileProblem {
 pub fn verify_managed(root: &Path, meta: &InstallMeta) -> Vec<FileProblem> {
     let mut out = Vec::new();
     for (rel, want) in &meta.original_hashes {
+        let lower = rel.replace('\\', "/").to_lowercase();
+        if lower.starts_with("mysql/data/") || lower.starts_with("settings/") || lower.starts_with("core/configs/") && !lower.ends_with(".dist") { continue; }
         let Ok(p) = fsx::safe_join(root, rel) else { continue };
         match fsx::sha256_file(&p) {
             Err(_) => out.push(FileProblem { path: rel.clone(), kind: "missing" }),
@@ -240,6 +244,9 @@ pub fn export_package(root: &Path, meta_dir: &Path, manager_log: &Path, meta: &I
     }
     if let Ok(b) = fs::read(root.join("RELEASE.json")) {
         add("RELEASE.json", redact(&String::from_utf8_lossy(&b)).as_bytes())?;
+    }
+    if let Ok(b) = fs::read(meta_dir.join("logs/database-checks.json")) {
+        add("database-checks.json", redact(&String::from_utf8_lossy(&b)).as_bytes())?;
     }
     zip.finish().map_err(|e| Error::Invalid(e.to_string()))?;
     Ok(n)

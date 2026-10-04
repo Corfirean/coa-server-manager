@@ -41,6 +41,12 @@ impl Mode {
 pub struct RealmState {
     pub active: Mode,
     pub wildcard_created: bool,
+    #[serde(default)]
+    pub simultaneous: bool,
+    #[serde(default)]
+    pub secondary_world_port: Option<u16>,
+    #[serde(default)]
+    pub secondary_ra_port: Option<u16>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +55,9 @@ pub struct View {
     pub wildcard_created: bool,
     pub supported: bool,
     pub recovery_pending: bool,
+    pub simultaneous: bool,
+    pub secondary_world_port: Option<u16>,
+    pub secondary_running: bool,
 }
 
 pub fn state(root: &Path) -> Result<RealmState> {
@@ -61,7 +70,7 @@ pub fn view(root: &Path) -> Result<View> {
     // Inspect the binary itself; templates or an old log cannot prove installed support.
     let supported = fs::read(root.join("Core/worldserver.exe"))?
         .windows(b"Wildcard synergy settings".len()).any(|w| w == b"Wildcard synergy settings");
-    Ok(View { active: s.active, wildcard_created: s.wildcard_created, supported, recovery_pending: root.join(JOURNAL).exists() })
+    Ok(View { active: s.active, wildcard_created: s.wildcard_created, supported, recovery_pending: root.join(JOURNAL).exists(), simultaneous: s.simultaneous, secondary_world_port: s.secondary_world_port, secondary_running: crate::multiworld::is_running(root) })
 }
 
 pub fn guard_module(root: &Path, id: &str) -> Result<()> {
@@ -138,7 +147,7 @@ struct Journal { before: RealmState, files: Files }
 
 fn require_world_stopped(root: &Path) -> Result<()> {
     let observed = process::observe(root, &layout::read_ports(root));
-    if observed.world.state != process::ServiceState::Stopped || observed.auth.state != process::ServiceState::Stopped {
+    if observed.world.state != process::ServiceState::Stopped || observed.auth.state != process::ServiceState::Stopped || crate::multiworld::is_running(root) {
         return Err(Error::Invalid("Stop the server before switching realms. Your characters will be saved.".into()));
     }
     Ok(())
@@ -258,11 +267,22 @@ pub fn prepare_launcher(root: &Path) -> Result<()> {
     let path = root.join("Scripts/manage.py");
     let source = fs::read_to_string(&path)?;
     let patched = patch_launcher(&source)?;
-    if patched != source { fsx::atomic_write(&path, patched.as_bytes())?; }
+    if patched != source {
+        fsx::atomic_write(&path, patched.as_bytes())?;
+        // A Manager-owned transformation is still pristine for subsequent updates and file checks.
+        if let Ok(dir) = crate::registry::metadata_dir_for(root) {
+            if let Ok((_, mut meta)) = crate::registry::MetaDir::open(&dir) {
+                if meta.original_hashes.get("Scripts/manage.py").is_some_and(|hash| hash == &fsx::sha256_bytes(source.as_bytes())) {
+                    meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(patched.as_bytes()));
+                    fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
-fn patch_launcher(source: &str) -> Result<String> {
+pub(crate) fn patch_launcher(source: &str) -> Result<String> {
     if source.contains("# coa-manager-realm-profiles-v1") { return Ok(source.into()); }
     let replacements = [
         ("(\"WorldDatabaseInfo\", \"acore_world\")", "(\"WorldDatabaseInfo\", \"acore_world_wildcard\" if coa_realm() == 'wildcard' else \"acore_world\")"),
@@ -288,6 +308,8 @@ pub fn before_start(root: &Path) -> Result<()> {
     let s = state(root)?;
     if !root.join(STATE).exists() { return Ok(()); }
     prepare_launcher(root)?;
+    if s.simultaneous && !view(root)?.supported { return Err(Error::Invalid("The installed server build does not support simultaneous Wildcard startup.".into())); }
+    if s.simultaneous { fsx::atomic_write_json(&snapshot(root, s.active), &configs(root)?)?; }
     if s.active == Mode::Wildcard {
         if !view(root)?.supported { return Err(Error::Invalid("The installed server build does not support Wildcard.".into())); }
         let path = root.join("Core/configs/modules/mod_coa_playerbots.conf");
@@ -304,6 +326,11 @@ pub fn setup_realmlist(root: &Path) -> Result<()> {
     let db = Db::from_repack(root, Account::Admin)?;
     let port = layout::read_ports(root).world;
     db.query(&format!("INSERT INTO acore_auth.realmlist (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,gamebuild) SELECT 2,'Wildcard',address,localAddress,localSubnetMask,{port},icon,2,timezone,gamebuild FROM acore_auth.realmlist WHERE id=1 ON DUPLICATE KEY UPDATE port={port}; UPDATE acore_auth.realmlist SET flag=2 WHERE id IN (1,2) AND id<>{};", s.active.realm_id()))?;
+    if s.simultaneous {
+        let second = s.secondary_world_port.ok_or_else(|| Error::Invalid("Second realm port is missing.".into()))?;
+        let (coa, wildcard) = if s.active == Mode::Coa { (port, second) } else { (second, port) };
+        db.query(&format!("UPDATE acore_auth.realmlist SET port=CASE id WHEN 1 THEN {coa} ELSE {wildcard} END,flag=0 WHERE id IN (1,2);"))?;
+    }
     Ok(())
 }
 
@@ -358,7 +385,7 @@ mod tests {
     #[test]
     fn wildcard_blocks_bot_settings_and_enable_calls() {
         let t = tempfile::tempdir().unwrap();
-        fsx::atomic_write_json(&t.path().join(STATE), &RealmState { active: Mode::Wildcard, wildcard_created: true }).unwrap();
+        fsx::atomic_write_json(&t.path().join(STATE), &RealmState { active: Mode::Wildcard, wildcard_created: true, ..Default::default() }).unwrap();
         assert!(crate::modules::set_enabled(t.path(), t.path(), "companions", true).is_err());
         assert!(crate::config::save(t.path(), t.path(), crate::config::Scope::Bots, &BTreeMap::new()).is_err());
         assert!(guard_module(t.path(), "content-scaling").is_ok());
@@ -367,5 +394,29 @@ mod tests {
     #[test]
     fn unknown_launcher_is_refused_without_partial_patching() {
         assert!(patch_launcher("print('custom launcher')").is_err());
+    }
+
+    #[test]
+    fn managed_launcher_patch_remains_pristine_but_external_edits_conflict() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("server");
+        let source = "(\"WorldDatabaseInfo\", \"acore_world\")\n(\"CharacterDatabaseInfo\", \"acore_characters\")\nSET name='AzerothCore',address=\nWHERE id=1;\nmysql(\"UPDATE acore_auth.realmlist SET flag=0\nif __name__ == \"__main__\":\n";
+        fsx::atomic_write(&root.join("Scripts/manage.py"), source.as_bytes()).unwrap();
+        let mut meta = crate::registry::InstallMeta::new(crate::registry::InstallKind::New, &root);
+        meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(source.as_bytes()));
+        let dir = crate::registry::MetaDir::create(&root, &meta).unwrap();
+        prepare_launcher(&root).unwrap();
+        let (_, meta) = crate::registry::MetaDir::open(&dir.root).unwrap();
+        assert!(crate::diag::verify_managed(&root, &meta).is_empty());
+        let manifest: crate::manifest::Manifest = serde_json::from_value(serde_json::json!({
+            "schema": 1, "kind": "update", "version": "2.0.0", "core": {"commit": null}, "builtAt": "fixture", "minManagerVersion": "0.1.0",
+            "files": [{"path":"Scripts/manage.py","sha256":fsx::sha256_bytes(b"next release"),"size":12,"owner":"core","policy":"replace"}]
+        })).unwrap();
+        assert_eq!(crate::update::plan(&root, &meta, &manifest, &BTreeMap::new(), None).unwrap()[0].action, crate::update::Action::Replace);
+        let mut modified = fs::read(root.join("Scripts/manage.py")).unwrap();
+        modified.extend_from_slice(b"# custom edit\n");
+        fsx::atomic_write(&root.join("Scripts/manage.py"), &modified).unwrap();
+        prepare_launcher(&root).unwrap();
+        assert_eq!(crate::update::plan(&root, &meta, &manifest, &BTreeMap::new(), None).unwrap()[0].action, crate::update::Action::Conflict);
     }
 }

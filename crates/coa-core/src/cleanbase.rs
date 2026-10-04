@@ -218,12 +218,17 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
         db.query(&sql)?;
         // 2. characters: a brand-new schema from the core's base scripts
         db.query("DROP DATABASE IF EXISTS `acore_characters`; CREATE DATABASE `acore_characters` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")?;
+        // The ledger lives in world, so dropping characters does not clear its migration history.
+        // Never carry that history into a freshly rebuilt character database.
+        if db.tables("acore_world")?.iter().any(|t| t == "coa_manager_migrations") {
+            db.query("DELETE FROM acore_world.coa_manager_migrations WHERE `db`='characters';")?;
+        }
         for f in &base_chars {
             db.run_sql_file("acore_characters", f)?;
         }
         // 3. every migration up to the core commit (already-recorded ones are skipped)
         let before = status(db, &migrations)?;
-        let pending: Vec<_> = migrations.iter().zip(&before).filter(|(_, i)| i.status == Status::Pending).map(|(m, _)| m.clone()).collect();
+        let pending: Vec<_> = migrations.iter().zip(&before).filter(|(_, i)| i.status != Status::Applied).map(|(m, _)| m.clone()).collect();
         say(&format!("Applying {} database updates", pending.len()));
         let report = apply_pending(db, &pending, &staging, &|| Ok("(scratch database)".into()))?;
         if let Some((id, why)) = report.failed {
@@ -251,6 +256,7 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
         if accounts != "0" || chars != "0" || templates != 21 {
             return Err(Error::Invalid(format!("The database is not clean ({accounts} accounts, {chars} player characters, {templates} templates).")));
         }
+        crate::schema_check::capture(db, out)?;
         Ok(())
     })?;
 

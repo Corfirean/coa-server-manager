@@ -330,7 +330,14 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     meta.core.version = Some(m.version.clone());
     meta.core.commit = m.core.commit.clone().or(meta.core.commit);
     for op in &txn.ops {
-        meta.original_hashes.insert(op.path.clone(), op.new_sha256.clone());
+        let hash = if op.path == "Scripts/manage.py" {
+            let staged = fs::read_to_string(tree.join(&op.path)).ok().and_then(|s| crate::realms::patch_launcher(&s).ok());
+            match (staged, fs::read(root.join(&op.path))) {
+                (Some(expected), Ok(actual)) if expected.as_bytes() == actual => fsx::sha256_bytes(&actual),
+                _ => op.new_sha256.clone(),
+            }
+        } else { op.new_sha256.clone() };
+        meta.original_hashes.insert(op.path.clone(), hash);
         if !meta.managed_files.contains(&op.path) {
             meta.managed_files.push(op.path.clone());
         }
@@ -462,7 +469,7 @@ impl Env for RepackEnv<'_> {
     fn ensure_stopped(&self) -> Result<()> {
         use crate::process::{observe, ServiceState};
         let o = observe(self.root, &crate::layout::read_ports(self.root));
-        if o.world.state != ServiceState::Stopped || o.auth.state != ServiceState::Stopped {
+        if o.world.state != ServiceState::Stopped || o.auth.state != ServiceState::Stopped || crate::multiworld::is_running(self.root) {
             return Err(Error::Invalid("Stop the server before updating it; files cannot be replaced while it is running.".into()));
         }
         Ok(())
@@ -492,6 +499,17 @@ impl Env for RepackEnv<'_> {
                 result.applied.extend(extra.applied);
                 result.failed = extra.failed;
                 if result.snapshot.is_none() { result.snapshot = extra.snapshot; }
+                if result.failed.is_none() {
+                    if let Some(p) = crate::schema_check::check(&other_db, root)?.first() {
+                        return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", other.name(), p.table, p.column, p.detail)));
+                    }
+                }
+            }
+            if result.failed.is_none() {
+                let problems = crate::schema_check::check(db, root)?;
+                if let Some(p) = problems.first() {
+                    return Err(Error::Invalid(format!("Database validation failed: {}.{}.{}: {} ({} problems).", p.database, p.table, p.column, p.detail, problems.len())));
+                }
             }
             Ok(result)
         })
@@ -516,7 +534,7 @@ impl Env for RepackEnv<'_> {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
             loop {
                 let o = observe(self.root, &ports);
-                if o.mysql.state == ServiceState::Running && o.auth.state == ServiceState::Running && o.world.state == ServiceState::Running {
+                if o.mysql.state == ServiceState::Running && o.auth.state == ServiceState::Running && o.world.state == ServiceState::Running && o.secondary_world.as_ref().is_none_or(|s| s.state == ServiceState::Running) {
                     break true;
                 }
                 if std::time::Instant::now() > deadline {

@@ -195,8 +195,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
     );
   }
 
-  const { mysql, auth, world } = status.observed;
-  const all = [mysql, auth, world];
+  const { mysql, auth, world, secondary_world } = status.observed;
+  const all = [mysql, auth, world, ...(secondary_world ? [secondary_world] : [])];
   const running = all.every((s) => s.state === "running");
   const anyUp = all.some((s) => s.state !== "stopped");
   const transitioning = action !== null || status.busy || realmBusy;
@@ -233,6 +233,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           <Row label={t("overview.database")} s={mysql} />
           <Row label={t("overview.auth")} s={auth} />
           <Row label={t("overview.world")} s={world} />
+          {secondary_world && <Row label={t("realm.secondWorld")} s={secondary_world} />}
         </div>
 
         <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
@@ -323,9 +324,9 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               {t("btn.updateClient")}
             </Button>
           ) : client ? (
-            <Button variant={running ? "primary" : "secondary"} size="xl" disabled={transitioning || playing} onClick={() => void play()} className="min-w-40">
+            <Button variant="primary" size="xl" disabled={realmBusy || playing} onClick={() => void play()} className="min-w-40">
               {playing && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
-              {running ? t("btn.play") : t("btn.startPlay")}
+              {t("btn.play")}
             </Button>
           ) : client === null ? (
             <Button variant="secondary" size="xl" onClick={() => setDialog("setup")} className="min-w-40">

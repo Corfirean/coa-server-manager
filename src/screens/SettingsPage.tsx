@@ -39,7 +39,7 @@ function fmt(t: T, sx: SX, v: JsonValue, s: { key: string; type: string; unit?: 
 
 function clientCheck(t: T, s: SettingView, v: JsonValue): string | null {
   if (s.type === "int" || s.type === "float") {
-    if (typeof v !== "number" || Number.isNaN(v)) return t("set.enterNumber");
+    if (typeof v !== "number" || !Number.isFinite(v)) return t("set.enterNumber");
     if (s.type === "int" && !Number.isInteger(v)) return t("set.enterInt");
     if (s.min !== undefined && v < s.min) return t("set.atLeast", { n: s.min });
     if (s.max !== undefined && v > s.max) return t("set.atMost", { n: s.max });
@@ -51,6 +51,8 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
   const { s, value, error, onChange } = props;
   const t = useT();
   const sx = useSchemaText();
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
   const id = `f-${s.key}`;
   const base = "rounded-md border bg-bg px-3 py-2 text-sm outline-none focus:border-gold";
   if (s.type === "bool") {
@@ -89,12 +91,15 @@ function Field(props: { s: SettingView; value: JsonValue; error: string | null; 
       <input
         id={id}
         className={cn(base, numeric ? "w-32 text-right" : "w-72", error ? "border-bad" : "border-line")}
-        value={String(value)}
+        value={text}
         inputMode={numeric ? "decimal" : undefined}
         aria-invalid={!!error}
         onChange={(e) => {
           const raw = e.target.value;
-          onChange(numeric ? (raw.trim() === "" || Number.isNaN(Number(raw)) ? (raw as unknown as number) : Number(raw)) : raw);
+          setText(raw);
+          const normalized = raw.replace(",", ".");
+          const number = Number(normalized);
+          onChange(numeric && normalized.trim() !== "" && Number.isFinite(number) ? number : raw);
         }}
       />
       {s.unit && <span className="text-xs text-muted">{sx.unit(s.unit)}</span>}
