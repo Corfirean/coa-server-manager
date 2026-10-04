@@ -411,6 +411,11 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
 * **Updates are refused for a Docker server, never half done.** `update::preview`, `apply` and `rollback` refuse it: the
   update packages are the repack's (executables, a bundled MySQL, a launcher) and applying one would put Windows files in a
   Linux folder. Found by installing a server with the screen: the update check had read the Windows channel and offered one.
+* **Realm profiles (CoA / Wildcard) work on a Docker server.** What the repack's patched launcher did at each start is done
+  by the Docker backend: finish an interrupted switch (`realms::before_start`), name the realms in the realm list, and give
+  the containers the databases of the selected realm (`acore_world_wildcard` ...). The switch itself (configuration swap,
+  database copy, journal) is the shared code; `prepare_launcher` has nothing to patch, and Wildcard support is read from
+  `Core/worldserver` as it is from `Core/worldserver.exe`.
 * **Not done yet**: downloading the game data, updates, port conflict detection, the firewall and exposure checks, the
   Wildcard realm profiles, and the client under Wine/Proton.
 
