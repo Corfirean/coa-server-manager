@@ -184,6 +184,7 @@ fn create_databases(root: &Path) -> Result<()> {
             let present = db.tables(schema)?;
             let missing: Vec<_> = tables.iter().filter(|table| !present.iter().any(|p| p == **table)).copied().collect();
             if !missing.is_empty() {
+                tracing::error!(root = %root.display(), database = schema, missing_tables = ?missing, "Wildcard realm creation blocked by missing database tables");
                 return Err(Error::Invalid(format!("Cannot create Wildcard: {schema} is missing tables: {}. Run Check files and database and include its report when requesting support.", missing.join(", "))));
             }
         }

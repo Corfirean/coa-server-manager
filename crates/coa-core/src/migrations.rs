@@ -187,6 +187,7 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
         }
     }
     let todo: Vec<&Migration> = list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).collect();
+    tracing::info!(total = list.len(), pending = todo.len(), skipped = list.len() - todo.len(), "database migration plan");
 
     // Resolve and verify every file before running anything.
     let mut files = Vec::new();
@@ -214,13 +215,16 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
         report.snapshot = Some(snapshot().map_err(|e| Error::Invalid(format!("No database update was applied because the safety backup failed: {e}")))?);
     }
     for (m, schema, path) in files {
+        tracing::info!(migration = %m.id, database = %m.db, "database migration starting");
         store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Running, error: Some("Interrupted SQL must be recovered before replay.".into()), baseline: false })?;
         match store.run_file(schema, &path) {
             Ok(()) => {
                 store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Applied, error: None, baseline: false })?;
                 report.applied.push(m.id.clone());
+                tracing::info!(migration = %m.id, database = %m.db, "database migration applied");
             }
             Err(e) => {
+                tracing::error!(migration = %m.id, database = %m.db, "database migration failed; details saved in migration history");
                 let msg = e.to_string();
                 let _ = store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Failed, error: Some(msg.clone()), baseline: false });
                 report.failed = Some((m.id.clone(), msg));

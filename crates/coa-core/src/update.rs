@@ -245,6 +245,7 @@ pub struct Outcome {
 }
 
 fn step(report: &dyn Fn(&str, u8), name: &str, pct: u8) {
+    tracing::info!(step = name, percent = pct, "server update progress");
     report(name, pct);
 }
 
@@ -259,6 +260,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
 
     step(report, "Checking the update", 2);
     let (m, _) = fetch_manifest(&p.source, p.trusted_key)?;
+    tracing::info!(root = %root.display(), from_version = ?meta.core.version, to_version = %m.version, migrations = m.migrations.len(), "server update selected");
     check_manifest(&m)?;
     let archive = m.archive.clone().ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
     let id = format!("{}-{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), m.version.replace('.', "_"), uuid::Uuid::new_v4().simple());
@@ -384,7 +386,9 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
 }
 
 fn fail_after_apply(p: &Params, txn: &mut Txn, before: &Path, tree: &Path, why: String, report: Option<ApplyReport>) -> Result<Outcome> {
+    tracing::error!(transaction = %txn.id, databases_started = txn.databases_started, "server update failed; restoring recovery point");
     let restored = restore_transaction(p.root, p.meta_dir, before, txn, p.env);
+    tracing::info!(transaction = %txn.id, recovered = restored.is_ok(), "server update recovery finished");
     txn.state = if restored.is_ok() { State::RolledBack } else { State::Failed };
     txn.message = Some(match &restored { Ok(()) => why.clone(), Err(e) => format!("{why} Recovery failed: {e}") });
     save(p.meta_dir, txn)?;
