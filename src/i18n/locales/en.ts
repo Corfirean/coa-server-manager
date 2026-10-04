@@ -382,7 +382,7 @@ const en = {
   "upd.pendingBad": "The updated server did not start correctly",
   "upd.pendingUnfinished": "An earlier update did not finish",
   "upd.safeBack": "You can safely go back to the previous version.",
-  "upd.backNote": "Going back restores program files and settings. Characters and accounts are never rolled back automatically.",
+  "upd.backNote": "Going back restores files and settings. If database updates started, it also restores all databases to the backup taken before the update. Later progress will be lost.",
   "upd.goBackTo": "Go back to version {v}",
   "upd.goBackBefore": "Go back to the version before the update",
   "upd.title": "Server updates",

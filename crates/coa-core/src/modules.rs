@@ -185,11 +185,15 @@ fn require_bot_server_stopped(root: &Path) -> Result<()> {
 }
 
 pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
+    let _update_lock = crate::update::operation_lock(meta)?;
+    crate::update::ensure_recovered(meta)?;
     let _lock = if matches!(id, "companions" | "playerbots") {
         require_bot_server_stopped(root)?;
         fs::create_dir_all(root.join(".state"))?;
         let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(root.join(".state/control.lock"))?;
-        fs4::fs_std::FileExt::try_lock_exclusive(&lock).map_err(|_| Error::Invalid("Another start/stop action is in progress.".into()))?;
+        if !fs4::fs_std::FileExt::try_lock_exclusive(&lock)? {
+            return Err(Error::Invalid("Another start/stop action is in progress.".into()));
+        }
         require_bot_server_stopped(root)?;
         Some(lock)
     } else { None };

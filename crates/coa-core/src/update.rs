@@ -3,7 +3,7 @@
 //! Nothing is changed until the signed package is downloaded, verified and extracted into staging. Every file that is
 //! about to change is first copied into the transaction's `before/` folder, each operation is journaled, and a crash or
 //! failure at any point leaves the installation recoverable: `rollback` restores binaries and configuration exactly.
-//! Databases are never rolled back automatically (players may have progressed); restoring one is a separate action.
+//! Full recovery points protect database changes as well as files. Interrupted updates must be resolved first.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -73,15 +73,20 @@ pub struct Txn {
     pub from_version: Option<String>,
     pub to_version: String,
     pub recovery_point: Option<String>,
+    #[serde(default = "legacy_databases_started")]
+    pub databases_started: bool,
     pub ops: Vec<Op>,
     pub message: Option<String>,
 }
+
+fn legacy_databases_started() -> bool { true }
 
 /// Everything the transaction needs from the outside world; tests provide a fake.
 pub trait Env {
     fn ensure_stopped(&self) -> Result<()>;
     /// Create a recovery point for the databases and configuration; returns its id.
     fn snapshot(&self) -> Result<String>;
+    fn restore_snapshot(&self, id: &str) -> Result<()>;
     fn migrate(&self, manifest: &Manifest, staged_migrations: &Path) -> Result<ApplyReport>;
     /// Start the server and confirm it becomes healthy.
     fn validate(&self) -> Result<()>;
@@ -111,7 +116,27 @@ pub fn unfinished(meta: &Path) -> Option<Txn> {
     let rd = fs::read_dir(updates_dir(meta)).ok()?;
     let mut all: Vec<Txn> = rd.flatten().filter_map(|e| fsx::read_json::<Txn>(&e.path().join("txn.json")).ok()).collect();
     all.sort_by(|a, b| b.id.cmp(&a.id));
-    all.into_iter().find(|t| !matches!(t.state, State::Committed | State::RolledBack | State::Failed | State::Prepared))
+    all.into_iter().find(|t| !matches!(t.state, State::Committed | State::RolledBack | State::Prepared) && (t.state != State::Failed || t.databases_started || t.ops.iter().any(|o| o.started)))
+}
+
+pub fn ensure_recovered(meta: &Path) -> Result<()> {
+    match fs::read_dir(updates_dir(meta)) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                let journal = entry.path().join("txn.json");
+                if journal.exists() {
+                    fsx::read_json::<Txn>(&journal).map_err(|e| Error::Invalid(format!("Update journal {} cannot be read: {e}. Recover it before changing or starting the server.", journal.display())))?;
+                }
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    if let Some(t) = unfinished(meta) {
+        return Err(Error::Invalid(format!("Resolve unfinished update {} before changing or starting the server.", t.id)));
+    }
+    Ok(())
 }
 
 fn sha_if_exists(p: &Path) -> Option<String> {
@@ -227,6 +252,8 @@ fn step(report: &dyn Fn(&str, u8), name: &str, pct: u8) {
 /// a build that is applied but unhealthy is left in `NeedsDecision` so the owner chooses.
 pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let (root, meta_dir) = (p.root, p.meta_dir);
+    let _lock = operation_lock(meta_dir)?;
+    ensure_recovered(meta_dir)?;
     let (md, mut meta) = MetaDir::open(meta_dir)?;
     let _ = md;
 
@@ -234,12 +261,13 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let (m, _) = fetch_manifest(&p.source, p.trusted_key)?;
     check_manifest(&m)?;
     let archive = m.archive.clone().ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
-    let id = format!("{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), m.version.replace('.', "_"));
+    let id = format!("{}-{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), m.version.replace('.', "_"), uuid::Uuid::new_v4().simple());
     let tdir = txn_dir(meta_dir, &id)?;
     let (tree, before) = (tdir.join("tree"), tdir.join("before"));
     fs::create_dir_all(&before)?;
+    fsx::atomic_write(&before.join("manager-install.json"), &fs::read(meta_dir.join("install.json"))?)?;
 
-    let mut txn = Txn { id: id.clone(), state: State::Prepared, from_version: meta.core.version.clone(), to_version: m.version.clone(), recovery_point: None, ops: Vec::new(), message: None };
+    let mut txn = Txn { id: id.clone(), state: State::Prepared, from_version: meta.core.version.clone(), to_version: m.version.clone(), recovery_point: None, databases_started: false, ops: Vec::new(), message: None };
     save(meta_dir, &txn)?;
 
     // Nothing has touched the installation yet; failures up to here just discard the staging area.
@@ -293,20 +321,17 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let applied = apply_ops(root, &tree, &before, &m.files, &mut txn, meta_dir, p.fail_after_ops);
     if let Err(e) = applied {
         step(report, "Undoing the update", 70);
-        let restore = restore_files(root, &before, &mut txn);
-        txn.state = if restore.is_ok() { State::RolledBack } else { State::Failed };
-        txn.message = Some(e.to_string());
-        save(meta_dir, &txn)?;
-        let _ = fs::remove_dir_all(&tree);
-        return Err(e);
+        return fail_after_apply(p, &mut txn, &before, &tree, e.to_string(), None);
     }
     txn.state = State::Applied;
     save(meta_dir, &txn)?;
 
-    // Database migrations: a failure here undoes the file changes; the databases are left as they are.
+    // MySQL DDL can commit before a later statement fails. Restore the full recovery point on failure.
     let mut migrated = None;
     if !m.migrations.is_empty() {
         step(report, "Updating the database", 75);
+        txn.databases_started = true;
+        save(meta_dir, &txn)?;
         match p.env.migrate(&m, &tree.join("_migrations")) {
             Ok(r) if r.failed.is_none() => migrated = Some(r),
             Ok(r) => {
@@ -359,13 +384,31 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
 }
 
 fn fail_after_apply(p: &Params, txn: &mut Txn, before: &Path, tree: &Path, why: String, report: Option<ApplyReport>) -> Result<Outcome> {
-    let restored = restore_files(p.root, before, txn);
+    let restored = restore_transaction(p.root, p.meta_dir, before, txn, p.env);
     txn.state = if restored.is_ok() { State::RolledBack } else { State::Failed };
-    txn.message = Some(why.clone());
+    txn.message = Some(match &restored { Ok(()) => why.clone(), Err(e) => format!("{why} Recovery failed: {e}") });
     save(p.meta_dir, txn)?;
-    let _ = fs::remove_dir_all(tree);
+    if restored.is_ok() { let _ = fs::remove_dir_all(tree); }
     let _ = report;
-    Err(Error::Invalid(format!("{why} Your files were restored and your databases were not touched by the restore.")))
+    Err(Error::Invalid(match restored {
+        Ok(()) if txn.databases_started => format!("{why} The server files and databases were restored to the recovery point."),
+        Ok(()) => format!("{why} The server files were restored."),
+        Err(e) => format!("{why} Recovery failed: {e}. Resolve the unfinished update before starting the server."),
+    }))
+}
+
+fn restore_transaction(root: &Path, meta: &Path, before: &Path, txn: &mut Txn, env: &dyn Env) -> Result<()> {
+    env.ensure_stopped()?;
+    if txn.databases_started {
+        let id = txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The database recovery point is missing.".into()))?;
+        env.restore_snapshot(id)?;
+    }
+    restore_files(root, before, txn)?;
+    let saved_meta = before.join("manager-install.json");
+    if saved_meta.exists() {
+        fsx::atomic_write(&meta.join("install.json"), &fs::read(saved_meta)?)?;
+    }
+    Ok(())
 }
 
 fn apply_ops(root: &Path, tree: &Path, before: &Path, files: &[FileEntry], txn: &mut Txn, meta_dir: &Path, fail_after: Option<usize>) -> Result<()> {
@@ -378,14 +421,15 @@ fn apply_ops(root: &Path, tree: &Path, before: &Path, files: &[FileEntry], txn: 
         let target = fsx::ensure_within(root, &fsx::safe_join(root, &path)?)?;
         let staged = fsx::safe_join(tree, &path)?;
         let entry = files.iter().find(|f| f.path == path).expect("listed");
-        txn.ops[i].started = true;
-        save(meta_dir, txn)?;
-
         if target.is_file() {
             let keep = fsx::safe_join(before, &path)?;
             fs::create_dir_all(keep.parent().unwrap())?;
-            fs::copy(&target, &keep)?;
+            fsx::atomic_write(&keep, &fs::read(&target)?)?;
         }
+        // Journal only after the old bytes are safely saved; a crash during backup must not
+        // turn an untouched file into a rollback operation with a missing saved copy.
+        txn.ops[i].started = true;
+        save(meta_dir, txn)?;
         fs::create_dir_all(target.parent().unwrap())?;
         match action {
             Action::Create | Action::Replace => {
@@ -435,14 +479,14 @@ fn restore_files(root: &Path, before: &Path, txn: &mut Txn) -> Result<()> {
     Ok(())
 }
 
-/// Roll a transaction back (binaries and configuration only; databases are never touched).
+/// Restore the database recovery point first, then restore binaries and configuration.
 pub fn rollback(root: &Path, meta_dir: &Path, id: &str, env: &dyn Env) -> Result<Txn> {
+    let _lock = operation_lock(meta_dir)?;
     let mut txn = load(meta_dir, id)?;
     if matches!(txn.state, State::Committed | State::RolledBack) {
         return Err(Error::Invalid("This update cannot be rolled back.".into()));
     }
-    env.ensure_stopped()?;
-    restore_files(root, &txn_dir(meta_dir, id)?.join("before"), &mut txn)?;
+    restore_transaction(root, meta_dir, &txn_dir(meta_dir, id)?.join("before"), &mut txn, env)?;
     txn.state = State::RolledBack;
     txn.message = Some("rolled back".into());
     save(meta_dir, &txn)?;
@@ -450,9 +494,47 @@ pub fn rollback(root: &Path, meta_dir: &Path, id: &str, env: &dyn Env) -> Result
     Ok(txn)
 }
 
+pub(crate) fn operation_lock(meta_dir: &Path) -> Result<fs::File> {
+    fs::create_dir_all(meta_dir)?;
+    let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(meta_dir.join("update.lock"))?;
+    if !fs4::fs_std::FileExt::try_lock_exclusive(&lock)? {
+        return Err(Error::Invalid("Another update, repair or recovery is in progress.".into()));
+    }
+    Ok(lock)
+}
+
+/// Repair uses the same durable recovery journal as an update. Its caller holds operation_lock.
+pub(crate) fn begin_repair(root: &Path, meta_dir: &Path, version: &str, backup: &str, files: &[FileEntry]) -> Result<Txn> {
+    let id = format!("{}-repair-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), uuid::Uuid::new_v4().simple());
+    let before = txn_dir(meta_dir, &id)?.join("before");
+    fsx::atomic_write(&before.join("manager-install.json"), &fs::read(meta_dir.join("install.json"))?)?;
+    let mut ops = Vec::new();
+    for file in files {
+        let target = fsx::ensure_within(root, &fsx::safe_join(root, &file.path)?)?;
+        let had_previous = target.is_file();
+        if had_previous { fsx::atomic_write(&fsx::safe_join(&before, &file.path)?, &fs::read(&target)?)?; }
+        ops.push(Op { path: file.path.clone(), action: if had_previous { Action::Replace } else { Action::Create }, reason: None, new_sha256: file.sha256.clone(), had_previous, started: true, done: false });
+    }
+    let txn = Txn { id, state: State::Applying, from_version: Some(version.into()), to_version: version.into(), recovery_point: Some(backup.into()), databases_started: false, ops, message: Some("Repair is in progress.".into()) };
+    save(meta_dir, &txn)?;
+    Ok(txn)
+}
+
+pub(crate) fn repair_migrating(meta_dir: &Path, txn: &mut Txn) -> Result<()> {
+    txn.state = State::Applied;
+    txn.databases_started = true;
+    save(meta_dir, txn)
+}
+
+pub(crate) fn finish_repair(root: &Path, meta_dir: &Path, txn: &mut Txn, success: bool, env: &dyn Env) -> Result<()> {
+    if !success { restore_transaction(root, meta_dir, &txn_dir(meta_dir, &txn.id)?.join("before"), txn, env)?; }
+    txn.state = if success { State::Committed } else { State::RolledBack };
+    save(meta_dir, txn)
+}
+
 fn prune(meta_dir: &Path, keep: usize) {
     let Ok(rd) = fs::read_dir(updates_dir(meta_dir)) else { return };
-    let mut dirs: Vec<_> = rd.flatten().filter(|e| e.path().join("txn.json").is_file()).map(|e| e.path()).collect();
+    let mut dirs: Vec<_> = rd.flatten().filter(|e| fsx::read_json::<Txn>(&e.path().join("txn.json")).is_ok_and(|t| matches!(t.state, State::Committed | State::RolledBack))).map(|e| e.path()).collect();
     dirs.sort();
     while dirs.len() > keep {
         let _ = fs::remove_dir_all(dirs.remove(0));
@@ -463,6 +545,35 @@ fn prune(meta_dir: &Path, keep: usize) {
 pub struct RepackEnv<'a> {
     pub root: &'a Path,
     pub meta_dir: &'a Path,
+}
+
+impl RepackEnv<'_> {
+    pub(crate) fn verify_recovery_point(&self, point: &crate::backup::RecoveryPoint) -> Result<()> {
+        if point.kind != crate::backup::Kind::Full || !["characters", "auth", "world", "configs"].iter().all(|name| point.components.iter().any(|c| c.name == *name)) {
+            return Err(Error::Invalid("The update recovery point does not contain every required database and configuration.".into()));
+        }
+        if !crate::backup::verify(self.meta_dir, &point.id)?.ok { return Err(Error::Invalid("The recovery point failed verification.".into())); }
+        crate::backup::with_database(self.root, |db| {
+            let db = db.clone().for_realm(crate::realms::Mode::Coa);
+            for component in point.components.iter().filter(|c| c.sha256.is_some()) {
+                let schema = if component.name.contains('-') || component.name == "playerbots" { crate::db::schema_of(&component.name)? } else { point.realm.schema(&component.name)? };
+                if db.extra_objects(schema)? != 0 {
+                    return Err(Error::Invalid(format!("Database {schema} has routines, triggers or views that automatic recovery cannot restore. The update was not started.")));
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn migration_snapshot(&self) -> Result<String> {
+        if let Some(id) = unfinished(self.meta_dir).and_then(|t| t.recovery_point) {
+            if crate::backup::get(self.meta_dir, &id)?.kind == crate::backup::Kind::Full && crate::backup::verify(self.meta_dir, &id)?.ok {
+                return Ok(id);
+            }
+            return Err(Error::Invalid("The update recovery point is incomplete or damaged.".into()));
+        }
+        Ok(crate::backup::create(self.root, self.meta_dir, crate::backup::Kind::Full, crate::backup::Trigger::BeforeMigration, None, &|_| {})?.id)
+    }
 }
 
 impl Env for RepackEnv<'_> {
@@ -477,15 +588,30 @@ impl Env for RepackEnv<'_> {
 
     fn snapshot(&self) -> Result<String> {
         let label = Some("before update".to_string());
-        Ok(crate::backup::create(self.root, self.meta_dir, crate::backup::Kind::Quick, crate::backup::Trigger::BeforeUpdate, label, &|_| {})?.id)
+        let point = crate::backup::create(self.root, self.meta_dir, crate::backup::Kind::Full, crate::backup::Trigger::BeforeUpdate, label, &|_| {})?;
+        self.verify_recovery_point(&point)?;
+        Ok(point.id)
+    }
+
+    fn restore_snapshot(&self, id: &str) -> Result<()> {
+        let point = crate::backup::get(self.meta_dir, id)?;
+        if point.kind != crate::backup::Kind::Full { return Err(Error::Invalid("Database rollback requires a full recovery point.".into())); }
+        if !["characters", "auth", "world", "configs"].iter().all(|name| point.components.iter().any(|c| c.name == *name)) || !crate::backup::verify(self.meta_dir, id)?.ok {
+            return Err(Error::Invalid("The full database recovery point is incomplete or damaged.".into()));
+        }
+        for component in point.components.iter().filter(|c| c.sha256.is_some()) {
+            crate::backup::restore_database(self.root, self.meta_dir, id, &component.name)?;
+        }
+        crate::backup::restore_configs(self.root, self.meta_dir, id)?;
+        Ok(())
     }
 
     fn migrate(&self, manifest: &Manifest, staged: &Path) -> Result<ApplyReport> {
-        let (root, meta) = (self.root, self.meta_dir);
+        let root = self.root;
         crate::backup::with_database(root, |db| {
             let realms = crate::realms::state(root)?;
             let mut result = crate::migrations::apply_pending(db, &manifest.migrations, staged, &|| {
-                Ok(crate::backup::create(root, meta, crate::backup::Kind::Full, crate::backup::Trigger::BeforeMigration, None, &|_| {})?.id)
+                self.migration_snapshot()
             })?;
             if realms.wildcard_created && result.failed.is_none() {
                 let other = if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa };
@@ -494,7 +620,7 @@ impl Env for RepackEnv<'_> {
                 let migrations: Vec<_> = manifest.migrations.iter().filter(|m| m.db != "auth").cloned().collect();
                 let extra = crate::migrations::apply_pending(&other_db, &migrations, staged, &|| {
                     if let Some(id) = &shared_snapshot { return Ok(id.clone()); }
-                    Ok(crate::backup::create(root, meta, crate::backup::Kind::Full, crate::backup::Trigger::BeforeMigration, None, &|_| {})?.id)
+                    self.migration_snapshot()
                 })?;
                 result.applied.extend(extra.applied);
                 result.failed = extra.failed;
@@ -517,6 +643,16 @@ impl Env for RepackEnv<'_> {
 
     fn validate(&self) -> Result<()> {
         use crate::process::{observe, ServiceState};
+        crate::backup::with_database(self.root, |db| {
+            let mut modes = vec![crate::realms::Mode::Coa];
+            if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
+            for mode in modes {
+                if let Some(p) = crate::schema_check::check(&db.clone().for_realm(mode), self.root)?.first() {
+                    return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.database, p.table, p.detail)));
+                }
+            }
+            Ok(())
+        })?;
         // The check start is the first start of the new build: give the module configs the settings the update added
         // (as a normal start does), or the server logs a "missing property" line for every one of them.
         match crate::registry::MetaDir::open(self.meta_dir) {
@@ -528,14 +664,24 @@ impl Env for RepackEnv<'_> {
                 let _ = crate::config::create_missing_module_configs(self.root);
             }
         }
-        let started = crate::driver::run(self.root, crate::driver::Verb::StartAll)?;
+        let started = match crate::driver::validate_update(self.root) {
+            Ok(out) => out,
+            Err(e) => {
+                let _ = crate::driver::run(self.root, crate::driver::Verb::StopAll);
+                return Err(e);
+            }
+        };
         let ports = crate::layout::read_ports(self.root);
         let healthy = started.ok && {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+            let mut ready_since = None;
             loop {
                 let o = observe(self.root, &ports);
                 if o.mysql.state == ServiceState::Running && o.auth.state == ServiceState::Running && o.world.state == ServiceState::Running && o.secondary_world.as_ref().is_none_or(|s| s.state == ServiceState::Running) {
-                    break true;
+                    let since = ready_since.get_or_insert_with(std::time::Instant::now);
+                    if since.elapsed() >= std::time::Duration::from_secs(10) { break true; }
+                } else {
+                    ready_since = None;
                 }
                 if std::time::Instant::now() > deadline {
                     break false;
@@ -568,11 +714,12 @@ mod tests {
         snapshot_ok: Cell<bool>,
         calls: RefCell<Vec<&'static str>>,
         migrate_fail: Cell<bool>,
+        restore_fail: Cell<bool>,
     }
 
     impl Fake {
         fn ok() -> Fake {
-            Fake { stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false) }
+            Fake { stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), restore_fail: Cell::new(false) }
         }
     }
 
@@ -588,6 +735,10 @@ mod tests {
         fn migrate(&self, _m: &Manifest, _d: &Path) -> Result<ApplyReport> {
             self.calls.borrow_mut().push("migrate");
             Ok(ApplyReport { applied: vec![], failed: self.migrate_fail.get().then(|| ("m1".to_string(), "syntax".to_string())), snapshot: None })
+        }
+        fn restore_snapshot(&self, _id: &str) -> Result<()> {
+            self.calls.borrow_mut().push("restore-databases");
+            if self.restore_fail.get() { Err(Error::Invalid("recovery disk unavailable".into())) } else { Ok(()) }
         }
         fn validate(&self) -> Result<()> {
             self.calls.borrow_mut().push("validate");
@@ -787,11 +938,99 @@ mod tests {
         let e = run(&w, &env, BTreeMap::new(), None).unwrap_err();
         assert!(e.to_string().contains("Database update m1 failed"));
         assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(env.calls.borrow().contains(&"restore-databases"));
         assert!(!env.calls.borrow().contains(&"validate"), "the new build is never started after a failed migration");
         let ok = Fake::ok();
         let out = run(&w, &ok, BTreeMap::new(), None).unwrap();
         assert_eq!(out.txn.state, State::Committed);
         assert_eq!(*ok.calls.borrow(), ["stop", "snapshot", "migrate", "validate"]);
+    }
+
+    #[test]
+    fn failed_database_recovery_keeps_new_files_and_blocks_retry_until_recovered() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.migrate_fail.set(true);
+        env.restore_fail.set(true);
+        let error = run(&w, &env, BTreeMap::new(), None).unwrap_err();
+        assert!(error.to_string().contains("Recovery failed"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v2");
+        let pending = unfinished(&w.meta).unwrap();
+        assert_eq!(pending.state, State::Failed);
+        assert!(pending.databases_started);
+        assert!(txn_dir(&w.meta, &pending.id).unwrap().join("tree").exists());
+        assert!(run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap_err().to_string().contains("unfinished"));
+        rollback(&w.root, &w.meta, &pending.id, &Fake::ok()).unwrap();
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(unfinished(&w.meta).is_none());
+    }
+
+    #[test]
+    fn interrupted_migration_is_restored_before_files_and_never_replayed() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        let recovery = Fake::ok();
+        rollback(&w.root, &w.meta, &out.txn.id, &recovery).unwrap();
+        assert_eq!(*recovery.calls.borrow(), ["stop", "restore-databases"]);
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+    }
+
+    #[test]
+    fn concurrent_updates_are_rejected_without_changes() {
+        let w = world(&[], false);
+        let _lock = operation_lock(&w.meta).unwrap();
+        assert!(run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap_err().to_string().contains("in progress"));
+        assert!(crate::driver::run(&w.root, crate::driver::Verb::StartAll).unwrap_err().to_string().contains("in progress"));
+        assert!(crate::modules::set_enabled(&w.root, &w.meta, "companions", true).unwrap_err().to_string().contains("in progress"));
+        assert!(crate::realms::select(&w.root, crate::realms::Mode::Wildcard).unwrap_err().to_string().contains("in progress"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+    }
+
+    #[test]
+    fn interrupted_repair_restores_files_databases_and_ownership_metadata() {
+        let w = world(&[], false);
+        let files = vec![
+            FileEntry { path: "Core/worldserver.exe".into(), sha256: fsx::sha256_bytes(b"repaired"), size: 8, owner: crate::manifest::Owner::Core, policy: ReplacePolicy::Replace },
+            FileEntry { path: "Core/repair-created.dll".into(), sha256: fsx::sha256_bytes(b"created"), size: 7, owner: crate::manifest::Owner::Core, policy: ReplacePolicy::Replace },
+        ];
+        let mut txn = begin_repair(&w.root, &w.meta, "1.0.0", "full-backup", &files).unwrap();
+        write(&w.root, "Core/worldserver.exe", b"repaired");
+        write(&w.root, "Core/repair-created.dll", b"created");
+        repair_migrating(&w.meta, &mut txn).unwrap();
+        assert_eq!(unfinished(&w.meta).unwrap().id, txn.id);
+        let env = Fake::ok();
+        rollback(&w.root, &w.meta, &txn.id, &env).unwrap();
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(!w.root.join("Core/repair-created.dll").exists());
+        assert_eq!(*env.calls.borrow(), ["stop", "restore-databases"]);
+        assert!(unfinished(&w.meta).is_none());
+    }
+
+    #[test]
+    fn unreadable_update_journal_blocks_changes_and_startup() {
+        let w = world(&[], false);
+        write(&w.meta, "updates/broken/txn.json", b"{truncated");
+        assert!(run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap_err().to_string().contains("cannot be read"));
+        assert!(crate::driver::run(&w.root, crate::driver::Verb::StartAll).unwrap_err().to_string().contains("cannot be read"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+    }
+
+    #[test]
+    fn crash_during_commit_restores_the_original_installation_metadata() {
+        let w = world(&[], false);
+        let env = Fake::ok();
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        let (_, mut meta) = MetaDir::open(&w.meta).unwrap();
+        meta.core.version = Some("2.0.0".into());
+        meta.core.commit = Some("a".repeat(40));
+        fsx::atomic_write_json(&w.meta.join("install.json"), &meta).unwrap();
+        rollback(&w.root, &w.meta, &out.txn.id, &Fake::ok()).unwrap();
+        let (_, restored) = MetaDir::open(&w.meta).unwrap();
+        assert_eq!(restored.core.version.as_deref(), Some("1.0.0"));
+        assert_eq!(restored.core.commit, None);
     }
 
     #[test]

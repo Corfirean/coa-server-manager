@@ -5,6 +5,19 @@ use serde::{Deserialize, Serialize};
 use crate::{db::Db, error::Result, fsx};
 
 pub const CONTRACT: &str = "Scripts/database-schema.json";
+pub const WILDCARD_TABLES: &[(&str, &[&str])] = &[
+    ("world", &["ascension_wildcard_boss_marks", "ascension_wildcard_tooltip_links"]),
+    ("characters", &["coa_wildcard_skill_card", "coa_wildcard_skill_card_pending", "coa_wildcard_skill_card_account", "coa_wildcard_skill_card_purchase", "coa_wildcard_specialization_cache"]),
+];
+const WILDCARD_COLUMNS: &[(&str, &str, &[&str])] = &[
+    ("world", "ascension_wildcard_boss_marks", &["CreatureEntry", "Amount"]),
+    ("world", "ascension_wildcard_tooltip_links", &["Talent", "Ability"]),
+    ("characters", "coa_wildcard_skill_card", &["account", "card", "progress"]),
+    ("characters", "coa_wildcard_skill_card_pending", &["account", "id", "card"]),
+    ("characters", "coa_wildcard_skill_card_account", &["account", "bonus_progress"]),
+    ("characters", "coa_wildcard_skill_card_purchase", &["account", "type", "count"]),
+    ("characters", "coa_wildcard_specialization_cache", &["account", "claimed_at"]),
+];
 type Columns = BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,6 +57,26 @@ pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
         Contract { schema: 1, columns: BTreeMap::from([("characters".into(), tables.into_iter().map(|(t, cols)| (t, cols.into_iter().map(|c| (c, String::new())).collect())).collect())]) }
     };
     let mut problems = Vec::new();
+    // Older releases omit a schema contract. Still verify the feature's actual tables,
+    // independently of its migration history, before declaring an update healthy.
+    if std::fs::read(root.join("Core/worldserver.exe")).is_ok_and(|bytes| bytes.windows(b"Wildcard synergy settings".len()).any(|w| w == b"Wildcard synergy settings")) {
+        for (kind, tables) in WILDCARD_TABLES {
+            let actual = read_columns(db, kind)?;
+            for table in *tables {
+                if !actual.contains_key(*table) {
+                    problems.push(Problem { database: (*kind).into(), table: (*table).into(), column: String::new(), detail: "Missing required Wildcard table; migration history is not proof of its presence".into() });
+                } else {
+                    for (_, _, columns) in WILDCARD_COLUMNS.iter().filter(|(k, t, _)| k == kind && t == table) {
+                        for column in *columns {
+                            if !actual[*table].contains_key(*column) {
+                                problems.push(Problem { database: (*kind).into(), table: (*table).into(), column: (*column).into(), detail: "Missing required Wildcard column".into() });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     for (kind, expected) in &contract.columns {
         let actual = read_columns(db, kind)?;
         for (table, cols) in expected {

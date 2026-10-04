@@ -90,9 +90,10 @@ fn restore_files(root: &Path, work: &Path, before: &Path, broken: &[(&FileEntry,
 }
 
 pub fn run(root: &Path, dir: &Path, base_source: &Source, update_source: &Source, key: &str, progress: &dyn Fn(&str, u8)) -> Result<Report> {
+    let _lock = crate::update::operation_lock(dir)?;
     let env = RepackEnv { root, meta_dir: dir };
     env.ensure_stopped()?;
-    if crate::update::unfinished(dir).is_some() { return Err(Error::Invalid("Resolve the unfinished update before repairing the server.".into())); }
+    crate::update::ensure_recovered(dir)?;
     let (_, mut meta) = MetaDir::open(dir)?;
     progress("Checking signed packages", 2);
     let (update, _) = pkgsource::fetch_manifest(update_source, key)?;
@@ -128,6 +129,9 @@ pub fn run(root: &Path, dir: &Path, base_source: &Source, update_source: &Source
         }
         progress("Backing up before repair", 65);
         let backup = crate::backup::create(root, dir, crate::backup::Kind::Full, crate::backup::Trigger::Manual, Some("before repair".into()), &|_| {})?.id;
+        env.verify_recovery_point(&crate::backup::get(dir, &backup)?)?;
+        let repair_files: Vec<_> = broken.iter().map(|(file, _)| (*file).clone()).collect();
+        let mut txn = crate::update::begin_repair(root, dir, &update.version, &backup, &repair_files)?;
         let before = dir.join("repairs").join(&backup);
         fs::create_dir_all(&before)?;
         fsx::require_space(root, broken.iter().map(|(e,_)| e.size.saturating_mul(2)).sum())?;
@@ -137,15 +141,23 @@ pub fn run(root: &Path, dir: &Path, base_source: &Source, update_source: &Source
         }
         fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
         progress("Repairing pending database updates", 80);
+        crate::update::repair_migrating(dir, &mut txn)?;
         let (applied, error) = match env.migrate(&update, &work.join("update/_migrations")) {
             Ok(r) => (r.applied, r.failed.map(|(id,why)| format!("{id}: {why}"))),
             Err(e) => (Vec::new(), Some(e.to_string())),
         };
+        if error.is_some() {
+            crate::update::finish_repair(root, dir, &mut txn, false, &env)?;
+            let report = Report { restored: Vec::new(), applied: Vec::new(), backup, database: check(root, dir)?, error };
+            fsx::atomic_write_json(&before.join("report.json"), &report)?;
+            return Ok(report);
+        }
         crate::config::create_missing_module_configs(root)?;
         progress("Checking database after repair", 95);
         let database = check(root, dir)?;
         let report = Report { restored, applied, backup, database, error };
         fsx::atomic_write_json(&before.join("report.json"), &report)?;
+        crate::update::finish_repair(root, dir, &mut txn, true, &env)?;
         progress("Done", 100);
         Ok(report)
     })();

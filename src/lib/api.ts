@@ -274,6 +274,7 @@ export interface UpdateTxn {
   from_version: string | null;
   to_version: string;
   recovery_point: string | null;
+  databases_started: boolean;
   message: string | null;
 }
 

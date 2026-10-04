@@ -349,7 +349,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "upd.pendingBad": "Der aktualisierte Server ist nicht korrekt gestartet",
   "upd.pendingUnfinished": "Ein früheres Update wurde nicht abgeschlossen",
   "upd.safeBack": "Du kannst sicher zur vorherigen Version zurückkehren.",
-  "upd.backNote": "Das Zurückkehren stellt Programmdateien und Einstellungen wieder her. Charaktere und Konten werden nie automatisch zurückgesetzt.",
+  "upd.backNote": "Die Rückkehr stellt Dateien und Einstellungen wieder her. Wurden Datenbankupdates begonnen, werden auch alle Datenbanken aus der Sicherung vor dem Update wiederhergestellt. Späterer Fortschritt geht verloren.",
   "upd.goBackTo": "Zu Version {v} zurückkehren",
   "upd.goBackBefore": "Zur Version vor dem Update zurückkehren",
   "upd.title": "Server-Updates",

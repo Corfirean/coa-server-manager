@@ -361,7 +361,7 @@ const zh = {
   "upd.pendingBad": "更新后的服务器未能正常启动",
   "upd.pendingUnfinished": "先前的更新尚未完成",
   "upd.safeBack": "你可以安全回滚至先前的稳定版本。",
-  "upd.backNote": "回滚操作将恢复程序文件与配置文件。角色和账号数据绝不会被自动回滚。",
+  "upd.backNote": "回滚将恢复文件和设置。如果数据库更新已开始，所有数据库也将从更新前的备份恢复。之后的进度将丢失。",
   "upd.goBackTo": "回滚至版本 {v}",
   "upd.goBackBefore": "回滚至更新前的版本",
   "upd.title": "服务器更新",

@@ -233,18 +233,21 @@ hash**: current == recorded → safe to replace; current ≠ recorded → *modif
 2. **Download** to `staging\<txid>\dl\` with `.part` files, HTTP Range resume, retry/backoff, cancel, progress.
 3. **Verify** — SHA-256 of every artefact; nothing is executed or extracted into the live tree before this.
 4. **Snapshot** — server must be stopped (never copy over a running worldserver); create recovery point:
-   replaced binaries, changed managed configs, module state, `characters`+`auth` dump (world optional);
+   replaced binaries, changed managed configs, module state, full dumps of every managed realm database;
    write `txn.json {state: Snapshotted}`.
 5. **Apply** into `staging\<txid>\tree\`, resolve ownership conflicts, merge configs, then swap file-by-file with
    same-volume atomic renames, journaling each step (`txn.json` lists done/undone operations).
-6. **Migrate** — run pending SQL through the tracked runner (D7); failure ⇒ stop, keep DB backup, offer restore.
-7. **Validate** — start server, health check (D3) with timeout.
+6. **Migrate** — durably mark SQL as running before execution. Failure restores the full database recovery point
+   before restoring files. Interrupted SQL is never automatically replayed.
+7. **Validate** — check database structure, start server, require ten seconds of continuous readiness with timeout.
 8. **Commit** — ownership table + `install.json` version bump, mark txn `Committed`, prune staging.
    Any crash before Commit leaves `txn.json` in a non-terminal state; on next launch the Manager detects it and
    offers *Roll forward* or *Roll back* — the install is "recoverable" by construction.
 
-Rollback = binaries + managed config state + module state only. Database restore is a **separate explicit
-action** (spec §19–20).
+Rollback restores files, configuration and installation metadata. Once migrations started, it also restores all
+databases from the full pre-update recovery point. Failed recovery remains unfinished and blocks startup and another
+update. The same journal protects Repair. Old transactions without a full recovery point cannot roll back database
+changes automatically. Independent database restore remains available for other recovery points.
 
 ### D7. Database strategy (`db` module)
 
@@ -253,14 +256,15 @@ action** (spec §19–20).
   native Rust client (`mysql_async`) is used for health pings and migration ledger reads.
 * Ledger: table `acore_world.coa_manager_migrations(id, db, sha256, applied_at, status, error)` (created by the
   Manager, in a dedicated table — no core schema is changed) mirrored to `.manager\migrations\`.
-  Statuses `Applied | Pending | Failed`. Each file runs in a single connection; DDL is not transactional, so
+  Statuses `Applied | Pending | Failed | Running`. Each file runs in a single connection; DDL is not transactional, so
   "destructive" migrations (flag in manifest, or heuristic scan for `DROP|TRUNCATE|DELETE|ALTER ... DROP`) force
   a fresh DB backup first and require explicit confirmation.
 * Backups: `mysqldump --single-transaction --routines --quick` per DB. Quick = characters + auth + configs +
   metadata; Full adds world (large); Config-only; DB-only. Compressed with zstd. Restore is always to a
   staging schema first (`…_restore`), swapped only after a row-count sanity check, with the current DB dumped
   beforehand.
-* Never: `DROP DATABASE`, resetting characters, overwriting DBs, or restoring DB on a binary rollback. Delete/
+* Never: `DROP DATABASE` or resetting characters. Update recovery restores databases into staging schemas and
+  keeps the replaced tables in separate schemas. Delete/
   reset lives only in **Settings → Advanced → Danger Zone**, deletes tracked files only, and refuses to remove a
   directory that still contains untracked files.
 * Clean install: extract `mysql\data.7z` (packaged data dir), then **rotate** root/app passwords to fresh random
@@ -392,8 +396,11 @@ files the running server itself changes, diffed before/after.
 disk-full at write n, network cut at byte n, migration returns error, new worldserver exits non-zero, port
 taken, exe quarantined (file vanishes), folder moved, user-modified managed file, unknown config keys.
 
-### 3.4 Rollback — restore recovery point's binaries/configs/module state; database untouched unless the user
-picks "Restore database" separately (shows dump timestamp and warns that progress since then is lost).
+### 3.4 Rollback — restore the pre-update databases when migrations started, followed by files and metadata
+
+The UI explains that progress after the recovery point is lost. SQL failures before startup recover automatically;
+failed health checks keep the installation blocked until the owner chooses recovery. Every recovery point and staging
+schema has a unique identifier, and corrupt update journals fail closed.
 
 ---------------------------------------------------------------------------------------------------------
 

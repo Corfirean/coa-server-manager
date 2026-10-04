@@ -349,7 +349,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "upd.pendingBad": "Le serveur mis à jour n’a pas démarré correctement",
   "upd.pendingUnfinished": "Une mise à jour précédente ne s’est pas terminée",
   "upd.safeBack": "Vous pouvez revenir en toute sécurité à la version précédente.",
-  "upd.backNote": "Le retour restaure les fichiers du programme et les paramètres. Les personnages et comptes ne sont jamais restaurés automatiquement.",
+  "upd.backNote": "Le retour restaure les fichiers et les paramètres. Si la mise à jour des bases a commencé, toutes les bases sont aussi restaurées depuis la sauvegarde précédant la mise à jour. La progression ultérieure sera perdue.",
   "upd.goBackTo": "Revenir à la version {v}",
   "upd.goBackBefore": "Revenir à la version d’avant la mise à jour",
   "upd.title": "Mises à jour du serveur",

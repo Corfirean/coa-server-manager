@@ -179,7 +179,7 @@ fn wanted_databases(kind: Kind) -> &'static [&'static str] {
 
 /// Create a recovery point. The server may be running: dumps are consistent snapshots (`--single-transaction`).
 pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Option<String>, progress: &dyn Fn(&str)) -> Result<RecoveryPoint> {
-    let id = format!("{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), match trigger {
+    let id = format!("{}-{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), match trigger {
         Trigger::Manual => "manual",
         Trigger::Automatic => "auto",
         Trigger::BeforeUpdate => "before-update",
@@ -188,7 +188,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
         Trigger::BeforeBots => "before-bots",
         Trigger::BeforeRepair => "before-repair",
         Trigger::BeforeDangerousChange => "before-change",
-    });
+    }, uuid::Uuid::new_v4().simple());
     let final_dir = point_dir(meta, &id)?;
     let partial = backups_dir(meta).join(format!("{id}.partial"));
     fs::create_dir_all(&partial)?;
@@ -296,6 +296,9 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
 
 /// Delete one recovery point (its own folder only).
 pub fn delete(meta: &Path, id: &str) -> Result<()> {
+    if crate::update::unfinished(meta).is_some_and(|t| t.recovery_point.as_deref() == Some(id)) {
+        return Err(Error::Invalid("This recovery point is required by an unfinished update and cannot be deleted.".into()));
+    }
     let dir = point_dir(meta, id)?;
     get(meta, id)?; // must be a real recovery point
     fs::remove_dir_all(dir)?;
@@ -347,7 +350,7 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
     let live = if name.contains('-') || name == "playerbots" { db::schema_of(name)? } else { point.realm.schema(name)? };
     let expected_tables = comp.tables.unwrap_or(0);
     let dump = point_dir(meta, id)?.join(&comp.path);
-    let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
+    let stamp = uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
 
     // 1. Safety copy of the current state, so even a wrong restore is reversible.
     let safety = create(root, meta, Kind::Database, Trigger::BeforeRestore, Some(format!("before restoring {name} from {id}")), &|_| {})?;
@@ -364,7 +367,7 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
         db.import_from(&staging, &dump)?;
         // 3. Sanity checks.
         let staged = db.tables(&staging)?;
-        if staged.is_empty() || (expected_tables > 0 && staged.len() != expected_tables) {
+        if comp.tables.is_some_and(|expected| staged.len() != expected) || (comp.tables.is_none() && staged.is_empty()) {
             return Err(Error::Invalid(format!("The restored copy looks incomplete ({} of {expected_tables} tables); nothing was changed.", staged.len())));
         }
         if db.extra_objects(&staging)? > 0 || db.extra_objects(live)? > 0 {
@@ -380,7 +383,7 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
         for t in &staged {
             renames.push(format!("`{staging}`.`{t}` TO `{live}`.`{t}`"));
         }
-        db.query(&format!("RENAME TABLE {};", renames.join(", ")))?;
+        if !renames.is_empty() { db.query(&format!("RENAME TABLE {};", renames.join(", ")))?; }
         Ok(DbRestore { previous_schema: old, safety_backup: safety.id.clone(), tables_restored: staged.len() })
     })
 }
