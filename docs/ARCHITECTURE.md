@@ -430,6 +430,10 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   equal to the variables the containers get. A world that restarts itself (exit code 2) is restarted by Docker once it has come
   up. The database console shows `docker logs`, and the file-based screens read Linux locations (the desktop folder from the
   user directories file, memory from `/proc/meminfo`, the distribution name for the problem report).
+* **Game data folder** (`docker::game_data_dir` / `set_game_data`, Settings card): `dataDir` in `docker.json` can be changed
+  after the install, only while the world and auth are stopped, and only to a folder that passes the install checks. A world
+  that stops with "does not hold the CoA client dbc set" is reported as `GameDataMismatch` (wrong data set: the standard one,
+  not Conquest of Azeroth's) instead of a bare failure.
 * **Not done yet**: downloading the game data, updates, port conflict detection, the firewall and exposure checks, the
   Wildcard realm profiles, and the client under Wine/Proton.
 

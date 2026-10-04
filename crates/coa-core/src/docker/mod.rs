@@ -189,6 +189,29 @@ pub(crate) fn env_name(key: &str) -> String {
     out
 }
 
+/// The folder mounted as the game data of this Docker server.
+pub fn game_data_dir(root: &Path) -> Result<std::path::PathBuf> {
+    Ok(Config::load(root)?.data_path(root))
+}
+
+/// Point a Docker server at another game data folder (used in place, read-only). The containers are recreated at the next
+/// start, so the servers must be stopped: a running one keeps the folder it has.
+pub fn set_game_data(root: &Path, path: &Path) -> Result<()> {
+    let problems = install::data_problems(path);
+    if !problems.is_empty() {
+        return Err(Error::Invalid(problems.iter().map(|p| p.message.clone()).collect::<Vec<_>>().join(" ")));
+    }
+    let observed = crate::process::observe(root, &crate::layout::read_ports(root));
+    let busy = |s: &crate::process::ServiceStatus| matches!(s.state, crate::process::ServiceState::Running | crate::process::ServiceState::Starting | crate::process::ServiceState::Stopping);
+    if busy(&observed.world) || busy(&observed.auth) {
+        return Err(Error::Invalid("Stop the server before changing the game data folder.".into()));
+    }
+    let mut cfg = Config::load(root)?;
+    cfg.data_dir = Some(path.to_string_lossy().into_owned());
+    cfg.validate()?;
+    fsx::atomic_write_json(&root.join(MARKER), &cfg)
+}
+
 /// A reason a value cannot work on a Docker server, for settings that name a path: the server runs in a container that sees only
 /// its own `Core` folder (as `/srv/core`, its working directory), so a path elsewhere on this computer does not exist for it.
 pub fn setting_problem(key: &str, raw: &str) -> Option<&'static str> {
@@ -263,6 +286,28 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_game_data_folder_can_be_changed_when_the_servers_are_stopped() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("srv");
+        std::fs::create_dir_all(root.join("Settings")).unwrap();
+        std::fs::write(root.join(MARKER), r#"{"project":"t1","dataDir":"/old/data"}"#).unwrap();
+        let good = d.path().join("data");
+        std::fs::create_dir_all(good.join("dbc")).unwrap();
+        std::fs::create_dir_all(good.join("maps")).unwrap();
+        assert_eq!(game_data_dir(&root).unwrap(), std::path::PathBuf::from("/old/data"));
+        set_game_data(&root, &good).unwrap();
+        assert_eq!(game_data_dir(&root).unwrap(), good);
+        assert_eq!(Config::load(&root).unwrap().project, "t1", "the other settings are kept");
+        // A folder that does not look like game data is refused and nothing changes.
+        let empty = d.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        assert!(set_game_data(&root, &empty).is_err());
+        assert_eq!(game_data_dir(&root).unwrap(), good);
+        assert!(set_game_data(&root, std::path::Path::new("relative/dir")).is_err());
+    }
 
     #[cfg(unix)]
     #[test]

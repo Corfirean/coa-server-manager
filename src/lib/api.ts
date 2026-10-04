@@ -498,6 +498,9 @@ export const api = {
   restoreConfigs: (id: string, backupId: string) => invoke<RecoveryPoint>("restore_backup_configs", { id, backupId }),
   restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
   installEnvironment: () => invoke<InstallEnvironment>("install_environment"),
+  /** The game data folder of a Docker server; null for a repack. */
+  gameDataFolder: (id: string) => invoke<string | null>("game_data_folder", { id }),
+  setGameDataFolder: (id: string, path: string) => invoke<string>("set_game_data_folder", { id, path }),
   installPreflight: (dest: string, needed?: number, gameData?: string) => invoke<Preflight>("install_preflight", { dest, needed: needed ?? null, gameData: gameData ?? null }),
   installRequirements: (pkg?: string) => invoke<InstallRequirements>("install_requirements", { package: pkg ?? null }),
   realmlistProfiles: (id: string) => invoke<{ profiles: RealmProfile[]; active: string | null }>("realmlist_profiles", { id }),

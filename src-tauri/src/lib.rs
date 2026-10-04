@@ -110,6 +110,31 @@ fn summary(id: String, path: PathBuf) -> ServerSummary {
     ServerSummary { id, name, path: path.to_string_lossy().into_owned() }
 }
 
+/// The game data folder of a Docker server; none for a repack, whose data is inside its own folder.
+#[tauri::command]
+fn game_data_folder(state: State<'_, AppState>, id: String) -> std::result::Result<Option<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    if !coa_core::docker::is_docker(&root) {
+        return Ok(None);
+    }
+    Ok(Some(coa_core::docker::game_data_dir(&root)?.to_string_lossy().into_owned()))
+}
+
+/// Point a Docker server at another game data folder. The servers must be stopped.
+#[tauri::command]
+async fn set_game_data_folder(state: State<'_, AppState>, id: String, path: String) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        if !coa_core::docker::is_docker(&root) {
+            return Err(Error::Invalid("The game data of this server is inside its folder.".into()));
+        }
+        coa_core::docker::set_game_data(&root, std::path::Path::new(&path))?;
+        Ok(path)
+    })
+    .await
+}
+
 #[tauri::command]
 fn default_install_dir() -> String {
     if platform::flavor() == Flavor::Docker {
@@ -1688,6 +1713,8 @@ pub fn run() {
         .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
+            game_data_folder,
+            set_game_data_folder,
             install_environment,
             scan_server,
             add_server,
