@@ -139,7 +139,7 @@ pub fn pack_update(p: &UpdateParams, progress: &dyn Fn(&str)) -> Result<Manifest
     let mut changed = 0;
     for rel in &rels {
         let src = fsx::safe_join(p.tree, rel)?;
-        if base.get(&rel.to_lowercase()).map(|h| h.eq_ignore_ascii_case(&fsx::sha256_file(&src).unwrap_or_default())).unwrap_or(false) {
+        if rel != crate::schema_check::CONTRACT && base.get(&rel.to_lowercase()).map(|h| h.eq_ignore_ascii_case(&fsx::sha256_file(&src).unwrap_or_default())).unwrap_or(false) {
             continue;
         }
         let dst = fsx::safe_join(&work, rel)?;
@@ -219,10 +219,12 @@ mod tests {
         let (base_src, base_out, tree, upd_out, sqldir) = (d.path().join("bs"), d.path().join("bo"), d.path().join("tree"), d.path().join("uo"), d.path().join("sql"));
         write(&base_src, "Core/worldserver.exe", "v1");
         write(&base_src, "Core/authserver.exe", "same");
+        write(&base_src, crate::schema_check::CONTRACT, "same contract");
         let base = package::build(&base_src, &base_out, &BuildOptions { kind: Kind::Base, version: "1.0.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20, bots_commit: None, migrations: vec![] }, &|_| {}).unwrap();
         write(&tree, "Core/worldserver.exe", "v2");
         write(&tree, "Core/authserver.exe", "same");
         write(&tree, "Core/newlib.dll", "n");
+        write(&tree, crate::schema_check::CONTRACT, "same contract");
         write(&sqldir, "world.sql", "SELECT 1;");
         let sql = vec![SqlFile { db: "world".into(), id: "m1".into(), origin: "x".into(), abs: sqldir.join("world.sql"), sha256: fsx::sha256_file(&sqldir.join("world.sql")).unwrap() }];
         let m = pack_update(&UpdateParams { tree: &tree, base_manifest: &base, sql: &sql, out: &upd_out, version: "1.1.0".into(), core_commit: Some("a".repeat(40)), bots_commit: Some("b".repeat(40)), part_size: 1 << 20 }, &|_| {}).unwrap();
@@ -230,6 +232,7 @@ mod tests {
         assert!(paths.contains(&"Core/worldserver.exe") && paths.contains(&"Core/newlib.dll"));
         assert!(!paths.contains(&"Core/authserver.exe"), "identical to the base: not shipped");
         assert!(paths.contains(&"_migrations/world/m1.sql"));
+        assert!(paths.contains(&crate::schema_check::CONTRACT), "the contract ships even when identical to the base");
         assert_eq!(m.kind, Kind::Update);
         assert_eq!(m.migrations.len(), 1);
         assert_eq!(m.bots.as_ref().and_then(|b| b.commit.clone()), Some("b".repeat(40)));

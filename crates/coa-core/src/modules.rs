@@ -91,6 +91,8 @@ pub struct ModuleView {
     pub repo: String,
     /// The module's configuration is present on this server (otherwise it is not part of this server build).
     pub installed: bool,
+    /// At least one editable setting besides the master switch exists in this server build.
+    pub has_settings: bool,
     pub enabled: bool,
     pub switchable: bool,
     pub status: String,
@@ -125,9 +127,15 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             let conf = dir(root).join(&name);
             let dist = dir(root).join(format!("{name}.dist"));
             let installed = conf.is_file() || dist.is_file();
+            let has_settings = installed && settings_in(cat, root, &e.id)
+                .map(|settings| settings.iter().any(|s| s.key != e.enable_key))
+                .unwrap_or(false);
             // the active file decides; without one the documented default is what the server will use
-            let enabled = !e.switchable
-                || read(&conf).or_else(|| read(&dist)).and_then(|c| c.get(&e.enable_key).map(truthy)).unwrap_or(e.default_on);
+            let enabled = if matches!(e.id.as_str(), "companions" | "playerbots") {
+                bot_enabled(root, &e).unwrap_or(true)
+            } else {
+                !e.switchable || read(&conf).or_else(|| read(&dist)).and_then(|c| c.get(&e.enable_key).map(truthy)).unwrap_or(e.default_on)
+            };
             let blocked = wildcard && matches!(e.id.as_str(), "companions" | "playerbots");
             ModuleView {
                 compatibility: if blocked { "unsupported" } else if wildcard && e.id != "client-compat" { "experimental" } else { "compatible" }.into(),
@@ -136,6 +144,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 description: e.description,
                 repo: e.repo,
                 installed,
+                has_settings,
                 enabled: enabled && !blocked,
                 switchable: e.switchable && !blocked,
                 status: e.status,
@@ -167,15 +176,60 @@ fn backup(meta: &Path, conf: &Path) -> Result<()> {
     fsx::atomic_write(&to, &fs::read(conf)?)
 }
 
+fn require_bot_server_stopped(root: &Path) -> Result<()> {
+    let observed = crate::process::observe(root, &crate::layout::read_ports(root));
+    if observed.world.state != crate::process::ServiceState::Stopped || crate::multiworld::is_running(root) {
+        return Err(Error::Invalid("Stop the server before changing the bot system.".into()));
+    }
+    Ok(())
+}
+
 pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
+    let _update_lock = crate::update::operation_lock(meta)?;
+    crate::update::ensure_recovered(meta)?;
+    let _lock = if matches!(id, "companions" | "playerbots") {
+        require_bot_server_stopped(root)?;
+        fs::create_dir_all(root.join(".state"))?;
+        let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(root.join(".state/control.lock"))?;
+        if !fs4::fs_std::FileExt::try_lock_exclusive(&lock)? {
+            return Err(Error::Invalid("Another start/stop action is in progress.".into()));
+        }
+        require_bot_server_stopped(root)?;
+        Some(lock)
+    } else { None };
     if on { crate::realms::guard_module(root, id)?; }
     set_enabled_in(&catalog(), root, meta, id, on)
+}
+
+fn bot_enabled(root: &Path, e: &Entry) -> Result<bool> {
+    let name = conf_name(root, e);
+    let conf = dir(root).join(&name);
+    let dist = dir(root).join(format!("{name}.dist"));
+    let path = if conf.exists() { conf } else { dist };
+    if !path.exists() { return Ok(false); }
+    let file = ConfFile::parse_bytes(&fs::read(path)?)?;
+    // Invalid booleans use the modules' enabled compiled default: fail closed.
+    Ok(file.get(&e.enable_key).map(|v| !matches!(v.trim().trim_matches('"').to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")).unwrap_or(true))
+}
+
+pub fn ensure_bot_exclusivity(root: &Path) -> Result<()> {
+    let cat = catalog();
+    if bot_enabled(root, &entry_in(&cat, "companions")?)? && bot_enabled(root, &entry_in(&cat, "playerbots")?)? {
+        return Err(Error::BotModulesConflict);
+    }
+    Ok(())
 }
 
 fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     let e = entry_in(cat, id)?;
     if !e.switchable || e.enable_key.is_empty() {
         return Err(Error::Invalid("This part cannot be switched off.".into()));
+    }
+    if on && matches!(id, "companions" | "playerbots") {
+        let other = if id == "companions" { "playerbots" } else { "companions" };
+        if let Some(other) = cat.iter().find(|e| e.id == other) {
+            if bot_enabled(root, other)? { return Err(Error::BotModulesConflict); }
+        }
     }
     let conf = active_file(root, &e)?;
     let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
@@ -209,7 +263,15 @@ fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
     let conf = dir(root).join(&name);
     let dist = read(&dir(root).join(format!("{name}.dist")));
     let active = read(&conf).or_else(|| dist.clone()).ok_or_else(|| Error::Invalid("This module is not part of this server.".into()))?;
-    Ok(active
+    let mut effective = active.clone();
+    if let Some(defaults) = &dist {
+        for (key, value) in defaults.entries() {
+            if effective.get(key).is_none() {
+                effective.set(key, value, &[]);
+            }
+        }
+    }
+    Ok(effective
         .entries()
         .map(|(k, v)| Setting {
             key: k.to_string(),
@@ -230,13 +292,30 @@ fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: 
     let e = entry_in(cat, id)?;
     let conf = active_file(root, &e)?;
     let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
+    let dist = read(&dir(root).join(format!("{}.dist", conf_name(root, &e))));
     let mut changed = Vec::new();
     for (key, value) in changes {
         let value = value.trim();
-        if file.get(key).is_none() {
+        if e.switchable && key == &e.enable_key {
+            return Err(Error::Invalid("Use the module switch to turn this module on or off.".into()));
+        }
+        if id == "content-scaling" && key == "CoAContentScaling.Difficulty.DamageMultiplier" {
+            let multiplier = value.parse::<f32>().map_err(|_| Error::Invalid("Enemy damage must be a number from 0.25 to 2.0.".into()))?;
+            if !multiplier.is_finite() || !(0.25..=2.0).contains(&multiplier) {
+                return Err(Error::Invalid("Enemy damage must be a number from 0.25 to 2.0.".into()));
+            }
+        }
+        if id == "ah-bot" && key.starts_with("AuctionHouseBot.ListProportion.Category") && key.contains(".Quality") {
+            let weight = value.parse::<u32>().map_err(|_| Error::Invalid("Auction listing weights must be whole numbers from 0 to 1000.".into()))?;
+            if weight > 1000 {
+                return Err(Error::Invalid("Auction listing weights must be whole numbers from 0 to 1000.".into()));
+            }
+        }
+        if file.get(key).is_none() && dist.as_ref().and_then(|d| d.get(key)).is_none() {
             return Err(Error::Invalid(format!("{key} is not a setting of this module.")));
         }
-        if value.is_empty() || value.len() > 500 || value.chars().any(char::is_control) {
+        let documented_empty = dist.as_ref().and_then(|d| d.get(key)).map(str::trim) == Some("");
+        if (value.is_empty() && !documented_empty) || value.len() > 500 || value.chars().any(char::is_control) {
             return Err(Error::Invalid(format!("The value of {key} must be one line of text.")));
         }
         if file.get(key).map(str::trim) != Some(value) {
@@ -287,13 +366,47 @@ mod tests {
     }
 
     #[test]
+    fn bot_systems_are_mutually_exclusive_in_both_directions_and_manual_configs() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path();
+        fs::create_dir_all(dir(root)).unwrap();
+        let a = dir(root).join("mod_coa_playerbots.conf");
+        let b = dir(root).join("playerbots.conf");
+        fs::write(&a, "CoaBots.Enable = 1\n").unwrap();
+        fs::write(&b, "AiPlayerbot.Enabled = 0\n").unwrap();
+        assert!(ensure_bot_exclusivity(root).is_ok());
+        assert!(matches!(set_enabled_in(&catalog(), root, root, "playerbots", true), Err(Error::BotModulesConflict)));
+        assert_eq!(fs::read_to_string(&b).unwrap(), "AiPlayerbot.Enabled = 0\n");
+        fs::write(&a, "CoaBots.Enable = 0\n").unwrap();
+        set_enabled_in(&catalog(), root, root, "playerbots", true).unwrap();
+        assert!(matches!(set_enabled_in(&catalog(), root, root, "companions", true), Err(Error::BotModulesConflict)));
+        fs::write(&a, "CoaBots.Enable = true\n").unwrap();
+        assert!(matches!(ensure_bot_exclusivity(root), Err(Error::BotModulesConflict)));
+        fs::write(&b, "# missing key uses the compiled enabled default\n").unwrap();
+        assert!(matches!(ensure_bot_exclusivity(root), Err(Error::BotModulesConflict)));
+        set_enabled_in(&catalog(), root, root, "companions", false).unwrap();
+        assert!(ensure_bot_exclusivity(root).is_ok());
+    }
+
+    #[test]
+    fn startup_rejects_conflicting_bots_before_launching_any_service() {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir(d.path())).unwrap();
+        fs::write(dir(d.path()).join("mod_coa_playerbots.conf"), "CoaBots.Enable = 1").unwrap();
+        fs::write(dir(d.path()).join("playerbots.conf"), "AiPlayerbot.Enabled = 1").unwrap();
+        for verb in [crate::driver::Verb::StartAll, crate::driver::Verb::StartWorld] {
+            assert!(matches!(crate::driver::run(d.path(), verb), Err(Error::BotModulesConflict)));
+        }
+    }
+
+    #[test]
     fn the_bundled_catalog_is_valid() {
         let c = catalog();
         // it may be empty (modules are added to it one by one); whatever is in it must be complete
         for e in &c {
             assert!(e.description.contains_key("en") && e.description.len() == 5, "{} has all five descriptions", e.id);
             assert!(e.repo.starts_with("https://github.com/") && e.conf.ends_with(".conf"), "{}", e.id);
-            assert!(!e.switchable || e.enable_key.ends_with(".Enable"), "{} needs the setting that switches it", e.id);
+            assert!(!e.switchable || (e.enable_key.ends_with(".Enable") || e.enable_key.ends_with(".Enabled")), "{} needs the setting that switches it", e.id);
             assert!(["soon", "early", "beta", "release"].contains(&e.status.as_str()), "{} has an unknown status", e.id);
             assert!(e.status != "soon" || !e.switchable, "{} is only announced, so it cannot be switched", e.id);
         }
@@ -310,25 +423,6 @@ mod tests {
         let wg = list_in(&test_catalog(), &root).into_iter().find(|m| m.id == "war-games").unwrap();
         assert!(wg.installed && wg.enabled, "the .dist says 1");
         assert!(!list_in(&test_catalog(), &root).into_iter().find(|m| m.id == "spellbook").unwrap().installed, "no configuration of that module on this server");
-    }
-
-    #[test]
-    fn the_content_scaling_switch_persists_the_master_flag_and_preserves_other_settings() {
-        let d = tempfile::tempdir().unwrap();
-        let (root, meta) = server(d.path());
-        let e = entry_in(&catalog(), "content-scaling").unwrap();
-        assert_eq!(e.enable_key, "CoAContentScaling.Enable");
-        let defaults = "CoAContentScaling.Enable = 1\nCoAContentScaling.ScaleItems = 1\nCoAContentScaling.GroupScaling.Enable = 1\n";
-        fs::write(dir(&root).join(format!("{}.dist", e.conf)), defaults).unwrap();
-        set_enabled(&root, &meta, &e.id, false).unwrap();
-        let active = read(&dir(&root).join(&e.conf)).unwrap();
-        assert_eq!(active.get("CoAContentScaling.Enable"), Some("0"));
-        assert_eq!(active.get("CoAContentScaling.ScaleItems"), Some("1"));
-        assert_eq!(active.get("CoAContentScaling.GroupScaling.Enable"), Some("1"));
-        assert!(!list(&root).into_iter().find(|m| m.id == e.id).unwrap().enabled);
-        set_enabled(&root, &meta, &e.id, true).unwrap();
-        assert_eq!(read(&dir(&root).join(&e.conf)).unwrap().get("CoAContentScaling.Enable"), Some("1"));
-        assert!(list(&root).into_iter().find(|m| m.id == e.id).unwrap().enabled);
     }
 
     #[test]
@@ -365,6 +459,91 @@ mod tests {
             assert!(save_settings_in(&test_catalog(), &root, &meta, "war-games", &c).is_err(), "{bad:?}");
         }
         assert!(!fs::read_to_string(dir(&root).join("war_games.conf")).unwrap().contains("Injected"));
+    }
+
+    #[test]
+    fn updated_module_defaults_are_visible_and_can_be_saved_in_an_existing_config() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        fs::write(dir(&root).join("war_games.conf"), "WarGames.Enable = 0\n").unwrap();
+        let cat = test_catalog();
+        let values = settings_in(&cat, &root, "war-games").unwrap();
+        assert_eq!(values.iter().find(|s| s.key == "WarGames.Enable").unwrap().value, "0");
+        assert_eq!(values.iter().find(|s| s.key == "WarGames.ChallengeSeconds").unwrap().value, "60");
+        let changes = BTreeMap::from([("WarGames.ChallengeSeconds".to_string(), "90".to_string())]);
+        save_settings_in(&cat, &root, &meta, "war-games", &changes).unwrap();
+        let text = fs::read_to_string(dir(&root).join("war_games.conf")).unwrap();
+        assert!(text.contains("WarGames.Enable = 0") && text.contains("WarGames.ChallengeSeconds = 90"));
+    }
+
+    #[test]
+    fn module_enable_cannot_be_changed_through_the_settings_editor() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let changes = BTreeMap::from([("WarGames.Enable".into(), "0".into())]);
+        assert!(save_settings_in(&test_catalog(), &root, &meta, "war-games", &changes).is_err());
+        assert_eq!(settings_in(&test_catalog(), &root, "war-games").unwrap()[0].value, "1");
+    }
+
+    #[test]
+    fn settings_button_requires_more_than_the_master_switch() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, _) = server(d.path());
+        let cat = test_catalog();
+        assert!(list_in(&cat, &root).iter().find(|m| m.id == "war-games").unwrap().has_settings);
+        fs::write(dir(&root).join("war_games.conf.dist"), "WarGames.Enable = 1\n").unwrap();
+        assert!(!list_in(&cat, &root).iter().find(|m| m.id == "war-games").unwrap().has_settings);
+        fs::write(dir(&root).join("war_games.conf"), "WarGames.Enable = 0\nWarGames.ChallengeSeconds = 90\n").unwrap();
+        assert!(list_in(&cat, &root).iter().find(|m| m.id == "war-games").unwrap().has_settings, "custom active settings remain editable");
+    }
+
+    #[test]
+    fn documented_empty_lists_can_be_restored() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        fs::write(dir(&root).join("war_games.conf.dist"), "WarGames.Enable = 1\nWarGames.ExcludedItems = \n").unwrap();
+        fs::write(dir(&root).join("war_games.conf"), "WarGames.Enable = 1\nWarGames.ExcludedItems = 42\n").unwrap();
+        let changes = BTreeMap::from([("WarGames.ExcludedItems".into(), "".into())]);
+        save_settings_in(&test_catalog(), &root, &meta, "war-games", &changes).unwrap();
+        assert_eq!(settings_in(&test_catalog(), &root, "war-games").unwrap().iter().find(|s| s.key == "WarGames.ExcludedItems").unwrap().value, "");
+    }
+
+    #[test]
+    fn auction_type_weights_are_validated_before_any_setting_is_written() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let cat = catalog();
+        let key = "AuctionHouseBot.ListProportion.CategoryWeapon.QualityNormal";
+        let conf = dir(&root).join("mod_ahbot.conf");
+        fs::write(&conf, format!("AuctionHouseBot.Enable = true\nAuctionHouseBot.ItemsPerCycle = 150\n{key} = 20\n")).unwrap();
+        let original = fs::read(&conf).unwrap();
+        for bad in ["-1", "1.5", "NaN", "1001", "", "4294967296"] {
+            let changes = BTreeMap::from([("AuctionHouseBot.ItemsPerCycle".into(), "25".into()), (key.into(), bad.into())]);
+            assert!(save_settings_in(&cat, &root, &meta, "ah-bot", &changes).is_err(), "{bad}");
+            assert_eq!(fs::read(&conf).unwrap(), original, "no partial save for {bad}");
+        }
+        let off = BTreeMap::from([(key.into(), "0".into())]);
+        save_settings_in(&cat, &root, &meta, "ah-bot", &off).unwrap();
+        assert_eq!(settings_in(&cat, &root, "ah-bot").unwrap().iter().find(|s| s.key == key).unwrap().value, "0");
+    }
+
+    #[test]
+    fn damage_difficulty_is_validated_and_older_server_builds_do_not_accept_it() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let cat = catalog();
+        let conf = dir(&root).join("mod-coa-content-scaling.conf.dist");
+        fs::write(&conf, "CoAContentScaling.Enable = 1\n").unwrap();
+        let key = "CoAContentScaling.Difficulty.DamageMultiplier";
+        let changes = |v: &str| BTreeMap::from([(key.into(), v.into())]);
+        assert!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes("0.5")).is_err());
+        fs::write(&conf, format!("CoAContentScaling.Enable = 1\n{key} = 1.0\n")).unwrap();
+        for bad in ["NaN", "inf", "0", "0.24", "2.01", "abc"] {
+            assert!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes(bad)).is_err(), "{bad}");
+        }
+        assert_eq!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes("0.25")).unwrap(), [key]);
+        assert_eq!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes("2")).unwrap(), [key]);
+        assert_eq!(settings_in(&cat, &root, "content-scaling").unwrap().iter().find(|s| s.key == key).unwrap().value, "2");
     }
 
     #[test]

@@ -194,6 +194,7 @@ export interface ModuleView {
   repo: string;
   /** the module is part of this server build (its configuration exists) */
   installed: boolean;
+  has_settings: boolean;
   enabled: boolean;
   /** can be turned on and off (a part the game client needs is only configured) */
   switchable: boolean;
@@ -273,6 +274,7 @@ export interface UpdateTxn {
   from_version: string | null;
   to_version: string;
   recovery_point: string | null;
+  databases_started: boolean;
   message: string | null;
 }
 

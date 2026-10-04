@@ -47,11 +47,16 @@ export function Shell(props: {
   const update = useServerUpdate(props.activeId);
 
   // A module that is switched off takes its page away (the companions' "Bots" page, for one).
+  const [botModule, setBotModule] = useState<"companions" | "playerbots">("companions");
   const [hiddenPages, setHiddenPages] = useState<string[]>([]);
   const reloadModules = useCallback(() => {
     void api
       .modulesList(props.activeId)
-      .then((list) => setHiddenPages(list.filter((m) => m.page && (!m.installed || m.compatibility === "unsupported" || (m.switchable && !m.enabled))).map((m) => m.page as string)))
+      .then((list) => {
+        const available = (m: typeof list[number]) => m.installed && m.compatibility !== "unsupported" && (!m.switchable || m.enabled);
+        setHiddenPages([...new Set(list.flatMap(m => m.page ? [m.page] : []))].filter(page => !list.some(m => m.page === page && available(m))));
+        setBotModule(list.some(m => m.id === "playerbots" && available(m)) ? "playerbots" : "companions");
+      })
       .catch(() => setHiddenPages([]));
   }, [props.activeId]);
   useEffect(() => {
@@ -122,9 +127,9 @@ export function Shell(props: {
 
       <main className="h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
-          <Overview key={server.id} server={server} companions={!hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} onRealmChanged={reloadModules} />
+          <Overview key={server.id} server={server} companions={botModule === "companions" && !hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} onRealmChanged={reloadModules} />
         ) : page === "bots" || page === "server" ? (
-          <SettingsPage key={`${server.id}-${page}`} serverId={server.id} scope={page} title={t(current.label)} question={t(current.question)} />
+          <SettingsPage key={`${server.id}-${page}-${botModule}`} serverId={server.id} scope={page} botModule={botModule} title={t(current.label)} question={t(current.question)} />
         ) : page === "console" ? (
           <ConsolePage key={server.id} serverId={server.id} />
         ) : page === "modules" ? (

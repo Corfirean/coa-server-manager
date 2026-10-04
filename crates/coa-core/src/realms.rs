@@ -179,13 +179,13 @@ fn create_databases(root: &Path) -> Result<()> {
                 return Err(Error::Invalid("Realm creation does not support databases with routines, triggers or views.".into()));
             }
         }
-        for (schema, tables) in [
-            ("acore_world", &["ascension_wildcard_boss_marks", "ascension_wildcard_tooltip_links"][..]),
-            ("acore_characters", &["coa_wildcard_skill_card", "coa_wildcard_skill_card_pending", "coa_wildcard_skill_card_account", "coa_wildcard_skill_card_purchase", "coa_wildcard_specialization_cache"][..]),
-        ] {
+        for (kind, tables) in crate::schema_check::WILDCARD_TABLES {
+            let schema = crate::db::schema_of(kind)?;
             let present = db.tables(schema)?;
-            if tables.iter().any(|table| !present.iter().any(|p| p == table)) {
-                return Err(Error::Invalid("Wildcard database migrations are missing. Update the server database before creating this realm.".into()));
+            let missing: Vec<_> = tables.iter().filter(|table| !present.iter().any(|p| p == **table)).copied().collect();
+            if !missing.is_empty() {
+                tracing::error!(root = %root.display(), database = schema, missing_tables = ?missing, "Wildcard realm creation blocked by missing database tables");
+                return Err(Error::Invalid(format!("Cannot create Wildcard: {schema} is missing tables: {}. Run Check files and database and include its report when requesting support.", missing.join(", "))));
             }
         }
         let cache = root.join("Settings/realm-profiles/staging");
@@ -226,6 +226,9 @@ fn create_databases(root: &Path) -> Result<()> {
 }
 
 pub fn select(root: &Path, mode: Mode) -> Result<View> {
+    let meta = crate::registry::metadata_dir_for(root)?;
+    let _update_lock = crate::update::operation_lock(&meta)?;
+    crate::update::ensure_recovered(&meta)?;
     require_world_stopped(root)?;
     recover(root)?;
     let mut s = state(root)?;
@@ -247,7 +250,9 @@ pub fn select(root: &Path, mode: Mode) -> Result<View> {
     // The launcher and batch files share this lock; recheck after the potentially long database copy.
     fs::create_dir_all(root.join(".state"))?;
     let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(root.join(".state/control.lock"))?;
-    fs4::fs_std::FileExt::try_lock_exclusive(&lock).map_err(|_| Error::Invalid("Another start/stop action is in progress.".into()))?;
+    if !fs4::fs_std::FileExt::try_lock_exclusive(&lock)? {
+        return Err(Error::Invalid("Another start/stop action is in progress.".into()));
+    }
     require_world_stopped(root)?;
     let original = state(root)?;
     fsx::atomic_write_json(&root.join(JOURNAL), &Journal { before: original, files: before })?;

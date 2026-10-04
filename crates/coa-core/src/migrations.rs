@@ -19,6 +19,7 @@ pub enum Status {
     Applied,
     Pending,
     Failed,
+    Running,
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +56,8 @@ impl Store for Db {
         let mut rows = Vec::new();
         // Files the core's own updater (or whoever prepared this database) already recorded count as applied.
         for (kind, schema) in db::SCHEMAS {
-            if let Ok(names) = self.query(&format!("SELECT name FROM `{schema}`.`updates`;")) {
+            if self.tables(schema)?.iter().any(|name| name == "updates") {
+                let names = self.query(&format!("SELECT name FROM `{schema}`.`updates`;"))?;
                 for name in names.lines().filter(|n| n.ends_with(".sql")) {
                     rows.push(LedgerRow { db: kind.into(), id: name.trim_end_matches(".sql").into(), sha256: "0".repeat(64), status: Status::Applied, error: None, baseline: true });
                 }
@@ -64,14 +66,17 @@ impl Store for Db {
         for line in out.lines().filter(|l| !l.is_empty()) {
             let f: Vec<&str> = line.split('\t').collect();
             if f.len() < 5 {
-                continue;
+                return Err(Error::Invalid("The database migration history is malformed; no SQL was replayed.".into()));
+            }
+            if !matches!(f[3], "applied" | "failed" | "running") || !ident_ok(f[1]) || f[2].len() != 64 || !f[2].chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(Error::Invalid("The database migration history is invalid; no SQL was replayed.".into()));
             }
             let err = f.get(5).filter(|h| !h.is_empty()).and_then(|h| hex::decode(h).ok()).map(|b| String::from_utf8_lossy(&b).into_owned());
             rows.push(LedgerRow {
                 db: f[0].into(),
                 id: f[1].into(),
                 sha256: f[2].into(),
-                status: if f[3] == "applied" { Status::Applied } else { Status::Failed },
+                status: match f[3] { "applied" => Status::Applied, "running" => Status::Running, _ => Status::Failed },
                 baseline: f[4] == "1",
                 error: err,
             });
@@ -83,7 +88,7 @@ impl Store for Db {
         if !ident_ok(&r.id) || !ident_ok(&r.db) || r.sha256.len() != 64 || !r.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(Error::Invalid("migration record has an invalid identifier".into()));
         }
-        let status = if r.status == Status::Applied { "applied" } else { "failed" };
+        let status = match r.status { Status::Applied => "applied", Status::Running => "running", _ => "failed" };
         let err = r.error.as_deref().map(|e| format!("UNHEX('{}')", hex_of(e))).unwrap_or_else(|| "NULL".into());
         self.query(&format!(
             "REPLACE INTO `{LEDGER_SCHEMA}`.`{LEDGER_TABLE}` (`db`,`id`,`sha256`,`status`,`applied_at`,`error`,`baseline`) VALUES ('{}','{}','{}','{status}',NOW(),{err},{});",
@@ -129,7 +134,7 @@ pub fn status(store: &dyn Store, list: &[Migration]) -> Result<Vec<Item>> {
             Item {
                 id: m.id.clone(),
                 db: m.db.clone(),
-                status: if changed { Status::Failed } else { row.map(|r| r.status).unwrap_or(Status::Pending) },
+                status: if changed || row.is_some_and(|r| r.status == Status::Running) { Status::Failed } else { row.map(|r| r.status).unwrap_or(Status::Pending) },
                 destructive: m.destructive,
                 baseline: row.map(|r| r.baseline).unwrap_or(false),
                 error: if changed { Some("An already applied SQL file changed. Publish a new migration instead of replaying it.".into()) } else { row.and_then(|r| r.error.clone()) },
@@ -174,11 +179,15 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
     let rows = store.load()?;
     // The list order is the release's order of application (released updates, then pending, then modules).
     for m in list {
+        if recorded(&rows, m).is_some_and(|r| matches!(r.status, Status::Running | Status::Failed)) {
+            return Err(Error::Invalid(format!("Database update {} ({}) failed or was interrupted and may be partially applied. Restore its recovery point before retrying.", m.id, m.db)));
+        }
         if recorded(&rows, m).is_some_and(|r| hash_changed(r, m)) {
             return Err(Error::Invalid(format!("Applied database update {} ({}) has a different checksum. A new migration is required; it was not replayed.", m.id, m.db)));
         }
     }
     let todo: Vec<&Migration> = list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).collect();
+    tracing::info!(total = list.len(), pending = todo.len(), skipped = list.len() - todo.len(), "database migration plan");
 
     // Resolve and verify every file before running anything.
     let mut files = Vec::new();
@@ -206,12 +215,16 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
         report.snapshot = Some(snapshot().map_err(|e| Error::Invalid(format!("No database update was applied because the safety backup failed: {e}")))?);
     }
     for (m, schema, path) in files {
+        tracing::info!(migration = %m.id, database = %m.db, "database migration starting");
+        store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Running, error: Some("Interrupted SQL must be recovered before replay.".into()), baseline: false })?;
         match store.run_file(schema, &path) {
             Ok(()) => {
                 store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Applied, error: None, baseline: false })?;
                 report.applied.push(m.id.clone());
+                tracing::info!(migration = %m.id, database = %m.db, "database migration applied");
             }
             Err(e) => {
+                tracing::error!(migration = %m.id, database = %m.db, "database migration failed; details saved in migration history");
                 let msg = e.to_string();
                 let _ = store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Failed, error: Some(msg.clone()), baseline: false });
                 report.failed = Some((m.id.clone(), msg));
@@ -277,7 +290,8 @@ mod tests {
         let failed = LedgerRow { sha256: list[0].sha256.clone(), status: Status::Failed, error: Some("previous failure".into()), baseline: false, ..old.clone() };
         store.rows.borrow_mut().extend([old, failed]);
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
-        assert_eq!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap().applied, ["same_id"]);
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap_err().to_string().contains("partially applied"));
+        assert!(store.ran.borrow().is_empty());
     }
 
     #[test]
@@ -338,6 +352,16 @@ mod tests {
         assert!(store.ran.borrow().is_empty(), "t1 must not run when t2 is bad");
         std::fs::remove_file(d.path().join("world/t1.sql")).unwrap();
         assert!(apply_pending(&store, &list[..1], d.path(), &no_snapshot).is_err());
+    }
+
+    #[test]
+    fn interrupted_sql_is_reported_and_never_automatically_replayed() {
+        let (d, list) = setup(&[("world", "partial", "DROP TABLE valuable;")]);
+        let store = Mem::default();
+        store.rows.borrow_mut().push(LedgerRow { db: "world".into(), id: "partial".into(), sha256: list[0].sha256.clone(), status: Status::Running, error: Some("interrupted".into()), baseline: false });
+        assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap_err().to_string().contains("interrupted"));
+        assert!(store.ran.borrow().is_empty());
     }
 
     #[test]
