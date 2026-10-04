@@ -140,6 +140,52 @@ pub fn ensure_main_configs(root: &Path) -> Result<Vec<String>> {
     Ok(created)
 }
 
+/// Settings the Docker backend gives the containers as environment variables. The core reads `AC_<KEY>` before the
+/// configuration file, so a value written to the file for one of these keys is silently ignored. They are what makes the
+/// containers work (where things are inside them, listening on every interface, the console, no built-in database
+/// updater, the databases); the owner has no use for them and the screens do not offer them.
+pub(crate) const FORCED_KEYS: [&str; 12] = [
+    "BindIP",
+    "WorldServerPort",
+    "RealmServerPort",
+    "LogsDir",
+    "DataDir",
+    "Updates.EnableDatabases",
+    "Ra.Enable",
+    "Ra.IP",
+    "Ra.Port",
+    "LoginDatabaseInfo",
+    "WorldDatabaseInfo",
+    "CharacterDatabaseInfo",
+];
+
+/// Is this setting fixed by the Docker backend (see `FORCED_KEYS`)?
+pub fn managed_setting(key: &str) -> bool {
+    FORCED_KEYS.iter().any(|k| k.eq_ignore_ascii_case(key))
+}
+
+/// The environment variable the core reads for a setting: `AC_` and the key in upper snake case, a `_` between a lower-case
+/// letter and a capital, and at letter / digit boundaries (the core's `IniKeyToEnvVarKey`).
+#[cfg(test)]
+pub(crate) fn env_name(key: &str) -> String {
+    let chars: Vec<char> = key.chars().collect();
+    let mut out = String::from("AC_");
+    for (i, &c) in chars.iter().enumerate() {
+        if matches!(c, ' ' | '.' | '-') {
+            out.push('_');
+            continue;
+        }
+        out.push(c.to_ascii_uppercase());
+        if let Some(&next) = chars.get(i + 1) {
+            let split = (!c.is_ascii_uppercase() && next.is_ascii_uppercase()) || (!c.is_ascii_digit() && next.is_ascii_digit()) || (c.is_ascii_digit() && !next.is_ascii_digit() && !matches!(next, ' ' | '.' | '-'));
+            if split {
+                out.push('_');
+            }
+        }
+    }
+    out
+}
+
 /// Name of the runtime image: it follows the content of its Dockerfile, so changing the libraries builds a new image.
 pub(crate) fn runtime_image() -> String {
     format!("coa-runtime:{}", &fsx::sha256_bytes(RUNTIME_DOCKERFILE.as_bytes())[..12])
@@ -205,6 +251,33 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn setting_names_become_the_variables_the_core_reads() {
+        for (key, var) in [
+            ("BindIP", "AC_BIND_IP"),
+            ("Ra.Enable", "AC_RA_ENABLE"),
+            ("Ra.IP", "AC_RA_IP"),
+            ("Updates.EnableDatabases", "AC_UPDATES_ENABLE_DATABASES"),
+            ("WorldServerPort", "AC_WORLD_SERVER_PORT"),
+            ("LoginDatabaseInfo", "AC_LOGIN_DATABASE_INFO"),
+            ("DataDir", "AC_DATA_DIR"),
+            ("Dynamic.XP.Reminder.Interval", "AC_DYNAMIC_XP_REMINDER_INTERVAL"),
+            ("EtherealBazaar.Enable", "AC_ETHEREAL_BAZAAR_ENABLE"),
+        ] {
+            assert_eq!(env_name(key), var, "{key}");
+        }
+    }
+
+    #[test]
+    fn the_settings_called_managed_are_exactly_the_variables_the_containers_get() {
+        // If a variable is added to the containers without being listed here (or the other way round), a screen would
+        // offer a setting that does nothing, or hide one that works.
+        let given: std::collections::BTreeSet<String> = lifecycle::forced_variables().into_iter().collect();
+        let listed: std::collections::BTreeSet<String> = FORCED_KEYS.iter().map(|k| env_name(k)).collect();
+        assert_eq!(given, listed);
+        assert!(managed_setting("ra.enable") && managed_setting("Updates.EnableDatabases") && !managed_setting("PlayerLimit"));
+    }
 
     #[test]
     fn the_main_configs_are_created_from_their_templates_and_never_overwritten() {

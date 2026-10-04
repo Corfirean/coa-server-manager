@@ -213,9 +213,12 @@ pub fn load(root: &Path, scope: Scope) -> Result<SettingsView> {
     let known: BTreeSet<&str> = schema.settings.iter().map(|s| s.key.as_str()).collect();
     let unknown_keys = conf.entries().filter(|(k, _)| !known.contains(k)).count();
 
+    // On a Docker server some settings are fixed by the backend (environment beats the file): not offered.
+    let docker = scope == Scope::Server && crate::docker::is_docker(root);
     let settings = schema
         .settings
         .iter()
+        .filter(|s| !(docker && crate::docker::managed_setting(&s.key)))
         .map(|s| {
             let raw = conf.get(&s.key);
             let (value, problem) = match raw {
@@ -286,9 +289,13 @@ pub fn validate(root: &Path, scope: Scope, changes: &BTreeMap<String, Value>) ->
     let schema = scope.schema();
     let mut errors = Vec::new();
     let mut raws = BTreeMap::new();
+    let docker = scope == Scope::Server && crate::docker::is_docker(root);
     for (key, value) in changes {
         match schema.get(key) {
             None => errors.push(FieldError { key: key.clone(), message: "is not a setting the Manager can change".into() }),
+            Some(_) if docker && crate::docker::managed_setting(key) => {
+                errors.push(FieldError { key: key.clone(), message: "is set by the Docker backend; changing it in the file would have no effect".into() })
+            }
             Some(s) => match s.to_raw(value) {
                 Ok(raw) => {
                     raws.insert(key.clone(), raw);
@@ -734,6 +741,26 @@ Spellbook.New = 5
         }
         assert_eq!(fs::read(root.join("Core/configs/worldserver.conf")).unwrap(), before);
         assert!(list_snapshots(&meta).is_empty(), "no snapshot for a rejected save");
+    }
+
+    #[test]
+    fn a_docker_server_is_not_offered_the_settings_its_backend_fixes() {
+        let (_d, root, meta) = fixture();
+        let keys = |root: &Path| load(root, Scope::Server).unwrap().settings.into_iter().map(|s| s.meta.key).collect::<Vec<_>>();
+        for k in ["Ra.Enable", "Ra.IP", "Updates.EnableDatabases", "PlayerLimit"] {
+            assert!(keys(&root).iter().any(|x| x == k), "a repack offers {k}");
+        }
+        fs::write(root.join("Settings/docker.json"), br#"{"project":"t1"}"#).unwrap();
+        let docker = keys(&root);
+        for k in ["Ra.Enable", "Ra.IP", "Updates.EnableDatabases"] {
+            assert!(!docker.iter().any(|x| x == k), "a Docker server does not offer {k}: the containers' environment beats the file");
+        }
+        assert!(docker.iter().any(|x| x == "PlayerLimit"), "everything else is still offered");
+        // Forcing a change through is refused and says why, instead of being saved and ignored.
+        let err = save(&root, &meta, Scope::Server, &set(&[("Ra.Enable", json!(0))])).unwrap_err().to_string();
+        assert!(err.contains("Docker backend"), "{err}");
+        assert!(!fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("Ra.Enable = 0"));
+        save(&root, &meta, Scope::Server, &set(&[("PlayerLimit", json!(77))])).unwrap();
     }
 
     #[test]

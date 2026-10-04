@@ -242,6 +242,10 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         run_container(d, &call, &n.world, log)?;
     }
     wait_listening(d, cfg, &n.world, ports.world, WORLD_WAIT, log)?;
+    // The core leaves with code 2 for `server restart` and expects a supervisor to start it again (the repack has one). Docker
+    // does that for any non-zero exit, but only once the server has come up: a start that fails must stay failed, not loop.
+    // A stop by `docker stop` or `server shutdown` (code 0) is never restarted.
+    let _ = docker(d, &["update", "--restart", "on-failure:3", &n.world], QUICK);
 
     if !state.get(&n.auth).is_some_and(Container::running) {
         remove(d, &n.auth);
@@ -386,6 +390,21 @@ fn database_env(s: &Secrets, world: bool, realm: crate::realms::Mode) -> Vec<(St
         env.push(("AC_CHARACTER_DATABASE_INFO".into(), info(schema("characters"))));
     }
     env
+}
+
+/// Every setting variable (`AC_...`) the containers get, for the check that the screens know which settings are fixed.
+#[cfg(test)]
+pub(crate) fn forced_variables() -> Vec<String> {
+    let cfg = Config { project: "t".into(), bind_address: "127.0.0.1".into(), mysql_image: "mysql:8.4".into(), data_dir: None };
+    let n = cfg.names();
+    let mut found = Vec::new();
+    for kind in [GameKind::World, GameKind::Auth] {
+        let args = game_args(&cfg, &n, kind, Path::new("/s"), Path::new("/d"), 1, 2, None);
+        found.extend(args.iter().filter_map(|a| a.strip_prefix("AC_").map(|rest| format!("AC_{}", rest.split('=').next().unwrap()))));
+    }
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// Realm profiles are only in play once a profile has been chosen on this server (`Settings/realm-profile.json`).
@@ -670,6 +689,7 @@ mod tests {
                     }
                     out(0, "containerid\n", "")
                 }
+                ["update", "--restart", _, _] => out(0, "", ""),
                 ["stop", "--time", _, name] => {
                     self.running.borrow_mut().remove(*name);
                     self.exited.borrow_mut().insert(name.to_string(), (0, false));
@@ -755,6 +775,21 @@ mod tests {
         let plain = &sim2.calls_of("run")[0].args;
         assert!(plain.windows(2).any(|w| w == ["--volume", "coa-t2-db:/var/lib/mysql"]), "{plain:?}");
         assert!(!plain.iter().any(|a| a == "--lower-case-table-names=1" || a == "--user"));
+    }
+
+    #[test]
+    fn the_world_server_is_started_again_when_it_restarts_itself_but_only_once_it_is_up() {
+        let (_d, root) = server("t1");
+        let sim = Sim::new();
+        assert!(start_all(&sim, &root).ok);
+        let world_run = sim.calls_of("run").into_iter().find(|c| c.args.iter().any(|a| a == "coa-t1-world")).unwrap();
+        assert!(!world_run.args.iter().any(|a| a == "--restart"), "no restart while it is still starting");
+        let updates = sim.calls_of("update");
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].args, ["update", "--restart", "on-failure:3", "coa-t1-world"]);
+        let verbs = sim.verbs();
+        let pos = |p: &str| verbs.iter().position(|v| v.starts_with(p)).unwrap();
+        assert!(pos("run --detach") < pos("update"), "after the container exists and listens");
     }
 
     #[test]
