@@ -102,15 +102,51 @@ pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
             problems.push(Problem { database: "characters".into(), table: table.into(), column: column.into(), detail: "Required column has no default and is not supplied by character creation".into() });
         }
     }
-    // Check every CoA class represented in the starting data, rather than one arbitrary pair.
+    // The any-race/class migration supports every standard playable race for all CoA classes.
+    // A class existing for just one race does not protect character creation or enumeration.
     if db.realm() == crate::realms::Mode::Coa {
         let rows = db.query("SELECT race,class FROM acore_world.playercreateinfo;")?;
-        let pairs: BTreeSet<_> = rows.lines().filter_map(|l| l.split_once('\t')).map(|(a,b)| (a.to_owned(),b.to_owned())).collect();
-        for class in 12..=32 {
-            if !pairs.iter().any(|(_, c)| c == &class.to_string()) {
-                problems.push(Problem { database: "world".into(), table: "playercreateinfo".into(), column: String::new(), detail: format!("No starting data for CoA class {class}") });
-            }
+        problems.extend(missing_coa_starts(&rows));
+    }
+    // Check owned characters too, including legacy classes and Wildcard characters. Their rows
+    // must not silently disappear from character selection after an otherwise healthy update.
+    let missing = db.query("SELECT c.race,c.class,COUNT(*) FROM acore_characters.characters c LEFT JOIN acore_world.playercreateinfo p ON p.race=c.race AND p.class=c.class WHERE p.race IS NULL GROUP BY c.race,c.class;")?;
+    for row in missing.lines() {
+        let fields: Vec<_> = row.split('\t').collect();
+        if fields.len() == 3 {
+            problems.push(Problem { database: "world".into(), table: "playercreateinfo".into(), column: String::new(), detail: format!("{} existing characters have no starting data for race {} / class {} and would be hidden from character selection", fields[2], fields[0], fields[1]) });
         }
     }
     Ok(problems)
+}
+
+fn missing_coa_starts(rows: &str) -> Vec<Problem> {
+    let pairs: BTreeSet<_> = rows.lines().filter_map(|l| l.split_once('\t')).map(|(a,b)| (a.to_owned(),b.to_owned())).collect();
+    let mut problems = Vec::new();
+    for race in [1, 2, 3, 4, 5, 6, 7, 8, 10, 11] {
+        for class in 12..=32 {
+            if !pairs.contains(&(race.to_string(), class.to_string())) {
+                problems.push(Problem { database: "world".into(), table: "playercreateinfo".into(), column: String::new(), detail: format!("No starting data for CoA race {race} / class {class}") });
+            }
+        }
+    }
+    problems
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_a_missing_orc_class_pair_even_when_the_class_exists_for_other_races() {
+        let mut rows = String::new();
+        for race in [1, 2, 3, 4, 5, 6, 7, 8, 10, 11] {
+            for class in 12..=32 { rows.push_str(&format!("{race}\t{class}\n")); }
+        }
+        assert!(missing_coa_starts(&rows).is_empty());
+        let incomplete = rows.lines().filter(|line| *line != "2\t30").collect::<Vec<_>>().join("\n");
+        let problems = missing_coa_starts(&incomplete);
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].detail.contains("race 2 / class 30"));
+    }
 }

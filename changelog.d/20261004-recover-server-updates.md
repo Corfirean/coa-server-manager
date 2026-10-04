@@ -4,4 +4,4 @@ type: fixed
 audience: admins
 title: Failed server updates restore databases and files together
 ---
-Updates now save a full backup, detect interrupted SQL, and check required Wildcard tables. Unfinished updates block server startup until recovered. Update and repair recovery also restore the previous installation metadata.
+Updates save a full backup and recover databases and files together. Interrupted SQL is not replayed. Checks cover Wildcard tables and every supported race/class pair, including existing characters. Unfinished updates block startup until recovered.
