@@ -408,6 +408,9 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   the package, and there is no default package address until a signed Linux package is published. Packages are checked with
   the embedded key; only a debug build (`tauri dev`) accepts another one, named in `COA_DEV_TRUSTED_KEY`, to try the
   installer on a package signed with a throwaway key.
+* **Updates are refused for a Docker server, never half done.** `update::preview`, `apply` and `rollback` refuse it: the
+  update packages are the repack's (executables, a bundled MySQL, a launcher) and applying one would put Windows files in a
+  Linux folder. Found by installing a server with the screen: the update check had read the Windows channel and offered one.
 * **Not done yet**: downloading the game data, updates, port conflict detection, the firewall and exposure checks, the
   Wildcard realm profiles, and the client under Wine/Proton.
 
