@@ -4,14 +4,20 @@ import { Welcome } from "@/screens/Welcome";
 import { ImportServer } from "@/screens/ImportServer";
 import { Shell } from "@/screens/Shell";
 import { InstallServer } from "@/screens/InstallServer";
+import { RemoteClient } from "@/screens/RemoteClient";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { autoUpdateEnabled, installOnClose, lookForUpdate } from "@/lib/selfUpdate";
 
-type View = "welcome" | "add" | "import" | "install";
+type View = "welcome" | "add" | "import" | "install" | "remote";
+
+function initialView(): View {
+  try { return localStorage.getItem("coa-play-mode") === "remote" ? "remote" : "welcome"; }
+  catch { return "welcome"; }
+}
 
 function Main() {
   const [servers, setServers] = useState<ServerSummary[] | null>(null);
-  const [view, setView] = useState<View>("welcome");
+  const [view, setView] = useState<View>(initialView);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -25,6 +31,11 @@ function Main() {
   }, [refresh]);
 
   if (servers === null) return null;
+
+  if (view === "remote") return <RemoteClient onHost={() => {
+    try { localStorage.setItem("coa-play-mode", "host"); } catch { /* storage unavailable */ }
+    setView(servers.length ? "welcome" : "add");
+  }} />;
 
   if (servers.length > 0 && view === "welcome" && activeId) {
     return (
@@ -71,6 +82,10 @@ function Main() {
 
   return (
     <Welcome
+      onConnect={() => {
+        try { localStorage.setItem("coa-play-mode", "remote"); } catch { /* storage unavailable */ }
+        setView("remote");
+      }}
       onImport={() => setView("import")}
       onInstall={() => setView("install")}
       onBack={servers.length > 0 ? () => setView("welcome") : undefined}

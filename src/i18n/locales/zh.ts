@@ -1,5 +1,20 @@
 /** Simplified Chinese localization (zh-CN) */
 const zh = {
+  "remote.clientReady": "客户端已就绪。保存服主地址，然后点击开始游戏。",
+  "remote.clientIntro": "选择已有游戏客户端，或在此下载。无需安装本地服务器。",
+  "welcome.host.title": "我要搭建服务器",
+  "welcome.host.text": "安装新服务器或管理已有服务器。",
+  "welcome.connect.title": "连接其他服务器",
+  "welcome.connect.text": "下载或更新游戏客户端，在朋友的服务器上游玩。",
+  "remote.intro": "设置游戏客户端，服务器由朋友运行。",
+  "remote.address": "服务器地址",
+  "remote.addressHint": "在局域网中游玩时，请向服主询问其电脑的局域网 IP 地址。",
+  "remote.save": "保存地址",
+  "remote.saved": "服务器地址已保存。",
+  "remote.accountHint": "请服主为你创建游戏账号。",
+  "remote.hostInstead": "搭建自己的服务器",
+  "welcome.roleSubtitle": "你想如何游玩？",
+
   "realm.profileLabel": "服务器",
   "realm.switching": "正在切换服务器…",
   "realm.create": "创建 Wildcard 服务器",

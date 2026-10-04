@@ -180,7 +180,7 @@ fn backup_dir(meta: &Path) -> PathBuf {
     meta.join("backups").join("client")
 }
 
-fn host_ok(h: &str) -> bool {
+pub fn host_ok(h: &str) -> bool {
     !h.is_empty() && h.len() <= 253 && h.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':')) && !h.starts_with('-')
 }
 

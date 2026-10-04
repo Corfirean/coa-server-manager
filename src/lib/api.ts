@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export const REMOTE_CLIENT_ID = "@remote-client";
+export interface RemoteConnection { host: string; client_path: string | null }
+
 export type Classification = "healthy" | "partial" | "unknown-custom" | "incompatible";
 export type ItemStatus = "found" | "missing" | "attention";
 
@@ -376,6 +379,8 @@ export interface ConsoleLine {
 }
 
 export const api = {
+  remoteConnection: () => invoke<RemoteConnection>("remote_connection"),
+  remoteConnect: (host: string) => invoke<RemoteConnection>("remote_connect", { host }),
     realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
     realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
     realmSimultaneous: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_simultaneous", { id, enabled }),

@@ -2,6 +2,21 @@ import type en from "./en";
 
 /** Русский. Черновой перевод; требует проверки носителем перед релизом. */
 const ru: Partial<Record<keyof typeof en, string>> = {
+  "remote.clientReady": "Клиент готов. Сохраните адрес хоста и нажмите «Играть».",
+  "remote.clientIntro": "Выберите существующий клиент игры или скачайте его здесь. Локальный сервер не требуется.",
+  "welcome.host.title": "Хочу быть хостом",
+  "welcome.host.text": "Установить новый сервер или управлять существующим.",
+  "welcome.connect.title": "Подключиться к другому серверу",
+  "welcome.connect.text": "Скачать или обновить клиент и играть на сервере друга.",
+  "remote.intro": "Настройте игровой клиент. Сервер запускает ваш друг.",
+  "remote.address": "Адрес сервера",
+  "remote.addressHint": "Для игры по локальной сети попросите у хоста локальный IP его компьютера.",
+  "remote.save": "Сохранить адрес",
+  "remote.saved": "Адрес сервера сохранён.",
+  "remote.accountHint": "Попросите хоста создать для вас игровой аккаунт.",
+  "remote.hostInstead": "Создать свой сервер",
+  "welcome.roleSubtitle": "Как вы хотите играть?",
+
   "realm.profileLabel": "Реалм",
   "realm.startupTitle": "Запуск реалмов",
   "realm.secondWorld": "Второй мир",

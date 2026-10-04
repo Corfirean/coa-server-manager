@@ -2,6 +2,21 @@ import type en from "./en";
 
 /** Deutsch. Entwurf einer Übersetzung; vor der Veröffentlichung von Muttersprachlern zu prüfen. */
 const de: Partial<Record<keyof typeof en, string>> = {
+  "remote.clientReady": "Dein Client ist bereit. Speichere die Hostadresse und klicke auf Spielen.",
+  "remote.clientIntro": "Wähle einen vorhandenen Spielclient oder lade ihn hier herunter. Ein lokaler Server ist nicht nötig.",
+  "welcome.host.title": "Einen Server hosten",
+  "welcome.host.text": "Einen neuen Server installieren oder einen vorhandenen verwalten.",
+  "welcome.connect.title": "Mit anderem Server verbinden",
+  "welcome.connect.text": "Den Spielclient herunterladen oder aktualisieren und bei Freunden spielen.",
+  "remote.intro": "Richte deinen Spielclient ein. Dein Freund betreibt den Server.",
+  "remote.address": "Serveradresse",
+  "remote.addressHint": "Für LAN-Spiele frage den Host nach der lokalen IP-Adresse seines Computers.",
+  "remote.save": "Adresse speichern",
+  "remote.saved": "Serveradresse gespeichert.",
+  "remote.accountHint": "Bitte den Host, ein Spielkonto für dich anzulegen.",
+  "remote.hostInstead": "Eigenen Server hosten",
+  "welcome.roleSubtitle": "Wie möchtest du spielen?",
+
   "nav.overview": "Übersicht",
   "nav.bots": "Bots",
   "nav.server": "Server",
