@@ -144,7 +144,7 @@ fn random_hex(n: usize) -> String {
 
 /// Rotate the database users' passwords away from the packaged bootstrap values and write the launcher's
 /// `Settings/database.json`. MySQL is started from `root` and stopped again before returning.
-fn bootstrap_database(root: &Path) -> Result<()> {
+pub(crate) fn bootstrap_database(root: &Path) -> Result<()> {
     with_scratch_ports(root, || bootstrap_database_inner(root))
 }
 
@@ -154,7 +154,7 @@ fn free_port() -> Result<u16> {
 
 /// Run `f` with the staging copy listening on unused ports, so an installation never collides with a server (or any
 /// other program) already using the shipped ports. The shipped ports are put back afterwards.
-fn with_scratch_ports<T>(root: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
+pub(crate) fn with_scratch_ports<T>(root: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
     const KEYS: [&str; 4] = ["mysqlPort", "authPort", "worldPort", "raPort"];
     let path = root.join("Settings/repack.json");
     let original: serde_json::Value = fsx::read_json(&path)?;

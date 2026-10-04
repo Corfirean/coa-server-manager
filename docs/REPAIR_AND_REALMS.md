@@ -15,10 +15,15 @@ Repair reports unresolved schema damage. It does not guess ALTER statements or r
 For each update, capture a fresh contract **from a disposable database already migrated to the exact packaged core**, into the release tree before `pack-update`:
 
 ```powershell
-cargo run -p coa-release -- schema-contract --repack C:\games\release-fixture --tree C:\games\release-tree
+cargo run -p coa-release -- extract-schema-base --package C:\games\signed-base --fixture C:\games\coa-schema-fixture-build
+cargo run -p coa-release -- schema-contract --repack C:\games\coa-schema-fixture-build --tree C:\games\release-tree --core C:\games\release-core --bots C:\games\release-bots --repairs C:\games\release-repairs
 ```
 
-The regular packager includes the contract and its hash in the signed manifest. Never capture it from a user's server or from the previous release database.
+The first command verifies every entry in the signed base archive and extracts only the runtime needed for a disposable database. The second applies the release SQL with temporary ports, checks critical feature tables independently of migration history, and captures the resulting schema. It requires the disposable fixture marker and never starts a world server.
+
+Base and update packaging require a complete contract for all three databases. Cumulative updates always carry it, even when unchanged. Signing and verification check the archive contents and contract before publication. Never capture it from a user's server or from an unmigrated previous release database.
+
+Corrective SQL under `repairs/{auth,characters,world}` receives new `manager_repair__` migration IDs and runs after historical SQL. Missing Wildcard tables can therefore be restored without replaying historical data deletion. Existing malformed tables still fail schema checks; creating a missing table does not recover its lost rows.
 
 ## Simultaneous worlds
 

@@ -26,6 +26,16 @@ pub struct Contract {
     pub columns: Columns,
 }
 
+pub fn require_release_contract(root: &Path) -> Result<Contract> {
+    let contract: Contract = fsx::read_json(&root.join(CONTRACT))?;
+    if contract.schema != 1 || ["auth", "characters", "world"].iter().any(|kind| {
+        contract.columns.get(*kind).is_none_or(|tables| tables.is_empty() || tables.values().any(|columns| columns.is_empty()))
+    }) {
+        return Err(crate::Error::Invalid("The release must include a complete supported database schema contract.".into()));
+    }
+    Ok(contract)
+}
+
 #[derive(Debug, Serialize)]
 pub struct Problem { pub database: String, pub table: String, pub column: String, pub detail: String }
 
@@ -136,6 +146,20 @@ fn missing_coa_starts(rows: &str) -> Vec<Problem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_release_cannot_use_a_partial_or_empty_schema_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(require_release_contract(dir.path()).is_err());
+        fsx::atomic_write_json(&dir.path().join(CONTRACT), &Contract { schema: 1, columns: Columns::new() }).unwrap();
+        assert!(require_release_contract(dir.path()).is_err());
+        let mut columns = Columns::new();
+        for kind in ["auth", "characters", "world"] {
+            columns.insert(kind.into(), BTreeMap::from([("table".into(), BTreeMap::from([("id".into(), "int|NO|<NULL>|<NONE>".into())]))]));
+        }
+        fsx::atomic_write_json(&dir.path().join(CONTRACT), &Contract { schema: 1, columns }).unwrap();
+        assert!(require_release_contract(dir.path()).is_ok());
+    }
 
     #[test]
     fn detects_a_missing_orc_class_pair_even_when_the_class_exists_for_other_races() {

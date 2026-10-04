@@ -257,6 +257,11 @@ impl Read for PartsReader {
 /// Unpack verified `parts_dir` into `dest` (an empty or new staging folder). Every file must be listed in the
 /// manifest with the recorded size and hash; anything else aborts the extraction.
 pub fn extract(parts_dir: &Path, manifest: &Manifest, dest: &Path, progress: &dyn Fn(u64, u64)) -> Result<()> {
+    extract_selected(parts_dir, manifest, dest, &|_| true, progress)
+}
+
+/// Verify the entire archive, writing only selected files for a disposable release-schema fixture.
+pub fn extract_selected(parts_dir: &Path, manifest: &Manifest, dest: &Path, select: &dyn Fn(&str) -> bool, progress: &dyn Fn(u64, u64)) -> Result<()> {
     let archive = manifest.archive.as_ref().ok_or_else(|| Error::InvalidManifest("manifest has no archive".into()))?;
     let mut paths = Vec::new();
     for part in &archive.parts {
@@ -271,7 +276,8 @@ pub fn extract(parts_dir: &Path, manifest: &Manifest, dest: &Path, progress: &dy
         }
         paths.push(p);
     }
-    fsx::require_space(dest, archive.unpacked_size)?;
+    let selected_size = manifest.files.iter().filter(|f| select(&f.path)).map(|f| f.size).sum();
+    fsx::require_space(dest, selected_size)?;
     fs::create_dir_all(dest)?;
 
     let expected: HashMap<String, &FileEntry> = manifest.files.iter().map(|f| (f.path.replace('\\', "/").to_lowercase(), f)).collect();
@@ -294,8 +300,11 @@ pub fn extract(parts_dir: &Path, manifest: &Manifest, dest: &Path, progress: &dy
             return Err(Error::PathRejected(format!("{rel}: appears twice in the archive")));
         }
         let target = fsx::safe_join(dest, &want.path)?;
-        fs::create_dir_all(target.parent().unwrap())?;
-        let mut out = BufWriter::new(File::create(&target)?);
+        let selected = select(&want.path);
+        let mut out = if selected {
+            fs::create_dir_all(target.parent().unwrap())?;
+            Some(BufWriter::new(File::create(&target)?))
+        } else { None };
         let mut hasher = Sha256::new();
         let mut buf = vec![0u8; 1 << 20];
         let mut size = 0u64;
@@ -313,9 +322,9 @@ pub fn extract(parts_dir: &Path, manifest: &Manifest, dest: &Path, progress: &dy
                 return Err(Error::HashMismatch { path: rel, expected: format!("{} bytes", want.size), actual: "more".into() });
             }
             hasher.update(&buf[..n]);
-            out.write_all(&buf[..n])?;
+            if let Some(out) = out.as_mut() { out.write_all(&buf[..n])?; }
         }
-        out.flush()?;
+        if let Some(out) = out.as_mut() { out.flush()?; }
         let actual = hex::encode(hasher.finalize());
         if size != want.size || !actual.eq_ignore_ascii_case(&want.sha256) {
             return Err(Error::HashMismatch { path: rel, expected: want.sha256.clone(), actual });
@@ -323,7 +332,7 @@ pub fn extract(parts_dir: &Path, manifest: &Manifest, dest: &Path, progress: &dy
         // The archive does not carry per-file modes, so a Linux binary or script would be extracted unusable.
         // Recognise them by content (ELF header or `#!`); Windows has no execute bit and ignores this.
         #[cfg(unix)]
-        if head.starts_with(b"\x7fELF") || head.starts_with(b"#!") {
+        if selected && (head.starts_with(b"\x7fELF") || head.starts_with(b"#!")) {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
         }
@@ -408,6 +417,19 @@ mod tests {
         assert_ne!(mode("Core/worldserver"), 0, "ELF binary must be executable");
         assert_ne!(mode("Scripts/tool.sh"), 0, "script with a shebang must be executable");
         assert_eq!(mode("Core/configs/worldserver.conf.dist"), 0, "plain files stay non-executable");
+    }
+
+    #[test]
+    fn selective_extraction_still_validates_unselected_files() {
+        let (d, src) = source();
+        let out = d.path().join("out");
+        let mut manifest = build(&src, &out, &opts(64 * 1024), &|_| {}).unwrap();
+        let dest = d.path().join("selected");
+        extract_selected(&out, &manifest, &dest, &|p| p.starts_with("Core/"), &|_, _| {}).unwrap();
+        assert!(dest.join("Core/worldserver.exe").exists());
+        assert!(!dest.join("Data").exists());
+        manifest.files.iter_mut().find(|f| f.path.starts_with("Data/")).unwrap().sha256 = "f".repeat(64);
+        assert!(matches!(extract_selected(&out, &manifest, &d.path().join("bad"), &|_| false, &|_, _| {}), Err(Error::HashMismatch { .. })));
     }
 
     #[test]

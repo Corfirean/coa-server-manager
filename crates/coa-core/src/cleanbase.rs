@@ -256,6 +256,9 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
         if accounts != "0" || chars != "0" || templates != 21 {
             return Err(Error::Invalid(format!("The database is not clean ({accounts} accounts, {chars} player characters, {templates} templates).")));
         }
+        if let Some(p) = crate::schema_check::check(db, p.tree)?.first() {
+            return Err(Error::Invalid(format!("The rebuilt base database is incomplete: {}.{}.{}: {}", p.database, p.table, p.column, p.detail)));
+        }
         crate::schema_check::capture(db, out)?;
         Ok(())
     })?;
@@ -276,7 +279,7 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
     fsx::atomic_write_json(&repack_json, &shipped)?;
 
     say("Adding the release files");
-    copy_dir(p.tree, p.out, &|_| false, p.tree)?;
+    copy_dir(p.tree, p.out, &|rel| rel == crate::schema_check::CONTRACT, p.tree)?;
     if let Some(data) = p.data {
         say("Copying game data");
         fs::create_dir_all(p.out.join("Data"))?;
