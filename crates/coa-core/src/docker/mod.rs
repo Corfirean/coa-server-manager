@@ -92,6 +92,11 @@ impl Config {
         Ok(())
     }
 
+    /// Name of the database container (the one `docker exec` talks to).
+    pub(crate) fn database_container(&self) -> String {
+        self.names().db
+    }
+
     pub(crate) fn names(&self) -> Names {
         let p = &self.project;
         Names { network: format!("coa-{p}"), volume: format!("coa-{p}-db"), db: format!("coa-{p}-db"), world: format!("coa-{p}-world"), auth: format!("coa-{p}-auth") }
