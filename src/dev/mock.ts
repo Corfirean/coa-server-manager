@@ -10,6 +10,7 @@ export {};
   let added = new URLSearchParams(location.search).has("demo"), running = false;
   let realm: "coa" | "wildcard" = "coa", wildcardCreated = false;
   let simultaneous = false;
+  let remoteHost = localStorage.getItem("demo-remote-host") ?? "";
   const moduleEdits: Record<string, Record<string, string>> = {};
   const modState: Record<string, boolean> = { "companions": true, "content-scaling": true, "client-compat": true, "tbc-content": true, "wotlk-content": true, "npc-enchanter": true };
   const report = {path:"C:\\games\\CoA-Repack",classification:"healthy",items:[
@@ -30,6 +31,9 @@ export {};
       if(cmd==="check_database") return [{realm, migrations:[],problems:[],full_schema:false}];
       if(cmd==="repair_server") { if(running) throw new Error("Stop the server before repairing it."); return {restored:[],applied:[],backup:"demo-before-repair",database:[{realm,migrations:[],problems:[],full_schema:false}],error:null}; }
       if(cmd==="realm_select"){await new Promise(r=>setTimeout(r,600));realm=args.mode;wildcardCreated ||= realm==="wildcard";modState.companions=realm==="coa";return {active:realm,wildcard_created:wildcardCreated,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:simultaneous&&running};}
+      if(cmd==="remote_connection") return {host:remoteHost,client_path:null};
+      if(cmd==="remote_connect") { remoteHost=args.host.trim(); localStorage.setItem("demo-remote-host",remoteHost); return {host:remoteHost,client_path:null}; }
+      if(cmd==="play") return {ok:true,exit_code:null,code:null,human:null,output:""};
       if(cmd==="list_servers") return added?[{id:"1",name:"CoA-Repack",path:report.path}]:[];
       if(cmd==="scan_server") return report;
       if(cmd==="add_server"){added=true;return {id:"1",name:"CoA-Repack",path:report.path};}
@@ -92,7 +96,7 @@ export {};
       if(cmd==="account_set_access"){const a=(window as any).__acc.find((x: any)=>x.name===args.name);if(a)a.access=args.level;return null;}
       if(cmd==="account_set_password") return null;
       if(cmd==="account_rename"){const a=(window as any).__acc.find((x: any)=>x.name===args.name);if(a)a.name=String(args.newName).toUpperCase();return null;}
-      if(cmd==="client_info"){const c=(window as any).__client??"none";return c==="none"?null:{path:"C:\\games\\CoA Client",executable:"Ascension.exe",realmlists:[{path:"x",host:"127.0.0.1"}],addon:{installed:true,version:"1",up_to_date:true},other_addons:2};}
+      if(cmd==="client_info"){const c=(window as any).__client??"none";return c==="none"?null:{path:"C:\\games\\CoA Client",executable:"Ascension.exe",realmlists:[{path:"x",host:args.id==="@remote-client"?remoteHost:"127.0.0.1"}],addon:{installed:true,version:"1",up_to_date:true},other_addons:2};}
       if(cmd==="set_client"){(window as any).__client="foreign";return {path:args.path,executable:"Ascension.exe",realmlists:[],addon:{installed:false,version:null,up_to_date:null},other_addons:0};}
       if(cmd==="plugin:event|listen"){const w=window as any;(w.__handlers??={})[args.event]=[...(w.__handlers[args.event]??[]),args.handler];return 1;}
       if(cmd==="plugin:event|unlisten") return null;

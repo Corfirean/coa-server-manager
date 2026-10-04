@@ -2,6 +2,21 @@ import type en from "./en";
 
 /** Español. Traducción provisional; debe revisarla un hablante nativo antes de publicarse. */
 const es: Partial<Record<keyof typeof en, string>> = {
+  "remote.clientReady": "Tu cliente está listo. Guarda la dirección del anfitrión y pulsa Jugar.",
+  "remote.clientIntro": "Elige un cliente existente o descárgalo aquí. No necesitas un servidor local.",
+  "welcome.host.title": "Alojar un servidor",
+  "welcome.host.text": "Instalar un servidor nuevo o gestionar uno existente.",
+  "welcome.connect.title": "Conectarse a otro servidor",
+  "welcome.connect.text": "Descargar o actualizar el cliente y jugar en el servidor de un amigo.",
+  "remote.intro": "Configura tu cliente. Tu amigo aloja el servidor.",
+  "remote.address": "Dirección del servidor",
+  "remote.addressHint": "Para jugar en LAN, pide al anfitrión la IP local de su ordenador.",
+  "remote.save": "Guardar dirección",
+  "remote.saved": "Dirección del servidor guardada.",
+  "remote.accountHint": "Pide al anfitrión que te cree una cuenta de juego.",
+  "remote.hostInstead": "Alojar mi servidor",
+  "welcome.roleSubtitle": "¿Cómo quieres jugar?",
+
   "nav.overview": "Resumen",
   "nav.bots": "Bots",
   "nav.server": "Servidor",

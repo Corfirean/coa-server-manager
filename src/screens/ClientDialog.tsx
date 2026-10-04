@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { Check, Loader2 } from "lucide-react";
-import { api, asUiError, type ClientDownloadCheck, type ClientPlan, type ClientStep, type UiError } from "@/lib/api";
+import { api, asUiError, REMOTE_CLIENT_ID, type ClientDownloadCheck, type ClientPlan, type ClientStep, type UiError } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -261,7 +261,7 @@ export function ClientDialog(props: {
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-ok/15 text-ok"><Check className="h-5 w-5" aria-hidden /></span>
               <div>
                 <p className="font-medium">{mode === "setup" ? t("client.dl.done") : t("client.upd.done")}</p>
-                <p className="text-sm text-muted">{mode === "setup" ? t("client.dl.doneText") : t("client.upd.doneText")}</p>
+                <p className="text-sm text-muted">{mode === "setup" ? t(serverId === REMOTE_CLIENT_ID ? "remote.clientReady" : "client.dl.doneText") : t("client.upd.doneText")}</p>
               </div>
             </div>
             <div className="mt-5 flex justify-end">

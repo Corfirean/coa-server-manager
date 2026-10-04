@@ -1,5 +1,20 @@
 /** English is the source of truth: every key must exist here; other locales fall back to it. */
 const en = {
+  "remote.clientReady": "Your client is ready. Save the host’s address, then press Play.",
+  "remote.clientIntro": "Choose an existing game client or download one here. No local server is needed.",
+  "welcome.host.title": "Host a server",
+  "welcome.host.text": "Install a new server or manage one you already have.",
+  "welcome.connect.title": "Connect to another server",
+  "welcome.connect.text": "Download or update the game client and play on a friend’s server.",
+  "remote.intro": "Set up your game client. Your friend runs the server.",
+  "remote.address": "Server address",
+  "remote.addressHint": "For LAN play, ask the host for their computer’s local IP address.",
+  "remote.save": "Save address",
+  "remote.saved": "Server address saved.",
+  "remote.accountHint": "Ask the host to create a game account for you.",
+  "remote.hostInstead": "Host my own server",
+  "welcome.roleSubtitle": "How would you like to play?",
+
   "realm.profileLabel": "Realm",
   "realm.startupTitle": "Realm startup",
   "realm.secondWorld": "Second world",
