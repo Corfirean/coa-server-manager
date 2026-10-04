@@ -305,6 +305,15 @@ fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: 
                 return Err(Error::Invalid("Enemy damage must be a number from 0.25 to 2.0.".into()));
             }
         }
+        if id == "content-scaling" && key == "CoAContentScaling.World.Leech.Percent" {
+            let percent = value.parse::<f32>().map_err(|_| Error::Invalid("Life steal must be a number from 0 to 100 percent.".into()))?;
+            if !percent.is_finite() || !(0.0..=100.0).contains(&percent) {
+                return Err(Error::Invalid("Life steal must be a number from 0 to 100 percent.".into()));
+            }
+        }
+        if id == "content-scaling" && matches!(key.as_str(), "CoAContentScaling.LFG.AllowPartialGroups" | "CoAContentScaling.World.Leech.Enable") && !matches!(value, "0" | "1") {
+            return Err(Error::Invalid(format!("{key} must be 0 or 1.")));
+        }
         if id == "ah-bot" && key.starts_with("AuctionHouseBot.ListProportion.Category") && key.contains(".Quality") {
             let weight = value.parse::<u32>().map_err(|_| Error::Invalid("Auction listing weights must be whole numbers from 0 to 1000.".into()))?;
             if weight > 1000 {
@@ -525,6 +534,39 @@ mod tests {
         let off = BTreeMap::from([(key.into(), "0".into())]);
         save_settings_in(&cat, &root, &meta, "ah-bot", &off).unwrap();
         assert_eq!(settings_in(&cat, &root, "ah-bot").unwrap().iter().find(|s| s.key == key).unwrap().value, "0");
+    }
+
+    #[test]
+    fn partial_lfg_and_world_leech_settings_round_trip_and_reject_invalid_values() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let cat = catalog();
+        let conf = dir(&root).join("mod-coa-content-scaling.conf.dist");
+        let partial = "CoAContentScaling.LFG.AllowPartialGroups";
+        let enable = "CoAContentScaling.World.Leech.Enable";
+        let percent = "CoAContentScaling.World.Leech.Percent";
+        let change = |k: &str, v: &str| BTreeMap::from([(k.into(), v.into())]);
+        fs::write(&conf, "CoAContentScaling.Enable = 1\n").unwrap();
+        for key in [partial, enable, percent] {
+            assert!(save_settings_in(&cat, &root, &meta, "content-scaling", &change(key, "1")).is_err());
+        }
+        fs::write(&conf, format!("CoAContentScaling.Enable = 1\n{partial} = 1\n{enable} = 0\n{percent} = 5.0\n")).unwrap();
+        for bad in ["NaN", "inf", "-0.1", "100.1", "abc"] {
+            assert!(save_settings_in(&cat, &root, &meta, "content-scaling", &change(percent, bad)).is_err());
+        }
+        for key in [partial, enable] {
+            for bad in ["2", "-1", "true", "abc"] {
+                assert!(save_settings_in(&cat, &root, &meta, "content-scaling", &change(key, bad)).is_err());
+            }
+            for good in ["0", "1"] {
+                save_settings_in(&cat, &root, &meta, "content-scaling", &change(key, good)).unwrap();
+            }
+        }
+        for good in ["0", "10.5", "100"] {
+            save_settings_in(&cat, &root, &meta, "content-scaling", &change(percent, good)).unwrap();
+            let settings = settings_in(&cat, &root, "content-scaling").unwrap();
+            assert_eq!(settings.iter().find(|s| s.key == percent).unwrap().value, good);
+        }
     }
 
     #[test]
