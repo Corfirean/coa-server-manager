@@ -64,6 +64,10 @@ fn prepare(main: &Path) -> Result<PathBuf> {
     let mode = if s.active == Mode::Coa { Mode::Wildcard } else { Mode::Coa };
     let second = fsx::ensure_within(main, &root(main))?;
     for folder in ["Runtime", "BugReport", "mysql/bin"] { copy_tree(&main.join(folder), &fsx::ensure_within(&second, &second.join(folder))?)?; }
+    if main.join("Scripts/squid_playerbots.py").is_file() {
+        fs::create_dir_all(second.join("Scripts"))?;
+        fs::copy(main.join("Scripts/squid_playerbots.py"), second.join("Scripts/squid_playerbots.py"))?;
+    }
     if main.join("Core/reference").is_dir() { copy_tree(&main.join("Core/reference"), &fsx::ensure_within(&second, &second.join("Core/reference"))?)?; }
     for entry in fs::read_dir(main.join("Core"))? {
         let entry = entry?;

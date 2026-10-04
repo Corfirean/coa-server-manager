@@ -82,6 +82,7 @@ fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
 /// Run a launcher verb to completion (blocking; call from a worker thread).
 pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
+    if matches!(verb, Verb::StartAll | Verb::StartWorld) { crate::modules::ensure_bot_exclusivity(&root)?; }
     if crate::docker::is_docker(&root) {
         return crate::docker::run(&root, verb);
     }
@@ -97,6 +98,7 @@ pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
             crate::realms::setup_realmlist(&root)?;
         }
     }
+    if matches!(verb, Verb::StartAll | Verb::StartWorld) { crate::modules::ensure_bot_exclusivity(&root)?; }
     let (python, script) = launcher(&root)?;
     let mut cmd = Command::new(&python);
     cmd.arg("-B").arg(&script).arg(verb.arg()).current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());

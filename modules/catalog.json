@@ -76,10 +76,12 @@
         "fr": "Remplit l'hôtel des ventes d'annonces réalistes et réglables.",
         "es": "Llena la casa de subastas con ofertas realistas y ajustables."
       },
-      "repo": "https://github.com/NathanHandley/mod-ah-bot-plus",
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-ah-bot-plus",
       "conf": "mod_ahbot.conf",
-      "switchable": false,
-      "status": "soon",
+      "enable_key": "AuctionHouseBot.Enable",
+      "default_on": false,
+      "switchable": true,
+      "status": "early",
       "icon": "gavel"
     },
     {
@@ -112,9 +114,11 @@
       },
       "repo": "https://github.com/Zyth45/mod-playerbots",
       "conf": "playerbots.conf",
-      "switchable": false,
-      "status": "soon",
-      "icon": "swords"
+      "switchable": true,
+      "status": "early",
+      "icon": "swords",
+      "enable_key": "AiPlayerbot.Enabled",
+      "default_on": false
     },
     {
       "id": "client-compat",

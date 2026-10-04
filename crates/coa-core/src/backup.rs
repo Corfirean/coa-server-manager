@@ -203,6 +203,9 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
             databases.push((format!("{}-characters", other.name()), other.schema("characters")?));
             if kind == Kind::Full { databases.push((format!("{}-world", other.name()), other.schema("world")?)); }
         }
+        if kind != Kind::Config && with_database(root, |db| db.schema_exists("acore_playerbots"))? {
+            databases.push(("playerbots".into(), "acore_playerbots"));
+        }
         for (name, schema) in databases {
             progress(&format!("Backing up {name} database"));
             let component = with_database(root, |db| {
@@ -341,7 +344,7 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
     if now.world.state != ServiceState::Stopped || now.auth.state != ServiceState::Stopped || crate::multiworld::is_running(root) {
         return Err(Error::Invalid("Stop the server before restoring a database.".into()));
     }
-    let live = if name.contains('-') { db::schema_of(name)? } else { point.realm.schema(name)? };
+    let live = if name.contains('-') || name == "playerbots" { db::schema_of(name)? } else { point.realm.schema(name)? };
     let expected_tables = comp.tables.unwrap_or(0);
     let dump = point_dir(meta, id)?.join(&comp.path);
     let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();

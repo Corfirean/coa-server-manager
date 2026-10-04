@@ -68,6 +68,7 @@ fn no_window(cmd: &mut Command) {
 pub const SCHEMAS: [(&str, &str); 3] = [("characters", "acore_characters"), ("auth", "acore_auth"), ("world", "acore_world")];
 
 pub fn schema_of(kind: &str) -> Result<&'static str> {
+    if kind == "playerbots" { return Ok("acore_playerbots"); }
     if let Some(kind) = kind.strip_prefix("wildcard-") { return crate::realms::Mode::Wildcard.schema(kind); }
     if let Some(kind) = kind.strip_prefix("coa-") { return crate::realms::Mode::Coa.schema(kind); }
     SCHEMAS.iter().find(|(k, _)| *k == kind).map(|(_, s)| *s).ok_or_else(|| Error::Invalid(format!("unknown database {kind}")))

@@ -194,6 +194,7 @@ export interface ModuleView {
   repo: string;
   /** the module is part of this server build (its configuration exists) */
   installed: boolean;
+  has_settings: boolean;
   enabled: boolean;
   /** can be turned on and off (a part the game client needs is only configured) */
   switchable: boolean;

@@ -26,6 +26,8 @@ pub enum Error {
     NetworkUnreachable(String),
     #[error("the bot module found no level 80 template characters")]
     CompanionTemplatesMissing,
+    #[error("CoA Companions and SQUID Playerbots cannot both be enabled. Disable one bot module.")]
+    BotModulesConflict,
     #[error("this server's bot module does not have that command yet")]
     CompanionCommandUnsupported,
     #[error("invalid values: {}", .0.iter().map(|f| format!("{}: {}", f.key, f.message)).collect::<Vec<_>>().join("; "))]
@@ -58,6 +60,7 @@ pub enum ErrorCode {
     PackageNotPublished,
     NetworkUnreachable,
     CompanionTemplatesMissing,
+    BotModulesConflict,
     CompanionCommandUnsupported,
     Unknown,
 }
@@ -84,6 +87,7 @@ impl ErrorCode {
     pub fn human(self) -> Human {
         use FixAction::*;
         let (title, message, actions): (&str, &str, &'static [FixAction]) = match self {
+            ErrorCode::BotModulesConflict => ("Two bot modules are enabled", "Disable CoA Companions or SQUID Playerbots in Modules before starting the server.", &[ShowDetails]),
             ErrorCode::DatabaseNotRunning => (
                 "Database isn't running",
                 "The server needs its database to start. Start the database first.",
@@ -179,6 +183,7 @@ impl Error {
             Error::Validation(_) => ErrorCode::InvalidConfigValue,
             Error::PackageNotPublished(_) => ErrorCode::PackageNotPublished,
             Error::NetworkUnreachable(_) => ErrorCode::NetworkUnreachable,
+            Error::BotModulesConflict => ErrorCode::BotModulesConflict,
             Error::CompanionTemplatesMissing => ErrorCode::CompanionTemplatesMissing,
             Error::CompanionCommandUnsupported => ErrorCode::CompanionCommandUnsupported,
             _ => ErrorCode::Unknown,
