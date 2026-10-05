@@ -259,7 +259,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let _ = md;
 
     step(report, "Checking the update", 2);
-    let (m, _) = fetch_manifest(&p.source, p.trusted_key)?;
+    let (m, manifest_bytes) = fetch_manifest(&p.source, p.trusted_key)?;
     tracing::info!(root = %root.display(), from_version = ?meta.core.version, to_version = %m.version, migrations = m.migrations.len(), "server update selected");
     check_manifest(&m)?;
     let archive = m.archive.clone().ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
@@ -267,6 +267,10 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let tdir = txn_dir(meta_dir, &id)?;
     let (tree, before) = (tdir.join("tree"), tdir.join("before"));
     fs::create_dir_all(&before)?;
+    let signature = crate::pkgsource::fetch_small(&p.source, "manifest.json.sig")?;
+    crate::signing::verify(&manifest_bytes, &String::from_utf8_lossy(&signature), p.trusted_key)?;
+    fsx::atomic_write(&tdir.join("manifest.json"), &manifest_bytes)?;
+    fsx::atomic_write(&tdir.join("manifest.json.sig"), &signature)?;
     fsx::atomic_write(&before.join("manager-install.json"), &fs::read(meta_dir.join("install.json"))?)?;
 
     let mut txn = Txn { id: id.clone(), state: State::Prepared, from_version: meta.core.version.clone(), to_version: m.version.clone(), recovery_point: None, databases_started: false, ops: Vec::new(), message: None };
@@ -352,37 +356,80 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
         return Ok(Outcome { txn, migrations: migrated });
     }
 
-    // Commit
-    step(report, "Finishing", 96);
+    finish(root, meta_dir, &mut meta, &m, &tree, &mut txn)?;
+    step(report, "Done", 100);
+    let _ = archive;
+    Ok(Outcome { txn, migrations: migrated })
+}
+
+fn finish(root: &Path, meta_dir: &Path, meta: &mut InstallMeta, m: &Manifest, tree: &Path, txn: &mut Txn) -> Result<()> {
     meta.core.version = Some(m.version.clone());
-    meta.core.commit = m.core.commit.clone().or(meta.core.commit);
+    meta.core.commit = m.core.commit.clone().or(meta.core.commit.clone());
     for op in &txn.ops {
         let hash = if op.path == "Scripts/manage.py" {
-            let staged = fs::read_to_string(tree.join(&op.path)).ok().and_then(|s| crate::realms::patch_launcher(&s).ok());
-            match (staged, fs::read(root.join(&op.path))) {
-                (Some(expected), Ok(actual)) if expected.as_bytes() == actual => fsx::sha256_bytes(&actual),
+            match (fs::read_to_string(tree.join(&op.path)), fs::read(root.join(&op.path))) {
+                (Ok(signed), Ok(actual)) if crate::driver::launcher_matches(&signed, &actual) => fsx::sha256_bytes(&actual),
                 _ => op.new_sha256.clone(),
             }
         } else { op.new_sha256.clone() };
         meta.original_hashes.insert(op.path.clone(), hash);
-        if !meta.managed_files.contains(&op.path) {
-            meta.managed_files.push(op.path.clone());
+        if !meta.managed_files.contains(&op.path) { meta.managed_files.push(op.path.clone()); }
+    }
+    for file in &m.files {
+        if !txn.ops.iter().any(|op| op.path == file.path) {
+            let path = fsx::safe_join(root, &file.path)?;
+            if path.is_file() && fsx::sha256_file(&path)? == file.sha256 {
+                meta.original_hashes.insert(file.path.clone(), file.sha256.clone());
+            }
         }
     }
-    for i in items.iter().filter(|i| i.action == Action::Skip && i.reason.as_deref() == Some("already up to date")) {
-        if let Some(f) = m.files.iter().find(|f| f.path == i.path) {
-            meta.original_hashes.insert(f.path.clone(), f.sha256.clone());
-        }
-    }
-    fsx::atomic_write_json(&meta_dir.join("install.json"), &meta)?;
-    fsx::atomic_write(&meta_dir.join("manifests").join(format!("update-{}.json", m.version)), &serde_json::to_vec_pretty(&m)?)?;
+    fsx::atomic_write_json(&meta_dir.join("install.json"), meta)?;
+    fsx::atomic_write(&meta_dir.join("manifests").join(format!("update-{}.json", m.version)), &serde_json::to_vec_pretty(m)?)?;
     txn.state = State::Committed;
-    save(meta_dir, &txn)?;
-    let _ = fs::remove_dir_all(&tree);
+    txn.message = None;
+    save(meta_dir, txn)?;
+    let _ = fs::remove_dir_all(tree);
     prune(meta_dir, 3);
-    step(report, "Done", 100);
-    let _ = archive;
-    Ok(Outcome { txn, migrations: migrated })
+    Ok(())
+}
+
+pub fn retry_validation(root: &Path, meta_dir: &Path, id: &str, fallback: &Source, trusted_key: &str, env: &dyn Env) -> Result<Txn> {
+    let _lock = operation_lock(meta_dir)?;
+    let mut txn = load(meta_dir, id)?;
+    if txn.state != State::NeedsDecision || unfinished(meta_dir).is_none_or(|t| t.id != id) {
+        return Err(Error::Invalid("Only an applied update awaiting startup validation can be retried.".into()));
+    }
+    let dir = txn_dir(meta_dir, id)?;
+    let source = if dir.join("manifest.json").is_file() { Source::Dir(dir.clone()) } else { fallback.clone() };
+    let (manifest, _) = fetch_manifest(&source, trusted_key)?;
+    check_manifest(&manifest)?;
+    if manifest.version != txn.to_version || txn.ops.iter().any(|op| !op.done) {
+        return Err(Error::Invalid("The saved update does not match the applied transaction.".into()));
+    }
+    for op in txn.ops.iter().filter(|op| matches!(op.action, Action::Create | Action::Replace)) {
+        let path = fsx::safe_join(root, &op.path)?;
+        let file = manifest.files.iter().find(|f| f.path == op.path)
+            .ok_or_else(|| Error::Invalid("The update journal contains a file absent from the signed package.".into()))?;
+        if matches!(file.policy, ReplacePolicy::CreateIfMissing | ReplacePolicy::MergeConfig | ReplacePolicy::NeverTouch) { continue; }
+        let bytes = fs::read(&path)?;
+        let actual = fsx::sha256_bytes(&bytes);
+        let launcher = op.path == "Scripts/manage.py"
+            && fs::read_to_string(dir.join("tree").join(&op.path)).ok()
+                .filter(|s| fsx::sha256_bytes(s.as_bytes()) == file.sha256)
+                .is_some_and(|s| crate::driver::launcher_matches(&s, &bytes));
+        if actual != file.sha256 && !launcher {
+            return Err(Error::Invalid(format!("{} changed since the update was applied; use repair or rollback.", op.path)));
+        }
+    }
+    env.ensure_stopped()?;
+    if let Err(error) = env.validate() {
+        txn.message = Some(format!("The updated server did not start correctly: {error}"));
+        save(meta_dir, &txn)?;
+        return Ok(txn);
+    }
+    let (_, mut meta) = MetaDir::open(meta_dir)?;
+    finish(root, meta_dir, &mut meta, &manifest, &dir.join("tree"), &mut txn)?;
+    Ok(txn)
 }
 
 fn fail_after_apply(p: &Params, txn: &mut Txn, before: &Path, tree: &Path, why: String, report: Option<ApplyReport>) -> Result<Outcome> {
@@ -696,7 +743,7 @@ impl Env for RepackEnv<'_> {
         if healthy {
             return Ok(());
         }
-        let cause = started.human.map(|h| h.title.to_string()).or_else(|| crate::health::diagnose_installation(self.root).map(|c| c.human().title.to_string())).unwrap_or_else(|| "the server did not become ready".into());
+        let cause = crate::driver::startup_failure(self.root, &started);
         // Leave the files unlocked so that a rollback can replace them.
         let _ = crate::driver::run(self.root, crate::driver::Verb::StopAll);
         Err(Error::Invalid(cause))
@@ -899,6 +946,53 @@ mod tests {
         assert!(!w.root.join("Core/newfile.dll").exists());
         assert!(unfinished(&w.meta).is_none());
         assert!(rollback(&w.root, &w.meta, &out.txn.id, &env).is_err(), "already rolled back");
+    }
+
+    #[test]
+    fn retrying_startup_commits_without_reapplying_sql_or_restoring_databases() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        let calls = env.calls.borrow().len();
+        env.healthy.set(true);
+        let done = retry_validation(&w.root, &w.meta, &out.txn.id, &Source::Dir(w.pkg.clone()), &w.key, &env).unwrap();
+        assert_eq!(done.state, State::Committed);
+        assert_eq!(done.recovery_point, out.txn.recovery_point);
+        assert_eq!(&env.calls.borrow()[calls..], &["stop", "validate"]);
+        assert!(unfinished(&w.meta).is_none());
+        assert_eq!(MetaDir::open(&w.meta).unwrap().1.core.version.as_deref(), Some("2.0.0"));
+    }
+
+    #[test]
+    fn legacy_retry_uses_the_exact_signed_release_and_preserves_failure() {
+        let w = world(&[], false);
+        let env = Fake::ok();
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        let dir = txn_dir(&w.meta, &out.txn.id).unwrap();
+        fs::remove_file(dir.join("manifest.json")).unwrap();
+        fs::remove_file(dir.join("manifest.json.sig")).unwrap();
+        let pending = retry_validation(&w.root, &w.meta, &out.txn.id, &Source::Dir(w.pkg.clone()), &w.key, &env).unwrap();
+        assert_eq!(pending.state, State::NeedsDecision);
+        assert_eq!(pending.recovery_point, out.txn.recovery_point);
+        assert!(pending.message.unwrap().contains("worldserver exited"));
+        rollback(&w.root, &w.meta, &out.txn.id, &env).unwrap();
+        assert!(retry_validation(&w.root, &w.meta, &out.txn.id, &Source::Dir(w.pkg.clone()), &w.key, &env).is_err());
+    }
+
+    #[test]
+    fn retry_rejects_modified_binaries_and_unsigned_manifests() {
+        let w = world(&[], false);
+        let env = Fake::ok();
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        write(&w.root, "Core/worldserver.exe", b"unexpected binary");
+        assert!(retry_validation(&w.root, &w.meta, &out.txn.id, &Source::Dir(w.pkg.clone()), &w.key, &env).is_err());
+        write(&w.root, "Core/worldserver.exe", b"world-v2");
+        fs::write(txn_dir(&w.meta, &out.txn.id).unwrap().join("manifest.json.sig"), "invalid").unwrap();
+        assert!(retry_validation(&w.root, &w.meta, &out.txn.id, &Source::Dir(w.pkg.clone()), &w.key, &env).is_err());
+        assert_eq!(unfinished(&w.meta).unwrap().state, State::NeedsDecision);
     }
 
     #[test]

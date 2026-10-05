@@ -74,6 +74,7 @@ export function RemoteClient({ onHost }: { onHost: () => void }) {
           </form>
           <p className="mt-3 text-sm text-muted">{t("remote.accountHint")}</p>
           <Button variant="primary" className="mt-4" disabled={loading || busy || !savedHost || host.trim() !== savedHost || status === null} onClick={play}>{t("btn.play")}</Button>
+          {status?.linked && status.update_available && <Button variant="secondary" className="mt-4 ml-3" disabled={loading || busy || !savedHost || host.trim() !== savedHost} onClick={() => void launch()}>{t("btn.playWithoutUpdate")}</Button>}
           {note && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
           {error && <p className="mt-3 text-sm text-bad" role="alert">{error}</p>}
         </Card>

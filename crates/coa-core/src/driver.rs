@@ -114,8 +114,22 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     }
     if matches!(verb, Verb::StartAll | Verb::StartWorld) { crate::modules::ensure_bot_exclusivity(&root)?; }
     let (python, script) = launcher(&root)?;
+    let original = std::fs::read_to_string(&script)?;
+    let patched = patch_launcher_imports(&original)?;
+    if original != patched {
+        fsx::atomic_write(&script, patched.as_bytes())?;
+        if let Ok(dir) = crate::registry::metadata_dir_for(&root) {
+            if let Ok((_, mut meta)) = crate::registry::MetaDir::open(&dir) {
+                if meta.original_hashes.get("Scripts/manage.py") == Some(&fsx::sha256_bytes(original.as_bytes())) {
+                    meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(patched.as_bytes()));
+                    fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
+                }
+            }
+        }
+    }
     let mut cmd = Command::new(&python);
-    cmd.arg("-B").arg(&script).arg(verb.arg()).current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg("-B").arg("-c").arg(LAUNCH_SCRIPT).arg(&script).arg(verb.arg())
+        .current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -169,6 +183,35 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     Ok(DriverOutcome { ok, exit_code, code, human: code.map(ErrorCode::human), output })
 }
 
+const LAUNCH_SCRIPT: &str = "import runpy,sys;from pathlib import Path;script=sys.argv[1];sys.path.insert(0,str(Path(script).resolve().parent));sys.argv=sys.argv[1:];runpy.run_path(script,run_name='__main__')";
+
+pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
+    let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
+    if !text.contains("from squid_playerbots import") || text.contains(line) { return Ok(text.into()); }
+    let root = "ROOT = Path(__file__).resolve().parents[1]";
+    if !text.contains(root) || !text.lines().any(|line| line.trim() == "import sys") {
+        return Err(Error::Invalid("The server launcher cannot load its integration scripts. Repair its program files.".into()));
+    }
+    Ok(text.replacen(root, &format!("{root}\n{line}"), 1))
+}
+
+pub(crate) fn launcher_matches(signed: &str, actual: &[u8]) -> bool {
+    if signed.as_bytes() == actual { return true; }
+    if patch_launcher_imports(signed).is_ok_and(|s| s.as_bytes() == actual) { return true; }
+    crate::realms::patch_launcher(signed).is_ok_and(|s| s.as_bytes() == actual
+        || patch_launcher_imports(&s).is_ok_and(|p| p.as_bytes() == actual))
+}
+
+pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
+    let code = started.code.filter(|c| *c != ErrorCode::Unknown)
+        .or_else(|| crate::health::diagnose_installation(root));
+    let title = code.map(|c| c.human().title).unwrap_or("The server did not become ready");
+    let output = crate::diag::redact(&started.output);
+    let lines: Vec<_> = output.lines().rev().take(12).collect();
+    if lines.is_empty() { title.into() }
+    else { format!("{title}\n{}", lines.into_iter().rev().collect::<Vec<_>>().join("\n")) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +229,26 @@ mod tests {
     fn refuses_folder_without_launcher() {
         let dir = tempfile::tempdir().unwrap();
         assert!(run(dir.path(), Verb::StartAll).is_err());
+    }
+
+    #[test]
+    fn startup_failure_keeps_the_launcher_reason_without_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let started = DriverOutcome { ok: false, exit_code: Some(1), code: Some(ErrorCode::Unknown),
+            human: Some(ErrorCode::Unknown.human()),
+            output: "appPassword=private\nModuleNotFoundError: No module named 'squid_playerbots'".into() };
+        let reason = startup_failure(dir.path(), &started);
+        assert!(reason.contains("ModuleNotFoundError"));
+        assert!(!reason.contains("private"));
+        assert!(!reason.contains("Something went wrong"));
+    }
+
+    #[test]
+    fn launcher_import_fix_is_idempotent_and_retains_other_code() {
+        let text = "import sys\nROOT = Path(__file__).resolve().parents[1]\nfrom squid_playerbots import validate_bots\ncustom = 42\n";
+        let fixed = patch_launcher_imports(text).unwrap();
+        assert!(fixed.contains("sys.path.insert(0, str(Path(__file__).resolve().parent))"));
+        assert!(fixed.ends_with("custom = 42\n"));
+        assert_eq!(patch_launcher_imports(&fixed).unwrap(), fixed);
     }
 }

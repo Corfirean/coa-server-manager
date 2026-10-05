@@ -23,7 +23,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
   const human = useHuman();
   const [preview, setPreview] = useState<UpdatePreview | null>(null);
   const [pending, setPending] = useState<UpdateTxn | null>(null);
-  const [localBusy, setBusy] = useState<"check" | "rollback" | null>(null);
+  const [localBusy, setBusy] = useState<"check" | "rollback" | "retry" | null>(null);
   // an update keeps running in the background when this tab is left, so its state is the shared one
   const busy = upd.applying ? "update" : localBusy;
   const progress = upd.applying ? { step: upd.step ?? "Starting", percent: upd.percent } : null;
@@ -85,6 +85,21 @@ export function SettingsHome({ serverId }: { serverId: string }) {
     }
   }
 
+  async function retryValidation(txn: UpdateTxn) {
+    setBusy("retry");
+    setError(null);
+    try {
+      const result = await api.retryUpdateValidation(serverId, txn.id);
+      if (result.state === "committed") {
+        setPending(null);
+        setPreview(null);
+        setDone(t("upd.updatedTo", { v: result.to_version }));
+        clearServerUpdateResult(serverId);
+      } else setPending(result);
+    } catch (e) { setError(asUiError(e)); }
+    finally { setBusy(null); }
+  }
+
   async function browse() {
     const p = await open({ directory: true, multiple: false, title: t("upd.dialogTitle") });
     if (typeof p === "string") setSource(p);
@@ -100,7 +115,13 @@ export function SettingsHome({ serverId }: { serverId: string }) {
           <p className="font-medium text-warn">
             {pending.state === "needs-decision" ? t("upd.pendingBad") : t("upd.pendingUnfinished")}
           </p>
-          <p className="mt-1 text-sm text-muted">{pending.message ?? t("upd.safeBack")}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-muted">{pending.message ?? t("upd.safeBack")}</p>
+          {pending.state === "needs-decision" && (
+            <Button className="mt-3 mr-3" size="sm" disabled={!!busy} onClick={() => void retryValidation(pending)}>
+              {busy === "retry" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+              {t("upd.retryValidation")}
+            </Button>
+          )}
           <p className="mt-1 text-sm text-muted">{t("upd.backNote")}</p>
           <Button className="mt-3" size="sm" disabled={!!busy} onClick={() => void rollback(pending)}>
             {busy === "rollback" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
