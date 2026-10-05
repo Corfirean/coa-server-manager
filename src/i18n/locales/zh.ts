@@ -85,6 +85,8 @@ const zh = {
   "btn.stop": "停止服务器",
   "btn.stopSmall": "停止",
   "btn.restart": "重启",
+  "btn.startWithoutUpdate": "不更新启动服务器",
+  "btn.playWithoutUpdate": "不更新开始游戏",
   "btn.play": "开始游戏",
   "btn.startPlay": "启动并开始游戏",
   "btn.startingCaps": "正在启动…",

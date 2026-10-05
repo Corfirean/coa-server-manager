@@ -104,6 +104,8 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "btn.stop": "ОСТАНОВИТЬ СЕРВЕР",
   "btn.stopSmall": "Остановить",
   "btn.restart": "Перезапустить",
+  "btn.startWithoutUpdate": "Запустить без обновления",
+  "btn.playWithoutUpdate": "Играть без обновления",
   "btn.play": "ИГРАТЬ",
   "btn.startPlay": "ЗАПУСТИТЬ И ИГРАТЬ",
   "btn.startingCaps": "ЗАПУСК…",

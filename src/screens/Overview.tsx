@@ -274,6 +274,11 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               {transitioning ? (action === "stopping" ? t("btn.stoppingCaps") : t("btn.startingCaps")) : t("btn.start")}
             </Button>
           )}
+          {!running && upd.available && (
+            <Button variant="secondary" size="sm" disabled={transitioning || upd.applying} onClick={() => run("starting")}>
+              {t("btn.startWithoutUpdate")}
+            </Button>
+          )}
           {running && (
             <Button variant="ghost" size="sm" disabled={transitioning || upd.applying} onClick={() => run("restarting")}>
               {t("btn.restart")}
@@ -333,6 +338,11 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               {t("btn.setupClient")}
             </Button>
           ) : null}
+          {client && !jobBusy && (clientStatus?.update_available || job.phase === "choose") && (
+            <Button variant="secondary" size="sm" disabled={realmBusy || playing || upd.applying} onClick={() => void play()}>
+              {t("btn.playWithoutUpdate")}
+            </Button>
+          )}
           </div>
         </div>
         {anyUp && !running && !transitioning && (

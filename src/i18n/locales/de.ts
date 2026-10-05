@@ -73,6 +73,8 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "btn.stop": "SERVER STOPPEN",
   "btn.stopSmall": "Stoppen",
   "btn.restart": "Neustart",
+  "btn.startWithoutUpdate": "Ohne Update starten",
+  "btn.playWithoutUpdate": "Ohne Update spielen",
   "btn.play": "SPIELEN",
   "btn.startPlay": "STARTEN & SPIELEN",
   "btn.startingCaps": "STARTET …",

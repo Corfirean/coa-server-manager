@@ -104,6 +104,8 @@ const en = {
   "btn.stop": "STOP SERVER",
   "btn.stopSmall": "Stop",
   "btn.restart": "Restart",
+  "btn.startWithoutUpdate": "Start without updating",
+  "btn.playWithoutUpdate": "Play without updating",
   "btn.play": "PLAY",
   "btn.startPlay": "START & PLAY",
   "btn.startingCaps": "STARTING…",
