@@ -745,6 +745,19 @@ async fn rollback_update(state: State<'_, AppState>, id: String, txn: String) ->
 }
 
 #[tauri::command]
+async fn retry_update_validation(state: State<'_, AppState>, id: String, txn: String) -> std::result::Result<update::Txn, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let dir = meta_dir(&root)?;
+        let pending = update::load(&dir, &txn)?;
+        let source = coa_core::pkgsource::Source::Url(format!("https://github.com/Corfirean/coa-server-build/releases/download/server-{}/", pending.to_version));
+        let env = update::RepackEnv { root: &root, meta_dir: &dir };
+        update::retry_validation(&root, &dir, &txn, &source, coa_core::signing::EMBEDDED_PUBLIC_KEY, &env)
+    }).await
+}
+
+#[tauri::command]
 async fn get_population(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::population::Population>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(tauri::async_runtime::spawn_blocking(move || {
@@ -1558,6 +1571,7 @@ pub fn run() {
             pending_update,
             apply_update,
             rollback_update,
+            retry_update_validation,
             get_population,
             get_performance,
             companions_stop_spawning,

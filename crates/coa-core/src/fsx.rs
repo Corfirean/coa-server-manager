@@ -174,7 +174,8 @@ pub fn sha256_bytes(bytes: &[u8]) -> String {
 
 /// Free bytes on the volume that holds `path` (or its nearest existing ancestor).
 pub fn free_space(path: &Path) -> Result<u64> {
-    let mut cursor = Some(path);
+    let path = std::path::absolute(path)?;
+    let mut cursor = Some(path.as_path());
     while let Some(p) = cursor {
         if p.exists() {
             return Ok(fs4::available_space(p)?);
@@ -280,5 +281,12 @@ mod tests {
     fn require_space_rejects_absurd_request() {
         let dir = tempfile::tempdir().unwrap();
         assert!(matches!(require_space(dir.path(), u64::MAX / 2), Err(Error::InsufficientSpace { .. })));
+    }
+
+    #[test]
+    fn free_space_resolves_a_new_relative_directory() {
+        let path = Path::new("coa-schema-fixture-not-created").join("nested");
+        assert!(!path.exists());
+        assert!(free_space(&path).unwrap() > 0);
     }
 }

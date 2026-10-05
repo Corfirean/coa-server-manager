@@ -394,6 +394,7 @@ const en = {
   "upd.confirmBack": "Go back to the previous version? Your characters and accounts are not changed.",
   "upd.wentBack": "Went back to the previous version. Your data was not touched.",
   "upd.dialogTitle": "Choose an update package folder",
+  "upd.retryValidation": "Retry server startup",
   "upd.pendingBad": "The updated server did not start correctly",
   "upd.pendingUnfinished": "An earlier update did not finish",
   "upd.safeBack": "You can safely go back to the previous version.",

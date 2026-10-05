@@ -361,6 +361,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "upd.confirmBack": "Revenir à la version précédente ? Vos personnages et comptes ne sont pas modifiés.",
   "upd.wentBack": "Retour à la version précédente effectué. Vos données n’ont pas été touchées.",
   "upd.dialogTitle": "Choisissez un dossier de paquet de mise à jour",
+  "upd.retryValidation": "Réessayer de démarrer le serveur",
   "upd.pendingBad": "Le serveur mis à jour n’a pas démarré correctement",
   "upd.pendingUnfinished": "Une mise à jour précédente ne s’est pas terminée",
   "upd.safeBack": "Vous pouvez revenir en toute sécurité à la version précédente.",

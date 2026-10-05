@@ -430,6 +430,7 @@ export const api = {
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
     invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
+  retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
   population: (id: string) => invoke<Population | null>("get_population", { id }),
   stopSpawning: (id: string) => invoke<{ count: number }>("companions_stop_spawning", { id }),
   takeOffline: (id: string) => invoke<{ count: number }>("companions_take_offline", { id }),

@@ -373,6 +373,7 @@ const zh = {
   "upd.confirmBack": "是否回滚至上一个版本？你的角色与账号数据不会受到影响。",
   "upd.wentBack": "已回滚至上一个版本。你的个人数据完好无损。",
   "upd.dialogTitle": "选择更新包文件夹",
+  "upd.retryValidation": "重试启动服务器",
   "upd.pendingBad": "更新后的服务器未能正常启动",
   "upd.pendingUnfinished": "先前的更新尚未完成",
   "upd.safeBack": "你可以安全回滚至先前的稳定版本。",
