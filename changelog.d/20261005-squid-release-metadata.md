@@ -4,4 +4,4 @@ type: added
 audience: admins
 title: SquidBots settings follow the options shipped by the module
 ---
-New options, descriptions, groups and value limits appear automatically from the module settings file. Reset values follow its documented defaults; omitted keys retain their code defaults.
+New settings use the module's descriptions, groups, defaults and value limits while retaining existing translations. Unknown formats or invalid fields use built-in controls so the settings page remains available.

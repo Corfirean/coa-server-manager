@@ -174,7 +174,8 @@ for (const [category, categoryNames] of Object.entries(auctionCategories)) {
   );
 }
 export function moduleField(key: string, locale: Locale, metadata?: ModuleSetting["field"]): ModuleField | undefined {
-  if (metadata) return { title: metadata.title, description: metadata.description, type: metadata.type, category: metadata.group, advanced: false, min: metadata.min ?? undefined, max: metadata.max ?? undefined };
+  const translated = locale !== "en" ? fields.find(f => f.key === key) : undefined;
+  if (metadata) return { title: translated ? text(translated.title, locale) : metadata.title, description: translated ? text(translated.description, locale) : metadata.description, type: metadata.type, category: metadata.group, advanced: false, min: metadata.min ?? undefined, max: metadata.max ?? undefined };
   const field = fields.find(f => f.key === key);
   if (field) return { ...field, title: text(field.title, locale), description: text(field.description, locale), category: "general", advanced: field.advanced ?? false, step: field.type === "range" ? 0.05 : undefined, options: field.options?.map(o => ({ value: o.value, label: text(o.label, locale) })) };
   const existing = [...bots.settings, ...server.settings].find(s => s.key === key);

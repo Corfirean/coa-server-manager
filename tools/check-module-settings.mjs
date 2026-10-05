@@ -72,3 +72,10 @@ const upstream = squidSettingsView([{ key: "AiPlayerbot.FutureOption", value: "2
 const future = upstream.settings[0];
 if (future.title !== "Future option" || future.description !== "From the release JSON" || future.type !== "float" || future.min !== 0 || future.max !== 3 || future.advanced || future.category !== "squid.new-group" || upstream.categories.find(c=>c.id===future.category)?.title !== "New activity") throw new Error("New upstream JSON options must appear without handwritten definitions");
 console.log("Upstream metadata: new fields, titles, ranges and arbitrary groups verified");
+
+const localized = moduleField("AiPlayerbot.MaxRandomBots", "ru", { key:"AiPlayerbot.MaxRandomBots", type:"int", title:"Upstream English title", description:"Upstream English description", group:"population", min:10, max:1234 });
+const original = moduleField("AiPlayerbot.MaxRandomBots", "ru");
+if (localized.title !== original.title || localized.description !== original.description || localized.max !== 1234) throw new Error("Existing translations must survive upstream metadata while ranges stay current");
+const localizedGroup = squidSettingsView([{key:"AiPlayerbot.MaxRandomBots",value:"100",default:"500",doc:"",field:{key:"AiPlayerbot.MaxRandomBots",type:"int",title:"English",description:"English",group:"population",group_title:"English population"}}],"ru");
+if (localizedGroup.categories.find(c=>c.id==="squid.population")?.title !== "Население мира") throw new Error("Known groups must retain translated captions");
+console.log("Existing setting/group translations retained with upstream English fallback");

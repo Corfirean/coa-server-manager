@@ -42,6 +42,6 @@ export function squidSettingsView(items: ModuleSetting[], locale: Locale): Setti
     };
   });
   const categories = new Map(groups.map(g => [g.id, g.titles[languages.indexOf(locale)]]));
-  for (const item of items) if (item.field?.group) categories.set("squid." + item.field.group, item.field.group_title ?? categories.get("squid." + item.field.group) ?? item.field.group);
+  for (const item of items) if (item.field?.group) categories.set("squid." + item.field.group, categories.get("squid." + item.field.group) ?? item.field.group_title ?? item.field.group);
   return { scope: "bots", categories: [...categories].map(([id, title]) => ({ id, title })), settings, unknown_keys: 0, drift_keys: [], files: ["Core/configs/modules/playerbots.conf"] };
 }

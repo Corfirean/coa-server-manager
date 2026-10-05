@@ -4,4 +4,4 @@ type: added
 audience: admins
 title: SquidBots shows its bundled release and includes it in problem reports
 ---
-The Bots and Modules pages show the shipped release tag and commit when available. Problem reports include the same identifiers to help support diagnose the correct version.
+The Bots and Modules pages and problem reports include the release identifiers. Imported repacks use their recorded bot revision; empty tags are hidden. The settings file's source commit is not presented as the build revision.
