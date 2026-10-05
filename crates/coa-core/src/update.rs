@@ -173,13 +173,16 @@ pub fn plan(root: &Path, meta: &InstallMeta, manifest: &Manifest, resolutions: &
             }
             (_, Some(c)) if c.eq_ignore_ascii_case(&f.sha256) => (Action::Skip, Some("already up to date".into())),
             (ReplacePolicy::Replace | ReplacePolicy::ReplaceIfPristine, Some(c)) => {
+                let manager_launcher = f.path == "Scripts/manage.py" && recorded.is_some_and(|hash| {
+                    fs::read(&target).is_ok_and(|bytes| crate::driver::launcher_matches_recorded(hash, &bytes))
+                });
                 if f.path == "Core/worldserver.exe" && meta.kind == crate::registry::InstallKind::Imported && crate::squid::imported_repack(root) {
                     match resolutions.get(&f.path) {
                         Some(Resolution::Replace) => (Action::Replace, Some("Replacing this binary stops the original SquidBots launcher/updater from accepting its hash.".into())),
                         Some(Resolution::Keep) => (Action::Skip, Some("kept the original SquidBots binary".into())),
                         None => (Action::Conflict, Some("This SquidBots repack verifies its worldserver hash. Replacing it stops Start_All_Bots/coa_update from working. Choose explicitly whether to replace this binary.".into())),
                     }
-                } else if recorded.map(|r| r.eq_ignore_ascii_case(c)).unwrap_or(false) {
+                } else if recorded.map(|r| r.eq_ignore_ascii_case(c)).unwrap_or(false) || manager_launcher {
                     (Action::Replace, None)
                 } else if f.policy == ReplacePolicy::ReplaceIfPristine {
                     (Action::Skip, Some("modified outside CoA Server Manager; kept".into()))
@@ -858,6 +861,52 @@ mod tests {
         let bytes = fs::read(pkg.join("manifest.json")).unwrap();
         fs::write(pkg.join("manifest.json.sig"), base64::engine::general_purpose::STANDARD.encode(sk.sign(&bytes).to_bytes())).unwrap();
         World { _d: d, root, meta: meta_dir, pkg, key: base64::engine::general_purpose::STANDARD.encode(sk.verifying_key().to_bytes()) }
+    }
+
+    const LEGACY_LAUNCHER: &str = "import sys\nROOT = Path(__file__).resolve().parents[1]\nfrom squid_playerbots import validate_bots\n(\"WorldDatabaseInfo\", \"acore_world\")\n(\"CharacterDatabaseInfo\", \"acore_characters\")\nSET name='AzerothCore',address=\nWHERE id=1;\nmysql(\"UPDATE acore_auth.realmlist SET flag=0\nif __name__ == \"__main__\":\n";
+
+    fn legacy_launcher_world(import_patch: bool) -> World {
+        let w = world(&[("Scripts/manage.py", b"new release launcher")], false);
+        let mut source = crate::realms::patch_launcher(LEGACY_LAUNCHER).unwrap();
+        if import_patch { source = crate::driver::patch_launcher_imports(&source).unwrap(); }
+        write(&w.root, "Scripts/manage.py", source.as_bytes());
+        let (_, mut meta) = MetaDir::open(&w.meta).unwrap();
+        // Older Managers retained the signed original hash after adding realm profiles.
+        meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(LEGACY_LAUNCHER.as_bytes()));
+        fsx::atomic_write_json(&w.meta.join("install.json"), &meta).unwrap();
+        w
+    }
+
+    #[test]
+    fn legacy_manager_realm_launcher_is_replaced_during_update() {
+        let w = legacy_launcher_world(false);
+        let outcome = run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap();
+        assert_eq!(outcome.txn.state, State::Committed);
+        assert_eq!(read(&w, "Scripts/manage.py"), b"new release launcher");
+    }
+
+    #[test]
+    fn legacy_realm_and_import_repairs_are_replaced_during_update() {
+        let w = legacy_launcher_world(true);
+        let outcome = run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap();
+        assert_eq!(outcome.txn.state, State::Committed);
+        assert_eq!(read(&w, "Scripts/manage.py"), b"new release launcher");
+    }
+
+    #[test]
+    fn genuine_launcher_edits_still_require_a_decision_and_can_be_kept() {
+        let w = legacy_launcher_world(true);
+        let mut custom = read(&w, "Scripts/manage.py");
+        custom.extend_from_slice(b"\n# owner's custom integration\n");
+        write(&w.root, "Scripts/manage.py", &custom);
+        let (_, meta) = MetaDir::open(&w.meta).unwrap();
+        let manifest = Manifest::parse(&fs::read(w.pkg.join("manifest.json")).unwrap()).unwrap();
+        let items = plan(&w.root, &meta, &manifest, &BTreeMap::new(), None).unwrap();
+        assert_eq!(items.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Conflict);
+        let resolutions = BTreeMap::from([("Scripts/manage.py".into(), Resolution::Keep)]);
+        let outcome = run(&w, &Fake::ok(), resolutions, None).unwrap();
+        assert_eq!(outcome.txn.state, State::Committed);
+        assert_eq!(read(&w, "Scripts/manage.py"), custom);
     }
 
     fn run(w: &World, env: &Fake, res: BTreeMap<String, Resolution>, fail_after: Option<usize>) -> Result<Outcome> {
