@@ -202,6 +202,20 @@ pub(crate) fn launcher_matches(signed: &str, actual: &[u8]) -> bool {
         || patch_launcher_imports(&s).is_ok_and(|p| p.as_bytes() == actual))
 }
 
+/// Recover legacy metadata only when undoing supported Manager edits reproduces the recorded hash.
+pub(crate) fn launcher_matches_recorded(recorded: &str, actual: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(actual) else { return false; };
+    let without_import = text.replacen(
+        "ROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(Path(__file__).resolve().parent))",
+        "ROOT = Path(__file__).resolve().parents[1]", 1,
+    );
+    for candidate in [Some(without_import.clone()), crate::realms::unpatch_launcher(&without_import)].into_iter().flatten() {
+        if crate::fsx::sha256_bytes(candidate.as_bytes()).eq_ignore_ascii_case(recorded)
+            && launcher_matches(&candidate, actual) { return true; }
+    }
+    false
+}
+
 pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
     let code = started.code.filter(|c| *c != ErrorCode::Unknown)
         .or_else(|| crate::health::diagnose_installation(root));
