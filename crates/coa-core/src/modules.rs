@@ -87,6 +87,7 @@ fn truthy(v: &str) -> bool {
 pub struct ModuleView {
     pub id: String,
     pub name: String,
+    pub version: Option<String>,
     pub description: BTreeMap<String, String>,
     pub repo: String,
     /// The module's configuration is present on this server (otherwise it is not part of this server build).
@@ -137,7 +138,11 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 !e.switchable || read(&conf).or_else(|| read(&dist)).and_then(|c| c.get(&e.enable_key).map(truthy)).unwrap_or(e.default_on)
             };
             let blocked = wildcard && matches!(e.id.as_str(), "companions" | "playerbots");
+            let version = if e.id == "playerbots" { crate::squid::release(root).map(|release| {
+                [release.tag, release.commit.map(|commit| commit.chars().take(8).collect())].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+            }) } else { None };
             ModuleView {
+                version,
                 compatibility: if blocked { "unsupported" } else if wildcard && e.id != "client-compat" { "experimental" } else { "compatible" }.into(),
                 id: e.id,
                 name: e.name,
@@ -243,13 +248,14 @@ fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -
     Ok(())
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq)]
 pub struct Setting {
     pub key: String,
     pub value: String,
     pub default: Option<String>,
     /// The documentation the module ships above the setting.
     pub doc: String,
+    pub field: Option<crate::squid::Field>,
 }
 
 /// Every active setting of the module with its current value, its documented default and its description.
@@ -263,6 +269,7 @@ fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
     let conf = dir(root).join(&name);
     let dist = read(&dir(root).join(format!("{name}.dist")));
     let active = read(&conf).or_else(|| dist.clone()).ok_or_else(|| Error::Invalid("This module is not part of this server.".into()))?;
+    let fields = if id == "playerbots" { crate::squid::fields(root)? } else { Default::default() };
     let mut effective = active.clone();
     if let Some(defaults) = &dist {
         for (key, value) in defaults.entries() {
@@ -275,8 +282,9 @@ fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
         .entries()
         .map(|(k, v)| Setting {
             key: k.to_string(),
-            value: v.to_string(),
-            default: dist.as_ref().and_then(|d| d.get(k)).map(str::to_string),
+            value: fields.get(k).and_then(|field| field.default_if_missing.as_ref()).filter(|_| active.get(k).is_none()).and_then(crate::squid::scalar).unwrap_or_else(|| v.to_string()),
+            default: fields.get(k).and_then(|field| crate::squid::scalar(&field.default)).or_else(|| dist.as_ref().and_then(|d| d.get(k)).map(str::to_string)),
+            field: fields.get(k).cloned(),
             doc: dist.as_ref().map(|d| d.doc_for(k)).filter(|d| !d.is_empty()).unwrap_or_else(|| active.doc_for(k)).join(" "),
         })
         .collect())
@@ -293,9 +301,11 @@ fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: 
     let conf = active_file(root, &e)?;
     let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
     let dist = read(&dir(root).join(format!("{}.dist", conf_name(root, &e))));
+    let fields = if id == "playerbots" { crate::squid::fields(root)? } else { Default::default() };
     let mut changed = Vec::new();
     for (key, value) in changes {
         let value = value.trim();
+        if let Some(field) = fields.get(key) { crate::squid::validate(field, value)?; }
         if e.switchable && key == &e.enable_key {
             return Err(Error::Invalid("Use the module switch to turn this module on or off.".into()));
         }
@@ -372,6 +382,27 @@ mod tests {
         fs::create_dir_all(&meta).unwrap();
         fs::write(m.join("war_games.conf.dist"), "# Turns War Games on.\r\n# Second line.\r\nWarGames.Enable = 1\r\n\r\n# How long a challenge stays open.\r\nWarGames.ChallengeSeconds = 60\r\n").unwrap();
         (root, meta)
+    }
+
+    #[test]
+    fn squid_missing_keys_use_code_defaults_and_saves_enforce_json_ranges() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path();
+        fs::create_dir_all(dir(root)).unwrap();
+        fs::write(dir(root).join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
+        fs::write(dir(root).join("playerbots.conf.dist"), "AiPlayerbot.Enabled = 0\nAiPlayerbot.MinRandomBots = 500\n").unwrap();
+        fs::write(dir(root).join("playerbots.conf.settings.json"), r#"{"format":1,"groups":{"population":"Population"},"settings":[{"key":"AiPlayerbot.MinRandomBots","type":"int","group":"population","title":"Minimum bots","description":"Lower bound","default":500,"default_if_missing":50,"min":0,"max":5000}]}"#).unwrap();
+        let cat = catalog();
+        let options = settings_in(&cat, root, "playerbots").unwrap();
+        let option = options.iter().find(|setting| setting.key == "AiPlayerbot.MinRandomBots").unwrap();
+        assert_eq!(option.value, "50");
+        assert_eq!(option.default.as_deref(), Some("500"));
+        assert_eq!(option.field.as_ref().unwrap().group_title.as_deref(), Some("Population"));
+        let before = fs::read(dir(root).join("playerbots.conf")).unwrap();
+        assert!(save_settings_in(&cat, root, root, "playerbots", &BTreeMap::from([("AiPlayerbot.MinRandomBots".into(), "5001".into())])).is_err());
+        assert_eq!(fs::read(dir(root).join("playerbots.conf")).unwrap(), before);
+        save_settings_in(&cat, root, root, "playerbots", &BTreeMap::from([("AiPlayerbot.MinRandomBots".into(), "42".into())])).unwrap();
+        assert_eq!(settings_in(&cat, root, "playerbots").unwrap().iter().find(|setting| setting.key == "AiPlayerbot.MinRandomBots").unwrap().value, "42");
     }
 
     #[test]
@@ -456,7 +487,7 @@ mod tests {
         let (root, meta) = server(d.path());
         let s = settings_in(&test_catalog(), &root, "war-games").unwrap();
         assert_eq!(s.len(), 2);
-        assert_eq!(s[1], Setting { key: "WarGames.ChallengeSeconds".into(), value: "60".into(), default: Some("60".into()), doc: "How long a challenge stays open.".into() });
+        assert_eq!(s[1], Setting { key: "WarGames.ChallengeSeconds".into(), value: "60".into(), default: Some("60".into()), doc: "How long a challenge stays open.".into(), field: None });
         assert_eq!(s[0].doc, "Turns War Games on. Second line.");
 
         let ok = BTreeMap::from([("WarGames.ChallengeSeconds".to_string(), "90".to_string())]);

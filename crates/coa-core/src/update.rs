@@ -173,7 +173,13 @@ pub fn plan(root: &Path, meta: &InstallMeta, manifest: &Manifest, resolutions: &
             }
             (_, Some(c)) if c.eq_ignore_ascii_case(&f.sha256) => (Action::Skip, Some("already up to date".into())),
             (ReplacePolicy::Replace | ReplacePolicy::ReplaceIfPristine, Some(c)) => {
-                if recorded.map(|r| r.eq_ignore_ascii_case(c)).unwrap_or(false) {
+                if f.path == "Core/worldserver.exe" && meta.kind == crate::registry::InstallKind::Imported && crate::squid::imported_repack(root) {
+                    match resolutions.get(&f.path) {
+                        Some(Resolution::Replace) => (Action::Replace, Some("Replacing this binary stops the original SquidBots launcher/updater from accepting its hash.".into())),
+                        Some(Resolution::Keep) => (Action::Skip, Some("kept the original SquidBots binary".into())),
+                        None => (Action::Conflict, Some("This SquidBots repack verifies its worldserver hash. Replacing it stops Start_All_Bots/coa_update from working. Choose explicitly whether to replace this binary.".into())),
+                    }
+                } else if recorded.map(|r| r.eq_ignore_ascii_case(c)).unwrap_or(false) {
                     (Action::Replace, None)
                 } else if f.policy == ReplacePolicy::ReplaceIfPristine {
                     (Action::Skip, Some("modified outside CoA Server Manager; kept".into()))
@@ -863,6 +869,22 @@ mod tests {
 
     fn read(w: &World, rel: &str) -> Vec<u8> {
         fs::read(w.root.join(rel)).unwrap()
+    }
+
+    #[test]
+    fn imported_squid_repack_requires_a_decision_even_for_pristine_worldserver() {
+        let w = world(&[], false);
+        write(&w.root, "CoA-Bots/release.json", b"{}");
+        let (_, mut meta) = MetaDir::open(&w.meta).unwrap();
+        meta.kind = InstallKind::Imported;
+        let manifest: Manifest = serde_json::from_slice(&fs::read(w.pkg.join("manifest.json")).unwrap()).unwrap();
+        let action = |resolutions: BTreeMap<String, Resolution>| {
+            plan(&w.root, &meta, &manifest, &resolutions, None).unwrap().into_iter().find(|item| item.path == "Core/worldserver.exe").unwrap().action
+        };
+        assert_eq!(action(BTreeMap::new()), Action::Conflict);
+        assert_eq!(action(BTreeMap::from([("Core/worldserver.exe".into(), Resolution::Keep)])), Action::Skip);
+        assert_eq!(action(BTreeMap::from([("Core/worldserver.exe".into(), Resolution::Replace)])), Action::Replace);
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
     }
 
     #[test]

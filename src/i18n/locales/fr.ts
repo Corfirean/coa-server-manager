@@ -75,6 +75,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "btn.restart": "Redémarrer",
   "btn.startWithoutUpdate": "Démarrer sans mise à jour",
   "btn.playWithoutUpdate": "Jouer sans mise à jour",
+  "import.squidRepackWarning": "Ce repack SquidBots vérifie le hash du serveur. Le remplacer peut empêcher Start_All_Bots et coa_update de fonctionner. Une confirmation sera demandée.",
   "btn.play": "JOUER",
   "btn.startPlay": "DÉMARRER ET JOUER",
   "btn.startingCaps": "DÉMARRAGE…",

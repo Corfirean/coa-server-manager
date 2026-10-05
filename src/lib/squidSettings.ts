@@ -24,7 +24,7 @@ function group(key: string, curated: boolean) {
 /** Use the same settings screen as Companions, backed only by shipped SQUID options. */
 export function squidSettingsView(items: ModuleSetting[], locale: Locale): SettingsView {
   const settings: SettingView[] = items.filter(s => s.key !== "AiPlayerbot.Enabled" && !s.key.startsWith("PlayerbotsDatabase") && !s.key.startsWith("Playerbots.Updates.")).map(s => {
-    const field = moduleField(s.key, locale);
+    const field = moduleField(s.key, locale, s.field);
     const type = field?.type === "bool" || field?.type === "int" || field?.type === "float" || field?.type === "enum" ? field.type : "string";
     const decode = (raw: string): JsonValue => {
       const value = raw.trim().replace(/^"|"$/g, "");
@@ -35,11 +35,13 @@ export function squidSettingsView(items: ModuleSetting[], locale: Locale): Setti
     const value = decode(s.value), defaultValue = decode(s.default ?? s.value);
     return {
       key: s.key, type, title: field?.title ?? s.key, description: field?.description ?? s.doc,
-      category: group(s.key, !!field), advanced: !field || !!field.advanced,
+      category: s.field?.group ? "squid." + s.field.group : group(s.key, !!field), advanced: !field || !!field.advanced,
       min: field?.min, max: field?.max, options: field?.options ?? [],
       value, default: defaultValue, is_default: value === defaultValue, present: true, problem: null,
       drift: false, restartRequired: "world", dangerous: false,
     };
   });
-  return { scope: "bots", categories: groups.map(g => ({ id: g.id, title: g.titles[languages.indexOf(locale)] })), settings, unknown_keys: 0, drift_keys: [], files: ["Core/configs/modules/playerbots.conf"] };
+  const categories = new Map(groups.map(g => [g.id, g.titles[languages.indexOf(locale)]]));
+  for (const item of items) if (item.field?.group) categories.set("squid." + item.field.group, item.field.group_title ?? categories.get("squid." + item.field.group) ?? item.field.group);
+  return { scope: "bots", categories: [...categories].map(([id, title]) => ({ id, title })), settings, unknown_keys: 0, drift_keys: [], files: ["Core/configs/modules/playerbots.conf"] };
 }

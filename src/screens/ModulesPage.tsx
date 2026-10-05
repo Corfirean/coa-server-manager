@@ -133,6 +133,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <h2 className="font-semibold leading-tight">{m.name}</h2>
+                  {m.version && <span className="ml-2 text-xs font-normal text-muted">{m.version}</span>}
                   <StatusBadge status={m.status} />
                 </div>
                 <p className="mt-1.5 line-clamp-2 text-sm text-muted">{m.description[locale] ?? m.description.en}</p>
@@ -210,7 +211,7 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
   async function save() {
     const errors: Record<string, string> = {};
     for (const [key, value] of Object.entries(edits)) {
-      const field = moduleField(key, locale);
+      const field = moduleField(key, locale, items?.find(item => item.key === key)?.field);
       if (field && ["int", "float", "range"].includes(field.type)) {
         const number = Number(value);
         const message = !value.trim() || !Number.isFinite(number) ? t("set.enterNumber")
@@ -248,13 +249,13 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
     return next;
   });
   const available = items?.filter(s => s.key !== moduleEnableKey(module.id)) ?? [];
-  const advancedCount = available.filter(s => !auctionWeightKey(s.key) && (!moduleField(s.key, locale) || moduleField(s.key, locale)?.advanced)).length;
+  const advancedCount = available.filter(s => !auctionWeightKey(s.key) && (!moduleField(s.key, locale, s.field) || moduleField(s.key, locale, s.field)?.advanced)).length;
   const visible = available.filter(s => {
     if (module.id === "ah-bot" && auctionWeightKey(s.key)) return false;
-    const field = moduleField(s.key, locale);
+    const field = moduleField(s.key, locale, s.field);
     if (!advanced && !query.trim() && (!field || field.advanced)) return false;
-    const title = field ? sx.title({ key: s.key, title: field.title }) : s.key;
-    const description = field ? sx.description({ key: s.key, description: field.description }) : s.doc;
+    const title = field ? (s.field ? field.title : sx.title({ key: s.key, title: field.title })) : s.key;
+    const description = field ? (s.field ? field.description : sx.description({ key: s.key, description: field.description })) : s.doc;
     return `${title} ${description} ${s.key}`.toLocaleLowerCase(locale).includes(query.trim().toLocaleLowerCase(locale));
   });
   return (
@@ -278,9 +279,9 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
       {items && !visible.length && !available.some(s => module.id === "ah-bot" && auctionWeightKey(s.key)) && <p className="py-3 text-sm text-muted">{t(available.length ? "all.none" : "mod.noSettings")}</p>}
       <ul className="divide-y divide-line">
         {visible.map((s) => {
-          const field = moduleField(s.key, locale);
-          const title = field ? sx.title({ key: s.key, title: field.title }) : s.key;
-          const description = field ? sx.description({ key: s.key, description: field.description }) : s.doc;
+          const field = moduleField(s.key, locale, s.field);
+          const title = field ? (s.field ? field.title : sx.title({ key: s.key, title: field.title })) : s.key;
+          const description = field ? (s.field ? field.description : sx.description({ key: s.key, description: field.description })) : s.doc;
           const value = edits[s.key] ?? s.value;
           const normalized = canonicalModuleValue(s.key, value);
           const options = field?.options ?? [];

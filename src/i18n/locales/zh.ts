@@ -87,6 +87,7 @@ const zh = {
   "btn.restart": "重启",
   "btn.startWithoutUpdate": "不更新启动服务器",
   "btn.playWithoutUpdate": "不更新开始游戏",
+  "import.squidRepackWarning": "此 SquidBots 整合包会检查 worldserver 哈希。替换程序可能导致 Start_All_Bots 和 coa_update 无法运行。更新前会要求您选择。",
   "btn.play": "开始游戏",
   "btn.startPlay": "启动并开始游戏",
   "btn.startingCaps": "正在启动…",

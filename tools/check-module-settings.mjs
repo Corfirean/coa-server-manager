@@ -67,3 +67,8 @@ for (const locale of ["en", "ru", "de", "fr", "es", "zh"]) {
   if (view.categories.some(c => !c.title)) throw new Error("SQUID categories must be translated");
 }
 console.log("SQUID Bots view: typed values, upstream defaults, categories and hidden managed settings verified");
+
+const upstream = squidSettingsView([{ key: "AiPlayerbot.FutureOption", value: "2.5", default: "1", doc: "old description", field: {key:"AiPlayerbot.FutureOption",type:"float",title:"Future option",description:"From the release JSON",group:"new-group",group_title:"New activity",min:0,max:3} }], "ru");
+const future = upstream.settings[0];
+if (future.title !== "Future option" || future.description !== "From the release JSON" || future.type !== "float" || future.min !== 0 || future.max !== 3 || future.advanced || future.category !== "squid.new-group" || upstream.categories.find(c=>c.id===future.category)?.title !== "New activity") throw new Error("New upstream JSON options must appear without handwritten definitions");
+console.log("Upstream metadata: new fields, titles, ranges and arbitrary groups verified");

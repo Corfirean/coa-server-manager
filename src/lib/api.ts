@@ -193,6 +193,7 @@ export interface RealmProfile {
 export interface ModuleView {
   id: string;
   name: string;
+  version?: string | null;
   description: Record<string, string>;
   repo: string;
   /** the module is part of this server build (its configuration exists) */
@@ -216,6 +217,7 @@ export interface ModuleSetting {
   value: string;
   default: string | null;
   doc: string;
+  field?: { key: string; type: string; title: string; description: string; group: string; group_title?: string | null; min?: number | null; max?: number | null } | null;
 }
 
 export interface AllSetting {

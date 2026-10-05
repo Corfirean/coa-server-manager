@@ -315,6 +315,7 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         (None, None)
     };
 
+    if crate::squid::imported_repack(&root) { notes.push("import.squidRepackWarning".into()); }
     Ok(ScanReport {
         path: root.to_string_lossy().into_owned(),
         classification,
