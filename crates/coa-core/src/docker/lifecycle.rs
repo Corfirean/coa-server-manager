@@ -255,7 +255,24 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         run_container(d, &call, &n.auth, log)?;
     }
     wait_listening(d, cfg, &n.auth, ports.auth, AUTH_WAIT, log)?;
+    mark_realm_online(d, &n, &secrets, realm, log);
     Ok(())
+}
+
+/// The auth server marks every realm offline when it starts, and the world server (already up, see the order above) only
+/// puts itself back after its next uptime update, ten minutes later by default: until then the client shows "Realm is
+/// Offline". The world is known to be listening here, so say so for the realm it serves. The other realm of a Wildcard
+/// install keeps the offline flag it is given on purpose (`realms::setup_realmlist`).
+fn mark_realm_online(d: &dyn Docker, n: &Names, secrets: &Secrets, realm: crate::realms::Mode, log: &mut Log) {
+    let sql = format!("UPDATE acore_auth.realmlist SET flag = flag & ~2 WHERE id = {};", realm.realm_id());
+    let mut call = Call::new(&["exec", "-i", "-e", "MYSQL_PWD", &n.db, "mysql", "--user=root", "--protocol=tcp", "--host=127.0.0.1"], QUICK);
+    call.env = vec![("MYSQL_PWD".into(), secrets.root.clone())];
+    call.stdin = Some(sql.as_bytes());
+    match d.run(&call) {
+        Ok(o) if o.ok() => {}
+        Ok(o) => log.say(format!("the realm could not be marked online: {}", o.text().trim())),
+        Err(e) => log.say(format!("the realm could not be marked online: {e}")),
+    }
 }
 
 fn remove(d: &dyn Docker, name: &str) {
@@ -690,6 +707,7 @@ mod tests {
                     out(0, "containerid\n", "")
                 }
                 ["update", "--restart", _, _] => out(0, "", ""),
+                ["exec", ..] => out(0, "", ""),
                 ["stop", "--time", _, name] => {
                     self.running.borrow_mut().remove(*name);
                     self.exited.borrow_mut().insert(name.to_string(), (0, false));
@@ -732,6 +750,10 @@ mod tests {
         assert!(at("network create") < at("run --detach"), "database comes first");
         let runs: Vec<String> = sim.calls_of("run").iter().map(|c| c.args[c.args.iter().position(|x| x == "--name").unwrap() + 1].clone()).collect();
         assert_eq!(runs, ["coa-t1-db", "coa-t1-world", "coa-t1-auth"], "database, then world, then auth");
+        let exec = sim.calls_of("exec");
+        assert_eq!(exec.len(), 1, "the realm is marked online once the auth server is up");
+        assert!(exec[0].stdin && exec[0].env == [("MYSQL_PWD".to_string(), ROOT_PW.to_string())]);
+        assert!(!exec[0].args.iter().any(|a| a.contains(ROOT_PW)), "the password is not on the command line");
         assert!(at("build") < verbs.iter().rposition(|v| v.starts_with("run")).unwrap(), "the runtime image exists before the game servers");
         assert!(sim.calls_of("build")[0].stdin, "the Dockerfile travels on stdin");
     }
