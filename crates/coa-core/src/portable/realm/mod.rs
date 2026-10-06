@@ -212,6 +212,8 @@ mod live_roundtrip;
 #[cfg(test)]
 mod live_update;
 #[cfg(test)]
+mod live_wardrobe;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod update_tests;

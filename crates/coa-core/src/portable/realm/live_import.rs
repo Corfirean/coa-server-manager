@@ -49,7 +49,15 @@ pub(crate) fn realms() -> Option<Realms> {
     })
 }
 
+/// Options of a destination whose client data knows every appearance and vanity item the fixtures use.
 pub(crate) fn opts() -> ImportOptions {
+    let known = |ids: &[u32]| crate::portable::collection::IdSet::from_ids(ids.iter().copied()).unwrap();
+    let knowledge = super::knowledge::RealmKnowledge::new(known(&[1101, 1104, 1156, 1200, 1300]), known(&[50001, 50002]));
+    ImportOptions { knowledge: Some(std::sync::Arc::new(knowledge)), ..opts_without_knowledge() }
+}
+
+/// A destination of which the Manager does not know the client data: no appearance and no collection is written.
+pub(crate) fn opts_without_knowledge() -> ImportOptions {
     ImportOptions { recovery_grace: Duration::ZERO, lock_wait_seconds: 2, ..ImportOptions::default() }
 }
 
@@ -65,6 +73,8 @@ pub(crate) fn reset_b(db: &Db) {
     sql.push("DELETE FROM acore_characters.pet_spell WHERE guid NOT IN (SELECT id FROM acore_characters.character_pet);".into());
     sql.push("DELETE FROM acore_characters.character_pet_declinedname WHERE id NOT IN (SELECT id FROM acore_characters.character_pet);".into());
     sql.push("DELETE FROM acore_characters.mail_items WHERE item_guid >= 99000;".into());
+    sql.push(format!("DELETE FROM acore_characters.account_appearance_collection WHERE account_id = {ACCOUNT};
+DELETE FROM acore_characters.account_vanity_collection WHERE account_id = {ACCOUNT};"));
     sql.push("UPDATE acore_characters.characters SET online = 0;".into());
     db.query(&sql.join("
 ")).unwrap();
@@ -298,7 +308,7 @@ fn imports_are_refused_before_anything_is_written() {
     // ... and if the server starts between the preflight and the transaction, the transaction's own guard stops it
     let probe = super::probe(&r.b).unwrap();
     let users = vec!["acore".to_string()];
-    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: [1, 2, 3, 4], max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None, knowledge: None }).unwrap();
+    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: [1, 2, 3, 4], max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None, knowledge: opts().knowledge.as_deref() }).unwrap();
     assert!(run_realm_import(&r.b, &plan).is_err(), "the in-transaction guard must refuse while the game server's session exists");
     session.join().unwrap();
 
@@ -352,7 +362,7 @@ fn a_crash_between_the_two_commits_is_recovered_from_the_marker_in_the_realm() {
     // the realm commits ... and the Manager "dies" before it records anything
     let ticket = store.begin_import(id, B, 1, &import::planned_items(&model), &[]).unwrap();
     let users = vec!["acore".to_string()];
-    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None, knowledge: None }).unwrap();
+    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None, knowledge: opts().knowledge.as_deref() }).unwrap();
     let (alloc, committed) = run_realm_import(&r.b, &plan).unwrap();
     assert!(committed);
     assert_eq!(store.import_entry(ticket.import_id).unwrap().state, ImportState::Prepared);
@@ -418,7 +428,7 @@ fn a_realm_that_no_longer_matches_the_plan_is_flagged_not_guessed_about() {
     let probe = super::probe(&r.b).unwrap();
     let ticket = store.begin_import(id, B, 1, &import::planned_items(&model), &[]).unwrap();
     let users = vec!["acore".to_string()];
-    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None, knowledge: None }).unwrap();
+    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None, knowledge: opts().knowledge.as_deref() }).unwrap();
     let (alloc, _) = run_realm_import(&r.b, &plan).unwrap();
     // someone deletes an item of the new character before the Manager recovers
     r.b.query(&format!("DELETE FROM acore_characters.item_instance WHERE guid = {}", alloc.item_base + 3)).unwrap();

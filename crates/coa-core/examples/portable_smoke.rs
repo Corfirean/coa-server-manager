@@ -21,6 +21,14 @@
 //!   host-run <owner-store-dir> <server-id>                  (host store)  run the Host: automatic baseline, a checkpoint every
 //!                      --interval seconds (default 60), the final checkpoint at logout; messages go straight to the owner store
 //!   dump <character-id>                         the canonical JSON of the current revision (what a core import job carries)
+//!   collection-states <out.json>                (owner store)  the canonical account collections as messages
+//!   collection-apply <states.json> <account> <server-id>   write the canonical collections to the realm account (known ids only, INSERT IGNORE)
+//!   collection-show [<account>]                 the Owner's collections (revision, count, hash) and, with an account, the realm's
+//!
+//!   --collection-interval <seconds>   how often host-run looks at the account collections (default 300; a session start and the final
+//!                                 checkpoint always look)
+//!   --data-dir <realm Data dir>   the destination's client data (Appearances.dbc, VanityCollection.dbc): without it no selected
+//!                                 appearance and no collection is written to the realm (everything stays canonical)
 //! ```
 
 use std::path::PathBuf;
@@ -71,12 +79,17 @@ fn run() -> Result<(), String> {
     let user: &'static str = Box::leak(user.into_boxed_str());
     let db = Db::with_tools(tools, port, user, &password, realm_mode);
     let mut store = Store::open(&store_dir).map_err(|e| e.to_string())?;
-    let opts = ImportOptions { game_server_users: vec![user.to_string(), "acore".to_string()], ..ImportOptions::default() };
+    let knowledge = match take("--data-dir", Some(""))?.as_str() {
+        "" => None,
+        dir => Some(std::sync::Arc::new(coa_core::portable::realm::knowledge::RealmKnowledge::from_data_dir(std::path::Path::new(dir)).map_err(|e| e.to_string())?)),
+    };
+    let opts = ImportOptions { game_server_users: vec![user.to_string(), "acore".to_string()], knowledge: knowledge.clone(), ..ImportOptions::default() };
     let host_dir = PathBuf::from(take("--host-store", Some(&format!("{}-host", store_dir.display())))?);
     let ra_port: Option<u16> = take("--ra-port", Some("0"))?.parse().ok().filter(|p| *p != 0);
     let ra_user = take("--ra-user", Some("local"))?;
     let job_dir = take("--job-dir", Some(""))?;
     let interval: u64 = take("--interval", Some("60"))?.parse().map_err(|_| "--interval is not a number".to_string())?;
+    let collection_interval: u64 = take("--collection-interval", Some("300"))?.parse().map_err(|_| "--collection-interval is not a number".to_string())?;
     let id = |s: &str| -> Result<CharacterId, String> { s.parse().map_err(|_| format!("{s:?} is not a character id")) };
 
     let command = if args.is_empty() { usage() } else { args.remove(0) };
@@ -140,7 +153,7 @@ fn run() -> Result<(), String> {
         ("host-run", [owner_dir, server]) => {
             let mut owner = Store::open(&PathBuf::from(owner_dir)).map_err(|e| e.to_string())?;
             let mut host = Store::open(&host_dir).map_err(|e| e.to_string())?;
-            let mut service = HostService::new(&mut host, server, HostConfig { checkpoint_interval_secs: interval, ..HostConfig::default() });
+            let mut service = HostService::new(&mut host, server, HostConfig { checkpoint_interval_secs: interval, collection_interval_secs: collection_interval });
             let start = std::time::Instant::now();
             println!("host running for {server}; Ctrl-C to stop");
             loop {
@@ -148,7 +161,8 @@ fn run() -> Result<(), String> {
                 let mut bridge = match ra {
                     Some(ra) => LiveBridge::new(&db, ra),
                     None => LiveBridge::without_console(&db),
-                };
+                }
+                .with_knowledge(knowledge.clone());
                 match service.tick(&mut bridge, start.elapsed().as_secs()) {
                     Ok(events) => events.iter().for_each(|e| println!("{e:?}")),
                     Err(e) => eprintln!("tick failed: {e}"),
@@ -165,7 +179,52 @@ fn run() -> Result<(), String> {
                         Err(e) => eprintln!("owner refused a message: {e}"),
                     }
                 }
+                for m in service.collection_outbox().map_err(|e| e.to_string())? {
+                    match OwnerService::new(&mut owner).handle_collection(&m.bytes) {
+                        Ok(ack) => {
+                            println!("owner: {} of account {}: {:?} (collection revision {}, canonical sent back: {})", ack.kind, m.account, ack.outcome, ack.collection_revision, ack.canonical.is_some());
+                            match service.receive_collection_ack(&mut bridge, m.account, &ack) {
+                                Ok(Some(applied)) => println!("host: applied to the realm: {applied:?}"),
+                                Ok(None) => {}
+                                Err(e) => eprintln!("collection acknowledgement failed: {e}"),
+                            }
+                        }
+                        Err(e) => eprintln!("owner refused a collection message: {e}"),
+                    }
+                }
                 std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+        ("collection-states", [out]) => {
+            let states = OwnerService::new(&mut store).collection_states().map_err(|e| e.to_string())?;
+            for s in &states {
+                println!("{}: revision {}, {} ids", s.kind, s.collection_revision, s.set.count);
+            }
+            std::fs::write(out, serde_json::to_vec(&states).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        }
+        ("collection-apply", [file, account, server]) => {
+            let states: Vec<coa_core::portable::session::protocol::CollectionState> = serde_json::from_slice(&std::fs::read(file).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            let account: u32 = account.parse().map_err(|_| "account")?;
+            let mut host = Store::open(&host_dir).map_err(|e| e.to_string())?;
+            let mut bridge = LiveBridge::without_console(&db).with_knowledge(knowledge.clone());
+            let mut service = HostService::new(&mut host, server, HostConfig::default());
+            for state in &states {
+                let applied = service.receive_collection_state(&mut bridge, account, state).map_err(|e| e.to_string())?;
+                println!("{}: {:?}", state.kind, applied);
+            }
+        }
+        ("collection-show", rest) => {
+            let profile = store.default_profile().map_err(|e| e.to_string())?;
+            for kind in coa_core::portable::session::protocol::COLLECTION_KINDS {
+                match store.collection_info(profile, kind).map_err(|e| e.to_string())? {
+                    Some(i) => println!("owner {kind}: revision {}, {} ids, hash {}", i.revision, i.count, hex::encode(&i.hash[..8])),
+                    None => println!("owner {kind}: none"),
+                }
+                if let [account] = rest {
+                    let account: u32 = account.parse().map_err(|_| "account")?;
+                    let set = coa_core::portable::realm::collections::read_set(&db, account, kind).map_err(|e| e.to_string())?;
+                    println!("realm {kind} of account {account}: {} ids", set.len());
+                }
             }
         }
         ("dump", [character]) => {
