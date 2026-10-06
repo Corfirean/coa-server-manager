@@ -965,3 +965,30 @@ fn an_update_is_journaled_like_an_import_and_changes_the_mappings_only_when_fini
     let r = store.finish_import(second.import_id, ImportAllocation { local_guid: 4040, item_base: 0, pet_base: 0 });
     assert!(r.is_err() && store.import_entry(second.import_id).unwrap().state == ImportState::Prepared);
 }
+
+#[test]
+fn baselines_mappings_and_the_synced_snapshot_survive_reopening_the_file() {
+    let dir = std::env::temp_dir().join(format!("coa-portable-reopen-{}", uuid::Uuid::new_v4()));
+    let (id, c0, b0) = {
+        let mut store = Store::open(&dir).unwrap();
+        let profile = store.default_profile().unwrap();
+        let id = store.create_character(profile, fixtures::geared_level_eighty(), "realm-a").unwrap();
+        let items = plan_of_current(&store, id);
+        let pets = planned_pets_of(&store, id);
+        let ticket = store.begin_import(id, "realm-b", 1, &items, &pets).unwrap();
+        store.finish_import(ticket.import_id, alloc(1013)).unwrap();
+        let c0 = store.load_current(id).unwrap();
+        let (b0, _, _) = b0_of(&c0);
+        store.capture_baseline(id, "realm-b", BaselineInput { b0: &b0, items: &observed(&c0, &b0), pets: &pet_obs(&b0) }).unwrap();
+        (id, c0, b0)
+    };
+    let mut store = Store::open(&dir).unwrap();
+    let baseline = store.open_baseline(id, "realm-b").unwrap().expect("the open session survives a restart");
+    assert_eq!((baseline.c0, baseline.b0), (c0.clone(), b0));
+    assert_eq!(store.synced_model(id, "realm-b").unwrap().unwrap(), c0);
+    assert!(store.item_mappings(id, "realm-b").unwrap().iter().any(|m| m.presence == Presence::Filtered));
+    assert_eq!(store.pet_mappings(id, "realm-b").unwrap().len(), c0.pets.len());
+    assert!(store.close_baseline(id, "realm-b").unwrap());
+    drop(store);
+    let _ = std::fs::remove_dir_all(&dir);
+}

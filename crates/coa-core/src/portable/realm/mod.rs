@@ -196,6 +196,8 @@ mod live;
 #[cfg(test)]
 mod live_import;
 #[cfg(test)]
+mod live_roundtrip;
+#[cfg(test)]
 mod live_update;
 #[cfg(test)]
 mod tests;
