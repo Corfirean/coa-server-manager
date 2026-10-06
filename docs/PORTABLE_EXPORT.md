@@ -62,13 +62,23 @@ quests, position and homebind are never part of v1.
 Left out *with a warning* (the realm would delete them on load anyway): inventory rows without an `item_instance`,
 items in a bag that is not on the character, items in buyback slots.
 
-### `character_settings` policy (`policy.rs`, version 1)
+### `character_settings` policy (`policy.rs`, version 2)
 
-* **Carry**: known CoA gameplay state (`core.ascension_*`, `core.spell_charge.*`, `core.destiny_weaver`, ...), and
-  `core.wildcard*` on a Wildcard realm.
-* **Drop**: `coa.bot*`, `coa.gameplay_test`, `coa.highrisk`.
-* **Quarantine**: everything else is kept in the snapshot as the opaque extension `coa:unlisted-settings` (never
-  destroyed, never applied at a realm).
+Only the **minimal build / spec / starter / reset state** is carried, and only by strict key patterns (`#` = 1-9 digits,
+everything else literal; no broad prefixes):
+
+```
+core.ascension_active_spec        core.ascension_starter           core.ascension_starter_live
+core.ascension_reset_credits      core.ascension_slot.active       core.ascension_slot.#
+core.ascension_slot.#.build.#     core.ascension_slot.#.bar.#      core.ascension_build.#      core.ascension_bar.#
+```
+
+* **Quarantine**: everything else (`core.spell_charge.*`, Destiny Weaver, dynamic XP, Runemaster, prestige/glory,
+  tutorial flags, Wildcard state, unknown sources) is kept in the snapshot as the opaque extension
+  `coa:unlisted-settings` with its values, and is **never applied** at a realm.
+* **Drop**: `coa.bot*`, `coa.gameplay_test`, `coa.highrisk`, `coa.portable.` (the importer's own marker).
+
+Version 1 (Phase 2) carried broad prefixes; version 2 is the corrective Phase 2.1 change.
 
 ### Table registry (`registry.rs`)
 

@@ -180,16 +180,17 @@ fn spells_talents_glyphs_skills_settings_and_macros() {
     assert_eq!(m.settings["core.ascension_build.54"], vec![3, 56710, 56320, 90101]);
     assert_eq!(m.settings["core.ascension_bar.54"], vec![2, 0, 500_003, 1, 500_006]);
     assert_eq!(m.settings["core.ascension_slot.active"], vec![0]);
-    assert_eq!(m.settings["core.spell_charge.804197"], vec![2, 1_790_000_000]);
-    // bots: dropped; unknown / other rulesets' state: kept aside, not carried
+    // bots: dropped; nonessential and unknown state is quarantined: kept aside, never applied (policy v2)
     assert!(!m.settings.contains_key("coa.bot.gear"));
-    for aside in ["coa.gear_pref_weapon", "mod.example.new_feature", "core.wildcard.cards"] {
+    for aside in ["coa.gear_pref_weapon", "core.spell_charge.804197", "mod.example.new_feature", "core.wildcard.cards"] {
         assert!(!m.settings.contains_key(aside), "{aside} must not be carried");
     }
     let ext = &m.extensions["coa:unlisted-settings"];
     assert!(ext.is_intact());
     let aside: std::collections::BTreeMap<String, Vec<u32>> = serde_json::from_slice(&ext.payload.0).unwrap();
-    assert_eq!(aside.keys().map(String::as_str).collect::<Vec<_>>(), vec!["coa.gear_pref_weapon", "core.wildcard.cards", "mod.example.new_feature"]);
+    assert_eq!(aside.keys().map(String::as_str).collect::<Vec<_>>(), vec!["coa.gear_pref_weapon", "core.spell_charge.804197", "core.wildcard.cards", "mod.example.new_feature"]);
+    assert_eq!(aside["core.spell_charge.804197"], vec![2, 1_790_000_000], "the values are kept exactly");
+    assert_eq!(m.settings.keys().map(String::as_str).collect::<Vec<_>>(), vec!["core.ascension_active_spec", "core.ascension_bar.54", "core.ascension_build.54", "core.ascension_slot.active", "core.ascension_starter"]);
     assert_eq!(aside["mod.example.new_feature"], vec![9, 8, 7]);
     assert!(e.warnings.iter().any(|w| w.contains("kept aside")));
 
@@ -330,14 +331,18 @@ fn the_same_realm_data_gives_the_same_canonical_bytes() {
 }
 
 #[test]
-fn the_wildcard_ruleset_reads_wildcard_state_and_uses_its_own_namespace() {
+fn the_wildcard_ruleset_uses_its_own_namespace_and_quarantines_wildcard_state() {
     let coa = export_as(1004, Ruleset::Coa, &HashMap::new()).unwrap().model;
     let wildcard = export_as(1004, Ruleset::Wildcard, &HashMap::new()).unwrap().model;
     assert_eq!(wildcard.ruleset, Ruleset::Wildcard);
     assert_eq!(wildcard.content_namespace, "wildcard");
     assert_eq!(wildcard.identity.class.to_string(), "wildcard:class:25");
-    assert!(wildcard.settings.contains_key("core.wildcard.cards"), "Wildcard state is gameplay state on a Wildcard realm");
-    assert!(!coa.settings.contains_key("core.wildcard.cards"));
+    // Wildcard keys are not on the carry list on any ruleset (policy v2); they are kept, not applied
+    for m in [&coa, &wildcard] {
+        assert!(!m.settings.contains_key("core.wildcard.cards"));
+        assert!(m.extensions["coa:unlisted-settings"].is_intact());
+    }
+    assert_eq!(wildcard.settings, coa.settings);
     // the realm profile of a database decides the ruleset, not the caller
     let wc_db = Db::with_tools(std::path::PathBuf::new(), 1, "root", "x", Mode::Wildcard);
     let coa_db = Db::with_tools(std::path::PathBuf::new(), 1, "root", "x", Mode::Coa);
