@@ -33,7 +33,7 @@ impl Verb {
 
     fn timeout(self, root: &Path) -> Duration {
         match self {
-            Verb::StartAll | Verb::StartWorld if squid_enabled(root) => Duration::from_secs(1800),
+            Verb::StartAll | Verb::StartWorld if squid_enabled(root) => Duration::from_secs(2700),
             Verb::StartAll | Verb::StartWorld => Duration::from_secs(420),
             Verb::StartMysql => Duration::from_secs(120),
             Verb::StopAll => Duration::from_secs(240),
@@ -245,7 +245,7 @@ mod tests {
         let modules = folder.path().join("Core/configs/modules");
         std::fs::create_dir_all(&modules).unwrap();
         std::fs::write(modules.join("playerbots.conf.dist"), "AiPlayerbot.Enabled = 1\n").unwrap();
-        assert_eq!(Verb::StartAll.timeout(folder.path()), Duration::from_secs(1800));
+        assert_eq!(Verb::StartAll.timeout(folder.path()), Duration::from_secs(2700));
         assert_eq!(Verb::StopAll.timeout(folder.path()), Duration::from_secs(240));
         std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
         assert_eq!(Verb::StartWorld.timeout(folder.path()), Duration::from_secs(420));
