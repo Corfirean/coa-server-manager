@@ -37,12 +37,21 @@ fn exercise(root: &Path) -> Result<()> {
         Ok(())
     }));
     assert!(driver::run(root, driver::Verb::StopAll)?.ok);
-    for component in point.components.iter().filter(|component| component.name != "configs") {
-        backup::restore_database(root, &meta, &point.id, &component.name)?;
-    }
-    backup::restore_configs(root, &meta, &point.id)?;
-    assert!(driver::run(root, driver::Verb::StopAll)?.ok);
+    restore(root, &meta, &point)?;
     result.map_err(|_| coa_core::Error::Invalid("SQUID acceptance failed; disposable databases and configurations restored".into()))?
+}
+
+fn restore(root: &Path, meta: &Path, point: &backup::RecoveryPoint) -> Result<()> {
+    assert!(backup::verify(meta, &point.id)?.ok);
+    assert!(driver::run(root, driver::Verb::StopAll)?.ok);
+    coa_core::realms::select(root, point.realm)?;
+    for component in point.components.iter().filter(|component| component.name != "configs") {
+        backup::restore_database(root, meta, &point.id, &component.name)?;
+    }
+    backup::restore_configs(root, meta, &point.id)?;
+    assert!(driver::run(root, driver::Verb::StopAll)?.ok);
+    println!("PASS: disposable SQUID acceptance databases and original realm configurations restored");
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -51,6 +60,10 @@ fn main() -> Result<()> {
     assert_eq!(std::fs::read(root.join(".transition-fixture"))?, b"disposable published-064 transition fixture");
     assert!(!root.join("Data").symlink_metadata()?.file_type().is_symlink());
     assert!(driver::run(&root, driver::Verb::StopAll)?.ok);
+    if let Some(id) = std::env::args().nth(2) {
+        let meta = coa_core::registry::metadata_dir_for(&root)?;
+        return restore(&root, &meta, &backup::get(&meta, &id)?);
+    }
     let result = exercise(&root);
     assert!(driver::run(&root, driver::Verb::StopAll)?.ok);
     result
