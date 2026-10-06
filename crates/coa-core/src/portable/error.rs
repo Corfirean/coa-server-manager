@@ -1,5 +1,5 @@
-use super::ids::CharacterId;
-use super::realm::Blocker;
+use super::ids::{CharacterId, ImportId};
+use super::realm::{Blocker, ImportProblem};
 
 pub type Result<T> = std::result::Result<T, PortableError>;
 
@@ -43,6 +43,19 @@ pub enum PortableError {
     RealmRead(String),
     #[error("the realm database is a {found} realm but a {expected} character was requested")]
     WrongRealm { expected: String, found: String },
+
+    #[error("character {character} is already on server {server_id}")]
+    AlreadyOnRealm { character: CharacterId, server_id: String },
+    #[error("import {import_id} of this character into this server has not finished; recover it first")]
+    ImportInProgress { import_id: ImportId },
+    #[error("import {0} does not exist")]
+    UnknownImport(ImportId),
+    #[error("import {import_id} is {state}, which does not allow this")]
+    ImportState { import_id: ImportId, state: String },
+    #[error("the import was refused before anything was written: {}", .0.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("; "))]
+    ImportRefused(Vec<ImportProblem>),
+    #[error("import {import_id} needs attention: {detail}")]
+    ImportNeedsAttention { import_id: ImportId, detail: String },
 
     #[error("invalid data: {0}")]
     Invalid(String),

@@ -492,7 +492,8 @@ fn schema_1_item_mappings_survive_the_migration_as_unverified() {
         item = store.load_current(character).unwrap().items[0].id;
         store.bind_server(character, "realm-a", 154, 1, MappingState::Active).unwrap();
         store.conn.execute_batch(
-            "DROP TABLE item_mapping;
+            "DROP TABLE import_journal;
+             DROP TABLE item_mapping;
              CREATE TABLE item_mapping (character_id TEXT NOT NULL, server_id TEXT NOT NULL, portable_item_id TEXT NOT NULL, local_item_guid INTEGER NOT NULL,
                 PRIMARY KEY (character_id, server_id, portable_item_id), UNIQUE (character_id, server_id, local_item_guid),
                 FOREIGN KEY (character_id, server_id) REFERENCES character_server_mapping(character_id, server_id) ON DELETE CASCADE) STRICT;
@@ -506,7 +507,7 @@ fn schema_1_item_mappings_survive_the_migration_as_unverified() {
         .unwrap();
     }
     let store = Store::open_file(&file).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), MIGRATIONS.len() as i64);
     let mappings = store.item_mappings(character, "realm-a").unwrap();
     assert_eq!(mappings.len(), 1);
     assert_eq!((mappings[0].portable_item_id, mappings[0].local_item_guid, mappings[0].identity.as_str()), (item, 4242, ""));
@@ -577,4 +578,119 @@ fn a_tampered_collection_is_detected() {
     let forged = IdSet::from_ids([1, 2, 3, 4]).unwrap().encode();
     store.conn.execute("UPDATE collection SET payload = ?1", [forged]).unwrap();
     assert!(matches!(store.collection(profile, "coa:vanity"), Err(PortableError::CorruptSnapshot(_))));
+}
+
+// ---- the import journal -------------------------------------------------------------------------------------------------
+
+fn plan_of_current(store: &Store, id: CharacterId) -> Vec<PlannedItem> {
+    store
+        .load_current(id)
+        .unwrap()
+        .items
+        .iter()
+        .map(|i| PlannedItem { id: i.id, entry: i.entry.clone(), identity: crate::portable::identity::item_identity(&i.entry, i.random_property_id) })
+        .collect()
+}
+
+fn alloc(guid: u32) -> ImportAllocation {
+    ImportAllocation { local_guid: guid, item_base: 20_064, pet_base: 3_004 }
+}
+
+#[test]
+fn an_import_is_journaled_first_and_mapped_only_when_finished() {
+    let (mut store, profile) = fresh();
+    let id = created(&mut store, profile);
+    let items = plan_of_current(&store, id);
+    let pets = store.load_current(id).unwrap().pets.iter().map(|p| p.id).collect::<Vec<_>>();
+
+    let ticket = store.begin_import(id, "realm-b", 1, &items, &pets).unwrap();
+    assert_eq!(ticket.marker, marker_text(ticket.nonce, 1));
+    let entry = store.import_entry(ticket.import_id).unwrap();
+    assert_eq!((entry.state, entry.revision, entry.items.len(), entry.pet_ids.len()), (ImportState::Prepared, 1, items.len(), pets.len()));
+    // nothing is mapped before the realm has committed
+    assert!(store.server_mappings(id).unwrap().is_empty());
+    assert_eq!(store.find_by_local("realm-b", 1013).unwrap(), None);
+    assert_eq!(store.open_imports("realm-b").unwrap().len(), 1);
+    assert!(store.open_imports("realm-a").unwrap().is_empty());
+
+    store.finish_import(ticket.import_id, alloc(1013)).unwrap();
+
+    assert_eq!(store.find_by_local("realm-b", 1013).unwrap(), Some(id));
+    let mapping = &store.server_mappings(id).unwrap()[0];
+    assert_eq!((mapping.local_guid, mapping.last_revision, mapping.state), (1013, 1, MappingState::Synced));
+    let mapped = store.item_mappings(id, "realm-b").unwrap();
+    assert_eq!(mapped.len(), items.len());
+    for (i, planned) in items.iter().enumerate() {
+        let m = mapped.iter().find(|m| m.portable_item_id == planned.id).unwrap();
+        assert_eq!(m.local_item_guid, 20_064 + i as u32, "item {i} is item_base + {i}");
+        assert_eq!((m.identity.as_str(), m.entry.as_str()), (planned.identity.as_str(), planned.entry.to_string().as_str()));
+    }
+    let done = store.import_entry(ticket.import_id).unwrap();
+    assert_eq!((done.state, done.allocation), (ImportState::Committed, Some(alloc(1013))));
+    assert!(store.open_imports("realm-b").unwrap().is_empty());
+
+    // finishing twice is harmless (recovery may run after a normal finish)
+    store.finish_import(ticket.import_id, alloc(1013)).unwrap();
+    assert_eq!(store.item_mappings(id, "realm-b").unwrap().len(), items.len());
+    // the character is on that realm now
+    assert!(matches!(store.begin_import(id, "realm-b", 1, &items, &pets), Err(PortableError::AlreadyOnRealm { .. })));
+}
+
+#[test]
+fn begin_import_refuses_stale_revisions_and_a_second_unfinished_import() {
+    let (mut store, profile) = fresh();
+    let id = created(&mut store, profile);
+    let items = plan_of_current(&store, id);
+    let model = store.load_current(id).unwrap();
+    store.commit_snapshot(id, 1, model, "realm-a", None).unwrap();
+
+    assert!(matches!(store.begin_import(id, "realm-b", 1, &items, &[]), Err(PortableError::StaleRevision { expected: 1, current: 2 })));
+    let first = store.begin_import(id, "realm-b", 2, &items, &[]).unwrap();
+    assert!(matches!(store.begin_import(id, "realm-b", 2, &items, &[]), Err(PortableError::ImportInProgress { import_id }) if import_id == first.import_id));
+    // another realm is independent
+    let other = store.begin_import(id, "realm-c", 2, &items, &[]).unwrap();
+    assert_ne!(first.nonce, other.nonce, "every import has its own nonce");
+    assert!(matches!(store.begin_import(CharacterId::new(), "realm-b", 1, &items, &[]), Err(PortableError::UnknownCharacter(_))));
+    assert!(store.begin_import(id, "bad server!", 2, &items, &[]).is_err());
+}
+
+#[test]
+fn an_aborted_import_can_be_retried_and_closed_entries_cannot_be_reopened() {
+    let (mut store, profile) = fresh();
+    let id = created(&mut store, profile);
+    let items = plan_of_current(&store, id);
+    let first = store.begin_import(id, "realm-b", 1, &items, &[]).unwrap();
+    store.abort_import(first.import_id, "the realm never committed").unwrap();
+    let entry = store.import_entry(first.import_id).unwrap();
+    assert_eq!((entry.state, entry.detail.as_deref()), (ImportState::Aborted, Some("the realm never committed")));
+    assert!(store.server_mappings(id).unwrap().is_empty() && store.item_mappings(id, "realm-b").unwrap().is_empty());
+
+    // closed entries stay closed
+    assert!(matches!(store.finish_import(first.import_id, alloc(1)), Err(PortableError::ImportState { .. })));
+    assert!(matches!(store.abort_import(first.import_id, "again"), Err(PortableError::ImportState { .. })));
+
+    let second = store.begin_import(id, "realm-b", 1, &items, &[]).unwrap();
+    assert_ne!(first.import_id, second.import_id);
+    store.flag_import(second.import_id, "the realm has 3 items where 60 were planned").unwrap();
+    assert_eq!(store.import_entry(second.import_id).unwrap().state, ImportState::NeedsAttention);
+    assert!(store.open_imports("realm-b").unwrap().is_empty(), "a flagged entry is not 'open'");
+    assert!(matches!(store.finish_import(second.import_id, alloc(1)), Err(PortableError::ImportState { .. })));
+    assert!(matches!(store.import_entry(crate::portable::ids::ImportId::new()), Err(PortableError::UnknownImport(_))));
+}
+
+#[test]
+fn a_failing_finish_changes_nothing_locally() {
+    let (mut store, profile) = fresh();
+    let id = created(&mut store, profile);
+    let other = store.create_character(profile, fixtures::naked_level_one(), "realm-a").unwrap();
+    store.bind_server(other, "realm-b", 1013, 1, MappingState::Synced).unwrap();
+    let items = plan_of_current(&store, id);
+    let ticket = store.begin_import(id, "realm-b", 1, &items, &[]).unwrap();
+
+    // the realm claims a local guid that already belongs to another portable character: the local step must roll back whole
+    let result = store.finish_import(ticket.import_id, alloc(1013));
+    assert!(matches!(result, Err(PortableError::LocalGuidTaken { .. })), "{result:?}");
+    assert_eq!(store.import_entry(ticket.import_id).unwrap().state, ImportState::Prepared, "still recoverable");
+    assert!(store.server_mappings(id).unwrap().is_empty());
+    assert!(store.item_mappings(id, "realm-b").unwrap().is_empty());
 }

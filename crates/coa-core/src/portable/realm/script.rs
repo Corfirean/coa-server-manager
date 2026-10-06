@@ -458,6 +458,11 @@ impl Row<'_> {
             .transpose()
     }
 
+    /// A plain (not hex) text cell such as a number or a keyword.
+    pub fn plain(&self, column: &str) -> Result<String> {
+        Ok(self.cell(column)?.to_string())
+    }
+
     pub fn text(&self, column: &str) -> Result<String> {
         Ok(self.opt_text(column)?.unwrap_or_default())
     }

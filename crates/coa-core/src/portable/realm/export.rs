@@ -272,7 +272,7 @@ fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<
         let entry = ContentId::new(ns, "item", r.u64("entry")?)?;
         let random_property_id = r.i32("random_property")?;
         let creator_name = if r.u64("creator_guid")? != 0 { r.opt_text("creator_name")?.filter(|n| !n.is_empty()) } else { None };
-        let identity = item_identity(&entry, random_property_id, creator_name.as_deref());
+        let identity = item_identity(&entry, random_property_id);
 
         // keep the portable id when this local guid is still the same item; a recycled guid gets a new one
         let id = match req.prior_items.get(&p.guid) {

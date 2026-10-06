@@ -21,6 +21,6 @@ pub(crate) mod fixtures;
 
 pub use collection::IdSet;
 pub use error::{PortableError, Result};
-pub use ids::{CharacterId, ContentId, PortableItemId, PortablePetId, ProfileId};
+pub use ids::{CharacterId, ContentId, ImportId, PortableItemId, PortablePetId, ProfileId};
 pub use model::{PortableCharacter, Ruleset};
 pub use store::Store;

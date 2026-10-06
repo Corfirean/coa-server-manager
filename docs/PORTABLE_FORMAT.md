@@ -76,7 +76,7 @@ Account-wide sets of numeric ids (`coa:wardrobe`, `coa:vanity`, ...), stored per
 ## Store (`%LOCALAPPDATA%\CoAServerManager\portable\portable.db`)
 
 SQLite, WAL, `synchronous=FULL`, `foreign_keys=ON`, `application_id = 0x434F4150`, forward-only migrations tracked in
-`PRAGMA user_version` (currently 2). A database from a newer Manager, or a foreign SQLite file, is refused and left untouched.
+`PRAGMA user_version` (currently 3). A database from a newer Manager, or a foreign SQLite file, is refused and left untouched.
 
 | Table | Purpose |
 |---|---|
@@ -85,6 +85,7 @@ SQLite, WAL, `synchronous=FULL`, `foreign_keys=ON`, `application_id = 0x434F4150
 | `snapshot` | `(character_id, revision)` -> compressed canonical payload + hash |
 | `character_server_mapping` | `(character_id, server_id)` -> local guid; `UNIQUE(server_id, local_guid)` |
 | `item_mapping` | one row per mapping with a lifecycle (schema 2, see below) |
+| `import_journal` | schema 3: one row per import into a realm (`prepared` / `committed` / `aborted` / `needs_attention`) with the nonce/marker and the plan; see `PORTABLE_IMPORT.md` |
 | `collection` | per profile and kind: revision, hash, encoded set |
 | `setting` | `history_keep` |
 

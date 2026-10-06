@@ -18,7 +18,7 @@ use super::versions::{PORTABLE_COLLECTION_FORMAT_VERSION, SNAPSHOT_FORMAT_VERSIO
 pub const DATABASE_FILE: &str = "portable.db";
 /// `PRAGMA application_id`: "COAP". Refuses to adopt an unrelated SQLite file.
 const APPLICATION_ID: i64 = 0x434F_4150;
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql")];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql"), include_str!("migrations/003_import_journal.sql")];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
 pub const MAX_HISTORY_KEEP: u32 = 1_000;
@@ -266,6 +266,13 @@ impl Store {
     pub fn list_characters(&self, profile: ProfileId) -> Result<Vec<CharacterRecord>> {
         let mut stmt = self.conn.prepare("SELECT character_id FROM character WHERE profile_id = ?1 ORDER BY character_id")?;
         let ids: Vec<String> = stmt.query_map([profile.to_string()], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+        ids.iter().map(|text| read_character(&self.conn, text.parse()?)).collect()
+    }
+
+    /// Every character of every profile (an overview for tools; normally the UI lists one profile).
+    pub fn list_characters_all(&self) -> Result<Vec<CharacterRecord>> {
+        let mut stmt = self.conn.prepare("SELECT character_id FROM character ORDER BY character_id")?;
+        let ids: Vec<String> = stmt.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
         ids.iter().map(|text| read_character(&self.conn, text.parse()?)).collect()
     }
 
@@ -941,6 +948,9 @@ fn validate_observations(server_id: &str, observations: &[ItemObservation]) -> R
         }
     Ok(())
 }
+
+mod journal;
+pub use journal::*;
 
 #[cfg(test)]
 mod tests;

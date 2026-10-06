@@ -11,9 +11,12 @@
 
 pub mod blockers;
 pub mod export;
+pub mod import;
+pub mod plan;
 pub mod policy;
 pub mod registry;
 pub mod script;
+pub mod sqlenc;
 
 use std::collections::HashMap;
 
@@ -27,6 +30,7 @@ use super::store::{RealmRegistration, Store};
 
 pub use blockers::Blocker;
 pub use export::{build, ExportRequest, Exported};
+pub use import::{import_character, preflight, recover_imports, resolve_import, ImportOptions, ImportOutcome, ImportProblem, PreflightReport, Resolution};
 pub use script::SchemaProbe;
 
 /// The ruleset a database belongs to is decided by which realm profile it is (`realms::Mode`), never by the caller.
@@ -177,6 +181,10 @@ pub fn register(store: &mut Store, profile: ProfileId, server_id: &str, exported
 }
 
 #[cfg(test)]
+mod import_tests;
+#[cfg(test)]
 mod live;
+#[cfg(test)]
+mod live_import;
 #[cfg(test)]
 mod tests;

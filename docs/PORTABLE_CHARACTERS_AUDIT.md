@@ -642,6 +642,12 @@ D1-D13 were approved as recommended in section 15, with these amendments:
 | D13 checkpoints | keyed **internally by the local guid**: checkpoints arrive as `(server_id, local_guid)` and are resolved to the portable character through `Store::find_by_local` |
 | item mapping | `UNIQUE(character_id, server_id, local_item_guid)` in addition to the primary key (implemented in Phase 1) |
 
+**Phase 2.1 / Phase 3 amendments (2026-10-06):** `character_settings` carry list tightened to ten strict key patterns, everything
+else quarantined (`PORTABLE_EXPORT.md`); Phase 3 is an offline importer into a stopped disposable realm that keeps the existing
+`Db` abstraction, writes untrusted text only as hex literals from a typed encoder, imports in one MySQL transaction with
+journaled crash recovery (`PORTABLE_IMPORT.md`); the production importer is an in-core `PortableImportService` triggered over RA by
+an opaque job id (`PORTABLE_IMPORT_SERVICE.md`, design only).
+
 ---------------------------------------------------------------------------------------------------------
 
 ## Appendix A. Phase 1 - exact proposed plan (not started)

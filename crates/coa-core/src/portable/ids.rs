@@ -92,6 +92,10 @@ uuid7_id!(
     /// The global identity of one pet of a portable character.
     PortablePetId
 );
+uuid7_id!(
+    /// One import of a portable character into a realm (the key of the import journal).
+    ImportId
+);
 
 /// A reference to a piece of game content that cannot be mistaken for another namespace's numbering:
 /// `core:wotlk:item:19019`, `coa:wardrobe:10581`, `mod:<module>:item:7`.
