@@ -752,6 +752,8 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "err.bot_modules_conflict.title": "Zwei Bot-Module sind aktiviert",
   "err.bot_modules_conflict.message": "Deaktiviere CoA Companions oder SQUID Playerbots unter Module vor dem Serverstart.",
   "mod.ahbot.setup": "Modul und Verkäufer aktivieren. Der Server legt beim ersten Start selbst einen Auktionscharakter an (Konto AHBOT), eine GUID ist nicht nötig. Ein Charakter bietet in den Auktionshäusern beider Fraktionen an. Der CoA-Filter nutzt Beute-, Händler- und Berufstabellen; Stufengrenzen gelten zusätzlich. Erfordert einen Serverbuild mit CoA-Auktionsfilter und automatischem Auktionscharakter.",
+  "mod.enchanter.add": "Verzauberer platzieren: Stellt euch an die gewünschte Stelle und gebt .npc add 601015 ein",
+  "mod.enchanter.remove": "Verzauberer entfernen: Ziel auf den NPC setzen und .npc delete eingeben",
   "mod.ahbot.allSettings": "Alle Auktionseinstellungen",
   "mod.title": "Module",
   "mod.intro": "Zusatzfunktionen, die im Server eingebaut sind. Schalte die gewünschten ein oder aus, öffne ihre GitHub-Seite oder ändere ihre Einstellungen.",

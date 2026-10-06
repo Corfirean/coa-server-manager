@@ -752,6 +752,8 @@ const zh = {
   "err.bot_modules_conflict.title": "已启用两个机器人模块",
   "err.bot_modules_conflict.message": "启动服务器前，请在模块中关闭CoA Companions或SQUID Playerbots。",
   "mod.ahbot.setup": "启用模块和卖家即可。服务器首次启动时会自动创建拍卖角色（账号AHBOT），无需填写GUID。一个角色即可在双方阵营的拍卖行上架。CoA筛选使用掉落、商人和专业物品表，等级限制另行生效。需要包含CoA拍卖筛选和自动拍卖角色的服务器版本。",
+  "mod.enchanter.add": "放置附魔师NPC：站在想要的位置，输入 .npc add 601015",
+  "mod.enchanter.remove": "删除附魔师NPC：选中该NPC，输入 .npc delete",
   "mod.ahbot.allSettings": "所有拍卖设置",
   "mod.title": "模块管理",
   "mod.intro": "服务器内置的可选扩展特性。可按需开关、访问其 GitHub 页面或调整独立参数。",

@@ -771,6 +771,8 @@ const en = {
   "mod.ahbot.noTypes": "All types are disabled. The seller has no types to choose for new listings.",
   "mod.noSettings": "There are no additional settings. Use the module switch above.",
   "mod.ahbot.setup": "Turn on the module and the seller. The server creates its own auction character (account AHBOT) the first time it starts, so no GUID is needed. One character lists in both factions' auction houses. The CoA filter selects items from loot tables, vendors and professions; level restrictions also apply. Requires a server build with the CoA auction filter and the automatic auction character.",
+  "mod.enchanter.add": "Place the enchanter: stand where you want him and enter .npc add 601015",
+  "mod.enchanter.remove": "Remove the enchanter: target him and enter .npc delete",
   "mod.ahbot.allSettings": "All settings",
   "err.bot_modules_conflict.title": "Two bot modules are enabled",
   "err.bot_modules_conflict.message": "Disable CoA Companions or SQUID Playerbots in Modules before starting the server.",

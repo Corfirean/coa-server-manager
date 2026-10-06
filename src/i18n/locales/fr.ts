@@ -752,6 +752,8 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "err.bot_modules_conflict.title": "Deux modules de bots sont activés",
   "err.bot_modules_conflict.message": "Désactivez CoA Companions ou SQUID Playerbots dans Modules avant de démarrer le serveur.",
   "mod.ahbot.setup": "Activez le module et le vendeur. Le serveur crée lui-même un personnage d’enchères (compte AHBOT) au premier démarrage, aucun GUID n’est nécessaire. Un seul personnage met en vente dans les hôtels des ventes des deux factions. Le filtre CoA utilise le butin, les vendeurs et les métiers ; les limites de niveau s’ajoutent. Nécessite un serveur avec le filtre d’enchères CoA et le personnage d’enchères automatique.",
+  "mod.enchanter.add": "Placer l’enchanteur : placez-vous à l’endroit voulu et saisissez .npc add 601015",
+  "mod.enchanter.remove": "Retirer l’enchanteur : ciblez le PNJ et saisissez .npc delete",
   "mod.ahbot.allSettings": "Tous les réglages d’enchères",
   "mod.title": "Modules",
   "mod.intro": "Fonctions supplémentaires intégrées au serveur. Activez ou désactivez celles que vous voulez, ouvrez leur page GitHub ou modifiez leurs réglages.",
