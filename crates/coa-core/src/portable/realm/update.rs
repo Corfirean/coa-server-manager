@@ -37,6 +37,8 @@ pub struct UpdateContext<'a> {
     /// The items the realm holds now (portable id -> local guid): what `current` was exported from.
     pub items: &'a HashMap<PortableItemId, u32>,
     pub pets: &'a HashMap<PortablePetId, u32>,
+    /// Arm a runtime portable session on the updated character (state 0: the core takes the baseline at its next load).
+    pub session: Option<super::plan::SessionArm>,
 }
 
 /// What the script does, in numbers (and as the plan the journal records).
@@ -631,6 +633,18 @@ pub fn build_update(current: &PortableCharacter, merged: &PortableCharacter, ctx
     m.row(vec![Val::Expr("@char"), markers[0].clone(), Val::text(marker.clone())])?;
     m.row(vec![Val::Expr("@char"), markers[1].clone(), Val::Expr("CONCAT(@item_base, ' ', @pet_base, ' ')")])?;
     line(m.sql().expect("two rows"));
+    if let Some(arm) = &ctx.session {
+        if !ctx.probe.has("coa_portable_session") {
+            return Err(PortableError::Invalid("this realm's core has no portable session support (coa_portable_session is missing)".into()));
+        }
+        line(format!(
+            "INSERT INTO acore_characters.`coa_portable_session` (`guid`, `session_id`, `character_id`, `imported_revision`, `baseline_generation`, `state`, `checkpoint_seq`, `save_seq`, `updated_at`) VALUES (@char, {}, {}, {}, {}, 0, 0, 0, UNIX_TIMESTAMP())              ON DUPLICATE KEY UPDATE `session_id` = VALUES(`session_id`), `character_id` = VALUES(`character_id`), `imported_revision` = VALUES(`imported_revision`), `baseline_generation` = VALUES(`baseline_generation`), `state` = 0, `checkpoint_seq` = 0, `updated_at` = VALUES(`updated_at`);",
+            Val::text(arm.session_id.to_string()).sql(),
+            Val::text(arm.character_id.to_string()).sql(),
+            ctx.revision,
+            arm.generation
+        ));
+    }
 
     line("SELECT '#R:update', @char, @item_base, @pet_base;".into());
     line("COMMIT;".into());

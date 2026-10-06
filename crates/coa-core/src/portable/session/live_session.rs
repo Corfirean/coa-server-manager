@@ -339,7 +339,8 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
     let mut ra = server.ra();
     let chars_before = number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters");
     let next_guid = number(&r.b, "SELECT MAX(guid) + 1 FROM acore_characters.characters");
-    let numchars_before = number(&r.b, &format!("SELECT IFNULL((SELECT numchars FROM acore_auth.realmcharacters WHERE acctid = {ACCOUNT} AND realmid = 1), 0)"));
+    sql(&r.b, &format!("REPLACE INTO acore_auth.realmcharacters (realmid, acctid, numchars) VALUES (1, {ACCOUNT}, 0)"));
+    let numchars_before = 0;
 
     let mut imported = Vec::new();
     for a_guid in [1002u32, 1004, 1005, 1001] {
@@ -361,7 +362,8 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
     assert!(reply.contains("changed level"), "the name cache knows the new character: {reply}");
     assert_eq!(number(&r.b, &format!("SELECT level FROM acore_characters.characters WHERE guid = {guid}")), canonical.progression.level as u64 + 1);
     let numchars = number(&r.b, &format!("SELECT numchars FROM acore_auth.realmcharacters WHERE acctid = {ACCOUNT} AND realmid = 1"));
-    assert_eq!(numchars, numchars_before + 4, "the realm character count of the account was updated");
+    assert_eq!(numchars, number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.characters WHERE account = {ACCOUNT}")), "the realm character count of the account was updated to what the account really has");
+    assert!(numchars > numchars_before);
     let _ = id;
     ra.run(&format!("botcmd spawnbot {guid}")).unwrap();
     wait_until("the imported character to log in", 90, || online(&r.b, *guid));
@@ -397,7 +399,7 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
         let _ = std::fs::remove_file(jobs.join(format!("{job}.job")));
         let _ = std::fs::remove_file(jobs.join(format!("{job}.result")));
     };
-    let mut impossible = model.clone();
+    let mut impossible = imported[0].3.clone();
     impossible.items[0].entry = crate::portable::ids::ContentId::new("coa", "item", 4_000_000_000).unwrap();
     refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 9], ACCOUNT, 1, 10, &impossible, None).unwrap(), "an item the realm does not know");
     refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 8], 99_999_999, 1, 10, &model, None).unwrap(), "an account that does not exist");

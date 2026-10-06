@@ -34,7 +34,7 @@ use super::store::{RealmRegistration, Store};
 pub use blockers::Blocker;
 pub use export::{build, session_row, ExportRequest, Exported};
 pub use import::{import_character, import_character_in_session, preflight, recover_imports, resolve_import, ImportOptions, ImportOutcome, ImportProblem, PreflightReport, Resolution};
-pub use reconcile::{begin_session, reconcile_session, resolve_import_update, update_realm_character, ReconcileOutcome, SessionStart, UpdateOutcome};
+pub use reconcile::{begin_session, reconcile_session, resolve_import_update, update_realm_character, update_realm_character_in_session, ReconcileOutcome, SessionStart, UpdateOutcome};
 pub use script::SchemaProbe;
 
 /// The ruleset a database belongs to is decided by which realm profile it is (`realms::Mode`), never by the caller.

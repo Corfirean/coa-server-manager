@@ -21,7 +21,7 @@ fn script_of(current: &PortableCharacter, merged: &PortableCharacter) -> UpdateS
     let (items, pets) = realm_ids(current);
     let users = ["acore".to_string()];
     let probe = probe();
-    build_update(current, merged, &UpdateContext { ruleset: Ruleset::Coa, local_guid: 4242, revision: 9, nonce: [1, 2, 3, 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets }).unwrap()
+    build_update(current, merged, &UpdateContext { ruleset: Ruleset::Coa, local_guid: 4242, revision: 9, nonce: [1, 2, 3, 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets, session: None }).unwrap()
 }
 
 fn statements(script: &UpdateScript) -> Vec<&str> {
@@ -184,7 +184,7 @@ fn what_a_character_is_cannot_be_changed_in_place() {
     let (items, pets) = realm_ids(&current);
     let users = ["acore".to_string()];
     let probe = probe();
-    let ctx = UpdateContext { ruleset: Ruleset::Coa, local_guid: 1, revision: 2, nonce: [0; 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets };
+    let ctx = UpdateContext { ruleset: Ruleset::Coa, local_guid: 1, revision: 2, nonce: [0; 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets, session: None };
     let mut merged = current.clone();
     merged.identity.gender ^= 1;
     assert!(build_update(&current, &merged, &ctx).is_err(), "gender");

@@ -214,3 +214,35 @@ transfer, personal Ascension bank, equipment sets, level-cap projection.
   checkpoint; disconnect/crash before the final checkpoint.
 * Real worldserver with the character online and several checkpoints without logout; the number of `characters` rows written
   during a checkpoint is counted on the database (general log) to show one character is saved, not all.
+
+## 10. What was verified
+
+Manager: 413 workspace tests (the session layer alone has 15 with a simulated realm that normalises characters, holds the player until
+the baseline is released, saves on request and crashes on demand), `check-i18n`, `npm run build`. Owner and Host are two separate stores in every
+test; restarts of either are tests of their own (files closed and reopened between steps).
+
+Live, two disposable MySQL servers and **a real worldserver built from the core branch** (`feat/portable-session-bridge`, commit `aeba87f04`,
+not pushed):
+
+* `a_running_worldserver_takes_its_own_baseline_and_checkpoints_one_character_without_a_logout`: the character is imported with its session
+  armed, logs in (`botcmd spawnbot`, the real `HandlePlayerLoginFromDB`) next to two other online characters, is held at `state = 1`, the Host
+  takes `B0` and releases it, then three **real** level changes each produce one checkpoint **without a logout**; the database's general log shows
+  exactly one `characters` row written per checkpoint (the character's own), the Owner gets revisions 2, 3, 4 with the real level, and what the realm
+  deleted at load is still in the canonical character. Then logout -> final checkpoint -> the next session armed -> the next login takes its baseline
+  by itself again; a worldserver **crash** in the middle of a session is continued without a new baseline and without gate; a **clean shutdown**
+  ends the session like a logout and the Host sends the final checkpoint.
+* `a_character_whose_host_never_answers_is_never_released_and_the_core_disconnects_it`: no Host, no release: the core gives up after the
+  gate timeout, the row stays in `state = 1`, nothing was played.
+* `the_core_imports_characters_into_a_running_realm_like_the_offline_importer_does`: four characters imported into the **running** realm; each
+  reads back identical to what the offline importer makes of it; the id generators, the name cache (a command by name finds the new character), the
+  account's realm character count and an immediate login all work; the same job id twice creates nothing; an unknown item, a missing account, a
+  tampered snapshot and garbage are refused and write nothing.
+* the earlier live suites (export, offline import, reconcile, in-place update, round trip) still pass with the new table in the schema; the update
+  also arms the next session in the same realm transaction (`an_in_place_update_arms_the_next_runtime_session_in_the_same_transaction`).
+
+Core: `python -B tools/verify_all.py --stages source --base origin/coa-bots` passes (comments, boundaries, registrations); the C++ code style
+check passes on the changed files. The build, unit, harness and gameplay stages were not run: a worldserver was built and exercised through the live
+tests above instead.
+
+Known limits: a bot session has no socket, so the gate's packet hold and kick are only exercised for real clients by a manual test; the
+core's job parser is exercised through the live importer test, not through its own unit tests.

@@ -220,7 +220,7 @@ fn prepare_update(r: &Realms, store: &mut Store, id: CharacterId) -> (crate::por
     let schema = probe(&r.b).unwrap();
     let users = opts().game_server_users;
     let revision = canonical_revision(store, id);
-    let ctx = |nonce| UpdateContext { ruleset: Ruleset::Coa, local_guid: guid, revision, nonce, game_server_users: &users, probe: &schema, items: &items, pets: &pets };
+    let ctx = |nonce| UpdateContext { ruleset: Ruleset::Coa, local_guid: guid, revision, nonce, game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None };
     let draft = build_update(&exported.model, &merged.model, &ctx([0; 4])).unwrap();
     let by_id: std::collections::HashMap<_, _> = merged.model.items.iter().map(|i| (i.id, i)).collect();
     let plan = UpdatePlan {
@@ -578,4 +578,33 @@ fn the_complete_round_trip_without_a_server() {
     assert_eq!(store.server_mappings(id).unwrap().into_iter().find(|m| m.server_id == B).unwrap().local_guid, g);
     assert!(store.open_imports(B).unwrap().is_empty() && store.open_imports("realm-a").unwrap().is_empty());
     sql(&r.a, "UPDATE acore_characters.characters SET online = 1 WHERE guid = 1006");
+}
+
+#[test]
+#[ignore]
+fn an_in_place_update_arms_the_next_runtime_session_in_the_same_transaction() {
+    let Some(r) = realms() else { return };
+    reset_b(&r.b);
+    let (mut store, profile) = fresh_store();
+    let (id, g) = join(&r, &mut store, profile, 1002);
+    let mut c1 = store.load_current(id).unwrap();
+    c1.progression.money += 3;
+    store.commit_snapshot(id, 1, c1.normalized(), "realm-a", None).unwrap();
+    let session = crate::portable::ids::SessionId::new();
+    let outcome = update_realm_character_in_session(&r.b, &mut store, id, B, &opts(), Some(session)).unwrap();
+    assert!(outcome.updated);
+    let row = crate::portable::session::live::read_session_row(&r.b, g).unwrap().expect("the update armed the session");
+    assert_eq!((row.session_id, row.character_id, row.state, row.imported_revision), (session, id, crate::portable::session::bridge::RowState::WaitingBaseline, 2));
+    // a failed update arms nothing
+    let before = counts(&r.b);
+    let mut c2 = store.load_current(id).unwrap();
+    c2.build.spells.push((500_090, 255));
+    store.commit_snapshot(id, 2, c2.normalized(), "realm-a", None).unwrap();
+    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail").unwrap();
+    r.b.query("DELIMITER //\nCREATE TRIGGER acore_characters.coa_test_fail BEFORE INSERT ON acore_characters.character_spell FOR EACH ROW BEGIN IF NEW.spell = 500090 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected failure'; END IF; END//\nDELIMITER ;").unwrap();
+    let again = crate::portable::ids::SessionId::new();
+    assert!(update_realm_character_in_session(&r.b, &mut store, id, B, &opts(), Some(again)).is_err());
+    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail").unwrap();
+    assert_eq!(counts(&r.b), before);
+    assert_eq!(crate::portable::session::live::read_session_row(&r.b, g).unwrap().unwrap().session_id, session, "the failed update left the earlier session in place");
 }

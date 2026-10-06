@@ -23,12 +23,12 @@ use std::collections::HashMap;
 use crate::db::Db;
 
 use super::super::error::{PortableError, Result};
-use super::super::ids::{CharacterId, ImportId, PortableItemId, PortablePetId};
+use super::super::ids::{CharacterId, ImportId, PortableItemId, PortablePetId, SessionId};
 use super::super::merge::{merge3, ItemOutcome, Mode, PetOutcome};
 use super::super::model::PortableCharacter;
 use super::super::store::{BaselineInput, ImportAllocation, ImportState, JournalEntry, JournalKind, PlannedItem, PlannedPet, Store, UpdatePlan};
 use super::import::{ImportOptions, ImportProblem, Resolution};
-use super::plan::IMPORT_LOCK;
+use super::plan::{SessionArm, IMPORT_LOCK};
 use super::script::{parse_output, Query};
 use super::sqlenc::Val;
 use super::update::{build_update, new_content, parse_update_report, UpdateContext, UpdateCounts};
@@ -209,6 +209,11 @@ fn update_problems(db: &Db, local_guid: u32, items: &std::collections::BTreeSet<
 /// Refused (nothing written) when a session is open on that realm (reconcile it first), when the realm is running, or when
 /// the realm and the canonical character changed the same thing differently since they were last synchronised.
 pub fn update_realm_character(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions) -> Result<UpdateOutcome> {
+    update_realm_character_in_session(db, store, id, server_id, opts, None)
+}
+
+/// The same, arming the runtime portable session `session` on the updated character in the same realm transaction.
+pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions, session: Option<SessionId>) -> Result<UpdateOutcome> {
     let (guid, last_revision) = local_guid(store, id, server_id)?;
     if store.open_baseline(id, server_id)?.is_some() {
         return Err(PortableError::SessionOpen);
@@ -241,6 +246,7 @@ pub fn update_realm_character(db: &Db, store: &mut Store, id: CharacterId, serve
         probe: &schema,
         items: &view.items,
         pets: &view.pets,
+        session: session.map(|session_id| SessionArm { session_id, character_id: id, generation: 1 }),
     };
     // the plan (what is added, what is removed) does not depend on the nonce
     let draft = build_update(&view.exported.model, &merged.model, &context([0; 4]))?;
@@ -380,5 +386,5 @@ pub fn summarize(merged: &PortableCharacter, current: &PortableCharacter) -> Res
     let pets: HashMap<PortablePetId, u32> = current.pets.iter().enumerate().map(|(i, p)| (p.id, i as u32 + 1)).collect();
     let users = ["acore".to_string()];
     let schema = super::script::SchemaProbe::default();
-    Ok(build_update(current, merged, &UpdateContext { ruleset: current.ruleset, local_guid: 1, revision: 1, nonce: [0; 4], game_server_users: &users, probe: &schema, items: &items, pets: &pets })?.counts)
+    Ok(build_update(current, merged, &UpdateContext { ruleset: current.ruleset, local_guid: 1, revision: 1, nonce: [0; 4], game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None })?.counts)
 }
