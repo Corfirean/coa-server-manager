@@ -751,7 +751,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "mod.noSettings": "Keine weiteren Einstellungen. Verwende den Modulschalter oben.",
   "err.bot_modules_conflict.title": "Zwei Bot-Module sind aktiviert",
   "err.bot_modules_conflict.message": "Deaktiviere CoA Companions oder SQUID Playerbots unter Module vor dem Serverstart.",
-  "mod.ahbot.setup": "GUID eines separaten Auktionscharakters eintragen, Verkäufer und Modul aktivieren. Der Charakter muss offline sein. Der CoA-Filter nutzt Beute-, Händler- und Berufstabellen; Stufengrenzen gelten zusätzlich. Erfordert einen Serverbuild mit CoA-Auktionsfilter.",
+  "mod.ahbot.setup": "Modul und Verkäufer aktivieren. Der Server legt beim ersten Start selbst einen Auktionscharakter an (Konto AHBOT), eine GUID ist nicht nötig. Ein Charakter bietet in den Auktionshäusern beider Fraktionen an. Der CoA-Filter nutzt Beute-, Händler- und Berufstabellen; Stufengrenzen gelten zusätzlich. Erfordert einen Serverbuild mit CoA-Auktionsfilter und automatischem Auktionscharakter.",
   "mod.ahbot.allSettings": "Alle Auktionseinstellungen",
   "mod.title": "Module",
   "mod.intro": "Zusatzfunktionen, die im Server eingebaut sind. Schalte die gewünschten ein oder aus, öffne ihre GitHub-Seite oder ändere ihre Einstellungen.",

@@ -751,7 +751,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "mod.noSettings": "No hay ajustes adicionales. Usa el interruptor del módulo de arriba.",
   "err.bot_modules_conflict.title": "Hay dos módulos de bots activos",
   "err.bot_modules_conflict.message": "Desactiva CoA Companions o SQUID Playerbots en Módulos antes de iniciar el servidor.",
-  "mod.ahbot.setup": "Indica el GUID de un personaje dedicado a subastas y activa vendedor y módulo. El personaje debe estar desconectado. El filtro CoA usa botín, vendedores y profesiones; los límites de nivel se aplican además. Requiere un servidor con filtro de subastas CoA.",
+  "mod.ahbot.setup": "Activa el módulo y el vendedor. El servidor crea por sí mismo un personaje de subastas (cuenta AHBOT) en el primer arranque, no hace falta GUID. Un solo personaje publica en las casas de subastas de ambas facciones. El filtro CoA usa botín, vendedores y profesiones; los límites de nivel se aplican además. Requiere un servidor con filtro de subastas CoA y personaje de subastas automático.",
   "mod.ahbot.allSettings": "Todos los ajustes de subastas",
   "mod.title": "Módulos",
   "mod.intro": "Funciones adicionales integradas en el servidor. Activa o desactiva las que quieras, abre su página de GitHub o cambia sus ajustes.",
