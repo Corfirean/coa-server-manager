@@ -31,13 +31,22 @@ impl Verb {
         }
     }
 
-    fn timeout(self) -> Duration {
+    fn timeout(self, root: &Path) -> Duration {
         match self {
+            Verb::StartAll | Verb::StartWorld if squid_enabled(root) => Duration::from_secs(2700),
             Verb::StartAll | Verb::StartWorld => Duration::from_secs(420),
             Verb::StartMysql => Duration::from_secs(120),
             Verb::StopAll => Duration::from_secs(240),
         }
     }
+}
+
+fn squid_enabled(root: &Path) -> bool {
+    let active = root.join("Core/configs/modules/playerbots.conf");
+    let path = if active.exists() { active } else { root.join("Core/configs/modules/playerbots.conf.dist") };
+    std::fs::read(path).ok().and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
+        .is_some_and(|config| config.get("AiPlayerbot.Enabled").is_none_or(|value|
+            !matches!(value.trim().trim_matches('"').to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,7 +158,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         let _ = stderr.read_to_string(&mut s);
         s
     });
-    let deadline = Instant::now() + verb.timeout();
+    let deadline = Instant::now() + verb.timeout(&root);
     let status = loop {
         if let Some(st) = child.try_wait()? {
             break Some(st);
@@ -202,6 +211,20 @@ pub(crate) fn launcher_matches(signed: &str, actual: &[u8]) -> bool {
         || patch_launcher_imports(&s).is_ok_and(|p| p.as_bytes() == actual))
 }
 
+/// Recover legacy metadata only when undoing supported Manager edits reproduces the recorded hash.
+pub(crate) fn launcher_matches_recorded(recorded: &str, actual: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(actual) else { return false; };
+    let without_import = text.replacen(
+        "ROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(Path(__file__).resolve().parent))",
+        "ROOT = Path(__file__).resolve().parents[1]", 1,
+    );
+    for candidate in [Some(without_import.clone()), crate::realms::unpatch_launcher(&without_import)].into_iter().flatten() {
+        if crate::fsx::sha256_bytes(candidate.as_bytes()).eq_ignore_ascii_case(recorded)
+            && launcher_matches(&candidate, actual) { return true; }
+    }
+    false
+}
+
 pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
     let code = started.code.filter(|c| *c != ErrorCode::Unknown)
         .or_else(|| crate::health::diagnose_installation(root));
@@ -215,6 +238,18 @@ pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_squid_provisioning_has_time_to_finish_without_extending_shutdown() {
+        let folder = tempfile::tempdir().unwrap();
+        let modules = folder.path().join("Core/configs/modules");
+        std::fs::create_dir_all(&modules).unwrap();
+        std::fs::write(modules.join("playerbots.conf.dist"), "AiPlayerbot.Enabled = 1\n").unwrap();
+        assert_eq!(Verb::StartAll.timeout(folder.path()), Duration::from_secs(2700));
+        assert_eq!(Verb::StopAll.timeout(folder.path()), Duration::from_secs(240));
+        std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
+        assert_eq!(Verb::StartWorld.timeout(folder.path()), Duration::from_secs(420));
+    }
 
     #[test]
     fn translates_known_launcher_messages() {

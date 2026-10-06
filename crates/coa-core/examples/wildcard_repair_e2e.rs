@@ -22,7 +22,7 @@ fn main() -> Result<()> {
             let path = old_sql.join(format!("{name}.sql"));
             let hash = fsx::sha256_file(&path)?;
             db.put(&LedgerRow { db: "characters".into(), id: name.into(), sha256: hash.clone(), status: Status::Applied, error: None, baseline: false })?;
-            migrations.push(Migration { db: "characters".into(), id: name.into(), sha256: hash, destructive: false });
+            migrations.push(Migration { compatible_sha256: vec![], db: "characters".into(), id: name.into(), sha256: hash, destructive: false });
         }
         for (_, tables) in schema_check::WILDCARD_TABLES.iter().filter(|(kind,_)| *kind == "characters") {
             for table in *tables { db.query(&format!("DROP TABLE IF EXISTS acore_characters.`{table}`;"))?; }
@@ -33,7 +33,7 @@ fn main() -> Result<()> {
         let files = release_schema::collect(empty_core.path(), None, Some(&repairs))?;
         assert_eq!(files.len(), 1);
         let repair = &files[0];
-        migrations.push(Migration { db: repair.db.clone(), id: repair.id.clone(), sha256: repair.sha256.clone(), destructive: false });
+        migrations.push(Migration { compatible_sha256: vec![], db: repair.db.clone(), id: repair.id.clone(), sha256: repair.sha256.clone(), destructive: false });
         let staged = tree.path().join("sql/characters");
         fsx::atomic_write(&staged.join(format!("{}.sql", repair.id)), &std::fs::read(&repair.abs)?)?;
         let report = migrations::apply_pending(&db, &migrations, &tree.path().join("sql"), &|| Ok("disposable fixture".into()))?;

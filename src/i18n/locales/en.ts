@@ -106,6 +106,7 @@ const en = {
   "btn.restart": "Restart",
   "btn.startWithoutUpdate": "Start without updating",
   "btn.playWithoutUpdate": "Play without updating",
+  "import.squidRepackWarning": "This SquidBots repack checks its worldserver hash. Replacing the binary can stop Start_All_Bots and coa_update from working. Updates will ask before replacing it.",
   "btn.play": "PLAY",
   "btn.startPlay": "START & PLAY",
   "btn.startingCaps": "STARTING…",

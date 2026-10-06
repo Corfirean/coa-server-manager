@@ -145,7 +145,7 @@ export function ImportServer(props: {
 
           {report.notes.map((n) => (
             <p key={n} className="mt-3 text-sm text-warn">
-              {n}
+              {hasKey(n) ? t(n as Key) : n}
             </p>
           ))}
 

@@ -697,7 +697,7 @@ async fn check_update(state: State<'_, AppState>, id: String, source: Option<Str
 #[tauri::command]
 fn pending_update(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::Txn>, UiError> {
     let root = path_of(&state, &id)?;
-    Ok(update::unfinished(&meta_dir(&root)?))
+    Ok(update::pending_checked(&meta_dir(&root)?)?)
 }
 
 #[tauri::command]

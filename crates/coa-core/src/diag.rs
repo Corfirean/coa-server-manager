@@ -199,6 +199,7 @@ pub fn export_package(root: &Path, meta_dir: &Path, manager_log: &Path, meta: &I
         "manager": crate::MANAGER_VERSION,
         "core": meta.core,
         "bots": meta.bots,
+        "squid_bots": crate::squid::release(root),
         "kind": meta.kind,
         "layout": meta.layout,
         "checks": report.checks,
@@ -323,6 +324,8 @@ real error
         let d = tempfile::tempdir().unwrap();
         let root = d.path().join("srv");
         layout::testkit::fake_repack(&root);
+        fs::create_dir_all(root.join("Extras/SquidPlayerbots")).unwrap();
+        fs::write(root.join("Extras/SquidPlayerbots/release.json"), r#"{"tag":"v1.8","commit":"48c4786a","password":"upstream-secret"}"#).unwrap();
         fs::write(root.join("Core/Logs/Errors.log"), "boom\nDatabase password=hunter2 rejected\n").unwrap();
         fs::write(root.join("Core/configs/worldserver.conf"), "LoginDatabaseInfo = \"127.0.0.1;3307;acore;SECRETPW;auth\"\nRate.XP.Kill = 1\n").unwrap();
         let meta_dir = d.path().join("srv.manager");
@@ -340,6 +343,7 @@ real error
             all.push_str(&s);
         }
         assert!(all.contains("boom") && all.contains("Rate.XP.Kill"), "keys and ordinary log lines are included");
-        assert!(!all.contains("hunter2") && !all.contains("SECRETPW"));
+        assert!(all.contains("v1.8") && all.contains("48c4786a"));
+        assert!(!all.contains("hunter2") && !all.contains("SECRETPW") && !all.contains("upstream-secret"));
     }
 }

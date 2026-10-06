@@ -46,3 +46,5 @@ pub mod srp6;
 pub use error::{Error, ErrorCode, Result};
 
 pub const MANAGER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub mod squid;

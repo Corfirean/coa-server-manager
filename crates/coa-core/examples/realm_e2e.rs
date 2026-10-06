@@ -58,7 +58,7 @@ fn main() -> Result<()> {
                 let path = staged.join(format!("{kind}/manager_realm_fixture.sql"));
                 std::fs::create_dir_all(path.parent().unwrap())?;
                 std::fs::write(&path, sql)?;
-                manifest.migrations.push(Migration { id: "manager_realm_fixture".into(), db: kind.into(), sha256: coa_core::fsx::sha256_file(&path)?, destructive: false });
+                manifest.migrations.push(Migration { compatible_sha256: vec![], id: "manager_realm_fixture".into(), db: kind.into(), sha256: coa_core::fsx::sha256_file(&path)?, destructive: false });
             }
             let result = env.migrate(&manifest, &staged)?;
             assert!(result.failed.is_none());

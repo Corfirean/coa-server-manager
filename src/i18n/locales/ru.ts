@@ -106,6 +106,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "btn.restart": "Перезапустить",
   "btn.startWithoutUpdate": "Запустить без обновления",
   "btn.playWithoutUpdate": "Играть без обновления",
+  "import.squidRepackWarning": "Этот репак SquidBots проверяет хеш worldserver. Замена файла может нарушить работу Start_All_Bots и coa_update. Перед заменой менеджер запросит ваше решение.",
   "btn.play": "ИГРАТЬ",
   "btn.startPlay": "ЗАПУСТИТЬ И ИГРАТЬ",
   "btn.startingCaps": "ЗАПУСК…",

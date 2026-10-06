@@ -178,12 +178,15 @@ export function SettingsPage(props: { serverId: string; scope: Scope; botModule?
   const [raw, setRaw] = useState<AllSetting[] | null>(null);
   const [rawEdits, setRawEdits] = useState<Record<string, string>>({});
   const [onlyChanged, setOnlyChanged] = useState(false);
+  const [squidVersion, setSquidVersion] = useState<string | null>(null);
   const [cols, setCols] = useState<ModuleSetting[]>([]);
   const [colEdits, setColEdits] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
-      const v = squid ? squidSettingsView(await api.moduleSettings(serverId, "playerbots"), locale) : await api.settings(serverId, scope);
+      const data = squid ? await Promise.all([api.moduleSettings(serverId, "playerbots"), api.modulesList(serverId)]) : null;
+      if (data) setSquidVersion(data[1].find(module => module.id === "playerbots")?.version ?? null);
+      const v = data ? squidSettingsView(data[0], locale) : await api.settings(serverId, scope);
       setView(v);
       setDraft({});
       setErrors({});
@@ -363,7 +366,7 @@ export function SettingsPage(props: { serverId: string; scope: Scope; botModule?
   return (
     <div className="max-w-3xl pb-24">
       <h1 className="text-2xl font-semibold">{props.title}</h1>
-      <p className="mt-1 text-muted">{squid ? "SQUID’s Playerbots" : props.question}</p>
+      <p className="mt-1 text-muted">{squid ? `SQUID’s Playerbots${squidVersion ? " · " + squidVersion : ""}` : props.question}</p>
 
       {scope === "bots" && !squid && <CompanionsCard serverId={serverId} />}
 
