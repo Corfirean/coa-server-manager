@@ -123,7 +123,7 @@ update (the importer and updater never write `character_talent`). Items a realm 
 re-granted at a level change, loot) are indistinguishable from earned items and are carried; only what existed at `B0` is
 normalisation.
 
-## Manual real-client smoke test (required before the gate is final)
+## Manual real-client smoke test
 
 `cargo run -p coa-core --example portable_smoke -- ...` (see the header of `examples/portable_smoke.rs`) performs one
 operation per call against any database reachable through the MySQL client tools, with a Manager store in a directory of
@@ -139,3 +139,32 @@ your choice (`COA_DB_PASSWORD` in the environment). Use **copies**, never the li
    log in with the real client: the character must be the original one with what was played on realm 2.
 6. Optionally play on realm 1 and `begin-session`/`reconcile`/`update <id> <realm-2>` back: it must be the same local
    character on realm 2 at the same place.
+
+### Result of the manual smoke test (2026-10-06, real Project Descension client)
+
+Two disposable copies of a real CoA install (`coa-fixture`, real data and characters), character Shaniel (level 80, race 4 /
+class 21):
+
+1. Realm 1 -> portable -> imported into realm 2 (new local character 2527); real login, baseline `B0` captured (nothing held
+   back, nothing added by the realm).
+2. Played on realm 2: killed a boar and looted meat (stack 5 -> 6), deleted an item, accepted a quest, delivered a mount from
+   the vanity collection. `reconcile`: canonical revision 2 carried exactly those changes (stack, removed item, quest, two new
+   items) and nothing the realm did by itself.
+3. `update` of realm 1 **in place** (same local character 2): items 33 -> 34, position and everything local unchanged. The
+   owner logged in: the looted meat, the deleted item, the quest and the mount were there. The character was a ghost with
+   a corpse in the Deadmines and stood in Orgrimmar: that is realm 1's own pre-existing state (verified in the database before
+   and after), which an in-place update must keep.
+4. Second round: baseline on realm 1, played (new item, two items moved), `reconcile` (revision 3), `update` of realm 2 in
+   place: the new item and the moved items arrived, position unchanged.
+
+Findings:
+* **Order matters.** The baseline has to be taken after the realm's first load and *before* the character is played. After the
+  first in-place update on realm 1 it was not, so a helmet delivered in that first session counted as the realm's own item
+  and did not travel. This is the documented rule, but it is easy to break by hand: the Manager's join/return flow must take the
+  baseline itself, not leave it to the user.
+* **Transmog and the vanity collection are not carried.** `character_appearance`, `character_appearance_settings` and the
+  account collections belong to the "per-character wardrobe extras / collections" deferred in Phase 2. An equipped item travels;
+  its transmog appearance does not. Needs its own phase (what is character state and what is account state first).
+* **Setup facts** (for the next person): the client's saved `realmName` must equal the realm's name or it loops on
+  `REALM_NOT_FOUND`; a race/class needs a `playercreateinfo` row to be imported (race 3 / class 23 has none on this data); stale
+  `online` flags and a realm flag of 3 block imports and the authserver respectively.
