@@ -140,7 +140,7 @@ fn run() -> Result<(), String> {
         ("host-run", [owner_dir, server]) => {
             let mut owner = Store::open(&PathBuf::from(owner_dir)).map_err(|e| e.to_string())?;
             let mut host = Store::open(&host_dir).map_err(|e| e.to_string())?;
-            let mut service = HostService::new(&mut host, server, HostConfig { checkpoint_interval_secs: interval });
+            let mut service = HostService::new(&mut host, server, HostConfig { checkpoint_interval_secs: interval, ..HostConfig::default() });
             let start = std::time::Instant::now();
             println!("host running for {server}; Ctrl-C to stop");
             loop {

@@ -211,7 +211,7 @@ fn a_running_worldserver_takes_its_own_baseline_and_checkpoints_one_character_wi
     wait_until("the core's baseline marker", 90, || state_of(&r.b, guid).is_some_and(|row| row.state == RowState::BaselineReady));
     assert!(ra.run(&format!("portable status {guid}")).unwrap().contains("gated 1"), "the core holds the player until the Host has taken B0");
 
-    let mut host = HostService::new(&mut rig.host, B, HostConfig { checkpoint_interval_secs: 1 });
+    let mut host = HostService::new(&mut rig.host, B, HostConfig { checkpoint_interval_secs: 1, ..HostConfig::default() });
     let mut owner = OwnerService::new(&mut rig.owner);
     let mut bridge = LiveBridge::new(&r.b, server.ra());
     tick_until(&mut host, &mut bridge, &clock, "the baseline", |e| matches!(e, HostEvent::BaselineTaken { .. }));
@@ -375,7 +375,7 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
     let record = store.character(id).unwrap();
     let model = store.load_snapshot(id, record.revision).unwrap();
     let ticket = store.begin_import(id, B, record.revision, &crate::portable::realm::import::planned_items(&model), &crate::portable::realm::import::planned_pets(&model)).unwrap();
-    let bytes = crate::portable::realm::online::job_bytes(ticket.import_id, ticket.nonce, ACCOUNT, record.revision, 10, &model, None).unwrap();
+    let bytes = crate::portable::realm::online::job_bytes(ticket.import_id, ticket.nonce, ACCOUNT, record.revision, 10, &model, None, None).unwrap();
     let file = jobs.join(format!("{}.job", ticket.import_id));
     std::fs::write(&file, &bytes).unwrap();
     let before = number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters");
@@ -401,9 +401,9 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
     };
     let mut impossible = imported[0].3.clone();
     impossible.items[0].entry = crate::portable::ids::ContentId::new("coa", "item", 4_000_000_000).unwrap();
-    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 9], ACCOUNT, 1, 10, &impossible, None).unwrap(), "an item the realm does not know");
-    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 8], 99_999_999, 1, 10, &model, None).unwrap(), "an account that does not exist");
-    let mut tampered = crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 7], ACCOUNT, 1, 10, &model, None).unwrap();
+    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 9], ACCOUNT, 1, 10, &impossible, None, None).unwrap(), "an item the realm does not know");
+    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 8], 99_999_999, 1, 10, &model, None, None).unwrap(), "an account that does not exist");
+    let mut tampered = crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 7], ACCOUNT, 1, 10, &model, None, None).unwrap();
     let last = tampered.len() - 3;
     tampered[last] ^= 1;
     refused(tampered, "a snapshot that does not match its hash");

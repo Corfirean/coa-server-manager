@@ -39,6 +39,10 @@ pub mod limits {
     pub const MAX_SETTINGS: usize = 4_096;
     pub const MAX_SETTING_VALUES: usize = 4_096;
     pub const MAX_SETTING_SOURCE_BYTES: usize = 128;
+    /// Appearance categories are `1..68` in the realm (`APPEARANCE_CATEGORY_COUNT = 69`).
+    pub const MAX_APPEARANCE_CATEGORY: u8 = 68;
+    pub const MAX_APPEARANCE_OUTFITS: usize = 100;
+    pub const MAX_APPEARANCE_OUTFIT_NAME_BYTES: usize = 64;
     pub const MAX_CLIENT_BLOBS: usize = 8;
     pub const MAX_CLIENT_BLOB_BYTES: usize = 64 * 1024;
     pub const MAX_RAW_TEXT_BYTES: usize = 8 * 1024;
@@ -314,6 +318,66 @@ pub struct PortablePet {
     pub declined_names: Option<[String; 5]>,
 }
 
+/// What a character looks like by choice (Phase 6): the **selected** appearance per category, the two visibility switches
+/// and the saved outfits. All ids are appearance ids of the character's `content_namespace` (for CoA: `Appearances.dbc`).
+///
+/// This is selection state only. What the account has *unlocked* is a profile collection (`coa:appearance`, `coa:vanity`),
+/// and no gameplay item is referenced from here, so reconciling it can never create or delete an item.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PortableAppearance {
+    /// Category (`character_appearance.category_id`, 1..=68) -> appearance id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub active: BTreeMap<u8, u32>,
+    /// `character_appearance_settings.can_see_item`; a missing row means `true`.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub can_see_item: bool,
+    /// `character_appearance_settings.can_see_spell`; a missing row means `true`.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub can_see_spell: bool,
+    /// Saved outfits by name: the appearance ids in the order the realm stores them (0 = nothing in that category).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub outfits: BTreeMap<String, Vec<u32>>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_yes(v: &bool) -> bool {
+    *v
+}
+
+impl Default for PortableAppearance {
+    fn default() -> Self {
+        Self { active: BTreeMap::new(), can_see_item: true, can_see_spell: true, outfits: BTreeMap::new() }
+    }
+}
+
+impl PortableAppearance {
+    /// Nothing selected, nothing saved, both switches at the realm default: serialised as absent, so a character without an
+    /// appearance has exactly the bytes (and hash) it had before this section existed.
+    pub fn is_empty(&self) -> bool {
+        self.active.is_empty() && self.outfits.is_empty() && self.can_see_item && self.can_see_spell
+    }
+
+    /// Every appearance id mentioned anywhere (selection and outfits), without 0.
+    pub fn ids(&self) -> BTreeSet<u32> {
+        self.active.values().chain(self.outfits.values().flatten()).copied().filter(|id| *id != 0).collect()
+    }
+
+    /// The part of this appearance a destination that knows `known` can hold: a selection of an unknown id and an outfit
+    /// that mentions one are left out (they stay in the canonical character, see `PORTABLE_APPEARANCE.md`).
+    pub fn restricted_to(&self, known: impl Fn(u32) -> bool) -> PortableAppearance {
+        PortableAppearance {
+            active: self.active.iter().filter(|(_, id)| known(**id)).map(|(c, id)| (*c, *id)).collect(),
+            can_see_item: self.can_see_item,
+            can_see_spell: self.can_see_spell,
+            outfits: self.outfits.iter().filter(|(_, ids)| ids.iter().all(|id| *id == 0 || known(*id))).map(|(n, ids)| (n.clone(), ids.clone())).collect(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClientBlob {
@@ -366,6 +430,9 @@ pub struct PortableCharacter {
     /// CoA gameplay state (`character_settings`): source -> integer vector. Only allow-listed sources are carried
     /// (policy lives with the exporter).
     pub settings: BTreeMap<String, Vec<u32>>,
+    /// Selected appearances, visibility switches and saved outfits (absent in snapshots made before Phase 6).
+    #[serde(default, skip_serializing_if = "PortableAppearance::is_empty")]
+    pub wardrobe: PortableAppearance,
     /// Per-character client blobs by account-data type (macros = 5).
     pub client_data: BTreeMap<u8, ClientBlob>,
     /// Module data by extension namespace (`mod:<module>`), kept even when unsupported by a realm.
@@ -541,6 +608,25 @@ impl PortableCharacter {
                 for n in names {
                     check_text("pet declined name", n, 128)?;
                 }
+            }
+        }
+
+        // appearance
+        if self.wardrobe.outfits.len() > MAX_APPEARANCE_OUTFITS {
+            return too_many("saved outfits", MAX_APPEARANCE_OUTFITS);
+        }
+        if let Some(category) = self.wardrobe.active.keys().find(|c| **c == 0 || **c > MAX_APPEARANCE_CATEGORY) {
+            return invalid(format!("appearance category {category} is out of range"));
+        }
+        if self.wardrobe.active.values().any(|id| *id == 0) {
+            return invalid("an active appearance cannot be 0 (a category without a selection has no entry)");
+        }
+        for (name, ids) in &self.wardrobe.outfits {
+            if name.is_empty() || name.len() > MAX_APPEARANCE_OUTFIT_NAME_BYTES || name.chars().any(|c| (c as u32) < 0x20) {
+                return invalid("an outfit name must have 1 to 64 bytes and no control characters");
+            }
+            if ids.len() > MAX_APPEARANCE_CATEGORY as usize + 1 {
+                return too_many("appearances in one outfit", MAX_APPEARANCE_CATEGORY as usize + 1);
             }
         }
 

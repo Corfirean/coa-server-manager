@@ -46,16 +46,21 @@ struct SessionHeader {
 
 /// What the realm needs of a character: no extensions (opaque module payloads the realm cannot apply), only the settings the
 /// policy carries.
-pub fn job_model(model: &PortableCharacter) -> PortableCharacter {
+pub fn job_model(model: &PortableCharacter, knowledge: Option<&super::knowledge::RealmKnowledge>) -> PortableCharacter {
     let mut m = model.clone();
     m.extensions.clear();
+    // the selected appearances the realm's client data knows; without that knowledge none is sent (all stays canonical)
+    m.wardrobe = match knowledge {
+        Some(k) => m.wardrobe.restricted_to(|id| k.knows_appearance(id)),
+        None => Default::default(),
+    };
     m.settings.retain(|source, _| classify_setting(source, m.ruleset) == Disposition::Carry);
     m
 }
 
 /// The bytes of a job file: the header, a newline, the canonical JSON of the character.
-pub fn job_bytes(job_id: ImportId, nonce: [u32; 4], account: u32, revision: u64, max_characters: u32, model: &PortableCharacter, session: Option<(SessionId, u32)>) -> Result<Vec<u8>> {
-    let snapshot_json = snapshot::canonical_json(&job_model(model))?;
+pub fn job_bytes(job_id: ImportId, nonce: [u32; 4], account: u32, revision: u64, max_characters: u32, model: &PortableCharacter, session: Option<(SessionId, u32)>, knowledge: Option<&super::knowledge::RealmKnowledge>) -> Result<Vec<u8>> {
+    let snapshot_json = snapshot::canonical_json(&job_model(model, knowledge))?;
     let header = JobHeader {
         job_id,
         nonce,
@@ -118,7 +123,7 @@ pub fn import_character_online(ra: &mut Ra, store: &mut Store, character_id: Cha
     let ticket = store.begin_import(character_id, server_id, record.revision, &planned_items(&model), &planned_pets(&model))?;
     let (job_file, result_file) = job_paths(job_dir, ticket.import_id);
     let write = || -> Result<()> {
-        let bytes = job_bytes(ticket.import_id, ticket.nonce, account, record.revision, opts.max_characters_per_account, &model, session.map(|s| (s, 1)))?;
+        let bytes = job_bytes(ticket.import_id, ticket.nonce, account, record.revision, opts.max_characters_per_account, &model, session.map(|s| (s, 1)), opts.knowledge.as_deref())?;
         let temp = job_file.with_extension("job.tmp");
         std::fs::write(&temp, bytes)?;
         std::fs::rename(&temp, &job_file)?;
@@ -178,7 +183,7 @@ mod tests {
         model.settings.insert("core.spell_charge.1".into(), vec![9]);
         model.settings.insert("core.ascension_build.54".into(), vec![1, 2]);
         let id = ImportId::new();
-        let bytes = job_bytes(id, [1, 2, 3, 4], 7001, 5, 10, &model, Some((SessionId::new(), 1))).unwrap();
+        let bytes = job_bytes(id, [1, 2, 3, 4], 7001, 5, 10, &model, Some((SessionId::new(), 1)), None).unwrap();
         let split = bytes.iter().position(|b| *b == b'\n').unwrap();
         let header: serde_json::Value = serde_json::from_slice(&bytes[..split]).unwrap();
         let body = &bytes[split + 1..];
@@ -191,6 +196,6 @@ mod tests {
         assert!(sent.extensions.is_empty(), "opaque module payloads are not shipped to the realm");
         assert!(sent.settings.contains_key("core.ascension_build.54") && !sent.settings.contains_key("core.spell_charge.1"));
         assert_eq!(sent.items.len(), model.items.len());
-        assert!(job_bytes(id, [0; 4], 1, 1, 10, &model, None).unwrap().len() > 100);
+        assert!(job_bytes(id, [0; 4], 1, 1, 10, &model, None, None).unwrap().len() > 100);
     }
 }

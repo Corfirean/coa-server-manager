@@ -222,6 +222,14 @@
 #T:pet_declined
 #T:settings
 #T:macros
+#T:appearance
+1	1101
+4	1104
+56	1156
+#T:appearance_settings
+1	0
+#T:appearance_outfits
+x53756E6461792062657374	x31313031203020302031313034
 #T:portable_session
 #T:block:challenge
 0

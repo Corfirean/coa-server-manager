@@ -226,6 +226,7 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
         actions,
         pets,
         settings,
+        wardrobe: wardrobe(raw)?,
         client_data,
         extensions,
     }
@@ -437,4 +438,33 @@ fn settings(raw: &RawExport, ruleset: Ruleset) -> Result<(BTreeMap<String, Vec<u
         }
     }
     Ok((carried, quarantined))
+}
+
+/// The character's selected appearances, visibility switches and outfits. Rows the realm itself would ignore (a category
+/// outside its table, an appearance of 0) are left out, so the model is what the realm actually shows.
+fn wardrobe(raw: &RawExport) -> Result<PortableAppearance> {
+    let mut out = PortableAppearance::default();
+    if raw.has("appearance") {
+        for r in raw.section("appearance")?.iter() {
+            let (category, appearance) = (r.u32("category")?, r.u32("appearance")?);
+            if (1..=limits::MAX_APPEARANCE_CATEGORY as u32).contains(&category) && appearance != 0 {
+                out.active.insert(category as u8, appearance);
+            }
+        }
+    }
+    if raw.has("appearance_settings") {
+        if let Some(r) = raw.section("appearance_settings")?.iter().next() {
+            out.can_see_item = r.u32("see_item")? != 0;
+            out.can_see_spell = r.u32("see_spell")? != 0;
+        }
+    }
+    if raw.has("appearance_outfits") {
+        for r in raw.section("appearance_outfits")?.iter() {
+            let name = r.text("name")?;
+            // the realm tokenises on spaces and reads an unparsable token as 0
+            let ids = r.text("appearances")?.split(' ').filter(|t| !t.is_empty()).map(|t| t.parse::<u32>().unwrap_or(0)).collect();
+            out.outfits.insert(name, ids);
+        }
+    }
+    Ok(out)
 }

@@ -16,7 +16,7 @@ fn probe_with(tables: &[&str]) -> SchemaProbe {
 }
 
 fn ctx<'a>(probe: &'a SchemaProbe, users: &'a [String]) -> PlanContext<'a> {
-    PlanContext { ruleset: Ruleset::Coa, account: 5001, revision: 3, nonce: [11, 22, 33, 44], max_characters_per_account: 10, game_server_users: users, probe, session: None }
+    PlanContext { ruleset: Ruleset::Coa, account: 5001, revision: 3, nonce: [11, 22, 33, 44], max_characters_per_account: 10, game_server_users: users, probe, session: None, knowledge: None }
 }
 
 fn users() -> Vec<String> {
@@ -355,4 +355,31 @@ fn stock_talents_are_never_written_because_a_bad_row_kills_the_realm() {
     assert!(plan.not_applied_settings.iter().any(|s| s.starts_with("character_talent (2 stock talent rows")), "{:?}", plan.not_applied_settings);
     // and the transaction asserts that the character has none, so a leftover row of an earlier character cannot survive either
     assert!(plan.script.contains("acore_characters.character_talent WHERE guid = @char) = 0,"));
+}
+
+// ---- Phase 6: selected appearances ----------------------------------------------------------------------------------------
+
+#[test]
+fn selected_appearances_are_written_only_for_ids_the_realm_knows_and_the_result_is_asserted() {
+    let mut model = geared_level_eighty();
+    model.wardrobe.active.insert(1, 100);
+    model.wardrobe.active.insert(2, 200);
+    model.wardrobe.outfits.insert("Sunday".into(), vec![100, 0]);
+    model.wardrobe.outfits.insert("Far".into(), vec![100, 200]);
+    model.wardrobe.can_see_spell = false;
+    let k = super::knowledge::RealmKnowledge::new(crate::portable::collection::IdSet::from_ids([100]).unwrap(), Default::default());
+    let u = users();
+    let plan = build_plan(&model, &PlanContext { knowledge: Some(&k), ..ctx(&all_tables(), &u) }).unwrap();
+    assert_eq!(plan.counts.wardrobe, 1 + 1 + 1, "one selection, one outfit, one visibility row");
+    let script = &plan.script;
+    assert!(script.contains("INSERT INTO acore_characters.`character_appearance` (`guid`, `category_id`, `appearance_id`) VALUES\n  (@char, 1, 100);"), "{script}");
+    assert!(!script.contains("(@char, 2, 200)") && !script.contains(&hex::encode("100 200")), "ids the realm does not know are never written");
+    assert!(script.contains("acore_characters.character_appearance WHERE guid = @char"), "the number of rows is asserted before the commit");
+    let commit = script.find("COMMIT;").unwrap();
+    assert!(script.find("character_appearance_outfit WHERE guid = @char").unwrap() < commit);
+
+    let none = build_plan(&model, &PlanContext { knowledge: None, ..ctx(&all_tables(), &u) }).unwrap();
+    assert_eq!(none.counts.wardrobe, 0);
+    assert!(!none.script.contains("INSERT INTO acore_characters.`character_appearance`"));
+    assert!(none.not_applied_settings.contains(&"wardrobe".to_string()), "reported as kept canonical, not applied");
 }

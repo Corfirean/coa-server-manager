@@ -426,3 +426,90 @@ fn random_realm_normalisation_never_leaks_into_the_canonical_character() {
         assert!(m.changes.is_empty(), "round {round}: {:?}", m.changes);
     }
 }
+
+// ---- Phase 6: the selected appearances travel with the character and never touch an item ---------------------------------
+
+fn with_wardrobe(mut m: PortableCharacter, active: &[(u8, u32)], outfits: &[(&str, &[u32])]) -> PortableCharacter {
+    m.wardrobe.active = active.iter().copied().collect();
+    m.wardrobe.outfits = outfits.iter().map(|(n, ids)| (n.to_string(), ids.to_vec())).collect();
+    m.normalized()
+}
+
+#[test]
+fn a_selected_appearance_made_in_a_session_reaches_the_canonical_character_without_touching_an_item() {
+    let c0 = with_wardrobe(c0(), &[(1, 100)], &[]);
+    let (b0, _) = normalized_by_the_realm(&c0);
+    let mut b1 = b0.clone();
+    b1.wardrobe.active.insert(3, 303);
+    b1.wardrobe.active.insert(56, 5600);
+    b1.wardrobe.outfits.insert("Sunday".into(), vec![100, 0, 303]);
+    b1.wardrobe.can_see_spell = false;
+    let merged = merge3(&c0, &b0, &b1, Mode::Lenient).unwrap();
+    assert_eq!(merged.model.wardrobe.active, [(1, 100), (3, 303), (56, 5600)].into_iter().collect());
+    assert_eq!(merged.model.wardrobe.outfits["Sunday"], vec![100, 0, 303]);
+    assert!(merged.model.wardrobe.can_see_item && !merged.model.wardrobe.can_see_spell);
+    assert!(merged.items.added.is_empty() && merged.items.removed.is_empty() && merged.items.changed.is_empty());
+    assert_eq!(merged.model.items, c0.items, "reconciling an appearance can never create, change or delete a gameplay item");
+}
+
+#[test]
+fn an_appearance_the_realm_does_not_know_stays_canonical_through_any_number_of_sessions() {
+    // the canonical character wears 999 and 1000, which the realm never showed (B0 and B1 lack them)
+    let c0 = with_wardrobe(c0(), &[(1, 100), (2, 999)], &[("Far away", &[999, 1000])]);
+    let (mut b0, _) = normalized_by_the_realm(&c0);
+    b0.wardrobe = Default::default();
+    let mut b1 = b0.clone();
+    b1.wardrobe.active.insert(3, 303);
+    let merged = merge3(&c0, &b0, &b1, Mode::Lenient).unwrap();
+    assert_eq!(merged.model.wardrobe.active.get(&1), Some(&100));
+    assert_eq!(merged.model.wardrobe.active.get(&2), Some(&999), "kept");
+    assert_eq!(merged.model.wardrobe.active.get(&3), Some(&303), "and the session's choice is added");
+    assert!(merged.model.wardrobe.outfits.contains_key("Far away"));
+    // again, from the merged result as the next session's canonical character
+    let again = merge3(&merged.model, &b0, &b1, Mode::Lenient).unwrap();
+    assert_eq!(again.model.wardrobe, merged.model.wardrobe, "repeatable");
+}
+
+#[test]
+fn deselecting_and_deleting_in_a_session_removes_them_from_the_canonical_character() {
+    let c0 = with_wardrobe(c0(), &[(1, 100), (3, 303)], &[("A", &[100]), ("B", &[303])]);
+    let b0 = c0.clone();
+    let mut b1 = b0.clone();
+    b1.wardrobe.active.remove(&3);
+    b1.wardrobe.outfits.remove("B");
+    let merged = merge3(&c0, &b0, &b1, Mode::Lenient).unwrap();
+    assert_eq!(merged.model.wardrobe.active, [(1, 100)].into_iter().collect());
+    assert_eq!(merged.model.wardrobe.outfits.keys().collect::<Vec<_>>(), ["A"]);
+}
+
+#[test]
+fn an_update_conflicts_only_where_both_sides_changed_the_same_category_differently() {
+    // target = the realm now, base = what it was synced with, ours = the new canonical character
+    let base = with_wardrobe(c0(), &[(1, 100), (3, 303)], &[]);
+    let mut target = base.clone();
+    target.wardrobe.active.insert(1, 101);
+    target.wardrobe.active.insert(9, 909);
+    let mut ours = base.clone();
+    ours.wardrobe.active.insert(3, 304);
+    let merged = merge3(&target, &base, &ours, Mode::Strict).unwrap();
+    assert!(merged.conflicts.is_empty(), "{:?}", merged.conflicts);
+    assert_eq!(merged.model.wardrobe.active, [(1, 101), (3, 304), (9, 909)].into_iter().collect(), "each side's own change survives");
+    let mut ours = base.clone();
+    ours.wardrobe.active.insert(1, 102);
+    let merged = merge3(&target, &base, &ours, Mode::Strict).unwrap();
+    assert_eq!(merged.conflicts.len(), 1);
+    assert!(merged.conflicts[0].path.contains("wardrobe.active"));
+}
+
+#[test]
+fn a_character_without_a_wardrobe_has_the_bytes_it_had_before_the_section_existed() {
+    let model = c0();
+    assert!(model.wardrobe.is_empty());
+    let json = String::from_utf8(crate::portable::snapshot::canonical_json(&model).unwrap()).unwrap();
+    assert!(!json.contains("wardrobe"), "an empty section is not serialised, so every older snapshot keeps its hash");
+    let worn = with_wardrobe(model, &[(1, 100)], &[]);
+    let json = String::from_utf8(crate::portable::snapshot::canonical_json(&worn).unwrap()).unwrap();
+    assert!(json.contains("\"wardrobe\":{\"active\":{\"1\":100}}"), "{json}");
+    let back: PortableCharacter = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, worn);
+}

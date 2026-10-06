@@ -140,6 +140,8 @@ pub struct PlanContext<'a> {
     pub probe: &'a SchemaProbe,
     /// Arm a runtime portable session for the arrival: the core takes the baseline at its first load.
     pub session: Option<SessionArm>,
+    /// What the destination's client data knows: appearances it does not know are not written.
+    pub knowledge: Option<&'a super::knowledge::RealmKnowledge>,
 }
 
 /// The portable session a character arrives with (`coa_portable_session` state 0).
@@ -169,6 +171,7 @@ pub struct PlanCounts {
     pub declined: usize,
     pub settings: usize,
     pub macros: usize,
+    pub wardrobe: usize,
 }
 
 #[derive(Debug)]
@@ -478,6 +481,20 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
             _ => not_applied.push(source.clone()),
         }
     }
+    // selected appearances: only what the destination's client data knows
+    let wardrobe_rows = match super::wardrobe::writable(&model.wardrobe, None, ctx.knowledge, ctx.probe) {
+        Some(w) => {
+            counts.wardrobe = super::wardrobe::row_count(&w);
+            inserts.extend(super::wardrobe::inserts(&w)?);
+            Some(w)
+        }
+        None => {
+            if !model.wardrobe.is_empty() {
+                not_applied.push("wardrobe".to_string());
+            }
+            None
+        }
+    };
     // extensions (module data this importer does not apply) stay in the snapshot only
     not_applied.extend(model.extensions.keys().cloned());
     counts.settings = settings.len();
@@ -577,6 +594,10 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     line(assert_count("acore_characters.character_action WHERE guid = @char", counts.actions));
     line(assert_count("acore_characters.character_pet WHERE owner = @char", counts.pets));
     line(assert_count("acore_characters.character_settings WHERE guid = @char", counts.settings + 1));
+    if let Some(w) = &wardrobe_rows {
+        line(assert_count("acore_characters.character_appearance WHERE guid = @char", w.active.len()));
+        line(assert_count("acore_characters.character_appearance_outfit WHERE guid = @char", w.outfits.len()));
+    }
     if ctx.session.is_some() {
         line(assert_count("acore_characters.coa_portable_session WHERE guid = @char", 1));
     }

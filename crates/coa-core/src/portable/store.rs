@@ -18,7 +18,7 @@ use super::versions::{PORTABLE_COLLECTION_FORMAT_VERSION, SNAPSHOT_FORMAT_VERSIO
 pub const DATABASE_FILE: &str = "portable.db";
 /// `PRAGMA application_id`: "COAP". Refuses to adopt an unrelated SQLite file.
 const APPLICATION_ID: i64 = 0x434F_4150;
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql"), include_str!("migrations/003_import_journal.sql"), include_str!("migrations/004_reconciliation.sql"), include_str!("migrations/005_sessions.sql")];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql"), include_str!("migrations/003_import_journal.sql"), include_str!("migrations/004_reconciliation.sql"), include_str!("migrations/005_sessions.sql"), include_str!("migrations/006_collections.sql")];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
 pub const MAX_HISTORY_KEEP: u32 = 1_000;

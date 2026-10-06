@@ -7,21 +7,31 @@ use crate::ra::Ra;
 
 use super::super::error::{PortableError, Result};
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, SessionId};
+use super::super::collection::IdSet;
+use super::super::realm::collections::{self, Applied};
+use super::super::realm::knowledge::RealmKnowledge;
 use super::super::realm::{probe, read_session_character};
 use super::bridge::*;
 
 pub struct LiveBridge<'a> {
     db: &'a Db,
     ra: Option<Ra>,
+    knowledge: Option<std::sync::Arc<RealmKnowledge>>,
 }
 
 impl<'a> LiveBridge<'a> {
     pub fn new(db: &'a Db, ra: Ra) -> Self {
-        Self { db, ra: Some(ra) }
+        Self { db, ra: Some(ra), knowledge: None }
     }
 
     pub fn without_console(db: &'a Db) -> Self {
-        Self { db, ra: None }
+        Self { db, ra: None, knowledge: None }
+    }
+
+    /// What the realm's client data knows: without it no account collection is ever written to the realm.
+    pub fn with_knowledge(mut self, knowledge: Option<std::sync::Arc<RealmKnowledge>>) -> Self {
+        self.knowledge = knowledge;
+        self
     }
 
     fn console(&mut self) -> Result<&mut Ra> {
@@ -94,5 +104,22 @@ COMMIT;"
         );
         self.db.query(&sql).map_err(realm_error)?;
         Ok(())
+    }
+
+    fn account_of(&mut self, local_guid: u32) -> Result<Option<u32>> {
+        collections::account_of(self.db, local_guid)
+    }
+
+    fn collection_fingerprint(&mut self, account: u32, kind: &str) -> Result<String> {
+        collections::fingerprint(self.db, account, kind)
+    }
+
+    fn read_collection(&mut self, account: u32, kind: &str) -> Result<IdSet> {
+        collections::read_set(self.db, account, kind)
+    }
+
+    fn apply_collection(&mut self, account: u32, kind: &str, canonical: &IdSet) -> Result<Applied> {
+        let knowledge = self.knowledge.clone().ok_or_else(|| PortableError::Invalid("the realm's client data is not known: no collection can be written".into()))?;
+        collections::apply_set(self.db, account, kind, canonical, &knowledge)
     }
 }

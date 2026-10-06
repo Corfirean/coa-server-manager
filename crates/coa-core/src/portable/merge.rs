@@ -16,7 +16,7 @@
 //! * scalars: `ours` wins where `base != ours`; otherwise `target` is kept;
 //! * accumulators (money, honor totals, kills, arena points, xp inside a level): the *difference* `ours - base` is added;
 //! * bit sets (known currencies, titles, explored zones, taxi nodes): bits gained are added, bits lost are removed;
-//! * keyed collections (spells, skills, reputation, quests, action buttons, settings, ...): keys added in `ours` are added,
+//! * keyed collections (spells, skills, reputation, quests, action buttons, settings, selected appearances and outfits, ...): keys added in `ours` are added,
 //!   keys removed in `ours` are removed, values changed in `ours` are replaced;
 //! * items and pets are matched by their **portable id**: present in `target` and `base`: delta applied, or removed when
 //!   `ours` lacks it (the player got rid of it); in `target` only (filtered away by the realm before `base`): **kept**, or
@@ -327,6 +327,10 @@ pub fn merge3(target: &PortableCharacter, base: &PortableCharacter, ours: &Porta
         out.actions = actions.into_iter().map(|((spec, button), (action, kind))| ActionButton { spec, button, action, kind }).collect();
 
         cx.map("settings", &mut out.settings, &base.settings, &ours.settings);
+        cx.map("wardrobe.active", &mut out.wardrobe.active, &base.wardrobe.active, &ours.wardrobe.active);
+        cx.map("wardrobe.outfits", &mut out.wardrobe.outfits, &base.wardrobe.outfits, &ours.wardrobe.outfits);
+        cx.scalar("wardrobe.can_see_item", &mut out.wardrobe.can_see_item, &base.wardrobe.can_see_item, &ours.wardrobe.can_see_item);
+        cx.scalar("wardrobe.can_see_spell", &mut out.wardrobe.can_see_spell, &base.wardrobe.can_see_spell, &ours.wardrobe.can_see_spell);
         cx.map("client_data", &mut out.client_data, &base.client_data, &ours.client_data);
     }
     // extensions are the canonical character's own (quarantined data); a realm never contributes to them

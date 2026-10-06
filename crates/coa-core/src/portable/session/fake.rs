@@ -3,10 +3,13 @@
 
 use std::collections::HashMap;
 
+use super::super::collection::IdSet;
 use super::super::error::{PortableError, Result};
 use super::super::identity::item_identity;
 use super::super::ids::{CharacterId, ContentId, PortableItemId, PortablePetId, SessionId};
 use super::super::model::*;
+use super::super::realm::collections::Applied;
+use super::super::realm::knowledge::RealmKnowledge;
 use super::super::realm::Exported;
 use super::super::store::{pet_identity, ImportAllocation, ItemObservation, PetObservation, PlannedItem, PlannedPet, Store};
 use super::bridge::*;
@@ -30,6 +33,16 @@ pub struct FakeRealm {
     pub saves: u32,
     pub released: Vec<SessionId>,
     pub normalize: fn(&mut FakeRealm),
+    /// The game account of the character and its two collection tables.
+    pub account: u32,
+    pub appearance_rows: IdSet,
+    pub vanity_rows: IdSet,
+    /// The realm's client data: what it can show.
+    pub knowledge: RealmKnowledge,
+    /// How often the collections were fingerprinted, read in full and written (the tests prove "nothing changed, nothing read").
+    pub fingerprints: u32,
+    pub full_reads: u32,
+    pub collection_writes: u32,
 }
 
 pub fn new_internal_item(n: u64, slot: u8, entry: u64) -> PortableItem {
@@ -70,6 +83,13 @@ impl FakeRealm {
             saves: 0,
             released: vec![],
             normalize: |_| {},
+            account: 1,
+            appearance_rows: IdSet::new(),
+            vanity_rows: IdSet::new(),
+            knowledge: RealmKnowledge::default(),
+            fingerprints: 0,
+            full_reads: 0,
+            collection_writes: 0,
         }
     }
 
@@ -255,5 +275,70 @@ impl RealmBridge for FakeRealm {
         let save_seq = self.row.as_ref().map_or(0, |r| r.save_seq);
         self.row = Some(SessionRow { guid: local_guid, session_id: session, character_id: character, imported_revision: revision, generation, state: RowState::WaitingBaseline, checkpoint_seq: 0, save_seq });
         Ok(())
+    }
+
+    fn account_of(&mut self, local_guid: u32) -> Result<Option<u32>> {
+        Ok((local_guid == self.guid).then_some(self.account))
+    }
+
+    fn collection_fingerprint(&mut self, account: u32, kind: &str) -> Result<String> {
+        assert_eq!(account, self.account);
+        self.fingerprints += 1;
+        let set = self.rows(kind)?;
+        Ok(format!("{}:{}:{}", set.len(), set.ids().last().copied().unwrap_or(0), set.ids().iter().map(|i| *i as u64).sum::<u64>()))
+    }
+
+    fn read_collection(&mut self, account: u32, kind: &str) -> Result<IdSet> {
+        assert_eq!(account, self.account);
+        self.full_reads += 1;
+        Ok(self.rows(kind)?.clone())
+    }
+
+    fn apply_collection(&mut self, account: u32, kind: &str, canonical: &IdSet) -> Result<Applied> {
+        assert_eq!(account, self.account);
+        let knows = |id: u32| if kind == "coa:appearance" { self.knowledge.knows_appearance(id) } else { self.knowledge.knows_vanity(id) };
+        let held = self.rows(kind)?.clone();
+        let mut applied = Applied::default();
+        let mut add = Vec::new();
+        for id in canonical.ids().iter().copied() {
+            if !knows(id) {
+                applied.unknown += 1;
+            } else if held.contains(id) {
+                applied.already += 1;
+            } else {
+                add.push(id);
+            }
+        }
+        applied.inserted = add.len();
+        if !add.is_empty() {
+            self.collection_writes += 1;
+            let union = held.union(&IdSet::from_ids(add)?);
+            *self.rows_mut(kind)? = union;
+        }
+        Ok(applied)
+    }
+}
+
+impl FakeRealm {
+    fn rows(&self, kind: &str) -> Result<&IdSet> {
+        match kind {
+            "coa:appearance" => Ok(&self.appearance_rows),
+            "coa:vanity" => Ok(&self.vanity_rows),
+            other => Err(PortableError::Invalid(format!("unknown kind {other}"))),
+        }
+    }
+
+    fn rows_mut(&mut self, kind: &str) -> Result<&mut IdSet> {
+        match kind {
+            "coa:appearance" => Ok(&mut self.appearance_rows),
+            "coa:vanity" => Ok(&mut self.vanity_rows),
+            other => Err(PortableError::Invalid(format!("unknown kind {other}"))),
+        }
+    }
+
+    /// The player unlocks ids (the core `INSERT IGNORE`s them).
+    pub fn unlock(&mut self, kind: &str, ids: impl IntoIterator<Item = u32>) {
+        let union = self.rows(kind).unwrap().union(&IdSet::from_ids(ids).unwrap());
+        *self.rows_mut(kind).unwrap() = union;
     }
 }

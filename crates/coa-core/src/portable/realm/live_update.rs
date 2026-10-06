@@ -220,7 +220,7 @@ fn prepare_update(r: &Realms, store: &mut Store, id: CharacterId) -> (crate::por
     let schema = probe(&r.b).unwrap();
     let users = opts().game_server_users;
     let revision = canonical_revision(store, id);
-    let ctx = |nonce| UpdateContext { ruleset: Ruleset::Coa, local_guid: guid, revision, nonce, game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None };
+    let ctx = |nonce| UpdateContext { ruleset: Ruleset::Coa, local_guid: guid, revision, nonce, game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None, knowledge: None };
     let draft = build_update(&exported.model, &merged.model, &ctx([0; 4])).unwrap();
     let by_id: std::collections::HashMap<_, _> = merged.model.items.iter().map(|i| (i.id, i)).collect();
     let plan = UpdatePlan {

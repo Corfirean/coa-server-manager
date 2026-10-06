@@ -10,8 +10,10 @@
 //! Writing into a realm is Phase 3 and will use prepared statements / the realm's own import path.
 
 pub mod blockers;
+pub mod collections;
 pub mod export;
 pub mod import;
+pub mod knowledge;
 pub mod online;
 pub mod plan;
 pub mod policy;
@@ -20,6 +22,7 @@ pub mod registry;
 pub mod script;
 pub mod sqlenc;
 pub mod update;
+pub mod wardrobe;
 
 use std::collections::HashMap;
 

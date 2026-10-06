@@ -638,3 +638,9 @@ INSERT INTO acore_characters.`characters` (`guid`, `account`, `name`, `race`, `c
 INSERT INTO acore_characters.coa_character_gamemode (guid, gameMode) VALUES (1012, 0);
 INSERT INTO acore_characters.coa_challenge_completion (guid, challengeId, level, completeTime, startTime) VALUES (1012, 5, 1, 1790000100, 1790000000);
 INSERT INTO acore_characters.coa_character_condition (guid, flag) VALUES (1012, 'finished_once');
+-- Phase 6: selected appearances of the geared character 1002 and the permanent unlocks of its account 5001.
+INSERT INTO acore_characters.character_appearance (guid, category_id, appearance_id) VALUES (1002, 1, 1101), (1002, 4, 1104), (1002, 56, 1156);
+INSERT INTO acore_characters.character_appearance_settings (guid, can_see_item, can_see_spell) VALUES (1002, 1, 0);
+INSERT INTO acore_characters.character_appearance_outfit (guid, name, appearances) VALUES (1002, 'Sunday best', '1101 0 0 1104');
+INSERT INTO acore_characters.account_appearance_collection (account_id, appearance_id, source_item) VALUES (5001, 1101, 40001), (5001, 1104, 40004), (5001, 1156, 0), (5001, 1200, 40200);
+INSERT INTO acore_characters.account_vanity_collection (account_id, item_id) VALUES (5001, 50001), (5001, 50002), (5001, 110000);

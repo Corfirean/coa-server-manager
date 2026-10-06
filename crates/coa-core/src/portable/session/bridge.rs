@@ -4,7 +4,9 @@
 
 use std::collections::HashMap;
 
+use super::super::collection::IdSet;
 use super::super::error::Result;
+use super::super::realm::collections::Applied;
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, SessionId};
 use super::super::realm::Exported;
 
@@ -75,4 +77,15 @@ pub trait RealmBridge {
     fn release(&mut self, session: SessionId) -> Result<()>;
     /// Put the character's marker back to "waiting for baseline" with a new session (the character is offline).
     fn arm(&mut self, local_guid: u32, session: SessionId, character: CharacterId, revision: u64, generation: u32) -> Result<()>;
+
+    // ---- account collections (Phase 6) --------------------------------------------------------------------------------------
+
+    /// The game account that owns the character.
+    fn account_of(&mut self, local_guid: u32) -> Result<Option<u32>>;
+    /// A cheap fingerprint of the account's rows of one collection kind: equal fingerprints mean nothing changed.
+    fn collection_fingerprint(&mut self, account: u32, kind: &str) -> Result<String>;
+    /// The account's ids of one kind.
+    fn read_collection(&mut self, account: u32, kind: &str) -> Result<IdSet>;
+    /// Union the canonical ids into the account: only ids the realm knows and lacks are written.
+    fn apply_collection(&mut self, account: u32, kind: &str, canonical: &IdSet) -> Result<Applied>;
 }

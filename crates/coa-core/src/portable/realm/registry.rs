@@ -4,7 +4,9 @@
 //!
 //! * `Portable`        exported in v1;
 //! * `Deferred`        portable later by decision (equipment sets, per-character wardrobe, personal bank, codex);
-//! * `Collection`      account-wide collections (Phase 6);
+//! * `Appearance`      the character's selected appearances, outfits and visibility switches (Phase 6, carried in
+//!                     `PortableCharacter::wardrobe`; the tables belong to an optional module);
+//! * `Collection`      account-wide permanent unlocks (Phase 6, a profile collection, not part of the character);
 //! * `AccountLocal`    account / realm-account state, never carried;
 //! * `CharacterLocal`  per-character state that is deliberately not portable (cooldowns, auras, mail links, ...);
 //! * `Blocking`        per-character state of an active challenge / game mode / Manastorm: while it exists the
@@ -18,6 +20,7 @@
 pub enum TableClass {
     Portable,
     Deferred,
+    Appearance,
     Collection,
     AccountLocal,
     CharacterLocal,
@@ -76,9 +79,9 @@ pub const TABLES: &[(&str, TableClass)] = &[
     ("character_achievement_offline_updates", TableClass::CharacterLocal),
     ("character_achievement_progress", TableClass::CharacterLocal),
     ("character_action", TableClass::Portable),
-    ("character_appearance", TableClass::Deferred),
-    ("character_appearance_outfit", TableClass::Deferred),
-    ("character_appearance_settings", TableClass::Deferred),
+    ("character_appearance", TableClass::Appearance),
+    ("character_appearance_outfit", TableClass::Appearance),
+    ("character_appearance_settings", TableClass::Appearance),
     ("character_arena_stats", TableClass::CharacterLocal),
     ("character_ascension_state", TableClass::CharacterLocal),
     ("character_aura", TableClass::CharacterLocal),
@@ -272,9 +275,6 @@ mod tests {
     fn deferred_and_blocking_tables_match_the_decisions() {
         let deferred: BTreeSet<&str> = [
             "character_equipmentsets",
-            "character_appearance",
-            "character_appearance_outfit",
-            "character_appearance_settings",
             "mod_ascension_bank_tab",
             "mod_ascension_bank_item",
             "mod_ascension_bank_money",
@@ -284,6 +284,8 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(of(TableClass::Deferred), deferred);
+        let appearance: BTreeSet<&str> = ["character_appearance", "character_appearance_outfit", "character_appearance_settings"].into_iter().collect();
+        assert_eq!(of(TableClass::Appearance), appearance);
         let blocking: BTreeSet<&str> = ["coa_character_challenge", "coa_character_gamemode", "coa_custom_trial_active", "ascension_manastorm_cache"].into_iter().collect();
         assert_eq!(of(TableClass::Blocking), blocking);
         let collections: BTreeSet<&str> = ["account_appearance_collection", "account_vanity_collection"].into_iter().collect();

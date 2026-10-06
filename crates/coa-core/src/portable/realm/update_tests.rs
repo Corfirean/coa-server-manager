@@ -9,7 +9,7 @@ use super::script::SchemaProbe;
 use super::update::*;
 
 fn probe() -> SchemaProbe {
-    let tables = ["reserved_name", "item_refund_instance", "item_soulbound_trade_data", "pet_aura", "pet_spell_cooldown", "character_pet_declinedname", "character_gifts"];
+    let tables = ["reserved_name", "item_refund_instance", "item_soulbound_trade_data", "pet_aura", "pet_spell_cooldown", "character_pet_declinedname", "character_gifts", "character_appearance", "character_appearance_settings", "character_appearance_outfit"];
     SchemaProbe { tables: tables.iter().map(|t| t.to_string()).collect(), character_columns: Default::default() }
 }
 
@@ -21,7 +21,7 @@ fn script_of(current: &PortableCharacter, merged: &PortableCharacter) -> UpdateS
     let (items, pets) = realm_ids(current);
     let users = ["acore".to_string()];
     let probe = probe();
-    build_update(current, merged, &UpdateContext { ruleset: Ruleset::Coa, local_guid: 4242, revision: 9, nonce: [1, 2, 3, 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets, session: None }).unwrap()
+    build_update(current, merged, &UpdateContext { ruleset: Ruleset::Coa, local_guid: 4242, revision: 9, nonce: [1, 2, 3, 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets, session: None, knowledge: None }).unwrap()
 }
 
 fn statements(script: &UpdateScript) -> Vec<&str> {
@@ -184,7 +184,7 @@ fn what_a_character_is_cannot_be_changed_in_place() {
     let (items, pets) = realm_ids(&current);
     let users = ["acore".to_string()];
     let probe = probe();
-    let ctx = UpdateContext { ruleset: Ruleset::Coa, local_guid: 1, revision: 2, nonce: [0; 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets, session: None };
+    let ctx = UpdateContext { ruleset: Ruleset::Coa, local_guid: 1, revision: 2, nonce: [0; 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets, session: None, knowledge: None };
     let mut merged = current.clone();
     merged.identity.gender ^= 1;
     assert!(build_update(&current, &merged, &ctx).is_err(), "gender");
@@ -224,4 +224,69 @@ fn the_report_parses_and_a_lost_commit_is_visible() {
     assert_eq!(parse_update_report("#R:update\t4242\t900\t12\n").unwrap(), ((4242, 900, 12), false));
     assert!(parse_update_report("").is_err());
     assert!(parse_update_report("#R:alloc\t1\t2\t3\t4\t5\n").is_err());
+}
+
+// ---- Phase 6: selected appearances ----------------------------------------------------------------------------------------
+
+fn script_known(current: &PortableCharacter, merged: &PortableCharacter, known: Option<&super::knowledge::RealmKnowledge>) -> UpdateScript {
+    let (items, pets) = realm_ids(current);
+    let users = ["acore".to_string()];
+    let probe = probe();
+    build_update(current, merged, &UpdateContext { ruleset: Ruleset::Coa, local_guid: 4242, revision: 9, nonce: [1, 2, 3, 4], game_server_users: &users, probe: &probe, items: &items, pets: &pets, session: None, knowledge: known }).unwrap()
+}
+
+fn knows(ids: &[u32]) -> super::knowledge::RealmKnowledge {
+    super::knowledge::RealmKnowledge::new(super::super::collection::IdSet::from_ids(ids.iter().copied()).unwrap(), Default::default())
+}
+
+#[test]
+fn a_changed_appearance_replaces_the_three_tables_and_touches_no_item() {
+    let current = geared_level_eighty();
+    let mut merged = current.clone();
+    merged.wardrobe.active.insert(1, 100);
+    merged.wardrobe.active.insert(3, 303);
+    merged.wardrobe.outfits.insert("Sunday".into(), vec![100, 0, 303]);
+    merged.wardrobe.can_see_item = false;
+    let k = knows(&[100, 303]);
+    let script = script_known(&current, &merged, Some(&k));
+    let w = writes(&script);
+    for table in ["character_appearance", "character_appearance_settings", "character_appearance_outfit"] {
+        assert!(w.iter().any(|l| l.starts_with(&format!("DELETE FROM acore_characters.`{table}` WHERE `guid` = @char"))), "{table}");
+    }
+    assert!(w.iter().any(|l| l.starts_with("INSERT INTO acore_characters.`character_appearance` ")));
+    assert!(w.iter().any(|l| l.starts_with("INSERT INTO acore_characters.`character_appearance_outfit`")));
+    assert!(w.iter().any(|l| l.starts_with("INSERT INTO acore_characters.`character_appearance_settings`")));
+    assert!(!script.script.contains("item_instance") || script.counts.items_added + script.counts.items_removed + script.counts.items_changed == 0);
+    assert_eq!((script.counts.items_added, script.counts.items_removed, script.counts.items_moved), (0, 0, 0), "no gameplay item is created, deleted or moved");
+    assert_eq!(script.counts.keyed_rows, 4, "two selections, one outfit, one visibility row");
+}
+
+#[test]
+fn an_appearance_the_realm_does_not_know_is_not_written_and_one_it_already_shows_is_kept() {
+    let mut current = geared_level_eighty();
+    current.wardrobe.active.insert(5, 555); // the realm itself shows this one (e.g. a synthesised appearance)
+    let mut merged = current.clone();
+    merged.wardrobe.active.insert(1, 100);
+    merged.wardrobe.active.insert(2, 200); // unknown to this realm
+    merged.wardrobe.outfits.insert("Mixed".into(), vec![100, 200]);
+    let k = knows(&[100]);
+    let script = script_known(&current, &merged, Some(&k));
+    let start = script.script.find("INSERT INTO acore_characters.`character_appearance` ").unwrap();
+    let insert = script.script[start..].split(';').next().unwrap().to_string();
+    assert!(insert.contains(", 1, 100)") && insert.contains(", 5, 555)"), "{insert}");
+    assert!(!insert.contains(", 2, 200)"), "unknown to the realm: stays canonical, never written: {insert}");
+    assert!(!script.script.contains("character_appearance_outfit` (") || !script.script.contains(&hex::encode("100 200")), "an outfit that mentions an unknown id is held back");
+
+    // without knowledge of the realm's client data nothing at all is written
+    let none = script_known(&current, &merged, None);
+    assert!(!none.script.contains("character_appearance"), "no knowledge, no write");
+}
+
+#[test]
+fn an_unchanged_appearance_writes_nothing() {
+    let mut current = geared_level_eighty();
+    current.wardrobe.active.insert(1, 100);
+    let k = knows(&[100]);
+    let script = script_known(&current, &current.clone(), Some(&k));
+    assert!(!script.script.contains("character_appearance"), "{}", script.script);
 }

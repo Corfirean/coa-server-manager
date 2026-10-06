@@ -261,6 +261,17 @@ pub fn queries(guid: u32, probe: &SchemaProbe) -> Result<Vec<Query>> {
         query("macros", &[("time", "d.`time`"), ("data", hex!("d.data"))], "acore_characters.character_account_data d WHERE d.guid = {guid} AND d.`type` = 5", guid),
     ];
 
+    // The character's selected appearances (Phase 6): the tables exist only where the appearance module does.
+    if probe.has("character_appearance") {
+        out.push(query("appearance", &[("category", "a.category_id"), ("appearance", "a.appearance_id")], "acore_characters.character_appearance a WHERE a.guid = {guid} ORDER BY a.category_id", guid));
+    }
+    if probe.has("character_appearance_settings") {
+        out.push(query("appearance_settings", &[("see_item", "a.can_see_item"), ("see_spell", "a.can_see_spell")], "acore_characters.character_appearance_settings a WHERE a.guid = {guid}", guid));
+    }
+    if probe.has("character_appearance_outfit") {
+        out.push(query("appearance_outfits", &[("name", hex!("o.name")), ("appearances", hex!("o.appearances"))], "acore_characters.character_appearance_outfit o WHERE o.guid = {guid} ORDER BY o.name", guid));
+    }
+
     // The portable session marker of the core: read in the same snapshot as the character, so the marker says which save the rows are.
     if probe.has("coa_portable_session") {
         out.push(query(

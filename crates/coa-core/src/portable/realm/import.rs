@@ -41,11 +41,14 @@ pub struct ImportOptions {
     pub recovery_grace: Duration,
     /// How long recovery waits for an import that is still running in the realm.
     pub lock_wait_seconds: u32,
+    /// What the destination's client data knows (appearances, vanity items). Without it no appearance or collection is
+    /// written to the realm (all of it stays canonical); see `PORTABLE_APPEARANCE.md`.
+    pub knowledge: Option<std::sync::Arc<super::knowledge::RealmKnowledge>>,
 }
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        Self { max_characters_per_account: 10, game_server_users: vec!["acore".to_string()], recovery_grace: Duration::from_secs(30), lock_wait_seconds: 30 }
+        Self { max_characters_per_account: 10, game_server_users: vec!["acore".to_string()], recovery_grace: Duration::from_secs(30), lock_wait_seconds: 30, knowledge: None }
     }
 }
 
@@ -272,7 +275,7 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
     let pets = planned_pets(&model);
     let ticket = store.begin_import(character_id, server_id, record.revision, &items, &pets)?;
 
-    let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe, session: session.map(|session_id| SessionArm { session_id, character_id, generation: 1 }) }) {
+    let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe, session: session.map(|session_id| SessionArm { session_id, character_id, generation: 1 }), knowledge: opts.knowledge.as_deref() }) {
         Ok(plan) => plan,
         Err(e) => {
             store.abort_import(ticket.import_id, &format!("the import plan could not be built: {e}"))?;

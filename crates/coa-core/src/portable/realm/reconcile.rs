@@ -247,6 +247,7 @@ pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: Charact
         items: &view.items,
         pets: &view.pets,
         session: session.map(|session_id| SessionArm { session_id, character_id: id, generation: 1 }),
+        knowledge: opts.knowledge.as_deref(),
     };
     // the plan (what is added, what is removed) does not depend on the nonce
     let draft = build_update(&view.exported.model, &merged.model, &context([0; 4]))?;
@@ -386,5 +387,5 @@ pub fn summarize(merged: &PortableCharacter, current: &PortableCharacter) -> Res
     let pets: HashMap<PortablePetId, u32> = current.pets.iter().enumerate().map(|(i, p)| (p.id, i as u32 + 1)).collect();
     let users = ["acore".to_string()];
     let schema = super::script::SchemaProbe::default();
-    Ok(build_update(current, merged, &UpdateContext { ruleset: current.ruleset, local_guid: 1, revision: 1, nonce: [0; 4], game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None })?.counts)
+    Ok(build_update(current, merged, &UpdateContext { ruleset: current.ruleset, local_guid: 1, revision: 1, nonce: [0; 4], game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None, knowledge: None })?.counts)
 }

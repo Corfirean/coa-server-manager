@@ -39,6 +39,8 @@ pub struct UpdateContext<'a> {
     pub pets: &'a HashMap<PortablePetId, u32>,
     /// Arm a runtime portable session on the updated character (state 0: the core takes the baseline at its next load).
     pub session: Option<super::plan::SessionArm>,
+    /// What the destination's client data knows: appearances it does not know are not written.
+    pub knowledge: Option<&'a super::knowledge::RealmKnowledge>,
 }
 
 /// What the script does, in numbers (and as the plan the journal records).
@@ -315,6 +317,19 @@ pub fn build_update(current: &PortableCharacter, merged: &PortableCharacter, ctx
             let mut t = Insert::new("character_account_data", &["guid", "type", "time", "data"]);
             t.row(vec![Val::Expr("@char"), Val::u(5u8), Val::u(blob.time), Val::Bytes(blob.data.0.clone())])?;
             st.insert(t);
+        }
+    }
+
+    // selected appearances: replaced as a whole when what the realm can hold differs from what it shows
+    if let Some(desired) = super::wardrobe::writable(&merged.wardrobe, Some(&current.wardrobe), ctx.knowledge, ctx.probe) {
+        if desired != current.wardrobe {
+            counts.keyed_rows += super::wardrobe::row_count(&current.wardrobe) + super::wardrobe::row_count(&desired);
+            for table in super::wardrobe::TABLES {
+                st.delete(Delete::new(table, char_key()));
+            }
+            for insert in super::wardrobe::inserts(&desired)? {
+                st.insert(insert);
+            }
         }
     }
 

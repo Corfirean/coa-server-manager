@@ -82,6 +82,17 @@ fn a_naked_level_one_character() {
 }
 
 #[test]
+fn selected_appearances_visibility_and_outfits_are_exported_as_the_realm_shows_them() {
+    let e = export(1002);
+    let w = &e.model.wardrobe;
+    assert_eq!(w.active, [(1, 1101), (4, 1104), (56, 1156)].into_iter().collect());
+    assert!(w.can_see_item && !w.can_see_spell);
+    assert_eq!(w.outfits["Sunday best"], vec![1101, 0, 0, 1104]);
+    assert!(export(1001).model.wardrobe.is_empty(), "a character that never touched its wardrobe has none");
+    roundtrip(&e.model);
+}
+
+#[test]
 fn a_geared_character_with_bags_enchants_gems_and_special_items() {
     let e = export(1002);
     let m = &e.model;

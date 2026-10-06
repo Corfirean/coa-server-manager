@@ -1,11 +1,13 @@
 //! The Host's session driver: arms sessions, takes the automatic baseline, runs checkpoints and queues the messages the
 //! Owner must receive. It never decides what the canonical character becomes and never opens the Owner's database.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use super::super::collection::IdSet;
 use super::super::error::{PortableError, Result};
+use super::super::realm::collections::Applied;
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, ProfileId, SessionId};
-use super::super::store::{AckEffect, HostSession, HostState, OutboxMessage, Store};
+use super::super::store::{AckEffect, CollectionOutboxMessage, HostSession, HostState, OutboxMessage, Store};
 use super::bridge::{CheckpointReply, RealmBridge, RealmRead, RowState};
 use super::protocol::*;
 
@@ -13,11 +15,14 @@ use super::protocol::*;
 pub struct HostConfig {
     /// Seconds between checkpoints of a running session.
     pub checkpoint_interval_secs: u64,
+    /// Seconds between looks at the account collections of a running session (a look is one cheap query per kind; the
+    /// collection is read and sent only when its fingerprint changed). A session start and a final checkpoint always look.
+    pub collection_interval_secs: u64,
 }
 
 impl Default for HostConfig {
     fn default() -> Self {
-        Self { checkpoint_interval_secs: 60 }
+        Self { checkpoint_interval_secs: 60, collection_interval_secs: 300 }
     }
 }
 
@@ -36,6 +41,8 @@ pub enum HostEvent {
     /// The realm shows another session than the Host armed: the Host's session is closed.
     SessionReplaced { session: SessionId },
     Refused { session: SessionId, why: String },
+    /// The realm account's collection of this kind changed: the whole compact set was queued for the Owner.
+    CollectionQueued { kind: String, count: usize },
 }
 
 pub struct HostService<'a> {
@@ -44,11 +51,13 @@ pub struct HostService<'a> {
     config: HostConfig,
     /// When the last checkpoint of each session was requested (not persisted: after a restart the first tick checkpoints).
     last_checkpoint: HashMap<SessionId, u64>,
+    /// When the account collections of each session were last looked at.
+    last_collection: HashMap<SessionId, u64>,
 }
 
 impl<'a> HostService<'a> {
     pub fn new(store: &'a mut Store, server_id: &str, config: HostConfig) -> Self {
-        Self { store, server_id: server_id.to_string(), config, last_checkpoint: HashMap::new() }
+        Self { store, server_id: server_id.to_string(), config, last_checkpoint: HashMap::new(), last_collection: HashMap::new() }
     }
 
     pub fn store(&self) -> &Store {
@@ -98,6 +107,14 @@ impl<'a> HostService<'a> {
                 _ => {}
             }
         }
+        let forced: HashSet<SessionId> = events
+            .iter()
+            .filter_map(|e| match e {
+                HostEvent::BaselineTaken { session } | HostEvent::CheckpointQueued { session, final_checkpoint: true, .. } => Some(*session),
+                _ => None,
+            })
+            .collect();
+        self.sync_collections(bridge, now_secs, &forced, &mut events)?;
         Ok(events)
     }
 
@@ -195,5 +212,96 @@ impl<'a> HostService<'a> {
         let s = self.store.host_session(session)?.ok_or_else(|| PortableError::Invalid("the next session was not recorded".into()))?;
         let guid = s.local_guid.ok_or_else(|| PortableError::Invalid("the next session has no realm character".into()))?;
         bridge.arm(guid, session, character, revision, s.generation)
+    }
+
+    // ---- account collections (Phase 6) --------------------------------------------------------------------------------------
+
+    fn sync_collections(&mut self, bridge: &mut dyn RealmBridge, now_secs: u64, forced: &HashSet<SessionId>, events: &mut Vec<HostEvent>) -> Result<()> {
+        for s in self.store.host_live_sessions(&self.server_id)? {
+            let (Some(guid), HostState::Open) = (s.local_guid, s.state) else { continue };
+            let due = forced.contains(&s.session_id) || self.last_collection.get(&s.session_id).is_none_or(|t| now_secs >= *t + self.config.collection_interval_secs);
+            if !due {
+                continue;
+            }
+            self.last_collection.insert(s.session_id, now_secs);
+            let Some(account) = bridge.account_of(guid)? else { continue };
+            for kind in COLLECTION_KINDS {
+                self.observe_collection(bridge, account, kind, now_secs, events)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// One look at one account collection: nothing is read or sent unless its fingerprint changed, and nothing is sent when the
+    /// Owner already acknowledged exactly the set the realm shows.
+    fn observe_collection(&mut self, bridge: &mut dyn RealmBridge, account: u32, kind: &str, now_secs: u64, events: &mut Vec<HostEvent>) -> Result<()> {
+        let fingerprint = bridge.collection_fingerprint(account, kind)?;
+        let row = self.store.host_collection(&self.server_id, account, kind)?;
+        if row.as_ref().is_some_and(|r| r.fingerprint == fingerprint) {
+            return Ok(());
+        }
+        let set = bridge.read_collection(account, kind)?;
+        let hash = set.hash(kind);
+        // the first look always reports (even an empty set): that is how the Owner learns of the realm and answers with what it holds
+        let already = row.as_ref().and_then(|r| r.acked_hash) == Some(hash);
+        if already {
+            self.store.host_collection_observe(&self.server_id, account, kind, &fingerprint, &hash, None, now_secs)?;
+            return Ok(());
+        }
+        let bytes = collection_to_json(&CollectionObserved::new(&self.server_id, kind, &set)?)?;
+        self.store.host_collection_observe(&self.server_id, account, kind, &fingerprint, &hash, Some(&bytes), now_secs)?;
+        events.push(HostEvent::CollectionQueued { kind: kind.to_string(), count: set.len() });
+        Ok(())
+    }
+
+    /// Collection messages waiting for the Owner.
+    pub fn collection_outbox(&self) -> Result<Vec<CollectionOutboxMessage>> {
+        self.store.host_collection_outbox(&self.server_id)
+    }
+
+    /// The Owner's answer to a `CollectionObserved` of `account`. When the canonical set has ids the realm lacked, the ones its
+    /// client data knows are written to the account now.
+    pub fn receive_collection_ack(&mut self, bridge: &mut dyn RealmBridge, account: u32, ack: &CollectionAck) -> Result<Option<Applied>> {
+        if !carried_kind(&ack.kind) {
+            return Err(PortableError::Invalid("the acknowledgement is for a kind that is not carried".into()));
+        }
+        if let CollectionOutcome::Rejected(_) = &ack.outcome {
+            self.store.host_collection_drop_pending(&self.server_id, account, &ack.kind)?;
+            return Ok(None);
+        }
+        let Some(row) = self.store.host_collection(&self.server_id, account, &ack.kind)? else { return Ok(None) };
+        let Some(observed) = row.observed_hash else { return Ok(None) };
+        // an Owner that holds nothing of this kind yet answers with an empty hash
+        let hash: Option<[u8; 32]> = if ack.collection_hash.is_empty() {
+            None
+        } else {
+            Some(hex::decode(&ack.collection_hash).ok().and_then(|b| <[u8; 32]>::try_from(b.as_slice()).ok()).ok_or_else(|| PortableError::Invalid("the acknowledgement has a bad collection hash".into()))?)
+        };
+        match &ack.canonical {
+            Some(state) => self.apply_canonical(bridge, account, state),
+            None => {
+                self.store.host_collection_acknowledge(&self.server_id, account, &ack.kind, None, None, &observed, ack.collection_revision, hash.as_ref())?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// The canonical collection of one kind (from an acknowledgement, or sent on its own to a realm that has none of it).
+    pub fn receive_collection_state(&mut self, bridge: &mut dyn RealmBridge, account: u32, state: &CollectionState) -> Result<Option<Applied>> {
+        self.apply_canonical(bridge, account, state)
+    }
+
+    fn apply_canonical(&mut self, bridge: &mut dyn RealmBridge, account: u32, state: &CollectionState) -> Result<Option<Applied>> {
+        if !carried_kind(&state.kind) {
+            return Err(PortableError::Invalid("the collection kind is not carried".into()));
+        }
+        let canonical: IdSet = state.set.open(&state.kind)?;
+        let applied = bridge.apply_collection(account, &state.kind, &canonical)?;
+        // what the realm shows now is a subset of the canonical set, so it adds nothing the Owner does not hold
+        let fingerprint = bridge.collection_fingerprint(account, &state.kind)?;
+        let now_hash = bridge.read_collection(account, &state.kind)?.hash(&state.kind);
+        let canonical_hash = state.set.hash_bytes()?;
+        self.store.host_collection_acknowledge(&self.server_id, account, &state.kind, Some(&fingerprint), Some(&now_hash), &now_hash, state.collection_revision, Some(&canonical_hash))?;
+        Ok(Some(applied))
     }
 }

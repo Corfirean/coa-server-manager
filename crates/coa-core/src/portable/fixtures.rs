@@ -79,6 +79,7 @@ pub fn naked_level_one() -> PortableCharacter {
         actions: Vec::new(),
         pets: Vec::new(),
         settings: BTreeMap::new(),
+        wardrobe: Default::default(),
         client_data: BTreeMap::new(),
         extensions: BTreeMap::new(),
     }

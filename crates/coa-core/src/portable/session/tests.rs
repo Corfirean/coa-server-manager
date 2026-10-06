@@ -100,7 +100,7 @@ fn the_whole_session_from_an_automatic_baseline_to_the_final_checkpoint() {
     realm.login();
     assert!(realm.gated, "the core holds the player until B0 exists");
     let events = h.tick(&mut realm, 0).unwrap();
-    assert_eq!(events, vec![HostEvent::BaselineTaken { session }]);
+    assert_eq!(without_collections(events), vec![HostEvent::BaselineTaken { session }]);
     assert!(!realm.gated, "released only after B0 was persisted");
     let acks = deliver(&mut h, &mut o, &mut realm);
     assert_eq!((acks.len(), &acks[0].outcome), (1, &AckOutcome::Applied));
@@ -172,6 +172,11 @@ fn the_whole_session_from_an_automatic_baseline_to_the_final_checkpoint() {
     assert_eq!(synced, o.store().load_current(id).unwrap(), "the Host's realm is synchronised with what the Owner now holds");
 }
 
+/// The collections have their own tests (`collection_tests.rs`): the character tests look at the character's events only.
+fn without_collections(events: Vec<HostEvent>) -> Vec<HostEvent> {
+    events.into_iter().filter(|e| !matches!(e, HostEvent::CollectionQueued { .. })).collect()
+}
+
 /// The bytes of a message the Host queued (kept in the outbox table after acknowledgement).
 fn host_outbox_history(h: &HostService, session: SessionId, sequence: u64) -> Vec<u8> {
     h.store().host_message(session, sequence).unwrap().expect("the message is kept")
@@ -208,7 +213,7 @@ fn a_host_that_never_answers_never_lets_the_player_play_and_the_baseline_is_reta
     assert!(!realm.online && realm.row.as_ref().unwrap().state == RowState::BaselineReady && realm.released.is_empty());
     realm.login();
     assert!(realm.gated);
-    assert_eq!(h.tick(&mut realm, 0).unwrap(), vec![HostEvent::BaselineTaken { session }]);
+    assert_eq!(without_collections(h.tick(&mut realm, 0).unwrap()), vec![HostEvent::BaselineTaken { session }]);
     deliver(&mut h, &mut o, &mut realm);
     realm.play(|m| m.progression.money += 1);
     assert_eq!(revision(&o, id), 10);

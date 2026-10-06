@@ -27,6 +27,9 @@
 3002	xD0A4D0B0D0BDD0B3D0B0	xD0A4D0B0D0BDD0B3D183	xD0A4D0B0D0BDD0B3	xD0A4D0B0D0BDD0B3D0BED0BC	xD0A4D0B0D0BDD0B3D0B5
 #T:settings
 #T:macros
+#T:appearance
+#T:appearance_settings
+#T:appearance_outfits
 #T:portable_session
 #T:block:challenge
 0

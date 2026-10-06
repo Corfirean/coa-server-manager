@@ -10,6 +10,8 @@ pub use owner::OwnerService;
 #[cfg(test)]
 mod fake;
 #[cfg(test)]
+mod collection_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod live_session;

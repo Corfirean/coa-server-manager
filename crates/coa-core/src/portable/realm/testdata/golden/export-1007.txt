@@ -16,6 +16,9 @@
 #T:pet_declined
 #T:settings
 #T:macros
+#T:appearance
+#T:appearance_settings
+#T:appearance_outfits
 #T:portable_session
 #T:block:challenge
 1

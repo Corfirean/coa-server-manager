@@ -330,3 +330,92 @@ impl Store {
         Ok(AckEffect::Finished { next_session: next.session_id, next_revision: next.canonical_revision })
     }
 }
+
+// ---- account collections (Phase 6) ---------------------------------------------------------------------------------------------
+
+/// What the Host remembers of one realm account's collection of one kind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostCollection {
+    pub fingerprint: String,
+    pub observed_hash: Option<[u8; 32]>,
+    pub acked_hash: Option<[u8; 32]>,
+    pub canonical_revision: u64,
+    pub canonical_hash: Option<[u8; 32]>,
+    pub pending: Option<Vec<u8>>,
+    pub checked_at: u64,
+}
+
+/// A collection message waiting for the Owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionOutboxMessage {
+    pub account: u32,
+    pub kind: String,
+    pub bytes: Vec<u8>,
+}
+
+fn opt_hash(blob: Option<Vec<u8>>) -> Result<Option<[u8; 32]>> {
+    blob.map(|b| <[u8; 32]>::try_from(b.as_slice()).map_err(|_| PortableError::CorruptSnapshot("a stored collection hash is not 32 bytes".into()))).transpose()
+}
+
+impl Store {
+    pub fn host_collection(&self, server_id: &str, account: u32, kind: &str) -> Result<Option<HostCollection>> {
+        type Raw = (String, Option<Vec<u8>>, Option<Vec<u8>>, i64, Option<Vec<u8>>, Option<Vec<u8>>, i64);
+        let raw: Option<Raw> = self
+            .conn
+            .query_row(
+                "SELECT fingerprint, observed_hash, acked_hash, canonical_revision, canonical_hash, pending, checked_at FROM host_collection WHERE server_id = ?1 AND account = ?2 AND kind = ?3",
+                params![server_id, account, kind],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+            )
+            .optional()?;
+        raw.map(|(fingerprint, observed, acked, revision, canonical, pending, checked_at)| {
+            Ok(HostCollection { fingerprint, observed_hash: opt_hash(observed)?, acked_hash: opt_hash(acked)?, canonical_revision: revision as u64, canonical_hash: opt_hash(canonical)?, pending, checked_at: checked_at as u64 })
+        })
+        .transpose()
+    }
+
+    /// The realm account was read: remember the fingerprint and the hash of what it showed, and queue `pending` for the Owner
+    /// (or none when the Owner already acknowledged exactly this set). A newer observation replaces an older pending one.
+    pub fn host_collection_observe(&mut self, server_id: &str, account: u32, kind: &str, fingerprint: &str, observed: &[u8; 32], pending: Option<&[u8]>, checked_at: u64) -> Result<()> {
+        let tx = self.write_tx()?;
+        tx.execute(
+            "INSERT INTO host_collection(server_id, account, kind, fingerprint, observed_hash, pending, checked_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(server_id, account, kind) DO UPDATE SET fingerprint = excluded.fingerprint, observed_hash = excluded.observed_hash, pending = excluded.pending,
+                checked_at = excluded.checked_at, updated_at = excluded.updated_at",
+            params![server_id, account, kind, fingerprint, observed.as_slice(), pending, checked_at as i64, now()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The Owner acknowledged `acked` (the hash of the realm set it was sent, or of the set the realm holds after the canonical
+    /// ids were applied): the pending message is dropped and the canonical revision remembered.
+    #[allow(clippy::too_many_arguments)]
+    pub fn host_collection_acknowledge(&mut self, server_id: &str, account: u32, kind: &str, fingerprint: Option<&str>, observed: Option<&[u8; 32]>, acked: &[u8; 32], canonical_revision: u64, canonical_hash: Option<&[u8; 32]>) -> Result<()> {
+        let tx = self.write_tx()?;
+        let at = now();
+        tx.execute(
+            "INSERT INTO host_collection(server_id, account, kind, fingerprint, observed_hash, acked_hash, canonical_revision, canonical_hash, pending, updated_at)
+             VALUES (?1, ?2, ?3, COALESCE(?4, ''), ?5, ?6, ?7, ?8, NULL, ?9)
+             ON CONFLICT(server_id, account, kind) DO UPDATE SET fingerprint = COALESCE(?4, fingerprint), observed_hash = COALESCE(?5, observed_hash), acked_hash = excluded.acked_hash,
+                canonical_revision = excluded.canonical_revision, canonical_hash = COALESCE(excluded.canonical_hash, canonical_hash), pending = NULL, updated_at = excluded.updated_at",
+            params![server_id, account, kind, fingerprint, observed.map(|h| h.as_slice()), acked.as_slice(), canonical_revision as i64, canonical_hash.map(|h| h.as_slice()), at],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Drop a pending message the Owner will never accept.
+    pub fn host_collection_drop_pending(&mut self, server_id: &str, account: u32, kind: &str) -> Result<()> {
+        let tx = self.write_tx()?;
+        tx.execute("UPDATE host_collection SET pending = NULL, updated_at = ?4 WHERE server_id = ?1 AND account = ?2 AND kind = ?3", params![server_id, account, kind, now()])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn host_collection_outbox(&self, server_id: &str) -> Result<Vec<CollectionOutboxMessage>> {
+        let mut stmt = self.conn.prepare("SELECT account, kind, pending FROM host_collection WHERE server_id = ?1 AND pending IS NOT NULL ORDER BY account, kind")?;
+        let rows = stmt.query_map([server_id], |r| Ok(CollectionOutboxMessage { account: r.get::<_, i64>(0)? as u32, kind: r.get(1)?, bytes: r.get(2)? }))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+}
