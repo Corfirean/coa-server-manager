@@ -47,7 +47,7 @@ pub fn capture_release(fixture: &Path, tree: &Path, sql: &[SqlFile]) -> Result<(
         return Err(Error::Invalid("Refusing to apply release SQL to a non-fixture server.".into()));
     }
     let staging = tempfile::tempdir()?;
-    let migrations: Vec<_> = sql.iter().map(|f| Migration { db: f.db.clone(), id: f.id.clone(), sha256: f.sha256.clone(), destructive: false }).collect();
+    let migrations: Vec<_> = sql.iter().map(|f| Migration { compatible_sha256: vec![], db: f.db.clone(), id: f.id.clone(), sha256: f.sha256.clone(), destructive: false }).collect();
     for file in sql {
         let path = fsx::safe_join(staging.path(), &format!("{}/{}.sql", file.db, file.id))?;
         fsx::atomic_write(&path, &std::fs::read(&file.abs)?)?;

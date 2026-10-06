@@ -77,6 +77,8 @@ pub struct Txn {
     pub databases_started: bool,
     pub ops: Vec<Op>,
     pub message: Option<String>,
+    #[serde(default)]
+    pub recovery_hashes: BTreeMap<String, String>,
 }
 
 fn legacy_databases_started() -> bool { true }
@@ -84,6 +86,8 @@ fn legacy_databases_started() -> bool { true }
 /// Everything the transaction needs from the outside world; tests provide a fake.
 pub trait Env {
     fn ensure_stopped(&self) -> Result<()>;
+    fn preflight(&self, _manifest: &Manifest) -> Result<()> { Ok(()) }
+    fn verify_snapshot(&self, _id: &str) -> Result<()> { Ok(()) }
     /// Create a recovery point for the databases and configuration; returns its id.
     fn snapshot(&self) -> Result<String>;
     fn restore_snapshot(&self, id: &str) -> Result<()>;
@@ -108,32 +112,72 @@ fn save(meta: &Path, t: &Txn) -> Result<()> {
 }
 
 pub fn load(meta: &Path, id: &str) -> Result<Txn> {
-    fsx::read_json(&txn_dir(meta, id)?.join("txn.json"))
+    read_journal(&txn_dir(meta, id)?.join("txn.json"))
+}
+
+fn read_journal(path: &Path) -> Result<Txn> {
+    let txn: Txn = fsx::read_json(path).map_err(|e| Error::Invalid(format!("Update journal {} cannot be read: {e}. Available recovery copies were preserved.", path.display())))?;
+    if path.parent().and_then(Path::file_name).and_then(|id| id.to_str()) != Some(txn.id.as_str()) { return Err(Error::Invalid("Update journal identity is inconsistent.".into())); }
+    txn_dir(path.parent().unwrap(), &txn.id)?;
+    if let Some(id) = &txn.recovery_point {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) || id.contains("..") { return Err(Error::Invalid("Update journal contains an invalid recovery point identity.".into())); }
+    }
+    let valid_hash = |hash: &str| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
+    let mut seen = std::collections::BTreeSet::new();
+    for op in &txn.ops {
+        fsx::safe_join(path.parent().unwrap(), &op.path)?;
+        if !seen.insert(op.path.replace('\\', "/").to_ascii_lowercase()) || !valid_hash(&op.new_sha256)
+            || (op.done && !op.started && !matches!(op.action, Action::Skip | Action::Conflict))
+            || (txn.state == State::Prepared && op.started)
+            || (txn.state == State::Committed && !op.done) {
+            return Err(Error::Invalid("Update journal contains inconsistent file operations.".into()));
+        }
+    }
+    if txn.recovery_hashes.values().any(|hash| !valid_hash(hash)) { return Err(Error::Invalid("Update journal contains invalid recovery hashes.".into())); }
+    for key in txn.recovery_hashes.keys().filter(|key| !matches!(key.as_str(), "@install" | "@point")) { fsx::safe_join(path.parent().unwrap(), key)?; }
+    Ok(txn)
+}
+
+#[derive(Serialize, Deserialize)]
+struct CleanupMarker { id: String, state: State }
+
+fn cleanup_marker(meta: &Path, id: &str) -> Result<PathBuf> {
+    txn_dir(meta, id)?;
+    Ok(meta.join("update-cleanup").join(format!("{id}.json")))
+}
+
+fn journals(meta: &Path) -> Result<Vec<Txn>> {
+    let entries = match fs::read_dir(updates_dir(meta)) { Ok(entries) => entries, Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]), Err(e) => return Err(e.into()) };
+    let mut all = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_symlink() { return Err(Error::Invalid("Linked update storage cannot be recovered safely.".into())); }
+        if !entry.file_type()?.is_dir() { continue; }
+        let dir = fsx::ensure_within(meta, &entry.path())?;
+        let path = dir.join("txn.json");
+        if !path.is_file() {
+            let id = entry.file_name().to_string_lossy().into_owned();
+            let marker = cleanup_marker(meta, &id)?;
+            if fsx::read_json::<CleanupMarker>(&marker).is_ok_and(|m| m.id == id && matches!(m.state, State::Committed | State::RolledBack)) { continue; }
+            return Err(Error::Invalid(format!("Update {id} has no journal. Preserve its recovery copies and inspect it before starting or changing the server.")));
+        }
+        all.push(read_journal(&path)?);
+    }
+    all.sort_by(|a, b| b.id.cmp(&a.id));
+    Ok(all)
+}
+
+pub fn pending_checked(meta: &Path) -> Result<Option<Txn>> {
+    Ok(journals(meta)?.into_iter().find(|t| !matches!(t.state, State::Committed | State::RolledBack | State::Prepared) && (t.state != State::Failed || t.databases_started || t.ops.iter().any(|o| o.started))))
 }
 
 /// A transaction that started but never reached a final state (crash, power loss). The UI offers rollback.
 pub fn unfinished(meta: &Path) -> Option<Txn> {
-    let rd = fs::read_dir(updates_dir(meta)).ok()?;
-    let mut all: Vec<Txn> = rd.flatten().filter_map(|e| fsx::read_json::<Txn>(&e.path().join("txn.json")).ok()).collect();
-    all.sort_by(|a, b| b.id.cmp(&a.id));
-    all.into_iter().find(|t| !matches!(t.state, State::Committed | State::RolledBack | State::Prepared) && (t.state != State::Failed || t.databases_started || t.ops.iter().any(|o| o.started)))
+    pending_checked(meta).ok().flatten()
 }
 
 pub fn ensure_recovered(meta: &Path) -> Result<()> {
-    match fs::read_dir(updates_dir(meta)) {
-        Ok(entries) => {
-            for entry in entries {
-                let entry = entry?;
-                let journal = entry.path().join("txn.json");
-                if journal.exists() {
-                    fsx::read_json::<Txn>(&journal).map_err(|e| Error::Invalid(format!("Update journal {} cannot be read: {e}. Recover it before changing or starting the server.", journal.display())))?;
-                }
-            }
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
-    }
-    if let Some(t) = unfinished(meta) {
+    if let Some(t) = pending_checked(meta)? {
         return Err(Error::Invalid(format!("Resolve unfinished update {} before changing or starting the server.", t.id)));
     }
     Ok(())
@@ -172,6 +216,12 @@ pub fn plan(root: &Path, meta: &InstallMeta, manifest: &Manifest, resolutions: &
                 if would_add { (Action::MergeConfig, Some("new settings are added; your values are kept".into())) } else { (Action::Skip, Some("no new settings".into())) }
             }
             (_, Some(c)) if c.eq_ignore_ascii_case(&f.sha256) => (Action::Skip, Some("already up to date".into())),
+            (_, Some(_)) if f.path == "Scripts/manage.py" && staged.is_some_and(|tree| {
+                match (fs::read_to_string(tree.join(&f.path)), fs::read(&target)) {
+                    (Ok(signed), Ok(actual)) => fsx::sha256_bytes(signed.as_bytes()) == f.sha256 && crate::driver::launcher_matches(&signed, &actual),
+                    _ => false,
+                }
+            }) => (Action::Skip, Some("already up to date with Manager integration".into())),
             (ReplacePolicy::Replace | ReplacePolicy::ReplaceIfPristine, Some(c)) => {
                 let manager_launcher = f.path == "Scripts/manage.py" && recorded.is_some_and(|hash| {
                     fs::read(&target).is_ok_and(|bytes| crate::driver::launcher_matches_recorded(hash, &bytes))
@@ -207,22 +257,70 @@ pub struct Preview {
     pub items: Vec<PlanItem>,
     pub conflicts: Vec<String>,
     pub migrations: usize,
+    pub pending_migrations: usize,
     pub download_bytes: u64,
 }
 
-/// Check the signed manifest and describe the update without downloading the payload.
+/// Describe the update; a managed launcher may need a one-time authenticated payload check.
 pub fn preview(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &str, resolutions: &BTreeMap<String, Resolution>) -> Result<Preview> {
+    let meta_dir = crate::registry::metadata_dir_for(root)?;
+    let _lock = operation_lock(&meta_dir)?;
+    ensure_recovered(&meta_dir)?;
     let (m, _) = fetch_manifest(source, trusted_key)?;
     check_manifest(&m)?;
-    let items = plan(root, meta, &m, resolutions, None)?;
+    reject_downgrade(meta, &m)?;
+    let mut items = plan(root, meta, &m, resolutions, None)?;
+    if items.iter().any(|item| item.path == "Scripts/manage.py" && item.action != Action::Skip)
+        && launcher_already_integrated(root, &meta_dir, meta, &m, source)? {
+        if let Some(item) = items.iter_mut().find(|item| item.path == "Scripts/manage.py") {
+            item.action = Action::Skip;
+            item.reason = Some("already up to date with Manager integration".into());
+        }
+    }
+    let pending_migrations = (RepackEnv { root, meta_dir: &meta_dir }).pending_migrations(&m)?;
     Ok(Preview {
         from_version: meta.core.version.clone(),
         to_version: m.version.clone(),
         conflicts: items.iter().filter(|i| i.action == Action::Conflict).map(|i| i.path.clone()).collect(),
         items,
         migrations: m.migrations.len(),
+        pending_migrations,
         download_bytes: m.archive.as_ref().map(|a| a.parts.iter().map(|p| p.size).sum()).unwrap_or(0),
     })
+}
+
+fn launcher_already_integrated(root: &Path, meta_dir: &Path, meta: &InstallMeta, manifest: &Manifest, source: &Source) -> Result<bool> {
+    let Some(file) = manifest.files.iter().find(|file| file.path == "Scripts/manage.py") else { return Ok(false); };
+    let actual = sha_if_exists(&root.join(&file.path));
+    if actual.as_ref() != meta.original_hashes.get(&file.path) || actual.is_none() { return Ok(false); }
+    let cache = meta_dir.join("manifests").join(format!("launcher-{}.py", file.sha256));
+    let signed = match fs::read(&cache) {
+        Ok(bytes) if fsx::sha256_bytes(&bytes) == file.sha256 => bytes,
+        _ => {
+            let temp = tempfile::tempdir()?;
+            let parts = fetch_parts(source, manifest, &temp.path().join("download"), &Cancel::default(), &|_, _| {})?;
+            package::extract(&parts, manifest, &temp.path().join("tree"), &|_, _| {})?;
+            let bytes = fs::read(temp.path().join("tree").join(&file.path))?;
+            if fsx::sha256_bytes(&bytes) != file.sha256 { return Err(Error::Invalid("The signed launcher failed verification.".into())); }
+            // This derived cache is optional; failure to save it does not change the server.
+            let _ = fsx::atomic_write(&cache, &bytes);
+            bytes
+        }
+    };
+    Ok(std::str::from_utf8(&signed).ok().is_some_and(|signed| {
+        fs::read(root.join(&file.path)).ok().is_some_and(|actual| crate::driver::launcher_matches(signed, &actual))
+    }))
+}
+
+fn reject_downgrade(meta: &InstallMeta, manifest: &Manifest) -> Result<()> {
+    if let Some(installed) = meta.core.version.as_deref() {
+        if let (Some(have), Some(candidate)) = (crate::manifest::parse_version(installed), crate::manifest::parse_version(&manifest.version)) {
+            if candidate < have {
+                return Err(Error::Invalid(format!("Installed server {installed} is newer than package {}. Use its recovery point to undo an update; older packages cannot be applied.", manifest.version)));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn check_manifest(m: &Manifest) -> Result<()> {
@@ -271,6 +369,8 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let (m, manifest_bytes) = fetch_manifest(&p.source, p.trusted_key)?;
     tracing::info!(root = %root.display(), from_version = ?meta.core.version, to_version = %m.version, migrations = m.migrations.len(), "server update selected");
     check_manifest(&m)?;
+    reject_downgrade(&meta, &m)?;
+    p.env.preflight(&m)?;
     let archive = m.archive.clone().ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
     let id = format!("{}-{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), m.version.replace('.', "_"), uuid::Uuid::new_v4().simple());
     let tdir = txn_dir(meta_dir, &id)?;
@@ -282,7 +382,8 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     fsx::atomic_write(&tdir.join("manifest.json.sig"), &signature)?;
     fsx::atomic_write(&before.join("manager-install.json"), &fs::read(meta_dir.join("install.json"))?)?;
 
-    let mut txn = Txn { id: id.clone(), state: State::Prepared, from_version: meta.core.version.clone(), to_version: m.version.clone(), recovery_point: None, databases_started: false, ops: Vec::new(), message: None };
+    let mut txn = Txn { id: id.clone(), state: State::Prepared, from_version: meta.core.version.clone(), to_version: m.version.clone(), recovery_point: None, databases_started: false, ops: Vec::new(), message: None, recovery_hashes: BTreeMap::new() };
+    txn.recovery_hashes.insert("@install".into(), fsx::sha256_file(&before.join("manager-install.json"))?);
     save(meta_dir, &txn)?;
 
     // Nothing has touched the installation yet; failures up to here just discard the staging area.
@@ -291,6 +392,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
         let parts = fetch_parts(&p.source, &m, &meta_dir.join("staging").join("download"), &p.cancel, &|f, _| step(report, "Downloading the update", 5 + (f * 35.0) as u8))?;
         step(report, "Verifying the update", 42);
         package::extract(&parts, &m, &tree, &|_, _| {})?;
+        crate::migrations::verify_files(&m.migrations, &tree.join("_migrations"))?;
         Ok(tree.clone())
     })();
     let tree = match staged {
@@ -320,6 +422,8 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     p.env.ensure_stopped()?;
     step(report, "Saving a recovery point", 52);
     txn.recovery_point = Some(p.env.snapshot().map_err(|e| Error::Invalid(format!("The update was not applied because the safety backup failed: {e}")))?);
+    let point_meta = meta_dir.join("backups").join(txn.recovery_point.as_deref().unwrap()).join("backup.json");
+    if point_meta.is_file() { txn.recovery_hashes.insert("@point".into(), fsx::sha256_file(&point_meta)?); }
 
     txn.ops = items
         .iter()
@@ -458,6 +562,19 @@ fn fail_after_apply(p: &Params, txn: &mut Txn, before: &Path, tree: &Path, why: 
 }
 
 fn restore_transaction(root: &Path, meta: &Path, before: &Path, txn: &mut Txn, env: &dyn Env) -> Result<()> {
+    for (rel, expected) in &txn.recovery_hashes {
+        let saved = match rel.as_str() {
+            "@install" => before.join("manager-install.json"),
+            "@point" => meta.join("backups").join(txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The recovery point identity is missing.".into()))?).join("backup.json"),
+            _ => fsx::safe_join(before, rel)?,
+        };
+        if fsx::sha256_file(&saved)? != *expected { return Err(Error::Invalid(format!("Recovery copy {rel} is damaged; no restoration was started."))); }
+    }
+    if let Some(id) = &txn.recovery_point { env.verify_snapshot(id)?; }
+    for op in txn.ops.iter().filter(|op| op.started && op.had_previous) {
+        if !fsx::safe_join(before, &op.path)?.is_file() { return Err(Error::Invalid(format!("The recovery copy of {} is missing; no restoration was started.", op.path))); }
+    }
+    if !before.join("manager-install.json").is_file() { return Err(Error::Invalid("The saved installation metadata is missing; no restoration was started.".into())); }
     env.ensure_stopped()?;
     if txn.databases_started {
         let id = txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The database recovery point is missing.".into()))?;
@@ -485,6 +602,7 @@ fn apply_ops(root: &Path, tree: &Path, before: &Path, files: &[FileEntry], txn: 
             let keep = fsx::safe_join(before, &path)?;
             fs::create_dir_all(keep.parent().unwrap())?;
             fsx::atomic_write(&keep, &fs::read(&target)?)?;
+            txn.recovery_hashes.insert(path.clone(), fsx::sha256_file(&keep)?);
         }
         // Journal only after the old bytes are safely saved; a crash during backup must not
         // turn an untouched file into a rollback operation with a missing saved copy.
@@ -575,7 +693,10 @@ pub(crate) fn begin_repair(root: &Path, meta_dir: &Path, version: &str, backup: 
         if had_previous { fsx::atomic_write(&fsx::safe_join(&before, &file.path)?, &fs::read(&target)?)?; }
         ops.push(Op { path: file.path.clone(), action: if had_previous { Action::Replace } else { Action::Create }, reason: None, new_sha256: file.sha256.clone(), had_previous, started: true, done: false });
     }
-    let txn = Txn { id, state: State::Applying, from_version: Some(version.into()), to_version: version.into(), recovery_point: Some(backup.into()), databases_started: false, ops, message: Some("Repair is in progress.".into()) };
+    let mut recovery_hashes = BTreeMap::new();
+    recovery_hashes.insert("@install".into(), fsx::sha256_file(&before.join("manager-install.json"))?);
+    for op in ops.iter().filter(|op| op.had_previous) { recovery_hashes.insert(op.path.clone(), fsx::sha256_file(&fsx::safe_join(&before, &op.path)?)?); }
+    let txn = Txn { id, state: State::Applying, from_version: Some(version.into()), to_version: version.into(), recovery_point: Some(backup.into()), databases_started: false, ops, message: Some("Repair is in progress.".into()), recovery_hashes };
     save(meta_dir, &txn)?;
     Ok(txn)
 }
@@ -594,10 +715,15 @@ pub(crate) fn finish_repair(root: &Path, meta_dir: &Path, txn: &mut Txn, success
 
 fn prune(meta_dir: &Path, keep: usize) {
     let Ok(rd) = fs::read_dir(updates_dir(meta_dir)) else { return };
-    let mut dirs: Vec<_> = rd.flatten().filter(|e| fsx::read_json::<Txn>(&e.path().join("txn.json")).is_ok_and(|t| matches!(t.state, State::Committed | State::RolledBack))).map(|e| e.path()).collect();
+    let mut dirs: Vec<_> = rd.flatten().filter(|e| read_journal(&e.path().join("txn.json")).is_ok_and(|t| matches!(t.state, State::Committed | State::RolledBack))).map(|e| e.path()).collect();
     dirs.sort();
     while dirs.len() > keep {
-        let _ = fs::remove_dir_all(dirs.remove(0));
+        let dir = dirs.remove(0);
+        if let Ok(txn) = read_journal(&dir.join("txn.json")) {
+            if let Ok(marker) = cleanup_marker(meta_dir, &txn.id) {
+                if fsx::atomic_write_json(&marker, &CleanupMarker { id: txn.id, state: txn.state }).is_ok() && fs::remove_dir_all(&dir).is_ok() { let _ = fs::remove_file(marker); }
+            }
+        }
     }
 }
 
@@ -608,6 +734,20 @@ pub struct RepackEnv<'a> {
 }
 
 impl RepackEnv<'_> {
+    pub fn pending_migrations(&self, manifest: &Manifest) -> Result<usize> {
+        if manifest.migrations.is_empty() { return Ok(0); }
+        crate::backup::with_database(self.root, |db| {
+            let realms = crate::realms::state(self.root)?;
+            let mut modes = vec![realms.active];
+            if realms.wildcard_created { modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa }); }
+            let mut count = 0;
+            for (index, mode) in modes.into_iter().enumerate() {
+                let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || m.db != "auth").cloned().collect();
+                count += crate::migrations::pending_count(&db.clone().for_realm(mode), &list)?;
+            }
+            Ok(count)
+        })
+    }
     pub(crate) fn verify_recovery_point(&self, point: &crate::backup::RecoveryPoint) -> Result<()> {
         if point.kind != crate::backup::Kind::Full || !["characters", "auth", "world", "configs"].iter().all(|name| point.components.iter().any(|c| c.name == *name)) {
             return Err(Error::Invalid("The update recovery point does not contain every required database and configuration.".into()));
@@ -637,6 +777,18 @@ impl RepackEnv<'_> {
 }
 
 impl Env for RepackEnv<'_> {
+    fn preflight(&self, manifest: &Manifest) -> Result<()> {
+        self.pending_migrations(manifest).map(|_| ())
+    }
+
+    fn verify_snapshot(&self, id: &str) -> Result<()> {
+        let point = crate::backup::get(self.meta_dir, id)?;
+        if point.kind != crate::backup::Kind::Full || !["characters", "auth", "world", "configs"].iter().all(|name| point.components.iter().any(|c| c.name == *name)) {
+            return Err(Error::Invalid("The recovery point is incomplete; no restoration was started.".into()));
+        }
+        if !crate::backup::verify(self.meta_dir, id)?.ok { return Err(Error::Invalid("The recovery point is damaged; available copies were preserved.".into())); }
+        Ok(())
+    }
     fn ensure_stopped(&self) -> Result<()> {
         use crate::process::{observe, ServiceState};
         let o = observe(self.root, &crate::layout::read_ports(self.root));
@@ -774,16 +926,20 @@ mod tests {
         snapshot_ok: Cell<bool>,
         calls: RefCell<Vec<&'static str>>,
         migrate_fail: Cell<bool>,
+        preflight_fail: Cell<bool>,
         restore_fail: Cell<bool>,
     }
 
     impl Fake {
         fn ok() -> Fake {
-            Fake { stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), restore_fail: Cell::new(false) }
+            Fake { stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false) }
         }
     }
 
     impl Env for Fake {
+        fn preflight(&self, _: &Manifest) -> Result<()> {
+            if self.preflight_fail.get() { Err(Error::Invalid("Conflicting migration history".into())) } else { Ok(()) }
+        }
         fn ensure_stopped(&self) -> Result<()> {
             self.calls.borrow_mut().push("stop");
             if self.stopped.get() { Ok(()) } else { Err(Error::Invalid("The server is running.".into())) }
@@ -854,7 +1010,7 @@ mod tests {
         let mut m = build(&src, &pkg, &BuildOptions { kind: Kind::Update, version: "2.0.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20, bots_commit: None, migrations: vec![] }, &|_| {}).unwrap();
         // Settings/* are merge-config by the packager; make the migration entry visible to the runner
         if migrations {
-            m.migrations.push(crate::manifest::Migration { id: "m1".into(), db: "world".into(), sha256: fsx::sha256_bytes(b"SELECT 1;"), destructive: false });
+            m.migrations.push(crate::manifest::Migration { compatible_sha256: vec![], id: "m1".into(), db: "world".into(), sha256: fsx::sha256_bytes(b"SELECT 1;"), destructive: false });
             fs::write(pkg.join("manifest.json"), serde_json::to_vec_pretty(&m).unwrap()).unwrap();
         }
         let sk = SigningKey::generate(&mut rand_core::OsRng);
@@ -954,6 +1110,47 @@ mod tests {
         assert_eq!(meta.original_hashes["Core/worldserver.exe"], fsx::sha256_bytes(b"world-v2"));
         assert_eq!(*env.calls.borrow(), ["stop", "snapshot", "validate"]);
         assert!(!w.root.join("Core/worldserver.exe.coa-new").exists());
+    }
+
+    #[test]
+    fn an_integrated_launcher_is_current_but_user_edits_and_new_package_bytes_are_not() {
+        let source = b"import sys\nfrom pathlib import Path\nfrom squid_playerbots import configure\nROOT = Path(__file__).resolve().parents[1]\n";
+        let w = world(&[("Scripts/manage.py", source)], false);
+        run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap();
+        let integrated = crate::driver::patch_launcher_imports(std::str::from_utf8(source).unwrap()).unwrap();
+        write(&w.root, "Scripts/manage.py", integrated.as_bytes());
+        let (_, mut meta) = MetaDir::open(&w.meta).unwrap();
+        meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(integrated.as_bytes()));
+        fsx::atomic_write_json(&w.meta.join("install.json"), &meta).unwrap();
+        let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
+        assert_eq!(p.items.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Skip);
+        let manifest = fetch_manifest(&Source::Dir(w.pkg.clone()), &w.key).unwrap().0;
+        let applied_plan = plan(&w.root, &meta, &manifest, &BTreeMap::new(), Some(&w._d.path().join("upd"))).unwrap();
+        assert_eq!(applied_plan.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Skip);
+        let mut changed = fetch_manifest(&Source::Dir(w.pkg.clone()), &w.key).unwrap().0;
+        changed.files.iter_mut().find(|file| file.path == "Scripts/manage.py").unwrap().sha256 = fsx::sha256_bytes(b"new launcher");
+        assert!(launcher_already_integrated(&w.root, &w.meta, &meta, &changed, &Source::Dir(w.pkg.clone())).is_err());
+        write(&w.root, "Scripts/manage.py", format!("{integrated}\n# user edit\n").as_bytes());
+        let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
+        assert_eq!(p.items.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Conflict);
+        meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_file(&w.root.join("Scripts/manage.py")).unwrap());
+        let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
+        assert_eq!(p.items.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Replace,
+            "Recorded user content must not be mistaken for a recognized Manager integration");
+    }
+
+    #[test]
+    fn older_packages_are_rejected_before_preview_or_application() {
+        let w = world(&[], false);
+        let (_, mut installed) = MetaDir::open(&w.meta).unwrap();
+        installed.core.version = Some("3.0.0".into());
+        fsx::atomic_write_json(&w.meta.join("install.json"), &installed).unwrap();
+        let env = Fake::ok();
+        assert!(run(&w, &env, BTreeMap::new(), None).unwrap_err().to_string().contains("newer than package"));
+        assert!(preview(&w.root, &installed, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap_err().to_string().contains("newer than package"));
+        assert!(env.calls.borrow().is_empty());
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(pending_checked(&w.meta).unwrap().is_none());
     }
 
     #[test]
@@ -1078,6 +1275,7 @@ mod tests {
         t.state = State::Applying;
         for op in t.ops.iter_mut() {
             op.started = op.path == "Core/worldserver.exe";
+            op.done &= op.started;
         }
         save(&w.meta, &t).unwrap();
         assert_eq!(unfinished(&w.meta).unwrap().id, id);
@@ -1175,6 +1373,79 @@ mod tests {
         assert!(!w.root.join("Core/repair-created.dll").exists());
         assert_eq!(*env.calls.borrow(), ["stop", "restore-databases"]);
         assert!(unfinished(&w.meta).is_none());
+    }
+
+    #[test]
+    fn sql_manifest_mismatch_is_rejected_before_snapshot_or_replacement() {
+        let w = world(&[], true);
+        let manifest_path = w.pkg.join("manifest.json");
+        let mut manifest: Manifest = fsx::read_json(&manifest_path).unwrap();
+        manifest.migrations[0].sha256 = "a".repeat(64);
+        let bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+        // A publisher mistake: valid signed archive bytes disagree with the SQL metadata.
+        let key = SigningKey::generate(&mut rand_core::OsRng);
+        let trusted = base64::engine::general_purpose::STANDARD.encode(key.verifying_key().to_bytes());
+        fs::write(&manifest_path, &bytes).unwrap();
+        fs::write(w.pkg.join("manifest.json.sig"), base64::engine::general_purpose::STANDARD.encode(key.sign(&bytes).to_bytes())).unwrap();
+        let env = Fake::ok();
+        let error = apply(&Params { root: &w.root, meta_dir: &w.meta, source: Source::Dir(w.pkg.clone()), trusted_key: &trusted,
+            cancel: Default::default(), resolutions: Default::default(), env: &env, fail_after_ops: None }, &|_, _| {}).unwrap_err();
+        assert!(matches!(error, Error::HashMismatch { .. }), "Expected SQL metadata mismatch, received {error}");
+        assert!(env.calls.borrow().is_empty());
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(pending_checked(&w.meta).unwrap().is_none());
+    }
+
+    #[test]
+    fn preflight_rejection_precedes_snapshot_and_file_changes() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.preflight_fail.set(true);
+        let original = fsx::sha256_file(&w.meta.join("install.json")).unwrap();
+        assert!(run(&w, &env, BTreeMap::new(), None).unwrap_err().to_string().contains("Conflicting migration history"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert_eq!(fsx::sha256_file(&w.meta.join("install.json")).unwrap(), original);
+        assert!(env.calls.borrow().is_empty());
+        assert!(fs::read_dir(w.meta.join("updates")).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn missing_and_semantically_corrupt_journals_block_operations() {
+        let w = world(&[], false);
+        let txn = run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap().txn;
+        let path = txn_dir(&w.meta, &txn.id).unwrap().join("txn.json");
+        let mut bad = txn.clone();
+        bad.id = "another-update".into();
+        fsx::atomic_write_json(&path, &bad).unwrap();
+        assert!(pending_checked(&w.meta).is_err());
+        bad = txn.clone();
+        bad.ops[0].path = "../outside".into();
+        fsx::atomic_write_json(&path, &bad).unwrap();
+        assert!(ensure_recovered(&w.meta).is_err());
+        bad = txn.clone();
+        bad.ops[0].started = false;
+        fsx::atomic_write_json(&path, &bad).unwrap();
+        assert!(ensure_recovered(&w.meta).is_err());
+        fs::remove_file(&path).unwrap();
+        assert!(pending_checked(&w.meta).is_err());
+        let marker = cleanup_marker(&w.meta, &txn.id).unwrap();
+        fsx::atomic_write_json(&marker, &CleanupMarker { id: txn.id, state: State::Committed }).unwrap();
+        assert!(pending_checked(&w.meta).unwrap().is_none());
+    }
+
+    #[test]
+    fn damaged_saved_file_blocks_restore_before_any_environment_action() {
+        let w = world(&[], false);
+        let env = Fake::ok();
+        env.healthy.set(false);
+        let txn = run(&w, &env, BTreeMap::new(), None).unwrap().txn;
+        let before = txn_dir(&w.meta, &txn.id).unwrap().join("before");
+        write(&before, "Core/worldserver.exe", b"damaged original");
+        env.calls.borrow_mut().clear();
+        assert!(rollback(&w.root, &w.meta, &txn.id, &env).unwrap_err().to_string().contains("damaged"));
+        assert!(env.calls.borrow().is_empty());
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v2");
+        assert_eq!(pending_checked(&w.meta).unwrap().unwrap().state, State::NeedsDecision);
     }
 
     #[test]

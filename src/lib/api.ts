@@ -270,6 +270,7 @@ export interface UpdatePreview {
   items: UpdatePlanItem[];
   conflicts: string[];
   migrations: number;
+  pending_migrations?: number;
   download_bytes: number;
 }
 

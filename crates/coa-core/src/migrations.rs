@@ -35,6 +35,7 @@ pub struct LedgerRow {
 /// Storage for the ledger and the ability to run a SQL file; implemented by the real database and by tests.
 pub trait Store {
     fn load(&self) -> Result<Vec<LedgerRow>>;
+    fn load_readonly(&self) -> Result<Vec<LedgerRow>> { self.load() }
     fn put(&self, row: &LedgerRow) -> Result<()>;
     fn run_file(&self, schema: &str, file: &Path) -> Result<()>;
 }
@@ -52,7 +53,13 @@ impl Store for Db {
         self.query(&format!(
             "CREATE TABLE IF NOT EXISTS `{LEDGER_SCHEMA}`.`{LEDGER_TABLE}` (`db` VARCHAR(32) NOT NULL, `id` VARCHAR(190) NOT NULL, `sha256` CHAR(64) NOT NULL, `status` VARCHAR(16) NOT NULL, `applied_at` DATETIME NOT NULL, `error` TEXT NULL, `baseline` TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (`db`,`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
         ))?;
-        let out = self.query(&format!("SELECT `db`,`id`,`sha256`,`status`,`baseline`,COALESCE(HEX(`error`),'') FROM `{LEDGER_SCHEMA}`.`{LEDGER_TABLE}` ORDER BY `db`,`id`;"))?;
+        self.load_readonly()
+    }
+
+    fn load_readonly(&self) -> Result<Vec<LedgerRow>> {
+        let out = if self.tables(LEDGER_SCHEMA)?.iter().any(|name| name == LEDGER_TABLE) {
+            self.query(&format!("SELECT `db`,`id`,`sha256`,`status`,`baseline`,COALESCE(HEX(`error`),'') FROM `{LEDGER_SCHEMA}`.`{LEDGER_TABLE}` ORDER BY `db`,`id`;"))?
+        } else { String::new() };
         let mut rows = Vec::new();
         // Files the core's own updater (or whoever prepared this database) already recorded count as applied.
         for (kind, schema) in db::SCHEMAS {
@@ -149,6 +156,50 @@ fn recorded<'a>(rows: &'a [LedgerRow], m: &Migration) -> Option<&'a LedgerRow> {
 
 fn hash_changed(row: &LedgerRow, m: &Migration) -> bool {
     row.status == Status::Applied && row.sha256 != "0".repeat(64) && !row.sha256.eq_ignore_ascii_case(&m.sha256)
+        && !m.compatible_sha256.iter().any(|hash| hash.eq_ignore_ascii_case(&row.sha256))
+}
+
+/// Inspect recorded history without creating a ledger or executing migrations.
+pub fn preflight(store: &dyn Store, list: &[Migration]) -> Result<()> {
+    check_history(&store.load_readonly()?, list)
+}
+
+pub fn pending_count(store: &dyn Store, list: &[Migration]) -> Result<usize> {
+    let rows = store.load_readonly()?;
+    check_history(&rows, list)?;
+    Ok(list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).count())
+}
+
+fn verified_file(m: &Migration, dir: &Path) -> Result<(&'static str, std::path::PathBuf, bool)> {
+    if !ident_ok(&m.id) { return Err(Error::InvalidManifest(format!("migration id {:?} is not allowed", m.id))); }
+    let schema = db::schema_of(&m.db)?;
+    let path = fsx::safe_join(dir, &format!("{}/{}.sql", m.db, m.id))?;
+    let bytes = std::fs::read(&path).map_err(|_| Error::Invalid(format!("migration file {} is missing", m.id)))?;
+    let actual = fsx::sha256_bytes(&bytes);
+    if !actual.eq_ignore_ascii_case(&m.sha256) { return Err(Error::HashMismatch { path: path.display().to_string(), expected: m.sha256.clone(), actual }); }
+    Ok((schema, path, m.destructive || looks_destructive(&String::from_utf8_lossy(&bytes))))
+}
+
+/// Check every migration artifact, including applied history, before replacing server files.
+pub fn verify_files(list: &[Migration], dir: &Path) -> Result<()> {
+    let mut seen = std::collections::BTreeSet::new();
+    for m in list {
+        if !seen.insert((&m.db, &m.id)) { return Err(Error::InvalidManifest(format!("duplicate migration {} ({})", m.id, m.db))); }
+        verified_file(m, dir)?;
+    }
+    Ok(())
+}
+
+fn check_history(rows: &[LedgerRow], list: &[Migration]) -> Result<()> {
+    for m in list {
+        if recorded(rows, m).is_some_and(|r| matches!(r.status, Status::Running | Status::Failed)) {
+            return Err(Error::Invalid(format!("Database update {} ({}) failed or was interrupted and may be partially applied. Restore its recovery point before retrying.", m.id, m.db)));
+        }
+        if recorded(rows, m).is_some_and(|r| hash_changed(r, m)) {
+            return Err(Error::Invalid(format!("Applied database update {} ({}) has a different checksum. A new migration is required; it was not replayed.", m.id, m.db)));
+        }
+    }
+    Ok(())
 }
 
 /// Record migrations as already present without running them (adopting an existing server whose database
@@ -178,14 +229,7 @@ pub struct ApplyReport {
 pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot: &dyn Fn() -> Result<String>) -> Result<ApplyReport> {
     let rows = store.load()?;
     // The list order is the release's order of application (released updates, then pending, then modules).
-    for m in list {
-        if recorded(&rows, m).is_some_and(|r| matches!(r.status, Status::Running | Status::Failed)) {
-            return Err(Error::Invalid(format!("Database update {} ({}) failed or was interrupted and may be partially applied. Restore its recovery point before retrying.", m.id, m.db)));
-        }
-        if recorded(&rows, m).is_some_and(|r| hash_changed(r, m)) {
-            return Err(Error::Invalid(format!("Applied database update {} ({}) has a different checksum. A new migration is required; it was not replayed.", m.id, m.db)));
-        }
-    }
+    check_history(&rows, list)?;
     let todo: Vec<&Migration> = list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).collect();
     tracing::info!(total = list.len(), pending = todo.len(), skipped = list.len() - todo.len(), "database migration plan");
 
@@ -193,17 +237,8 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
     let mut files = Vec::new();
     let mut any_destructive = false;
     for m in &todo {
-        if !ident_ok(&m.id) {
-            return Err(Error::InvalidManifest(format!("migration id {:?} is not allowed", m.id)));
-        }
-        let schema = db::schema_of(&m.db)?;
-        let path = fsx::safe_join(dir, &format!("{}/{}.sql", m.db, m.id))?;
-        let bytes = std::fs::read(&path).map_err(|_| Error::Invalid(format!("migration file {} is missing", m.id)))?;
-        let actual = fsx::sha256_bytes(&bytes);
-        if !actual.eq_ignore_ascii_case(&m.sha256) {
-            return Err(Error::HashMismatch { path: path.display().to_string(), expected: m.sha256.clone(), actual });
-        }
-        any_destructive |= m.destructive || looks_destructive(&String::from_utf8_lossy(&bytes));
+        let (schema, path, destructive) = verified_file(m, dir)?;
+        any_destructive |= destructive;
         files.push((*m, schema, path));
     }
 
@@ -273,7 +308,7 @@ mod tests {
         for (db, id, sql) in files {
             std::fs::create_dir_all(d.path().join(db)).unwrap();
             std::fs::write(d.path().join(db).join(format!("{id}.sql")), sql).unwrap();
-            list.push(Migration { id: id.to_string(), db: db.to_string(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
+            list.push(Migration { compatible_sha256: vec![], id: id.to_string(), db: db.to_string(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
         }
         (d, list)
     }
@@ -300,6 +335,60 @@ mod tests {
         let store = Mem::default();
         store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "same_id".into(), sha256: "a".repeat(64), status: Status::Applied, error: None, baseline: false });
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
+        assert!(store.ran.borrow().is_empty());
+    }
+
+    #[test]
+    fn staged_files_reject_missing_corrupt_duplicate_and_invalid_migrations() {
+        let (dir, list) = setup(&[("characters", "repair", "SELECT 1;\n")]);
+        verify_files(&list, dir.path()).unwrap();
+        let mut bad = list.clone();
+        bad[0].id = "../outside".into();
+        assert!(verify_files(&bad, dir.path()).is_err());
+        bad = list.clone();
+        bad.push(list[0].clone());
+        assert!(verify_files(&bad, dir.path()).is_err());
+        std::fs::write(dir.path().join("characters/repair.sql"), b"SELECT 2;\n").unwrap();
+        assert!(verify_files(&list, dir.path()).is_err());
+        std::fs::remove_file(dir.path().join("characters/repair.sql")).unwrap();
+        assert!(verify_files(&list, dir.path()).is_err());
+    }
+
+    #[test]
+    fn preflight_uses_readonly_history_and_rejects_conflicts_without_writes() {
+        struct ReadOnly<'a>(&'a Mem);
+        impl Store for ReadOnly<'_> {
+            fn load(&self) -> Result<Vec<LedgerRow>> { panic!("preflight must use readonly access") }
+            fn load_readonly(&self) -> Result<Vec<LedgerRow>> { self.0.load() }
+            fn put(&self, _: &LedgerRow) -> Result<()> { panic!("preflight must not rewrite history") }
+            fn run_file(&self, _: &str, _: &Path) -> Result<()> { panic!("preflight must not run SQL") }
+        }
+        let (_d, list) = setup(&[("characters", "repair", "SELECT 1;\n")]);
+        for state in [Status::Applied, Status::Running, Status::Failed] {
+            let store = Mem::default();
+            store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "repair".into(), sha256: "a".repeat(64), status: state, error: None, baseline: false });
+            assert!(preflight(&ReadOnly(&store), &list).is_err());
+            assert_eq!(store.rows.borrow()[0].sha256, "a".repeat(64));
+            assert_eq!(store.rows.borrow()[0].status, state);
+        }
+    }
+
+    #[test]
+    fn published_compatibility_preserves_history_and_never_replays_sql() {
+        let (d, mut list) = setup(&[("characters", "repair", "SELECT 1;\n")]);
+        let store = Mem::default();
+        let old = fsx::sha256_bytes(b"SELECT 1;\r\n");
+        store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "repair".into(), sha256: old.clone(), status: Status::Applied, error: None, baseline: false });
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
+        list[0].compatible_sha256.push(old.clone());
+        assert_eq!(status(&store, &list).unwrap()[0].status, Status::Applied);
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap().applied.is_empty());
+        assert!(store.ran.borrow().is_empty());
+        assert_eq!(store.rows.borrow()[0].sha256, old);
+        store.rows.borrow_mut()[0].status = Status::Running;
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
+        store.rows.borrow_mut()[0].status = Status::Failed;
         assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
         assert!(store.ran.borrow().is_empty());
     }

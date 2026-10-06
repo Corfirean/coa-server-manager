@@ -37,7 +37,7 @@ fn exercise(root: &Path) -> Result<()> {
         ("world", "probe_world", "DROP TABLE manager_recovery_probe; THIS IS INTENTIONALLY INVALID SQL;"),
     ] {
         fsx::atomic_write(&source.join(format!("_migrations/{db}/{id}.sql")), sql.as_bytes())?;
-        migrations.push(Migration { db: db.into(), id: id.into(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
+        migrations.push(Migration { compatible_sha256: vec![], db: db.into(), id: id.into(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
     }
     let pkg = root.join("fixture-package");
     let manifest = package::build(&source, &pkg, &BuildOptions {

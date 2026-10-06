@@ -98,7 +98,7 @@ pub fn collect_bots_sql(bots: &Path) -> Result<Vec<SqlFile>> {
 }
 
 fn to_migrations(files: &[SqlFile]) -> Vec<Migration> {
-    files.iter().map(|f| Migration { id: f.id.clone(), db: f.db.clone(), sha256: f.sha256.clone(), destructive: false }).collect()
+    files.iter().map(|f| Migration { compatible_sha256: vec![], id: f.id.clone(), db: f.db.clone(), sha256: f.sha256.clone(), destructive: false }).collect()
 }
 
 pub struct UpdateParams<'a> {

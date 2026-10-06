@@ -51,6 +51,8 @@ pub struct Component {
     pub sha256: Option<String>,
     pub tables: Option<usize>,
     pub files: Option<Vec<String>>,
+    #[serde(default)]
+    pub file_sha256: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +93,9 @@ pub fn list(meta: &Path) -> Vec<RecoveryPoint> {
 }
 
 pub fn get(meta: &Path, id: &str) -> Result<RecoveryPoint> {
-    fsx::read_json(&point_dir(meta, id)?.join("backup.json")).map_err(|_| Error::Invalid(format!("backup {id} was not found")))
+    let point: RecoveryPoint = fsx::read_json(&fsx::ensure_within(meta, &point_dir(meta, id)?.join("backup.json"))?).map_err(|_| Error::Invalid(format!("backup {id} was not found or its metadata is damaged")))?;
+    if point.id != id || point.schema != 1 { return Err(Error::Invalid(format!("Backup {id} has inconsistent identity or an unsupported schema."))); }
+    Ok(point)
 }
 
 /// Files that make up "configuration": everything a user or the Manager may have changed, minus secrets.
@@ -139,13 +143,16 @@ fn copy_configs(root: &Path, dir: &Path) -> Result<Component> {
     let files = config_files(root);
     let target = dir.join("files");
     let mut bytes = 0;
+    let mut file_sha256 = std::collections::BTreeMap::new();
     for rel in &files {
         let src = fsx::safe_join(root, rel)?;
         let dst = fsx::safe_join(&target, rel)?;
-        fs::create_dir_all(dst.parent().unwrap())?;
-        bytes += fs::copy(&src, &dst)?;
+        let content = fs::read(&src)?;
+        fsx::atomic_write(&dst, &content)?;
+        bytes += content.len() as u64;
+        file_sha256.insert(rel.clone(), fsx::sha256_bytes(&content));
     }
-    Ok(Component { name: "configs".into(), path: "files".into(), bytes, sha256: None, tables: None, files: Some(files) })
+    Ok(Component { name: "configs".into(), path: "files".into(), bytes, sha256: None, tables: None, files: Some(files), file_sha256 })
 }
 
 /// Make sure the database is up for `f`. If we had to start it (and nothing else is running), stop it again.
@@ -215,7 +222,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
                 let tables = db.tables(schema)?.len();
                 let file = format!("{name}.sql.zst");
                 let (bytes, sha) = db.dump_to(schema, &partial.join(&file))?;
-                Ok(Component { name, path: file, bytes, sha256: Some(sha), tables: Some(tables), files: None })
+                Ok(Component { name, path: file, bytes, sha256: Some(sha), tables: Some(tables), files: None, file_sha256: Default::default() })
             })?;
             components.push(component);
         }
@@ -255,6 +262,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
 
 /// Keep the newest `keep` automatic recovery points; manual and safety ones are never pruned.
 pub fn prune_automatic(meta: &Path, keep: usize) {
+    if crate::update::ensure_recovered(meta).is_err() { return; }
     let autos: Vec<_> = list(meta).into_iter().filter(|p| p.trigger == Trigger::Automatic).collect();
     for p in autos.into_iter().skip(keep) {
         if let Ok(dir) = point_dir(meta, &p.id) {
@@ -273,8 +281,21 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
     let point = get(meta, id)?;
     let dir = point_dir(meta, id)?;
     let mut problems = Vec::new();
+    let mut names = std::collections::BTreeSet::new();
+    let mut schemas = std::collections::BTreeSet::new();
     for c in &point.components {
-        let path = dir.join(&c.path);
+        if !names.insert(&c.name) { problems.push(format!("{} appears more than once", c.name)); }
+        let path = fsx::ensure_within(&dir, &fsx::safe_join(&dir, &c.path)?)?;
+        if c.name != "configs" && (c.sha256.is_none() || c.tables.is_none()) { problems.push(format!("{} lacks database integrity metadata", c.name)); }
+        if c.name == "configs" {
+            if c.sha256.is_some() || c.files.is_none() { problems.push("configuration integrity metadata is inconsistent".into()); }
+        } else {
+            let schema = if c.name.contains('-') || c.name == "playerbots" { db::schema_of(&c.name) } else { point.realm.schema(&c.name) };
+            match schema {
+                Ok(schema) if schemas.insert(schema) => {}
+                _ => problems.push(format!("{} has an unknown or duplicate database target", c.name)),
+            }
+        }
         match (&c.sha256, &c.files) {
             (Some(sha), _) => match fsx::sha256_file(&path) {
                 Ok(actual) if actual.eq_ignore_ascii_case(sha) => {}
@@ -283,12 +304,16 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
             },
             (None, Some(files)) => {
                 for f in files {
+                    if !c.file_sha256.is_empty() && !c.file_sha256.contains_key(f) { problems.push(format!("configuration file {f} lacks its checksum")); }
                     if !fsx::safe_join(&path, f).map(|p| p.is_file()).unwrap_or(false) {
                         problems.push(format!("configuration file {f} is missing"));
+                    } else if let Some(expected) = c.file_sha256.get(f) {
+                        let file = fsx::ensure_within(&dir, &fsx::safe_join(&path, f)?)?;
+                        if fsx::sha256_file(&file)?.as_str() != expected { problems.push(format!("configuration file {f} is damaged")); }
                     }
                 }
             }
-            _ => {}
+            _ => problems.push(format!("{} lacks an integrity inventory", c.name)),
         }
     }
     Ok(VerifyReport { ok: problems.is_empty(), problems })
@@ -296,6 +321,8 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
 
 /// Delete one recovery point (its own folder only).
 pub fn delete(meta: &Path, id: &str) -> Result<()> {
+    let _lock = crate::update::operation_lock(meta)?;
+    crate::update::ensure_recovered(meta)?;
     if crate::update::unfinished(meta).is_some_and(|t| t.recovery_point.as_deref() == Some(id)) {
         return Err(Error::Invalid("This recovery point is required by an unfinished update and cannot be deleted.".into()));
     }
@@ -403,6 +430,36 @@ mod tests {
         });
         fs::create_dir_all(&meta).unwrap();
         (dir, root, meta)
+    }
+
+    #[test]
+    fn backup_deletion_obeys_the_installation_lock() {
+        let (_d, root, meta) = setup();
+        let point = create(&root, &meta, Kind::Config, Trigger::Manual, None, &|_| {}).unwrap();
+        let lock = crate::update::operation_lock(&meta).unwrap();
+        assert!(delete(&meta, &point.id).is_err());
+        assert!(get(&meta, &point.id).is_ok());
+        drop(lock);
+        delete(&meta, &point.id).unwrap();
+        assert!(get(&meta, &point.id).is_err());
+    }
+
+    #[test]
+    fn damaged_configuration_is_detected_before_restore_and_copies_are_retained() {
+        let (_d, root, meta) = setup();
+        let point = create(&root, &meta, Kind::Config, Trigger::Automatic, None, &|_| {}).unwrap();
+        let file = point_dir(&meta, &point.id).unwrap().join("files/Core/configs/worldserver.conf");
+        fs::write(&file, b"corrupted").unwrap();
+        assert!(!verify(&meta, &point.id).unwrap().ok);
+        let original = fs::read(root.join("Core/configs/worldserver.conf")).unwrap();
+        assert!(restore_configs(&root, &meta, &point.id).is_err());
+        assert_eq!(fs::read(root.join("Core/configs/worldserver.conf")).unwrap(), original);
+        assert_eq!(list(&meta).len(), 1);
+        fs::create_dir_all(meta.join("updates/broken")).unwrap();
+        fs::write(meta.join("updates/broken/txn.json"), b"{damaged").unwrap();
+        assert!(delete(&meta, &point.id).is_err());
+        prune_automatic(&meta, 0);
+        assert!(file.exists());
     }
 
     #[test]
