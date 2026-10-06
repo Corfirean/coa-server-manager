@@ -627,6 +627,23 @@ Whatever option is chosen, **an import must refuse a character that is online**,
 
 ---------------------------------------------------------------------------------------------------------
 
+## 16. Decisions approved (2026-10-06)
+
+D1-D13 were approved as recommended in section 15, with these amendments:
+
+| Topic | Decision |
+|---|---|
+| D1 production import | **in-core path**: the realm itself performs remap + commit + cache refresh through new console commands (small core patches are approved, D8). Offline import stays the path for Phases 3-4 on disposable databases |
+| D5 rulesets | CoA <-> Wildcard transfer is **forbidden** (enforced by the store: a character's ruleset cannot change) |
+| D6 challenge state | an **active challenge / hardcore / Manastorm state blocks transfer** (checked by the exporter in Phase 2 and again in the join pre-flight, Phase 11) |
+| D8 core patches | approved |
+| D9 database driver | a MySQL driver with prepared statements is approved (Phase 2/3) |
+| D10 store | SQLite with WAL is approved (implemented in Phase 1) |
+| D13 checkpoints | keyed **internally by the local guid**: checkpoints arrive as `(server_id, local_guid)` and are resolved to the portable character through `Store::find_by_local` |
+| item mapping | `UNIQUE(character_id, server_id, local_item_guid)` in addition to the primary key (implemented in Phase 1) |
+
+---------------------------------------------------------------------------------------------------------
+
 ## Appendix A. Phase 1 - exact proposed plan (not started)
 
 **Goal:** local canonical storage only. No VPS, no relay, no public list, no database access to any realm, no UI.
