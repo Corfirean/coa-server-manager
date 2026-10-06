@@ -25,6 +25,10 @@ pub const QUARANTINE_EXTENSION: &str = "coa:unlisted-settings";
 /// The source the offline importer writes to mark "this character was imported by import N": see `import.rs`.
 pub const IMPORT_MARKER_SOURCE: &str = "coa.portable.import";
 
+/// Written next to the marker by an in-place update: the first item guid and pet number the update allocated (recovery needs
+/// them when the realm's answer was lost).
+pub const ALLOC_MARKER_SOURCE: &str = "coa.portable.alloc";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Disposition {
     Carry,

@@ -22,24 +22,24 @@ use super::import::*;
 use super::plan::{build_plan, PlanContext};
 use super::*;
 
-const B: &str = "realm-b";
-const ACCOUNT: u32 = 7001;
+pub(super) const B: &str = "realm-b";
+pub(super) const ACCOUNT: u32 = 7001;
 
-fn tools(var: &str) -> Option<(PathBuf, u16, String)> {
+pub(super) fn tools(var: &str) -> Option<(PathBuf, u16, String)> {
     let spec = std::env::var(var).ok()?;
     let p: Vec<&str> = spec.split('|').collect();
     assert_eq!(p.len(), 3, "{var} = <bin dir>|<port>|<password>");
     Some((PathBuf::from(p[0]), p[1].parse().expect("port"), p[2].to_string()))
 }
 
-struct Realms {
-    a: Db,
-    b: Db,
+pub(super) struct Realms {
+    pub(super) a: Db,
+    pub(super) b: Db,
     /// A session of the game server's database user, to stand in for a running realm.
-    server_user: Db,
+    pub(super) server_user: Db,
 }
 
-fn realms() -> Option<Realms> {
+pub(super) fn realms() -> Option<Realms> {
     let (bin_a, port_a, pw_a) = tools("COA_PORTABLE_LIVE")?;
     let (bin_b, port_b, pw_b) = tools("COA_PORTABLE_LIVE_B")?;
     Some(Realms {
@@ -49,14 +49,14 @@ fn realms() -> Option<Realms> {
     })
 }
 
-fn opts() -> ImportOptions {
+pub(super) fn opts() -> ImportOptions {
     ImportOptions { recovery_grace: Duration::ZERO, lock_wait_seconds: 2, ..ImportOptions::default() }
 }
 
 /// Put realm B back to its baseline (the characters of `realm-b-fixture.sql` and the template characters): removes every
 /// character with a guid above the fixture's and what hangs off it. Every live test starts with this, so the tests do not
 /// depend on each other or on their order.
-fn reset_b(db: &Db) {
+pub(super) fn reset_b(db: &Db) {
     let mut sql = vec!["DROP TRIGGER IF EXISTS acore_characters.coa_test_fail;".to_string()];
     for (table, column) in super::plan::CHARACTER_KEYED {
         sql.push(format!("DELETE FROM acore_characters.`{table}` WHERE `{column}` > 3010;"));
@@ -70,20 +70,20 @@ fn reset_b(db: &Db) {
 ")).unwrap();
 }
 
-fn on_b(store: &Store, id: CharacterId) -> Vec<crate::portable::store::MappingRecord> {
+pub(super) fn on_b(store: &Store, id: CharacterId) -> Vec<crate::portable::store::MappingRecord> {
     store.server_mappings(id).unwrap().into_iter().filter(|m| m.server_id == B).collect()
 }
 
-fn first(db: &Db, sql: &str) -> String {
+pub(super) fn first(db: &Db, sql: &str) -> String {
     db.query(sql).unwrap().lines().next().unwrap_or("").to_string()
 }
 
-fn number(db: &Db, sql: &str) -> u64 {
+pub(super) fn number(db: &Db, sql: &str) -> u64 {
     first(db, sql).trim().parse().unwrap_or_else(|_| panic!("not a number: {sql}"))
 }
 
 /// Row counts of every table of the characters schema: the "nothing changed" proof.
-fn counts(db: &Db) -> BTreeMap<String, u64> {
+pub(super) fn counts(db: &Db) -> BTreeMap<String, u64> {
     let tables = db.tables("acore_characters").unwrap();
     let sql = tables.iter().map(|t| format!("SELECT '{t}', COUNT(*) FROM acore_characters.`{t}`")).collect::<Vec<_>>().join(" UNION ALL ");
     db.query(&sql).unwrap().lines().map(|l| {
@@ -92,18 +92,18 @@ fn counts(db: &Db) -> BTreeMap<String, u64> {
     }).collect()
 }
 
-fn fresh_store() -> (Store, crate::portable::ids::ProfileId) {
+pub(super) fn fresh_store() -> (Store, crate::portable::ids::ProfileId) {
     let mut store = Store::open_in_memory().unwrap();
     let profile = store.default_profile().unwrap();
     (store, profile)
 }
 
-fn make(r: &Realms, store: &mut Store, profile: crate::portable::ids::ProfileId, guid: u32) -> CharacterId {
+pub(super) fn make(r: &Realms, store: &mut Store, profile: crate::portable::ids::ProfileId, guid: u32) -> CharacterId {
     make_portable(&r.a, store, profile, "realm-a", guid).unwrap().character_id
 }
 
 /// What a trip through a realm legitimately does not preserve. Everything else must come back identical.
-fn expected_after_a_trip(canonical: &PortableCharacter, back: &PortableCharacter) -> PortableCharacter {
+pub(super) fn expected_after_a_trip(canonical: &PortableCharacter, back: &PortableCharacter) -> PortableCharacter {
     let mut c = canonical.clone();
     c.identity.name = back.identity.name.clone(); // a taken or reserved name arrives under a temporary one
     for item in &mut c.items {
@@ -117,10 +117,11 @@ fn expected_after_a_trip(canonical: &PortableCharacter, back: &PortableCharacter
     c.normalized()
 }
 
-fn read_back(r: &Realms, store: &Store, id: CharacterId) -> PortableCharacter {
+pub(super) fn read_back(r: &Realms, store: &Store, id: CharacterId) -> PortableCharacter {
     let guid = store.server_mappings(id).unwrap().iter().find(|m| m.server_id == B).unwrap().local_guid;
     let prior = store.active_item_lookup(id, B).unwrap();
-    export_character(&r.b, guid, Some(id), &prior).unwrap().model
+    let pets = store.active_pet_lookup(id, B).unwrap();
+    export_character_with_pets(&r.b, guid, Some(id), &prior, &pets).unwrap().model
 }
 
 #[test]
@@ -511,8 +512,13 @@ fn check_dir() -> PathBuf {
     PathBuf::from(std::env::var("COA_PORTABLE_SERVER_CHECK_DIR").expect("COA_PORTABLE_SERVER_CHECK_DIR"))
 }
 
+/// The staged real-server checks only mean something when run stage by stage with the worldserver in between.
+fn staged() -> bool {
+    std::env::var("COA_PORTABLE_SERVER_CHECK_DIR").is_ok()
+}
+
 /// Paths at which two JSON values differ (capped).
-fn json_diff(path: &str, a: &serde_json::Value, b: &serde_json::Value, out: &mut Vec<String>) {
+pub(super) fn json_diff(path: &str, a: &serde_json::Value, b: &serde_json::Value, out: &mut Vec<String>) {
     use serde_json::Value::{Array, Null, Object};
     if out.len() >= 60 {
         return;
@@ -539,6 +545,9 @@ fn json_diff(path: &str, a: &serde_json::Value, b: &serde_json::Value, out: &mut
 #[ignore]
 fn server_check_1_import_into_the_stopped_realm() {
     let Some(r) = realms() else { return };
+    if !staged() {
+        return;
+    }
     reset_b(&r.b);
     let dir = check_dir();
     let _ = std::fs::remove_dir_all(&dir);
@@ -560,6 +569,9 @@ fn server_check_1_import_into_the_stopped_realm() {
 #[ignore]
 fn server_check_3_what_the_real_server_did_to_them() {
     let Some(r) = realms() else { return };
+    if !staged() {
+        return;
+    }
     let store = Store::open(&check_dir()).unwrap();
     let profile = store.list_characters_all().unwrap();
     let mut report = Vec::new();

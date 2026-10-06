@@ -28,7 +28,7 @@ pub const NAME_COLUMN_CHARS: u32 = 25;
 const FULL: u64 = 2_000_000_000;
 
 /// Raises an SQL error ("subquery returns more than 1 row"): used as the failing branch of an assertion.
-const FAIL: &str = "(SELECT 1 UNION ALL SELECT 2)";
+pub(super) const FAIL: &str = "(SELECT 1 UNION ALL SELECT 2)";
 
 /// Per-character tables whose rows are keyed by the **character guid**. Rows left there by a deleted character with
 /// the same guid are removed before the import (the realm's own delete leaves module tables behind). Curated by hand:
@@ -179,23 +179,23 @@ pub fn marker_data(nonce: [u32; 4], revision: u64) -> String {
     format!("{} {} {} {} {} ", nonce[0], nonce[1], nonce[2], nonce[3], revision)
 }
 
-fn to_u32(what: &str, v: u64) -> Result<u32> {
+pub(super) fn to_u32(what: &str, v: u64) -> Result<u32> {
     u32::try_from(v).map_err(|_| PortableError::Invalid(format!("{what} {v} does not fit the realm's 32-bit column")))
 }
 
-fn content_id(what: &str, id: &ContentId, ns: &str, kind: &str) -> Result<u32> {
+pub(super) fn content_id(what: &str, id: &ContentId, ns: &str, kind: &str) -> Result<u32> {
     if id.namespace() != ns || id.kind() != kind {
         return Err(PortableError::Invalid(format!("{what} {id} is not a {ns}:{kind} id and cannot be imported into a {ns} realm")));
     }
     to_u32(what, id.id())
 }
 
-fn settings_text(values: &[u32]) -> String {
+pub(super) fn settings_text(values: &[u32]) -> String {
     values.iter().map(|v| format!("{v} ")).collect()
 }
 
 /// `a b c ... ` for the 12 enchantment slots, as the realm stores them.
-fn enchantment_text(item: &PortableItem) -> String {
+pub(super) fn enchantment_text(item: &PortableItem) -> String {
     let mut slots = [[0u32; 3]; 12];
     for e in &item.enchantments {
         slots[e.slot as usize] = [e.id, e.duration, e.charges];
@@ -203,7 +203,7 @@ fn enchantment_text(item: &PortableItem) -> String {
     slots.iter().flatten().map(|v| format!("{v} ")).collect()
 }
 
-fn charges_text(item: &PortableItem) -> Option<String> {
+pub(super) fn charges_text(item: &PortableItem) -> Option<String> {
     if item.charges.is_empty() {
         return None;
     }

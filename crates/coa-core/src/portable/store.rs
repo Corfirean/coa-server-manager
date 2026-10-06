@@ -18,7 +18,7 @@ use super::versions::{PORTABLE_COLLECTION_FORMAT_VERSION, SNAPSHOT_FORMAT_VERSIO
 pub const DATABASE_FILE: &str = "portable.db";
 /// `PRAGMA application_id`: "COAP". Refuses to adopt an unrelated SQLite file.
 const APPLICATION_ID: i64 = 0x434F_4150;
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql"), include_str!("migrations/003_import_journal.sql")];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql"), include_str!("migrations/003_import_journal.sql"), include_str!("migrations/004_reconciliation.sql")];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
 pub const MAX_HISTORY_KEEP: u32 = 1_000;
@@ -473,6 +473,8 @@ impl Store {
         create_in_tx(&tx, r.profile, &r.model, &encoded, r.source_server_id)?;
         bind_in_tx(&tx, id, r.server_id, r.local_guid, 1, MappingState::Synced)?;
         reconcile_in_tx(&tx, id, r.server_id, 1, r.observations)?;
+        sync_pets_in_tx(&tx, id, r.server_id, 1, r.pets, &PetProtection::default())?;
+        set_synced_in_tx(&tx, id, r.server_id, &encoded)?;
         tx.commit()?;
         Ok(id)
     }
@@ -666,6 +668,7 @@ pub struct RealmRegistration<'a> {
     pub server_id: &'a str,
     pub local_guid: u32,
     pub observations: &'a [ItemObservation],
+    pub pets: &'a [PetObservation],
 }
 
 /// What a realm currently holds for one item of a character.
@@ -713,14 +716,58 @@ pub struct ItemMapping {
     pub entry: String,
     pub identity: String,
     pub active: bool,
+    /// Whether the realm currently holds the item (see [`Presence`]).
+    pub presence: Presence,
     pub created_revision: u64,
     pub confirmed_revision: u64,
     pub retired_revision: Option<u64>,
     pub retired_reason: Option<RetireReason>,
 }
 
+/// Whether the realm holds an item (or pet) that the canonical character owns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presence {
+    /// The realm has it.
+    Present,
+    /// The realm filtered it away before the session baseline (mailed, unknown entry, cannot equip, ...). The canonical
+    /// character still owns it; this is **not** a deletion by the player, so the mapping stays active.
+    Filtered,
+    /// The realm's own addition: never merged into the canonical character.
+    RealmLocal,
+}
+
+impl Presence {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Presence::Present => "present",
+            Presence::Filtered => "filtered",
+            Presence::RealmLocal => "realm_local",
+        }
+    }
+    fn parse(s: &str) -> Result<Self> {
+        Ok(match s {
+            "present" => Presence::Present,
+            "filtered" => Presence::Filtered,
+            "realm_local" => Presence::RealmLocal,
+            other => return Err(PortableError::Invalid(format!("unknown presence {other:?}"))),
+        })
+    }
+}
+
+/// What an observation must not retire / how its items are classified.
+#[derive(Debug, Clone, Default)]
+pub struct Protection {
+    /// Ids the canonical character owns. An active mapping of such an item that the realm no longer shows becomes
+    /// `filtered` instead of being retired.
+    pub canonical_items: std::collections::HashSet<PortableItemId>,
+    /// Observed ids that are the realm's own additions.
+    pub realm_local_items: std::collections::HashSet<PortableItemId>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReconcileReport {
+    /// Active mappings of canonical items that the realm does not show: kept as `filtered`.
+    pub filtered: usize,
     pub confirmed: usize,
     pub added: usize,
     pub guid_reused: usize,
@@ -784,7 +831,7 @@ fn retire_all(tx: &Transaction<'_>, id: CharacterId, server_id: &str, reason: Re
 
 fn read_item_mappings(conn: &Connection, id: CharacterId, server_id: &str, include_retired: bool) -> Result<Vec<ItemMapping>> {
     let sql = format!(
-        "SELECT portable_item_id, local_item_guid, entry, identity, state, created_revision, confirmed_revision, retired_revision, retired_reason
+        "SELECT portable_item_id, local_item_guid, entry, identity, state, created_revision, confirmed_revision, retired_revision, retired_reason, presence
          FROM item_mapping WHERE character_id = ?1 AND server_id = ?2 {} ORDER BY mapping_id",
         if include_retired { "" } else { "AND state = 'active'" }
     );
@@ -800,17 +847,19 @@ fn read_item_mappings(conn: &Connection, id: CharacterId, server_id: &str, inclu
             r.get::<_, i64>(6)?,
             r.get::<_, Option<i64>>(7)?,
             r.get::<_, Option<String>>(8)?,
+            r.get::<_, String>(9)?,
         ))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        let (item, guid, entry, identity, state, created, confirmed, retired, reason) = row?;
+        let (item, guid, entry, identity, state, created, confirmed, retired, reason, presence) = row?;
         out.push(ItemMapping {
             portable_item_id: item.parse()?,
             local_item_guid: guid as u32,
             entry,
             identity,
             active: state == "active",
+            presence: Presence::parse(&presence)?,
             created_revision: created as u64,
             confirmed_revision: confirmed as u64,
             retired_revision: retired.map(|r| r as u64),
@@ -866,6 +915,7 @@ fn bind_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, local_guid
             .optional()?;
         if previous.is_some_and(|p| p != local_guid as i64) {
             retire_all(tx, id, server_id, RetireReason::CharacterRebound, last_revision)?;
+            retire_all_pets(tx, id, server_id, RetireReason::CharacterRebound, last_revision)?;
         }
         tx.execute(
             "INSERT INTO character_server_mapping(character_id, server_id, local_guid, last_revision, state, updated_at)
@@ -878,6 +928,10 @@ fn bind_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, local_guid
 }
 
 fn reconcile_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revision: u64, observations: &[ItemObservation]) -> Result<ReconcileReport> {
+    reconcile_with(tx, id, server_id, revision, observations, &Protection::default())
+}
+
+fn reconcile_with(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revision: u64, observations: &[ItemObservation], protection: &Protection) -> Result<ReconcileReport> {
     validate_observations(server_id, observations)?;
         let record = read_character(tx, id)?;
         if revision > record.revision {
@@ -898,7 +952,7 @@ fn reconcile_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revis
             let by_guid = active_by_guid(tx, id, server_id, o.local_item_guid)?;
             if let Some(existing) = &by_guid {
                 if existing.portable_item_id == o.portable_item_id && existing.identity == o.identity {
-                    tx.execute("UPDATE item_mapping SET confirmed_revision = ?1, updated_at = ?2 WHERE mapping_id = ?3", params![revision as i64, at, existing.mapping_id])?;
+                    tx.execute("UPDATE item_mapping SET confirmed_revision = ?1, updated_at = ?2, presence = ?4 WHERE mapping_id = ?3", params![revision as i64, at, existing.mapping_id, presence_of(protection, o.portable_item_id).as_str()])?;
                     report.confirmed += 1;
                     continue;
                 }
@@ -912,10 +966,10 @@ fn reconcile_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revis
                 report.moved += 1;
             }
             tx.execute(
-                "INSERT INTO item_mapping(character_id, server_id, portable_item_id, local_item_guid, entry, identity, state,
+                "INSERT INTO item_mapping(character_id, server_id, portable_item_id, local_item_guid, entry, identity, state, presence,
                                           created_revision, confirmed_revision, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7, ?8, ?8)",
-                params![id.to_string(), server_id, o.portable_item_id.to_string(), o.local_item_guid, o.entry.to_string(), o.identity, revision as i64, at],
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?9, ?7, ?7, ?8, ?8)",
+                params![id.to_string(), server_id, o.portable_item_id.to_string(), o.local_item_guid, o.entry.to_string(), o.identity, revision as i64, at, presence_of(protection, o.portable_item_id).as_str()],
             )?;
             report.added += 1;
         }
@@ -925,11 +979,26 @@ fn reconcile_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revis
         drop(stmt);
         for (mapping_id, item) in active {
             if !observations.iter().any(|o| o.portable_item_id.to_string() == item) {
-                retire_one(tx, mapping_id, RetireReason::Absent, revision, &at)?;
-                report.absent += 1;
+                let owned = item.parse::<PortableItemId>().map(|i| protection.canonical_items.contains(&i)).unwrap_or(false);
+                if owned {
+                    // filtered away by the realm, still the character's: keep the mapping
+                    tx.execute("UPDATE item_mapping SET presence = 'filtered', updated_at = ?2 WHERE mapping_id = ?1", params![mapping_id, at])?;
+                    report.filtered += 1;
+                } else {
+                    retire_one(tx, mapping_id, RetireReason::Absent, revision, &at)?;
+                    report.absent += 1;
+                }
             }
         }
     Ok(report)
+}
+
+fn presence_of(protection: &Protection, id: PortableItemId) -> Presence {
+    if protection.realm_local_items.contains(&id) {
+        Presence::RealmLocal
+    } else {
+        Presence::Present
+    }
 }
 
 fn validate_observations(server_id: &str, observations: &[ItemObservation]) -> Result<()> {
@@ -950,7 +1019,9 @@ fn validate_observations(server_id: &str, observations: &[ItemObservation]) -> R
 }
 
 mod journal;
+mod sync;
 pub use journal::*;
+pub use sync::*;
 
 #[cfg(test)]
 mod tests;

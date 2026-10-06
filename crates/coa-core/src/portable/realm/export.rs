@@ -11,7 +11,7 @@ use super::super::error::{PortableError, Result};
 use super::super::identity::item_identity;
 use super::super::ids::{CharacterId, ContentId, PortableItemId, PortablePetId};
 use super::super::model::*;
-use super::super::store::ItemObservation;
+use super::super::store::{pet_identity, ItemObservation, PetObservation};
 use super::super::versions::PORTABLE_CHARACTER_FORMAT_VERSION;
 use super::blockers::{is_internal_account, Blocker};
 use super::policy::{classify_setting, Disposition, QUARANTINE_EXTENSION, SETTINGS_POLICY_VERSION};
@@ -29,6 +29,8 @@ pub struct ExportRequest<'a> {
     pub character_id: Option<CharacterId>,
     /// Active item mappings of that character on this realm: local item guid -> (portable item id, identity).
     pub prior_items: &'a HashMap<u32, (PortableItemId, String)>,
+    /// Active pet mappings of that character on this realm: local pet number -> (portable pet id, identity).
+    pub prior_pets: &'a HashMap<u32, (PortablePetId, String)>,
 }
 
 #[derive(Debug)]
@@ -39,6 +41,8 @@ pub struct Exported {
     pub account: u32,
     /// One entry per exported item, ready for `Store::reconcile_item_mappings`.
     pub observations: Vec<ItemObservation>,
+    /// One entry per exported pet, ready for the pet mappings.
+    pub pet_observations: Vec<PetObservation>,
     /// Things that were left out or looked wrong; shown to the user, never silently dropped.
     pub warnings: Vec<String>,
 }
@@ -182,7 +186,7 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
         .map(|r| Ok(ActionButton { spec: r.u8("spec")?, button: r.u8("button")?, action: r.u32("action")?, kind: r.u8("type")? }))
         .collect::<Result<_>>()?;
 
-    let pets = pets(raw, ns)?;
+    let (pets, pet_observations) = pets(raw, ns, req.prior_pets)?;
     let (settings, quarantined) = settings(raw, req.ruleset)?;
 
     let mut client_data = BTreeMap::new();
@@ -218,7 +222,7 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
     .normalized();
     model.validate()?;
 
-    Ok(Exported { model, local_guid: req.local_guid, account: c.u32("account")?, observations, warnings })
+    Ok(Exported { model, local_guid: req.local_guid, account: c.u32("account")?, observations, pet_observations, warnings })
 }
 
 fn pairs(raw: &RawExport, section: &str) -> Result<Vec<(u32, u8)>> {
@@ -336,7 +340,7 @@ fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<
     Ok((items, observations))
 }
 
-fn pets(raw: &RawExport, ns: &str) -> Result<Vec<PortablePet>> {
+fn pets(raw: &RawExport, ns: &str, prior: &HashMap<u32, (PortablePetId, String)>) -> Result<(Vec<PortablePet>, Vec<PetObservation>)> {
     let mut spells: HashMap<u32, Vec<PetSpell>> = HashMap::new();
     for r in raw.section("pet_spells")?.iter() {
         spells.entry(r.u32("pet")?).or_default().push(PetSpell { spell: r.u32("spell")?, active: r.u8("active")? });
@@ -345,31 +349,40 @@ fn pets(raw: &RawExport, ns: &str) -> Result<Vec<PortablePet>> {
     for r in raw.section("pet_declined")?.iter() {
         declined.insert(r.u32("id")?, [r.text("n1")?, r.text("n2")?, r.text("n3")?, r.text("n4")?, r.text("n5")?]);
     }
-    raw.section("pets")?
-        .iter()
-        .map(|r| {
-            let number = r.u32("id")?;
-            Ok(PortablePet {
-                id: PortablePetId::new(),
-                entry: ContentId::new(ns, "creature", r.u64("entry")?)?,
-                model_id: r.u32("model")?,
-                created_by_spell: r.u32("created_by")?,
-                pet_type: r.u8("pet_type")?,
-                level: r.u16("level")?,
-                exp: r.u32("exp")?,
-                react_state: r.u8("react")?,
-                name: r.text("name")?,
-                renamed: r.u64("renamed")? != 0,
-                slot: r.u8("slot")?,
-                health: r.u32("health")?,
-                mana: r.u32("mana")?,
-                happiness: r.u32("happiness")?,
-                action_bar: r.text("abdata")?,
-                spells: spells.remove(&number).unwrap_or_default(),
-                declined_names: declined.remove(&number),
-            })
-        })
-        .collect()
+    let mut observations = Vec::new();
+    let mut pets = Vec::new();
+    for r in raw.section("pets")?.iter() {
+        let number = r.u32("id")?;
+        let entry = ContentId::new(ns, "creature", r.u64("entry")?)?;
+        let (pet_type, created_by) = (r.u8("pet_type")?, r.u32("created_by")?);
+        let identity = pet_identity(&entry, pet_type, created_by);
+        // a pet keeps its portable id while the realm's number still names the same pet; a recycled number is a new pet
+        let id = match prior.get(&number) {
+            Some((id, prior_identity)) if *prior_identity == identity => *id,
+            _ => PortablePetId::new(),
+        };
+        observations.push(PetObservation { portable_pet_id: id, local_pet_number: number, identity });
+        pets.push(PortablePet {
+            id,
+            entry,
+            model_id: r.u32("model")?,
+            created_by_spell: created_by,
+            pet_type,
+            level: r.u16("level")?,
+            exp: r.u32("exp")?,
+            react_state: r.u8("react")?,
+            name: r.text("name")?,
+            renamed: r.u64("renamed")? != 0,
+            slot: r.u8("slot")?,
+            health: r.u32("health")?,
+            mana: r.u32("mana")?,
+            happiness: r.u32("happiness")?,
+            action_bar: r.text("abdata")?,
+            spells: spells.remove(&number).unwrap_or_default(),
+            declined_names: declined.remove(&number),
+        });
+    }
+    Ok((pets, observations))
 }
 
 /// `(carried, quarantined)`.

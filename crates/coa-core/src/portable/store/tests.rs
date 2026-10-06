@@ -446,7 +446,7 @@ fn moved_and_absent_items_are_retired_with_their_reason() {
 
     // item 0 got a new local guid (re-imported), item 1 is gone, item 2 is unchanged
     let report = store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 200, 1, "v1:a"), obs(items[2], 102, 3, "v1:c")]).unwrap();
-    assert_eq!(report, ReconcileReport { confirmed: 1, added: 1, guid_reused: 0, moved: 1, absent: 1 });
+    assert_eq!(report, ReconcileReport { confirmed: 1, added: 1, guid_reused: 0, moved: 1, absent: 1, filtered: 0 });
 
     let active: Vec<(PortableItemId, u32)> = store.item_mappings(id, "realm-a").unwrap().into_iter().map(|m| (m.portable_item_id, m.local_item_guid)).collect();
     assert_eq!(active, vec![(items[2], 102), (items[0], 200)]);
@@ -485,26 +485,19 @@ fn schema_1_item_mappings_survive_the_migration_as_unverified() {
     let file = Store::path_of(dir.path());
     let (character, item);
     {
-        // build a schema-1 database by hand, exactly as Phase 1 wrote it
-        let mut store = Store::open_file(&file).unwrap();
-        let profile = store.default_profile().unwrap();
-        character = created(&mut store, profile);
-        item = store.load_current(character).unwrap().items[0].id;
-        store.bind_server(character, "realm-a", 154, 1, MappingState::Active).unwrap();
-        store.conn.execute_batch(
-            "DROP TABLE import_journal;
-             DROP TABLE item_mapping;
-             CREATE TABLE item_mapping (character_id TEXT NOT NULL, server_id TEXT NOT NULL, portable_item_id TEXT NOT NULL, local_item_guid INTEGER NOT NULL,
-                PRIMARY KEY (character_id, server_id, portable_item_id), UNIQUE (character_id, server_id, local_item_guid),
-                FOREIGN KEY (character_id, server_id) REFERENCES character_server_mapping(character_id, server_id) ON DELETE CASCADE) STRICT;
-             PRAGMA user_version = 1;",
-        )
-        .unwrap();
-        store.conn.execute(
-            "INSERT INTO item_mapping VALUES (?1, 'realm-a', ?2, 4242)",
-            params![character.to_string(), item.to_string()],
-        )
-        .unwrap();
+        // a schema-1 database, exactly as Phase 1 wrote it: only the first migration applied
+        let conn = Connection::open(&file).unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "application_id", APPLICATION_ID).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        let profile = ProfileId::new();
+        character = CharacterId::new();
+        item = PortableItemId::new();
+        conn.execute("INSERT INTO profile VALUES (?1, 'x', 1)", [profile.to_string()]).unwrap();
+        conn.execute("INSERT INTO character VALUES (?1, ?2, 'coa', 'n', 'r', 'c', 0, 1, 1, 'x', 'x', 0)", params![character.to_string(), profile.to_string()]).unwrap();
+        conn.execute("INSERT INTO character_server_mapping VALUES (?1, 'realm-a', 154, 1, 'active', 'x')", [character.to_string()]).unwrap();
+        conn.execute("INSERT INTO item_mapping VALUES (?1, 'realm-a', ?2, 4242)", params![character.to_string(), item.to_string()]).unwrap();
     }
     let store = Store::open_file(&file).unwrap();
     assert_eq!(store.schema_version().unwrap(), MIGRATIONS.len() as i64);
@@ -592,6 +585,10 @@ fn plan_of_current(store: &Store, id: CharacterId) -> Vec<PlannedItem> {
         .collect()
 }
 
+fn planned_pets_of(store: &Store, id: CharacterId) -> Vec<PlannedPet> {
+    store.load_current(id).unwrap().pets.iter().map(|p| PlannedPet { id: p.id, entry: p.entry.clone(), identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell) }).collect()
+}
+
 fn alloc(guid: u32) -> ImportAllocation {
     ImportAllocation { local_guid: guid, item_base: 20_064, pet_base: 3_004 }
 }
@@ -601,12 +598,12 @@ fn an_import_is_journaled_first_and_mapped_only_when_finished() {
     let (mut store, profile) = fresh();
     let id = created(&mut store, profile);
     let items = plan_of_current(&store, id);
-    let pets = store.load_current(id).unwrap().pets.iter().map(|p| p.id).collect::<Vec<_>>();
+    let pets = planned_pets_of(&store, id);
 
     let ticket = store.begin_import(id, "realm-b", 1, &items, &pets).unwrap();
     assert_eq!(ticket.marker, marker_text(ticket.nonce, 1));
     let entry = store.import_entry(ticket.import_id).unwrap();
-    assert_eq!((entry.state, entry.revision, entry.items.len(), entry.pet_ids.len()), (ImportState::Prepared, 1, items.len(), pets.len()));
+    assert_eq!((entry.state, entry.revision, entry.items.len(), entry.pets.len()), (ImportState::Prepared, 1, items.len(), pets.len()));
     // nothing is mapped before the realm has committed
     assert!(store.server_mappings(id).unwrap().is_empty());
     assert_eq!(store.find_by_local("realm-b", 1013).unwrap(), None);
@@ -693,4 +690,278 @@ fn a_failing_finish_changes_nothing_locally() {
     assert_eq!(store.import_entry(ticket.import_id).unwrap().state, ImportState::Prepared, "still recoverable");
     assert!(store.server_mappings(id).unwrap().is_empty());
     assert!(store.item_mappings(id, "realm-b").unwrap().is_empty());
+}
+
+// ---- Phase 4: presence, pet mappings, baselines, reconciliation, updates ---------------------------------------------------------
+
+use crate::portable::ids::PortablePetId;
+use crate::portable::merge::{merge3, Mode};
+use crate::portable::model::PortableItem;
+
+const ITEM_BASE: u32 = 20_064;
+const PET_BASE: u32 = 3_004;
+
+/// The character joined `realm-b` by an import and is synced there at revision 1.
+fn joined() -> (Store, CharacterId, PortableCharacter) {
+    let (mut store, profile) = fresh();
+    let id = created(&mut store, profile);
+    let items = plan_of_current(&store, id);
+    let pets = planned_pets_of(&store, id);
+    let ticket = store.begin_import(id, "realm-b", 1, &items, &pets).unwrap();
+    store.finish_import(ticket.import_id, alloc(1013)).unwrap();
+    let c0 = store.load_current(id).unwrap();
+    (store, id, c0)
+}
+
+fn pet_obs(m: &PortableCharacter) -> Vec<PetObservation> {
+    m.pets.iter().enumerate().map(|(i, p)| PetObservation { portable_pet_id: p.id, local_pet_number: PET_BASE + i as u32, identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell) }).collect()
+}
+
+/// Items the realm would filter away: plain ones that hold nothing.
+fn filterable(m: &PortableCharacter, n: usize) -> Vec<PortableItemId> {
+    let containers: std::collections::HashSet<PortableItemId> = m.items.iter().filter_map(|i| i.container).collect();
+    m.items.iter().filter(|i| i.container.is_none() && !containers.contains(&i.id) && i.slot < 40).map(|i| i.id).take(n).collect()
+}
+
+fn realm_item(n: u64) -> PortableItem {
+    PortableItem {
+        id: PortableItemId::from_uuid(fixtures::id7(600_000 + n)).unwrap(),
+        container: None,
+        slot: 60 + n as u8,
+        entry: ContentId::new("coa", "item", 66_000 + n).unwrap(),
+        count: 1,
+        duration: 0,
+        charges: vec![],
+        flags: 0,
+        enchantments: vec![],
+        random_property_id: 0,
+        durability: 10,
+        played_time: 0,
+        text: None,
+        creator_name: None,
+        gift: None,
+    }
+}
+
+/// What the realm shows after its own first load/save: two items held back, one of its own added.
+fn b0_of(c0: &PortableCharacter) -> (PortableCharacter, Vec<PortableItemId>, PortableItemId) {
+    let filtered = filterable(c0, 2);
+    let mut b0 = c0.clone();
+    b0.items.retain(|i| !filtered.contains(&i.id));
+    let own = realm_item(1);
+    let own_id = own.id;
+    b0.items.push(own);
+    b0.progression.honor.today_honor = 0;
+    (b0.normalized(), filtered, own_id)
+}
+
+/// The realm's item guids: the import's `ITEM_BASE + index` for imported items, `99_000 + n` for the realm's own.
+fn observed(c0: &PortableCharacter, model: &PortableCharacter) -> Vec<ItemObservation> {
+    model
+        .items
+        .iter()
+        .map(|it| ItemObservation {
+            portable_item_id: it.id,
+            local_item_guid: match c0.items.iter().position(|o| o.id == it.id) {
+                Some(i) => ITEM_BASE + i as u32,
+                None => 99_000 + (it.entry.id() % 1000) as u32,
+            },
+            entry: it.entry.clone(),
+            identity: crate::portable::identity::item_identity(&it.entry, it.random_property_id),
+        })
+        .collect()
+}
+
+#[test]
+fn a_baseline_tells_filtered_items_from_the_realms_own_and_keeps_both_mapped() {
+    let (mut store, id, c0) = joined();
+    let (b0, filtered, own) = b0_of(&c0);
+
+    let baseline = store.capture_baseline(id, "realm-b", BaselineInput { b0: &b0, items: &observed(&c0, &b0), pets: &pet_obs(&b0) }).unwrap();
+    assert_eq!((baseline.c0_revision, baseline.head_revision), (1, 1));
+    assert_eq!(baseline.c0, c0, "C0 is the snapshot the realm was synced with");
+    assert_eq!(baseline.b0, b0);
+
+    let mappings = store.item_mappings(id, "realm-b").unwrap();
+    let presence = |item: PortableItemId| mappings.iter().find(|m| m.portable_item_id == item && m.active).map(|m| m.presence);
+    for f in &filtered {
+        assert_eq!(presence(*f), Some(Presence::Filtered), "an item the realm held back stays mapped, as filtered, not retired");
+    }
+    assert_eq!(presence(own), Some(Presence::RealmLocal), "an item the canonical character does not own is realm-local");
+    assert_eq!(presence(c0.items.iter().find(|i| !filtered.contains(&i.id)).unwrap().id), Some(Presence::Present));
+    assert!(mappings.iter().all(|m| m.active), "nothing was retired");
+
+    // the baseline is persisted and one per realm at a time
+    let again = store.open_baseline(id, "realm-b").unwrap().unwrap();
+    assert_eq!((again.c0, again.b0), (c0.clone(), b0.clone()));
+    assert!(store.capture_baseline(id, "realm-b", BaselineInput { b0: &b0, items: &observed(&c0, &b0), pets: &pet_obs(&b0) }).is_err());
+    assert!(store.close_baseline(id, "realm-b").unwrap());
+    assert!(store.open_baseline(id, "realm-b").unwrap().is_none());
+    assert!(!store.close_baseline(id, "realm-b").unwrap(), "closing twice is harmless");
+}
+
+#[test]
+fn a_baseline_needs_the_canonical_revision_the_realm_was_synced_with() {
+    let (mut store, id, c0) = joined();
+    let (b0, _, _) = b0_of(&c0);
+    // canonical moved on (another realm's session): the base of this session would be wrong
+    store.commit_snapshot(id, 1, with_money(c0.clone(), 5), "realm-a", None).unwrap();
+    let r = store.capture_baseline(id, "realm-b", BaselineInput { b0: &b0, items: &observed(&c0, &b0), pets: &pet_obs(&b0) });
+    assert!(matches!(r, Err(PortableError::StaleRevision { expected: 1, current: 2 })), "{r:?}");
+    assert!(store.open_baseline(id, "realm-b").unwrap().is_none(), "a refused capture leaves nothing behind");
+}
+
+#[test]
+fn reconciling_makes_one_new_revision_and_leaves_the_realms_state_in_sync() {
+    let (mut store, id, c0) = joined();
+    let (b0, filtered, own) = b0_of(&c0);
+    store.capture_baseline(id, "realm-b", BaselineInput { b0: &b0, items: &observed(&c0, &b0), pets: &pet_obs(&b0) }).unwrap();
+
+    // the player earns money, loses a plain item and picks one up
+    let sold = filterable(&b0, 6).into_iter().find(|i| !filtered.contains(i) && *i != own).unwrap();
+    let mut b1 = b0.clone();
+    b1.progression.money += 500;
+    b1.items.retain(|i| i.id != sold);
+    let loot = realm_item(2);
+    let loot_id = loot.id;
+    b1.items.push(loot);
+    let b1 = b1.normalized();
+    let baseline = store.open_baseline(id, "realm-b").unwrap().unwrap();
+    let merged = merge3(&baseline.c0, &baseline.b0, &b1, Mode::Lenient).unwrap();
+
+    let revision = store.commit_reconciled(id, "realm-b", merged.model.clone(), &observed(&c0, &b1), &pet_obs(&b1), Some("session")).unwrap();
+    assert_eq!(revision, 2);
+    let canonical = store.load_current(id).unwrap();
+    assert_eq!(canonical.progression.money, c0.progression.money + 500);
+    assert!(canonical.items.iter().all(|i| i.id != sold), "what the player got rid of is gone");
+    assert!(filtered.iter().all(|f| canonical.items.iter().any(|i| i.id == *f)), "what the realm held back is still canonical");
+    assert!(canonical.items.iter().any(|i| i.id == loot_id), "what the player found is canonical now");
+    assert!(canonical.items.iter().all(|i| i.id != own), "the realm's own item never becomes canonical");
+
+    let head = store.open_baseline(id, "realm-b").unwrap().unwrap();
+    assert_eq!((head.c0_revision, head.head_revision), (1, 2));
+    assert_eq!(store.synced_model(id, "realm-b").unwrap().unwrap(), canonical, "the realm is synced with what was just committed");
+    assert_eq!(store.server_mappings(id).unwrap()[0].last_revision, 2);
+
+    let mappings = store.item_mappings(id, "realm-b").unwrap();
+    let state = |item: PortableItemId| mappings.iter().find(|m| m.portable_item_id == item && m.active).map(|m| m.presence);
+    assert_eq!(state(loot_id), Some(Presence::Present));
+    assert_eq!(state(own), Some(Presence::RealmLocal));
+    for f in &filtered {
+        assert_eq!(state(*f), Some(Presence::Filtered));
+    }
+    assert!(state(sold).is_none(), "the sold item's mapping is retired");
+
+    // a checkpoint later: the WHOLE B0 -> B1' delta is applied to C0 again, so nothing is counted twice
+    let mut b2 = b1.clone();
+    b2.progression.money += 100;
+    let b2 = b2.normalized();
+    let merged = merge3(&baseline.c0, &baseline.b0, &b2, Mode::Lenient).unwrap();
+    assert_eq!(merged.model.progression.money, c0.progression.money + 600);
+    let revision = store.commit_reconciled(id, "realm-b", merged.model.clone(), &observed(&c0, &b2), &pet_obs(&b2), None).unwrap();
+    assert_eq!(revision, 3);
+    // a checkpoint with no new progress makes no new revision
+    let again = store.commit_reconciled(id, "realm-b", merged.model, &observed(&c0, &b2), &pet_obs(&b2), None).unwrap();
+    assert_eq!(again, 3);
+    assert_eq!(store.list_revisions(id).unwrap().len(), 3);
+}
+
+#[test]
+fn a_reconcile_refuses_a_canonical_character_that_moved_under_it() {
+    let (mut store, id, c0) = joined();
+    let (b0, _, _) = b0_of(&c0);
+    store.capture_baseline(id, "realm-b", BaselineInput { b0: &b0, items: &observed(&c0, &b0), pets: &pet_obs(&b0) }).unwrap();
+    store.commit_snapshot(id, 1, with_money(c0.clone(), 9), "realm-a", None).unwrap();
+    let mut b1 = b0.clone();
+    b1.progression.money += 1;
+    let merged = merge3(&c0, &b0, &b1, Mode::Lenient).unwrap();
+    let r = store.commit_reconciled(id, "realm-b", merged.model.clone(), &observed(&c0, &b1), &pet_obs(&b1), None);
+    assert!(matches!(r, Err(PortableError::StaleRevision { expected: 1, current: 2 })), "{r:?}");
+    assert_eq!(store.character(id).unwrap().revision, 2, "nothing was committed");
+    // without a baseline there is nothing to reconcile
+    assert!(store.close_baseline(id, "realm-b").unwrap());
+    assert!(store.commit_reconciled(id, "realm-b", merged.model, &observed(&c0, &b1), &pet_obs(&b1), None).is_err());
+}
+
+#[test]
+fn pet_mappings_are_stable_and_never_inherit_a_recycled_number() {
+    let (mut store, id, c0) = joined();
+    let pet = c0.pets[0].clone();
+    let number = PET_BASE;
+    let active = store.pet_mappings(id, "realm-b").unwrap();
+    assert_eq!(active.len(), c0.pets.len());
+    assert_eq!((active[0].portable_pet_id, active[0].local_pet_number, active[0].presence), (pet.id, number, Presence::Present));
+    let lookup = store.active_pet_lookup(id, "realm-b").unwrap();
+    assert_eq!(lookup[&number].0, pet.id, "the export reuses the id for the same pet number");
+
+    // the same pet seen again: confirmed, no new mapping
+    let seen = pet_obs(&c0);
+    let r = store.sync_pet_mappings(id, "realm-b", 1, &seen, &PetProtection::default()).unwrap();
+    assert_eq!((r.confirmed, r.added), (seen.len(), 0));
+
+    // the realm recycles the number for another pet: the old mapping is retired, the newcomer is a new pet
+    let stranger = PetObservation { portable_pet_id: PortablePetId::new(), local_pet_number: number, identity: "pet-v1:other".into() };
+    let r = store.sync_pet_mappings(id, "realm-b", 1, &[stranger.clone()], &PetProtection { realm_local_pets: [stranger.portable_pet_id].into(), ..Default::default() }).unwrap();
+    assert_eq!((r.number_reused, r.added), (1, 1));
+    let history = store.pet_mapping_history(id, "realm-b").unwrap();
+    let old = history.iter().find(|m| m.portable_pet_id == pet.id).unwrap();
+    assert_eq!((old.active, old.retired_reason), (false, Some(RetireReason::GuidReused)));
+    let new = history.iter().find(|m| m.portable_pet_id == stranger.portable_pet_id).unwrap();
+    assert_eq!((new.active, new.presence), (true, Presence::RealmLocal));
+
+    // a stranger that left is retired; a pet the canonical character owns that the realm does not show would be filtered instead
+    let r = store.sync_pet_mappings(id, "realm-b", 1, &[], &PetProtection { canonical_pets: c0.pets.iter().map(|p| p.id).collect(), ..Default::default() }).unwrap();
+    assert_eq!(r.absent, 1, "the realm-local stranger is gone");
+    assert!(store.pet_mappings(id, "realm-b").unwrap().iter().all(|m| m.portable_pet_id != stranger.portable_pet_id));
+    // the same portable pet on a new number is a move
+    let moved = PetObservation { portable_pet_id: pet.id, local_pet_number: 7777, identity: seen[0].identity.clone() };
+    store.sync_pet_mappings(id, "realm-b", 1, &[moved], &PetProtection::default()).unwrap();
+    assert_eq!(store.active_pet_lookup(id, "realm-b").unwrap()[&7777].0, pet.id);
+    // duplicate observations are refused
+    let dup = PetObservation { portable_pet_id: pet.id, local_pet_number: 1, identity: "x".into() };
+    assert!(store.sync_pet_mappings(id, "realm-b", 1, &[dup.clone(), dup], &PetProtection::default()).is_err());
+}
+
+#[test]
+fn an_update_is_journaled_like_an_import_and_changes_the_mappings_only_when_finished() {
+    let (mut store, id, c0) = joined();
+    // canonical moves on: one item removed, one new item
+    let gone = filterable(&c0, 1)[0];
+    let mut c1 = c0.clone();
+    c1.items.retain(|i| i.id != gone);
+    let fresh_item = realm_item(3);
+    let fresh_id = fresh_item.id;
+    c1.items.push(fresh_item.clone());
+    store.commit_snapshot(id, 1, c1.clone(), "realm-a", None).unwrap();
+
+    let plan = UpdatePlan {
+        added_items: vec![PlannedItem { id: fresh_id, entry: fresh_item.entry.clone(), identity: crate::portable::identity::item_identity(&fresh_item.entry, 0) }],
+        retired_items: vec![gone],
+        ..UpdatePlan::default()
+    };
+    // updating needs the character to be on the realm already
+    assert!(store.begin_update(id, "realm-z", 2, plan.clone()).is_err());
+    assert!(matches!(store.begin_update(id, "realm-b", 1, plan.clone()), Err(PortableError::StaleRevision { .. })));
+    let ticket = store.begin_update(id, "realm-b", 2, plan.clone()).unwrap();
+    let entry = store.import_entry(ticket.import_id).unwrap();
+    assert_eq!((entry.kind, entry.state, entry.items.len(), entry.retired_items.clone()), (JournalKind::Update, ImportState::Prepared, 1, vec![gone]));
+    assert!(matches!(store.begin_update(id, "realm-b", 2, plan.clone()), Err(PortableError::ImportInProgress { .. })));
+    // nothing changed locally before the realm committed
+    assert_eq!(store.server_mappings(id).unwrap()[0].last_revision, 1);
+    assert!(store.item_mappings(id, "realm-b").unwrap().iter().any(|m| m.portable_item_id == gone));
+    assert!(store.synced_model(id, "realm-b").unwrap().unwrap() == c0);
+
+    store.finish_import(ticket.import_id, ImportAllocation { local_guid: 1013, item_base: 88_000, pet_base: 0 }).unwrap();
+    let mappings = store.item_mappings(id, "realm-b").unwrap();
+    assert!(mappings.iter().all(|m| m.portable_item_id != gone), "the removed item's mapping is retired");
+    let added = mappings.iter().find(|m| m.portable_item_id == fresh_id).unwrap();
+    assert_eq!((added.local_item_guid, added.presence), (88_000, Presence::Present));
+    assert_eq!(store.server_mappings(id).unwrap()[0].last_revision, 2);
+    assert_eq!(store.synced_model(id, "realm-b").unwrap().unwrap(), store.load_current(id).unwrap(), "the realm is synced with what it was updated to");
+    // the local character is the same one
+    assert_eq!(store.server_mappings(id).unwrap()[0].local_guid, 1013);
+    // a wrong guid is refused and rolls back
+    let second = store.begin_update(id, "realm-b", 2, UpdatePlan::default()).unwrap();
+    let r = store.finish_import(second.import_id, ImportAllocation { local_guid: 4040, item_base: 0, pet_base: 0 });
+    assert!(r.is_err() && store.import_entry(second.import_id).unwrap().state == ImportState::Prepared);
 }

@@ -57,6 +57,13 @@ pub enum PortableError {
     #[error("import {import_id} needs attention: {detail}")]
     ImportNeedsAttention { import_id: ImportId, detail: String },
 
+    #[error("this character has no open session on this realm: capture the baseline after the realm's first load and before it is played")]
+    NoBaseline,
+    #[error("this character has an open session on this realm: reconcile it first")]
+    SessionOpen,
+    #[error("the character was changed on the realm and in the canonical store in conflicting ways; nothing was written: {}", .0.join("; "))]
+    UpdateConflicts(Vec<String>),
+
     #[error("invalid data: {0}")]
     Invalid(String),
     #[error("limit exceeded: {0}")]

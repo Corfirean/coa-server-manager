@@ -14,9 +14,11 @@ pub mod export;
 pub mod import;
 pub mod plan;
 pub mod policy;
+pub mod reconcile;
 pub mod registry;
 pub mod script;
 pub mod sqlenc;
+pub mod update;
 
 use std::collections::HashMap;
 
@@ -24,13 +26,14 @@ use crate::db::Db;
 use crate::realms::Mode;
 
 use super::error::{PortableError, Result};
-use super::ids::{CharacterId, PortableItemId, ProfileId};
+use super::ids::{CharacterId, PortableItemId, PortablePetId, ProfileId};
 use super::model::Ruleset;
 use super::store::{RealmRegistration, Store};
 
 pub use blockers::Blocker;
 pub use export::{build, ExportRequest, Exported};
 pub use import::{import_character, preflight, recover_imports, resolve_import, ImportOptions, ImportOutcome, ImportProblem, PreflightReport, Resolution};
+pub use reconcile::{begin_session, reconcile_session, resolve_import_update, update_realm_character, ReconcileOutcome, SessionStart, UpdateOutcome};
 pub use script::SchemaProbe;
 
 /// The ruleset a database belongs to is decided by which realm profile it is (`realms::Mode`), never by the caller.
@@ -145,9 +148,14 @@ pub fn read_raw(db: &Db, local_guid: u32, probe: &SchemaProbe) -> Result<script:
 /// "Export snapshot": the portable model of one offline character, plus the item observations that go with it.
 /// `character_id` and `prior_items` are `None`/empty for a character that is not portable yet.
 pub fn export_character(db: &Db, local_guid: u32, character_id: Option<CharacterId>, prior_items: &HashMap<u32, (PortableItemId, String)>) -> Result<Exported> {
+    export_character_with_pets(db, local_guid, character_id, prior_items, &HashMap::new())
+}
+
+/// The same, for a character that already has pet mappings on this realm: its pets keep their portable ids.
+pub fn export_character_with_pets(db: &Db, local_guid: u32, character_id: Option<CharacterId>, prior_items: &HashMap<u32, (PortableItemId, String)>, prior_pets: &HashMap<u32, (PortablePetId, String)>) -> Result<Exported> {
     let probe = probe(db)?;
     let raw = read_raw(db, local_guid, &probe)?;
-    export::build(&raw, &ExportRequest { ruleset: ruleset_of(db), local_guid, character_id, prior_items })
+    export::build(&raw, &ExportRequest { ruleset: ruleset_of(db), local_guid, character_id, prior_items, prior_pets })
 }
 
 #[derive(Debug)]
@@ -176,6 +184,7 @@ pub fn register(store: &mut Store, profile: ProfileId, server_id: &str, exported
         server_id,
         local_guid: exported.local_guid,
         observations: &exported.observations,
+        pets: &exported.pet_observations,
     })?;
     Ok(MadePortable { character_id, revision: 1, warnings: exported.warnings })
 }
@@ -187,4 +196,8 @@ mod live;
 #[cfg(test)]
 mod live_import;
 #[cfg(test)]
+mod live_update;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod update_tests;

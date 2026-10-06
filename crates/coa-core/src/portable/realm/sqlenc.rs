@@ -101,9 +101,89 @@ impl Insert {
     }
 }
 
+fn condition(filter: &[(&'static str, Val)]) -> String {
+    filter.iter().map(|(c, v)| format!("`{c}` = {}", v.sql())).collect::<Vec<_>>().join(" AND ")
+}
+
+/// One `UPDATE` with a fixed table, fixed columns and a fixed key condition (`column = value AND ...`).
+#[derive(Clone, Debug)]
+pub struct Update {
+    table: &'static str,
+    filter: Vec<(&'static str, Val)>,
+    sets: Vec<(&'static str, Val)>,
+}
+
+impl Update {
+    pub fn new(table: &'static str, filter: Vec<(&'static str, Val)>) -> Self {
+        Self { table, filter, sets: Vec::new() }
+    }
+    pub fn set(&mut self, column: &'static str, value: Val) {
+        self.sets.push((column, value));
+    }
+    pub fn len(&self) -> usize {
+        self.sets.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.sets.is_empty()
+    }
+    /// `None` when nothing is to be set.
+    pub fn sql(&self) -> Option<String> {
+        if self.sets.is_empty() {
+            return None;
+        }
+        let sets = self.sets.iter().map(|(c, v)| format!("`{c}` = {}", v.sql())).collect::<Vec<_>>().join(", ");
+        Some(format!("UPDATE acore_characters.`{}` SET {sets} WHERE {};", self.table, condition(&self.filter)))
+    }
+}
+
+/// One `DELETE` with a fixed table, a fixed key condition and optionally one `column IN (values)` list.
+#[derive(Clone, Debug)]
+pub struct Delete {
+    table: &'static str,
+    filter: Vec<(&'static str, Val)>,
+    any_of: Option<(&'static str, Vec<Val>)>,
+}
+
+impl Delete {
+    pub fn new(table: &'static str, filter: Vec<(&'static str, Val)>) -> Self {
+        Self { table, filter, any_of: None }
+    }
+    pub fn any_of(table: &'static str, filter: Vec<(&'static str, Val)>, column: &'static str, values: Vec<Val>) -> Self {
+        Self { table, filter, any_of: Some((column, values)) }
+    }
+    pub fn sql(&self) -> Option<String> {
+        let mut parts = vec![condition(&self.filter)];
+        if let Some((column, values)) = &self.any_of {
+            if values.is_empty() {
+                return None;
+            }
+            parts.push(format!("`{column}` IN ({})", values.iter().map(Val::sql).collect::<Vec<_>>().join(", ")));
+        }
+        parts.retain(|p| !p.is_empty());
+        assert!(!parts.is_empty(), "internal: a DELETE without a condition");
+        Some(format!("DELETE FROM acore_characters.`{}` WHERE {};", self.table, parts.join(" AND ")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_and_delete_are_fixed_scaffolds_around_encoded_values() {
+        let mut u = Update::new("characters", vec![("guid", Val::Expr("@char"))]);
+        assert!(u.sql().is_none());
+        u.set("name", Val::text("it's \"a\" name'; DROP"));
+        u.set("money", Val::u(5u32));
+        let sql = u.sql().unwrap();
+        assert!(sql.starts_with("UPDATE acore_characters.`characters` SET `name` = _utf8mb4 0x"));
+        assert!(sql.ends_with("WHERE `guid` = @char;"));
+        assert_eq!(sql.matches('\'').count(), 0, "{sql}");
+        let d = Delete::any_of("character_spell", vec![("guid", Val::Expr("@char"))], "spell", vec![Val::u(1u32), Val::u(2u32)]);
+        assert_eq!(d.sql().unwrap(), "DELETE FROM acore_characters.`character_spell` WHERE `guid` = @char AND `spell` IN (1, 2);");
+        assert!(Delete::any_of("t", vec![("guid", Val::Expr("@char"))], "x", vec![]).sql().is_none(), "an empty list deletes nothing");
+        assert_eq!(Delete::new("t", vec![("a", Val::u(1u8)), ("b", Val::u(2u8))]).sql().unwrap(), "DELETE FROM acore_characters.`t` WHERE `a` = 1 AND `b` = 2;");
+    }
 
     /// Characters that must never appear in generated SQL because of untrusted data.
     const HOSTILE: &[char] = &['\'', '"', '\\', '\0', '\n', '\r', '\t', ';', '`', '-', '#', '/', '*', '%', ' '];

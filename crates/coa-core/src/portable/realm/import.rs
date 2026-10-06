@@ -24,7 +24,7 @@ use crate::db::Db;
 use super::super::error::{PortableError, Result};
 use super::super::ids::{CharacterId, ContentId, ImportId};
 use super::super::model::{PortableCharacter, Ruleset};
-use super::super::store::{ImportAllocation, ImportState, JournalEntry, PlannedItem, Store};
+use super::super::store::{pet_identity, ImportAllocation, ImportState, JournalEntry, JournalKind, PlannedItem, PlannedPet, Store};
 use super::plan::{build_plan, parse_report, Allocation, ImportPlan, PlanContext, IMPORT_LOCK};
 use super::script::{self, parse_output, Query};
 use super::sqlenc::Val;
@@ -69,6 +69,8 @@ pub enum ImportProblem {
     MissingPetCreatures(Vec<u32>),
     /// An id of a namespace this importer does not apply (mod content, another ruleset).
     UnsupportedContent(String),
+    /// An update names a realm character that does not exist or is deleted.
+    CharacterUnavailable(u32),
 }
 
 impl fmt::Display for ImportProblem {
@@ -85,6 +87,7 @@ impl fmt::Display for ImportProblem {
             ImportProblem::MissingItems(v) => write!(f, "the realm does not know these item entries: {}", list(v)),
             ImportProblem::MissingPetCreatures(v) => write!(f, "the realm does not know these pet creatures: {}", list(v)),
             ImportProblem::UnsupportedContent(s) => write!(f, "{s}"),
+            ImportProblem::CharacterUnavailable(g) => write!(f, "the realm has no (undeleted) character {g}"),
         }
     }
 }
@@ -235,6 +238,10 @@ pub(crate) fn planned_items(model: &PortableCharacter) -> Vec<PlannedItem> {
         .collect()
 }
 
+pub(crate) fn planned_pets(model: &PortableCharacter) -> Vec<PlannedPet> {
+    model.pets.iter().map(|p| PlannedPet { id: p.id, entry: p.entry.clone(), identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell) }).collect()
+}
+
 /// Run the generated script in the realm. `Ok` carries the realm's report; any SQL error means the transaction rolled back
 /// or never committed (the caller still verifies through the marker, because a lost answer is indistinguishable).
 pub fn run_realm_import(db: &Db, plan: &ImportPlan) -> Result<(Allocation, bool)> {
@@ -257,8 +264,8 @@ pub fn import_character(db: &Db, store: &mut Store, character_id: CharacterId, s
     let probe = super::probe(db)?;
 
     let items = planned_items(&model);
-    let pet_ids: Vec<_> = model.pets.iter().map(|p| p.id).collect();
-    let ticket = store.begin_import(character_id, server_id, record.revision, &items, &pet_ids)?;
+    let pets = planned_pets(&model);
+    let ticket = store.begin_import(character_id, server_id, record.revision, &items, &pets)?;
 
     let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe }) {
         Ok(plan) => plan,
@@ -351,6 +358,9 @@ fn recovery_script(marker: &str, wait: u32) -> String {
 /// `with_grace`: refuse to call an import "never committed" while it is younger than the recovery grace period.
 pub fn resolve_import(db: &Db, store: &mut Store, import_id: ImportId, opts: &ImportOptions, with_grace: bool) -> Result<Resolution> {
     let entry: JournalEntry = store.import_entry(import_id)?;
+    if entry.kind == JournalKind::Update {
+        return super::reconcile::resolve_import_update(db, store, import_id, opts, with_grace);
+    }
     match entry.state {
         ImportState::Committed => return Ok(Resolution::Committed(entry.allocation.expect("a committed entry has its allocation"))),
         ImportState::Aborted => return Ok(Resolution::Aborted),
@@ -381,8 +391,8 @@ pub fn resolve_import(db: &Db, store: &mut Store, import_id: ImportId, opts: &Im
     let (n_items, min_item, max_item) = triple("items")?;
     let (n_pets, min_pet, max_pet) = triple("pets")?;
     let contiguous = |n: u64, min: u64, max: u64| n == 0 || max - min + 1 == n;
-    if n_items as usize != entry.items.len() || n_pets as usize != entry.pet_ids.len() || !contiguous(n_items, min_item, max_item) || !contiguous(n_pets, min_pet, max_pet) {
-        let detail = format!("the realm has a character with this import's marker (guid {local_guid}) but {n_items} items / {n_pets} pets where the plan had {} / {}", entry.items.len(), entry.pet_ids.len());
+    if n_items as usize != entry.items.len() || n_pets as usize != entry.pets.len() || !contiguous(n_items, min_item, max_item) || !contiguous(n_pets, min_pet, max_pet) {
+        let detail = format!("the realm has a character with this import's marker (guid {local_guid}) but {n_items} items / {n_pets} pets where the plan had {} / {}", entry.items.len(), entry.pets.len());
         store.flag_import(import_id, &detail)?;
         return Err(PortableError::ImportNeedsAttention { import_id, detail });
     }
