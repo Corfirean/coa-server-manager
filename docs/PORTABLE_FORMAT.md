@@ -76,7 +76,7 @@ Account-wide sets of numeric ids (`coa:wardrobe`, `coa:vanity`, ...), stored per
 ## Store (`%LOCALAPPDATA%\CoAServerManager\portable\portable.db`)
 
 SQLite, WAL, `synchronous=FULL`, `foreign_keys=ON`, `application_id = 0x434F4150`, forward-only migrations tracked in
-`PRAGMA user_version`. A database from a newer Manager, or a foreign SQLite file, is refused and left untouched.
+`PRAGMA user_version` (currently 2). A database from a newer Manager, or a foreign SQLite file, is refused and left untouched.
 
 | Table | Purpose |
 |---|---|
@@ -84,8 +84,27 @@ SQLite, WAL, `synchronous=FULL`, `foreign_keys=ON`, `application_id = 0x434F4150
 | `character` | summary row + canonical revision |
 | `snapshot` | `(character_id, revision)` -> compressed canonical payload + hash |
 | `character_server_mapping` | `(character_id, server_id)` -> local guid; `UNIQUE(server_id, local_guid)` |
-| `item_mapping` | `(character_id, server_id, portable_item_id)` -> local item guid; `UNIQUE(character_id, server_id, local_item_guid)` |
+| `item_mapping` | one row per mapping with a lifecycle (schema 2, see below) |
 | `collection` | per profile and kind: revision, hash, encoded set |
 | `setting` | `history_keep` |
 
-The store never reads or writes a realm database and never leaves the machine.
+## Item mapping lifecycle (schema 2)
+
+A realm's item guid counter restarts at `MAX(guid)+1`, so a freed guid can be given to a different item. A bare
+`guid -> portable item` mapping would attach the new item to the old portable id. Every mapping therefore records what
+the item *was* (`entry`, `identity`) and has a state:
+
+* `active`: at most one per portable item and at most one per local item guid
+  (`UNIQUE(character_id, server_id, local_item_guid)` and `UNIQUE(.., portable_item_id)`, both for active rows);
+* `retired` (kept for the record) with a reason: `guid_reused`, `moved`, `absent`, `character_rebound`.
+
+`Store::reconcile_item_mappings` takes the complete observation of a character on a realm and confirms, adds or retires
+mappings; `Store::resolve_item_ids` answers `Known`, `Reused` (recycled guid) or `Unmapped` for a local guid and its
+current identity. Schema-1 rows are migrated with an empty identity, which matches nothing: they are re-verified, never
+trusted. Rebinding a portable character to another local guid retires its item mappings.
+
+The identity covers what cannot change during an item's life (entry, random property, crafter); two different items that
+share all of these are interchangeable for mapping purposes.
+
+The store never reads or writes a realm database and never leaves the machine. (Phase 2's realm reader lives in
+`portable/realm/` and is documented in `PORTABLE_EXPORT.md`; it only reads.)

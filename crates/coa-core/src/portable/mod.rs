@@ -8,8 +8,10 @@
 
 pub mod collection;
 pub mod error;
+pub mod identity;
 pub mod ids;
 pub mod model;
+pub mod realm;
 pub mod snapshot;
 pub mod store;
 pub mod versions;

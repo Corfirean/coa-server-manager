@@ -120,6 +120,12 @@ impl Db {
         Ok(Db { bin: PathBuf::new(), port: 3306, user, password: Secret(password), realm: crate::realms::state(root)?.active, container: Some(container) })
     }
 
+    /// A database reached through explicitly given client tools. Used by tests against a disposable server; the
+    /// installation-based constructors above are what the Manager itself uses.
+    pub fn with_tools(bin: PathBuf, port: u16, user: &'static str, password: &str, realm: crate::realms::Mode) -> Db {
+        Db { bin, port, user, password: Secret(password.to_string()), realm, container: None }
+    }
+
     pub fn for_realm(mut self, realm: crate::realms::Mode) -> Self { self.realm = realm; self }
     pub fn realm(&self) -> crate::realms::Mode { self.realm }
 

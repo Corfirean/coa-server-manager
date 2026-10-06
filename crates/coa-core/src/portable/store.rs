@@ -10,7 +10,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 
 use super::collection::{valid_kind, IdSet};
 use super::error::{PortableError, Result};
-use super::ids::{CharacterId, PortableItemId, ProfileId};
+use super::ids::{CharacterId, ContentId, PortableItemId, ProfileId};
 use super::model::{PortableCharacter, Ruleset};
 use super::snapshot::{self, EncodedSnapshot};
 use super::versions::{PORTABLE_COLLECTION_FORMAT_VERSION, SNAPSHOT_FORMAT_VERSION};
@@ -18,7 +18,7 @@ use super::versions::{PORTABLE_COLLECTION_FORMAT_VERSION, SNAPSHOT_FORMAT_VERSIO
 pub const DATABASE_FILE: &str = "portable.db";
 /// `PRAGMA application_id`: "COAP". Refuses to adopt an unrelated SQLite file.
 const APPLICATION_ID: i64 = 0x434F_4150;
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql")];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
 pub const MAX_HISTORY_KEEP: u32 = 1_000;
@@ -254,31 +254,7 @@ impl Store {
         let encoded = snapshot::encode(&model)?;
         let id = model.character_id;
         let tx = self.write_tx()?;
-        let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM character WHERE character_id = ?1)", [id.to_string()], |r| r.get(0))?;
-        if exists {
-            return Err(PortableError::DuplicateCharacter(id));
-        }
-        let profile_exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM profile WHERE profile_id = ?1)", [profile.to_string()], |r| r.get(0))?;
-        if !profile_exists {
-            return Err(PortableError::Invalid(format!("profile {profile} does not exist")));
-        }
-        let at = now();
-        tx.execute(
-            "INSERT INTO character(character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?9, 0)",
-            params![
-                id.to_string(),
-                profile.to_string(),
-                model.ruleset.as_str(),
-                model.identity.name,
-                model.identity.race.to_string(),
-                model.identity.class.to_string(),
-                model.identity.gender,
-                model.progression.level,
-                at
-            ],
-        )?;
-        insert_snapshot(&tx, id, 1, &encoded, source_server_id, Some("created"), &at)?;
+        create_in_tx(&tx, profile, &model, &encoded, source_server_id)?;
         tx.commit()?;
         Ok(id)
     }
@@ -395,34 +371,12 @@ impl Store {
     // ---- realm mappings -------------------------------------------------------------------------------------
 
     /// Record (or update) the local guid of a portable character on a realm. A local guid can belong to one portable
-    /// character only. Changing the local guid of an existing binding drops that binding's item mappings (they named
+    /// character only. Changing the local guid of an existing binding retires that binding's item mappings (they named
     /// items of the previous local character).
     pub fn bind_server(&mut self, id: CharacterId, server_id: &str, local_guid: u32, last_revision: u64, state: MappingState) -> Result<()> {
         check_server_id(server_id)?;
         let tx = self.write_tx()?;
-        let record = read_character(&tx, id)?;
-        if last_revision > record.revision {
-            return Err(PortableError::Invalid(format!("revision {last_revision} is newer than the canonical revision {}", record.revision)));
-        }
-        let holder: Option<String> = tx
-            .query_row("SELECT character_id FROM character_server_mapping WHERE server_id = ?1 AND local_guid = ?2", params![server_id, local_guid], |r| r.get(0))
-            .optional()?;
-        if holder.is_some_and(|h| h != id.to_string()) {
-            return Err(PortableError::LocalGuidTaken { server_id: server_id.to_string(), local_guid });
-        }
-        let previous: Option<i64> = tx
-            .query_row("SELECT local_guid FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id], |r| r.get(0))
-            .optional()?;
-        if previous.is_some_and(|p| p != local_guid as i64) {
-            tx.execute("DELETE FROM item_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id])?;
-        }
-        tx.execute(
-            "INSERT INTO character_server_mapping(character_id, server_id, local_guid, last_revision, state, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(character_id, server_id) DO UPDATE SET local_guid = excluded.local_guid, last_revision = excluded.last_revision,
-                                                              state = excluded.state, updated_at = excluded.updated_at",
-            params![id.to_string(), server_id, local_guid, last_revision as i64, state.as_str(), now()],
-        )?;
+        bind_in_tx(&tx, id, server_id, local_guid, last_revision, state)?;
         tx.commit()?;
         Ok(())
     }
@@ -449,49 +403,77 @@ impl Store {
         Ok(out)
     }
 
-    /// Replace the item mappings of one (character, realm) pair. Every portable item id and every local item guid may
-    /// appear once. The pair must already be bound with [`Store::bind_server`].
-    pub fn set_item_mappings(&mut self, id: CharacterId, server_id: &str, mappings: &[(PortableItemId, u32)]) -> Result<()> {
+    /// Bring the item mappings of one (character, realm) pair in line with what the realm *actually* contains now.
+    /// `observations` must list **every** item of the character on that realm; `revision` is the canonical revision
+    /// the observation corresponds to. The pair must already be bound with [`Store::bind_server`].
+    ///
+    /// Lifecycle (nothing is ever overwritten; old rows are retired and kept):
+    /// * same portable item, same local guid, same identity -> confirmed;
+    /// * the local guid is held by a mapping with another portable item or another identity -> the old mapping is
+    ///   retired as `guid_reused` (the realm recycled the guid) and a new one is created;
+    /// * the portable item was mapped to another local guid -> that mapping is retired as `moved`;
+    /// * an active mapping that is no longer observed -> retired as `absent`.
+    pub fn reconcile_item_mappings(&mut self, id: CharacterId, server_id: &str, revision: u64, observations: &[ItemObservation]) -> Result<ReconcileReport> {
         check_server_id(server_id)?;
-        let mut portable = std::collections::HashSet::new();
-        let mut local = std::collections::HashSet::new();
-        for (item, guid) in mappings {
-            if !portable.insert(*item) {
-                return Err(PortableError::Invalid(format!("portable item {item} is mapped twice")));
-            }
-            if !local.insert(*guid) {
-                return Err(PortableError::ItemGuidConflict { server_id: server_id.to_string(), local_item_guid: *guid });
-            }
-        }
+        validate_observations(server_id, observations)?;
         let tx = self.write_tx()?;
-        let bound: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2)",
-            params![id.to_string(), server_id],
-            |r| r.get(0),
-        )?;
-        if !bound {
-            return Err(PortableError::Invalid(format!("character {id} is not bound to server {server_id}")));
-        }
-        tx.execute("DELETE FROM item_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id])?;
-        {
-            let mut insert = tx.prepare("INSERT INTO item_mapping(character_id, server_id, portable_item_id, local_item_guid) VALUES (?1, ?2, ?3, ?4)")?;
-            for (item, guid) in mappings {
-                insert.execute(params![id.to_string(), server_id, item.to_string(), guid])?;
-            }
-        }
+        let report = reconcile_in_tx(&tx, id, server_id, revision, observations)?;
         tx.commit()?;
-        Ok(())
+        Ok(report)
     }
 
-    pub fn item_mappings(&self, id: CharacterId, server_id: &str) -> Result<Vec<(PortableItemId, u32)>> {
-        let mut stmt = self.conn.prepare("SELECT portable_item_id, local_item_guid FROM item_mapping WHERE character_id = ?1 AND server_id = ?2 ORDER BY local_item_guid")?;
-        let rows = stmt.query_map(params![id.to_string(), server_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
-        let mut out = Vec::new();
-        for row in rows {
-            let (item, guid) = row?;
-            out.push((item.parse()?, guid as u32));
+    /// Decide, for items just read from a realm, which portable item each one is. A local guid whose active mapping
+    /// was made for an item with a *different* identity is reported as [`ItemResolution::Reused`]: the realm recycled
+    /// that guid, the new item is not the old portable item and must get a new portable id.
+    pub fn resolve_item_ids(&self, id: CharacterId, server_id: &str, probes: &[(u32, &str)]) -> Result<Vec<ItemResolution>> {
+        probes
+            .iter()
+            .map(|(guid, identity)| {
+                Ok(match active_by_guid(&self.conn, id, server_id, *guid)? {
+                    None => ItemResolution::Unmapped,
+                    Some(m) if m.identity == *identity => ItemResolution::Known(m.portable_item_id),
+                    Some(m) => ItemResolution::Reused { previous: m.portable_item_id },
+                })
+            })
+            .collect()
+    }
+
+    /// Active mappings of one (character, realm) pair, by local item guid.
+    pub fn item_mappings(&self, id: CharacterId, server_id: &str) -> Result<Vec<ItemMapping>> {
+        read_item_mappings(&self.conn, id, server_id, false)
+    }
+
+    /// Every mapping ever made for the pair, retired ones included.
+    pub fn item_mapping_history(&self, id: CharacterId, server_id: &str) -> Result<Vec<ItemMapping>> {
+        read_item_mappings(&self.conn, id, server_id, true)
+    }
+
+    /// Make a realm character portable in **one transaction**: the new portable character (revision 1), its binding to
+    /// the realm (state `synced`, revision 1) and its item mappings. Either all of it exists afterwards or none of it.
+    /// A local character that is already portable is refused.
+    pub fn register_realm_character(&mut self, r: RealmRegistration<'_>) -> Result<CharacterId> {
+        check_server_id(r.source_server_id)?;
+        check_server_id(r.server_id)?;
+        let encoded = snapshot::encode(&r.model)?;
+        let id = r.model.character_id;
+        let tx = self.write_tx()?;
+        let holder: Option<String> = tx
+            .query_row("SELECT character_id FROM character_server_mapping WHERE server_id = ?1 AND local_guid = ?2", params![r.server_id, r.local_guid], |row| row.get(0))
+            .optional()?;
+        if let Some(existing) = holder {
+            return Err(PortableError::AlreadyPortable { server_id: r.server_id.to_string(), local_guid: r.local_guid, character: existing.parse()? });
         }
-        Ok(out)
+        create_in_tx(&tx, r.profile, &r.model, &encoded, r.source_server_id)?;
+        bind_in_tx(&tx, id, r.server_id, r.local_guid, 1, MappingState::Synced)?;
+        reconcile_in_tx(&tx, id, r.server_id, 1, r.observations)?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// Active item mappings as a lookup by local item guid: what a re-export hands to the exporter so that items keep
+    /// their portable ids (and recycled guids do not).
+    pub fn active_item_lookup(&self, id: CharacterId, server_id: &str) -> Result<std::collections::HashMap<u32, (PortableItemId, String)>> {
+        Ok(read_item_mappings(&self.conn, id, server_id, false)?.into_iter().map(|m| (m.local_item_guid, (m.portable_item_id, m.identity))).collect())
     }
 
     // ---- collections ----------------------------------------------------------------------------------------
@@ -666,6 +648,298 @@ fn read_snapshot_row(conn: &Connection, id: CharacterId, revision: u64) -> Resul
         return Err(PortableError::CorruptSnapshot("a stored snapshot names another character".into()));
     }
     Ok((model, EncodedSnapshot { content_hash: hash, uncompressed_size: size as u64, payload }))
+}
+
+/// Everything needed to register a character exported from a realm.
+pub struct RealmRegistration<'a> {
+    pub profile: ProfileId,
+    pub model: PortableCharacter,
+    /// Where the snapshot came from (recorded on revision 1).
+    pub source_server_id: &'a str,
+    pub server_id: &'a str,
+    pub local_guid: u32,
+    pub observations: &'a [ItemObservation],
+}
+
+/// What a realm currently holds for one item of a character.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemObservation {
+    pub portable_item_id: PortableItemId,
+    pub local_item_guid: u32,
+    pub entry: ContentId,
+    /// See [`super::identity::item_identity`].
+    pub identity: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetireReason {
+    GuidReused,
+    Moved,
+    Absent,
+    CharacterRebound,
+}
+
+impl RetireReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RetireReason::GuidReused => "guid_reused",
+            RetireReason::Moved => "moved",
+            RetireReason::Absent => "absent",
+            RetireReason::CharacterRebound => "character_rebound",
+        }
+    }
+    fn parse(s: &str) -> Result<Self> {
+        Ok(match s {
+            "guid_reused" => RetireReason::GuidReused,
+            "moved" => RetireReason::Moved,
+            "absent" => RetireReason::Absent,
+            "character_rebound" => RetireReason::CharacterRebound,
+            other => return Err(PortableError::Invalid(format!("unknown retire reason {other:?}"))),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemMapping {
+    pub portable_item_id: PortableItemId,
+    pub local_item_guid: u32,
+    pub entry: String,
+    pub identity: String,
+    pub active: bool,
+    pub created_revision: u64,
+    pub confirmed_revision: u64,
+    pub retired_revision: Option<u64>,
+    pub retired_reason: Option<RetireReason>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReconcileReport {
+    pub confirmed: usize,
+    pub added: usize,
+    pub guid_reused: usize,
+    pub moved: usize,
+    pub absent: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ItemResolution {
+    /// The guid is mapped and the item is still the one that was mapped.
+    Known(PortableItemId),
+    /// The guid was mapped for a different item: the realm recycled it.
+    Reused { previous: PortableItemId },
+    /// Never mapped.
+    Unmapped,
+}
+
+struct ActiveRow {
+    mapping_id: i64,
+    portable_item_id: PortableItemId,
+    identity: String,
+}
+
+fn active_by_guid(conn: &Connection, id: CharacterId, server_id: &str, guid: u32) -> Result<Option<ActiveRow>> {
+    active_row(
+        conn,
+        "SELECT mapping_id, portable_item_id, identity FROM item_mapping WHERE character_id = ?1 AND server_id = ?2 AND local_item_guid = ?3 AND state = 'active'",
+        params![id.to_string(), server_id, guid],
+    )
+}
+
+fn active_by_item(conn: &Connection, id: CharacterId, server_id: &str, item: PortableItemId) -> Result<Option<ActiveRow>> {
+    active_row(
+        conn,
+        "SELECT mapping_id, portable_item_id, identity FROM item_mapping WHERE character_id = ?1 AND server_id = ?2 AND portable_item_id = ?3 AND state = 'active'",
+        params![id.to_string(), server_id, item.to_string()],
+    )
+}
+
+fn active_row(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Option<ActiveRow>> {
+    let row = conn.query_row(sql, params, |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))).optional()?;
+    row.map(|(mapping_id, item, identity)| Ok(ActiveRow { mapping_id, portable_item_id: item.parse()?, identity })).transpose()
+}
+
+fn retire_one(tx: &Transaction<'_>, mapping_id: i64, reason: RetireReason, revision: u64, at: &str) -> Result<()> {
+    tx.execute(
+        "UPDATE item_mapping SET state = 'retired', retired_revision = ?1, retired_reason = ?2, updated_at = ?3 WHERE mapping_id = ?4",
+        params![revision as i64, reason.as_str(), at, mapping_id],
+    )?;
+    Ok(())
+}
+
+/// Retire every active mapping of a (character, realm) pair.
+fn retire_all(tx: &Transaction<'_>, id: CharacterId, server_id: &str, reason: RetireReason, revision: u64) -> Result<usize> {
+    Ok(tx.execute(
+        "UPDATE item_mapping SET state = 'retired', retired_revision = ?1, retired_reason = ?2, updated_at = ?3
+         WHERE character_id = ?4 AND server_id = ?5 AND state = 'active'",
+        params![revision as i64, reason.as_str(), now(), id.to_string(), server_id],
+    )?)
+}
+
+fn read_item_mappings(conn: &Connection, id: CharacterId, server_id: &str, include_retired: bool) -> Result<Vec<ItemMapping>> {
+    let sql = format!(
+        "SELECT portable_item_id, local_item_guid, entry, identity, state, created_revision, confirmed_revision, retired_revision, retired_reason
+         FROM item_mapping WHERE character_id = ?1 AND server_id = ?2 {} ORDER BY mapping_id",
+        if include_retired { "" } else { "AND state = 'active'" }
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params![id.to_string(), server_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+            r.get::<_, i64>(5)?,
+            r.get::<_, i64>(6)?,
+            r.get::<_, Option<i64>>(7)?,
+            r.get::<_, Option<String>>(8)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (item, guid, entry, identity, state, created, confirmed, retired, reason) = row?;
+        out.push(ItemMapping {
+            portable_item_id: item.parse()?,
+            local_item_guid: guid as u32,
+            entry,
+            identity,
+            active: state == "active",
+            created_revision: created as u64,
+            confirmed_revision: confirmed as u64,
+            retired_revision: retired.map(|r| r as u64),
+            retired_reason: reason.as_deref().map(RetireReason::parse).transpose()?,
+        });
+    }
+    Ok(out)
+}
+
+fn create_in_tx(tx: &Transaction<'_>, profile: ProfileId, model: &PortableCharacter, encoded: &EncodedSnapshot, source_server_id: &str) -> Result<()> {
+    let id = model.character_id;
+        let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM character WHERE character_id = ?1)", [id.to_string()], |r| r.get(0))?;
+        if exists {
+            return Err(PortableError::DuplicateCharacter(id));
+        }
+        let profile_exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM profile WHERE profile_id = ?1)", [profile.to_string()], |r| r.get(0))?;
+        if !profile_exists {
+            return Err(PortableError::Invalid(format!("profile {profile} does not exist")));
+        }
+        let at = now();
+        tx.execute(
+            "INSERT INTO character(character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?9, 0)",
+            params![
+                id.to_string(),
+                profile.to_string(),
+                model.ruleset.as_str(),
+                model.identity.name,
+                model.identity.race.to_string(),
+                model.identity.class.to_string(),
+                model.identity.gender,
+                model.progression.level,
+                at
+            ],
+        )?;
+        insert_snapshot(tx, id, 1, encoded, source_server_id, Some("created"), &at)?;
+    Ok(())
+}
+
+fn bind_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, local_guid: u32, last_revision: u64, state: MappingState) -> Result<()> {
+        let record = read_character(tx, id)?;
+        if last_revision > record.revision {
+            return Err(PortableError::Invalid(format!("revision {last_revision} is newer than the canonical revision {}", record.revision)));
+        }
+        let holder: Option<String> = tx
+            .query_row("SELECT character_id FROM character_server_mapping WHERE server_id = ?1 AND local_guid = ?2", params![server_id, local_guid], |r| r.get(0))
+            .optional()?;
+        if holder.is_some_and(|h| h != id.to_string()) {
+            return Err(PortableError::LocalGuidTaken { server_id: server_id.to_string(), local_guid });
+        }
+        let previous: Option<i64> = tx
+            .query_row("SELECT local_guid FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id], |r| r.get(0))
+            .optional()?;
+        if previous.is_some_and(|p| p != local_guid as i64) {
+            retire_all(tx, id, server_id, RetireReason::CharacterRebound, last_revision)?;
+        }
+        tx.execute(
+            "INSERT INTO character_server_mapping(character_id, server_id, local_guid, last_revision, state, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(character_id, server_id) DO UPDATE SET local_guid = excluded.local_guid, last_revision = excluded.last_revision,
+                                                              state = excluded.state, updated_at = excluded.updated_at",
+            params![id.to_string(), server_id, local_guid, last_revision as i64, state.as_str(), now()],
+        )?;
+    Ok(())
+}
+
+fn reconcile_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revision: u64, observations: &[ItemObservation]) -> Result<ReconcileReport> {
+    validate_observations(server_id, observations)?;
+        let record = read_character(tx, id)?;
+        if revision > record.revision {
+            return Err(PortableError::Invalid(format!("revision {revision} is newer than the canonical revision {}", record.revision)));
+        }
+        let bound: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2)",
+            params![id.to_string(), server_id],
+            |r| r.get(0),
+        )?;
+        if !bound {
+            return Err(PortableError::Invalid(format!("character {id} is not bound to server {server_id}")));
+        }
+
+        let mut report = ReconcileReport::default();
+        let at = now();
+        for o in observations {
+            let by_guid = active_by_guid(tx, id, server_id, o.local_item_guid)?;
+            if let Some(existing) = &by_guid {
+                if existing.portable_item_id == o.portable_item_id && existing.identity == o.identity {
+                    tx.execute("UPDATE item_mapping SET confirmed_revision = ?1, updated_at = ?2 WHERE mapping_id = ?3", params![revision as i64, at, existing.mapping_id])?;
+                    report.confirmed += 1;
+                    continue;
+                }
+            }
+            if let Some(old) = by_guid {
+                retire_one(tx, old.mapping_id, RetireReason::GuidReused, revision, &at)?;
+                report.guid_reused += 1;
+            }
+            if let Some(old) = active_by_item(tx, id, server_id, o.portable_item_id)? {
+                retire_one(tx, old.mapping_id, RetireReason::Moved, revision, &at)?;
+                report.moved += 1;
+            }
+            tx.execute(
+                "INSERT INTO item_mapping(character_id, server_id, portable_item_id, local_item_guid, entry, identity, state,
+                                          created_revision, confirmed_revision, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7, ?8, ?8)",
+                params![id.to_string(), server_id, o.portable_item_id.to_string(), o.local_item_guid, o.entry.to_string(), o.identity, revision as i64, at],
+            )?;
+            report.added += 1;
+        }
+        // what is no longer on the character
+        let mut stmt = tx.prepare("SELECT mapping_id, portable_item_id FROM item_mapping WHERE character_id = ?1 AND server_id = ?2 AND state = 'active'")?;
+        let active: Vec<(i64, String)> = stmt.query_map(params![id.to_string(), server_id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+        drop(stmt);
+        for (mapping_id, item) in active {
+            if !observations.iter().any(|o| o.portable_item_id.to_string() == item) {
+                retire_one(tx, mapping_id, RetireReason::Absent, revision, &at)?;
+                report.absent += 1;
+            }
+        }
+    Ok(report)
+}
+
+fn validate_observations(server_id: &str, observations: &[ItemObservation]) -> Result<()> {
+        let mut portable = std::collections::HashSet::new();
+        let mut local = std::collections::HashSet::new();
+        for o in observations {
+            if !portable.insert(o.portable_item_id) {
+                return Err(PortableError::Invalid(format!("portable item {} is observed twice", o.portable_item_id)));
+            }
+            if !local.insert(o.local_item_guid) {
+                return Err(PortableError::ItemGuidConflict { server_id: server_id.to_string(), local_item_guid: o.local_item_guid });
+            }
+            if o.identity.is_empty() {
+                return Err(PortableError::Invalid("an observed item needs a content identity".into()));
+            }
+        }
+    Ok(())
 }
 
 #[cfg(test)]

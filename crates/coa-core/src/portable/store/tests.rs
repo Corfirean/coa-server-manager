@@ -349,44 +349,169 @@ fn mapping_unique_constraints() {
     assert!(matches!(store.bind_server(CharacterId::new(), "realm-a", 1, 1, MappingState::Pending), Err(PortableError::UnknownCharacter(_))));
 }
 
-#[test]
-fn item_mapping_unique_per_character_and_server() {
+fn obs(item: PortableItemId, guid: u32, entry: u64, identity: &str) -> ItemObservation {
+    ItemObservation { portable_item_id: item, local_item_guid: guid, entry: ContentId::new("coa", "item", entry).unwrap(), identity: identity.to_string() }
+}
+
+/// A character bound to `realm-a` with three portable items to play with.
+fn bound() -> (Store, CharacterId, [PortableItemId; 3]) {
     let (mut store, profile) = fresh();
     let id = created(&mut store, profile);
+    store.bind_server(id, "realm-a", 154, 1, MappingState::Active).unwrap();
     let model = store.load_current(id).unwrap();
-    let items: Vec<PortableItemId> = model.items.iter().take(4).map(|i| i.id).collect();
+    let items = [model.items[0].id, model.items[1].id, model.items[2].id];
+    (store, id, items)
+}
+
+#[test]
+fn item_mapping_needs_a_binding_and_enforces_uniqueness_among_active_rows() {
+    let (mut store, profile) = fresh();
+    let id = created(&mut store, profile);
+    let items: Vec<PortableItemId> = store.load_current(id).unwrap().items.iter().take(4).map(|i| i.id).collect();
 
     // an item mapping needs a server binding first
-    assert!(store.set_item_mappings(id, "realm-a", &[(items[0], 1)]).is_err());
+    assert!(store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 1, 10, "v1:a")]).is_err());
     store.bind_server(id, "realm-a", 154, 1, MappingState::Active).unwrap();
 
-    store.set_item_mappings(id, "realm-a", &[(items[0], 9001), (items[1], 9002), (items[2], 9003)]).unwrap();
-    assert_eq!(store.item_mappings(id, "realm-a").unwrap(), vec![(items[0], 9001), (items[1], 9002), (items[2], 9003)]);
+    let report = store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 9001, 10, "v1:a"), obs(items[1], 9002, 11, "v1:b"), obs(items[2], 9003, 12, "v1:c")]).unwrap();
+    assert_eq!(report, ReconcileReport { added: 3, ..Default::default() });
+    let active = store.item_mappings(id, "realm-a").unwrap();
+    assert_eq!(active.iter().map(|m| (m.portable_item_id, m.local_item_guid)).collect::<Vec<_>>(), vec![(items[0], 9001), (items[1], 9002), (items[2], 9003)]);
+    assert!(active.iter().all(|m| m.active && m.created_revision == 1 && m.entry.starts_with("coa:item:")));
 
-    // UNIQUE(character_id, server_id, local_item_guid): one local item guid cannot stand for two portable items
-    let clash = store.set_item_mappings(id, "realm-a", &[(items[0], 9001), (items[1], 9001)]);
+    // input that maps one local guid twice, or one portable item twice, is refused before anything changes
+    let clash = store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 9001, 10, "v1:a"), obs(items[1], 9001, 11, "v1:b")]);
     assert!(matches!(clash, Err(PortableError::ItemGuidConflict { local_item_guid: 9001, .. })), "{clash:?}");
-    // and the same portable item cannot have two local guids
-    assert!(store.set_item_mappings(id, "realm-a", &[(items[0], 1), (items[0], 2)]).is_err());
-    // a failed replacement leaves the previous mappings intact
+    assert!(store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 1, 10, "v1:a"), obs(items[0], 2, 10, "v1:a")]).is_err());
+    assert!(store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 1, 10, "")]).is_err(), "an observation without an identity is useless");
+    assert!(store.reconcile_item_mappings(id, "realm-a", 9, &[]).is_err(), "revision from the future");
     assert_eq!(store.item_mappings(id, "realm-a").unwrap().len(), 3);
 
-    // the database itself enforces the same rule, not just the Rust check
+    // the database itself enforces UNIQUE(character_id, server_id, local_item_guid) for active rows
     let direct = store.conn.execute(
-        "INSERT INTO item_mapping(character_id, server_id, portable_item_id, local_item_guid) VALUES (?1, 'realm-a', ?2, 9001)",
+        "INSERT INTO item_mapping(character_id, server_id, portable_item_id, local_item_guid, entry, identity, state, created_revision, confirmed_revision, created_at, updated_at)
+         VALUES (?1, 'realm-a', ?2, 9001, 'x', 'x', 'active', 1, 1, 'x', 'x')",
         params![id.to_string(), items[3].to_string()],
     );
-    assert!(direct.is_err(), "UNIQUE(character_id, server_id, local_item_guid)");
+    assert!(direct.is_err());
 
-    // the same local item guid on another realm is fine
+    // the same local item guid on another realm is another item
     store.bind_server(id, "realm-b", 8421, 1, MappingState::Active).unwrap();
-    store.set_item_mappings(id, "realm-b", &[(items[0], 9001)]).unwrap();
-    assert_eq!(store.item_mappings(id, "realm-b").unwrap(), vec![(items[0], 9001)]);
+    store.reconcile_item_mappings(id, "realm-b", 1, &[obs(items[0], 9001, 10, "v1:a")]).unwrap();
+    assert_eq!(store.item_mappings(id, "realm-b").unwrap().len(), 1);
+}
 
-    // if the local character changes (deleted and imported again), the old item guids are meaningless
+#[test]
+fn a_recycled_local_guid_is_not_the_old_item() {
+    let (mut store, id, items) = bound();
+    store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 5000, 10, "v1:sword")]).unwrap();
+
+    // later the sword is destroyed; the realm gives guid 5000 to a different item with another identity
+    let resolutions = store.resolve_item_ids(id, "realm-a", &[(5000, "v1:potion"), (5000, "v1:sword"), (5001, "v1:sword")]).unwrap();
+    assert_eq!(resolutions, vec![ItemResolution::Reused { previous: items[0] }, ItemResolution::Known(items[0]), ItemResolution::Unmapped]);
+
+    // the new item gets a new portable id; the old mapping is retired, not overwritten
+    let fresh_item = PortableItemId::new();
+    let report = store.reconcile_item_mappings(id, "realm-a", 1, &[obs(fresh_item, 5000, 77, "v1:potion")]).unwrap();
+    assert_eq!((report.guid_reused, report.added, report.absent), (1, 1, 0));
+
+    let active = store.item_mappings(id, "realm-a").unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!((active[0].portable_item_id, active[0].local_item_guid), (fresh_item, 5000));
+    let history = store.item_mapping_history(id, "realm-a").unwrap();
+    assert_eq!(history.len(), 2);
+    assert!(!history[0].active);
+    assert_eq!(history[0].portable_item_id, items[0]);
+    assert_eq!(history[0].retired_reason, Some(RetireReason::GuidReused));
+    assert_eq!(history[0].retired_revision, Some(1));
+
+    // the old portable item is not resurrected by the recycled guid
+    assert_eq!(store.resolve_item_ids(id, "realm-a", &[(5000, "v1:sword")]).unwrap(), vec![ItemResolution::Reused { previous: fresh_item }]);
+}
+
+#[test]
+fn the_same_portable_id_with_a_changed_identity_is_treated_as_reuse_too() {
+    let (mut store, id, items) = bound();
+    store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 5000, 10, "v1:old")]).unwrap();
+    let report = store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 5000, 10, "v1:new")]).unwrap();
+    assert_eq!((report.confirmed, report.guid_reused, report.added), (0, 1, 1));
+    let history = store.item_mapping_history(id, "realm-a").unwrap();
+    assert_eq!((history.iter().filter(|m| m.active).count(), history.len()), (1, 2));
+}
+
+#[test]
+fn moved_and_absent_items_are_retired_with_their_reason() {
+    let (mut store, id, items) = bound();
+    store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 100, 1, "v1:a"), obs(items[1], 101, 2, "v1:b"), obs(items[2], 102, 3, "v1:c")]).unwrap();
+
+    // item 0 got a new local guid (re-imported), item 1 is gone, item 2 is unchanged
+    let report = store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 200, 1, "v1:a"), obs(items[2], 102, 3, "v1:c")]).unwrap();
+    assert_eq!(report, ReconcileReport { confirmed: 1, added: 1, guid_reused: 0, moved: 1, absent: 1 });
+
+    let active: Vec<(PortableItemId, u32)> = store.item_mappings(id, "realm-a").unwrap().into_iter().map(|m| (m.portable_item_id, m.local_item_guid)).collect();
+    assert_eq!(active, vec![(items[2], 102), (items[0], 200)]);
+    let reasons: Vec<Option<RetireReason>> = store.item_mapping_history(id, "realm-a").unwrap().into_iter().filter(|m| !m.active).map(|m| m.retired_reason).collect();
+    assert_eq!(reasons.len(), 2);
+    assert!(reasons.contains(&Some(RetireReason::Moved)) && reasons.contains(&Some(RetireReason::Absent)));
+}
+
+#[test]
+fn rebinding_to_another_local_character_retires_its_item_mappings() {
+    let (mut store, id, items) = bound();
+    store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 100, 1, "v1:a")]).unwrap();
     store.bind_server(id, "realm-a", 777, 1, MappingState::Active).unwrap();
     assert!(store.item_mappings(id, "realm-a").unwrap().is_empty());
-    assert_eq!(store.item_mappings(id, "realm-b").unwrap().len(), 1, "other realms are untouched");
+    let history = store.item_mapping_history(id, "realm-a").unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].retired_reason, Some(RetireReason::CharacterRebound));
+    // binding again to the same local guid changes nothing
+    store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 300, 1, "v1:a")]).unwrap();
+    store.bind_server(id, "realm-a", 777, 1, MappingState::Synced).unwrap();
+    assert_eq!(store.item_mappings(id, "realm-a").unwrap().len(), 1);
+}
+
+#[test]
+fn a_failed_reconcile_leaves_the_mappings_untouched() {
+    let (mut store, id, items) = bound();
+    store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 100, 1, "v1:a"), obs(items[1], 101, 2, "v1:b")]).unwrap();
+    let before = store.item_mapping_history(id, "realm-a").unwrap();
+    assert!(store.reconcile_item_mappings(id, "realm-a", 1, &[obs(items[0], 100, 1, "v1:a"), obs(items[0], 5, 1, "v1:a")]).is_err());
+    assert_eq!(store.item_mapping_history(id, "realm-a").unwrap(), before);
+}
+
+#[test]
+fn schema_1_item_mappings_survive_the_migration_as_unverified() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = Store::path_of(dir.path());
+    let (character, item);
+    {
+        // build a schema-1 database by hand, exactly as Phase 1 wrote it
+        let mut store = Store::open_file(&file).unwrap();
+        let profile = store.default_profile().unwrap();
+        character = created(&mut store, profile);
+        item = store.load_current(character).unwrap().items[0].id;
+        store.bind_server(character, "realm-a", 154, 1, MappingState::Active).unwrap();
+        store.conn.execute_batch(
+            "DROP TABLE item_mapping;
+             CREATE TABLE item_mapping (character_id TEXT NOT NULL, server_id TEXT NOT NULL, portable_item_id TEXT NOT NULL, local_item_guid INTEGER NOT NULL,
+                PRIMARY KEY (character_id, server_id, portable_item_id), UNIQUE (character_id, server_id, local_item_guid),
+                FOREIGN KEY (character_id, server_id) REFERENCES character_server_mapping(character_id, server_id) ON DELETE CASCADE) STRICT;
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+        store.conn.execute(
+            "INSERT INTO item_mapping VALUES (?1, 'realm-a', ?2, 4242)",
+            params![character.to_string(), item.to_string()],
+        )
+        .unwrap();
+    }
+    let store = Store::open_file(&file).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 2);
+    let mappings = store.item_mappings(character, "realm-a").unwrap();
+    assert_eq!(mappings.len(), 1);
+    assert_eq!((mappings[0].portable_item_id, mappings[0].local_item_guid, mappings[0].identity.as_str()), (item, 4242, ""));
+    // an unverified mapping never matches a real identity, so it is treated as a recycled guid, not trusted
+    assert_eq!(store.resolve_item_ids(character, "realm-a", &[(4242, "v1:real")]).unwrap(), vec![ItemResolution::Reused { previous: item }]);
 }
 
 #[test]

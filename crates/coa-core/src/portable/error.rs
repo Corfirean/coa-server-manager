@@ -1,4 +1,5 @@
 use super::ids::CharacterId;
+use super::realm::Blocker;
 
 pub type Result<T> = std::result::Result<T, PortableError>;
 
@@ -28,6 +29,20 @@ pub enum PortableError {
     LocalGuidTaken { server_id: String, local_guid: u32 },
     #[error("local item {local_item_guid} on server {server_id} is mapped twice for one character")]
     ItemGuidConflict { server_id: String, local_item_guid: u32 },
+
+    #[error("local character {local_guid} on server {server_id} is already portable ({character})")]
+    AlreadyPortable { server_id: String, local_guid: u32, character: CharacterId },
+
+    #[error("this character cannot be made portable: {}", .0.iter().map(|b| b.to_string()).collect::<Vec<_>>().join("; "))]
+    NotExportable(Vec<Blocker>),
+    #[error("there is no character {0} on this realm")]
+    NoSuchRealmCharacter(u32),
+    #[error("the realm database does not have the expected structure: {0}")]
+    SchemaMismatch(String),
+    #[error("could not read the realm: {0}")]
+    RealmRead(String),
+    #[error("the realm database is a {found} realm but a {expected} character was requested")]
+    WrongRealm { expected: String, found: String },
 
     #[error("invalid data: {0}")]
     Invalid(String),

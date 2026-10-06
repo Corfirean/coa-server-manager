@@ -1,0 +1,60 @@
+#T:chars
+1003	5001	x517565737479	3	13	0	40	900	12345	1	2	3	4	0	0	0	0	x3020302030203020	0	0	0	0	0	0	0	0	0	0	1	0	x3020302030203020	x302030203020302030203020	0	0	0	0	0	x504C4159455231
+#T:inventory
+#T:items
+#T:gifts
+#T:spells
+#T:talents
+#T:skills
+#T:glyphs
+#T:reputation
+1	50	1
+2	100	1
+3	150	1
+4	200	1
+5	250	1
+6	300	1
+7	350	1
+8	400	1
+9	450	1
+10	500	1
+#T:quests
+12001	3	0	0	3	0	0	0	0	0	0	0	0	0	0
+12002	1	1	600	0	0	0	0	2	0	0	0	0	0	0
+#T:rewarded
+12000
+12003
+12004
+#T:actions
+0	0	500003	0
+0	1	500006	0
+0	2	500009	0
+0	3	500012	0
+0	4	500015	0
+0	5	500018	0
+0	6	500021	0
+0	7	500024	0
+0	8	500027	0
+0	9	500030	0
+0	10	500033	0
+0	11	500036	0
+1	0	500100	0
+1	1	500101	0
+1	2	500102	0
+1	3	500103	0
+1	4	7	64
+#T:pets
+#T:pet_spells
+#T:pet_declined
+#T:settings
+#T:macros
+#T:block:challenge
+0
+#T:block:gamemode
+0
+#T:block:trial
+0
+#T:block:manastorm
+0
+#T:unclassified:mod_unknown_state
+0
