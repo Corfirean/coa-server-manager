@@ -96,6 +96,10 @@ uuid7_id!(
     /// One import of a portable character into a realm (the key of the import journal).
     ImportId
 );
+uuid7_id!(
+    /// One runtime session of a portable character on a realm: from its automatic baseline to its final checkpoint.
+    SessionId
+);
 
 /// A reference to a piece of game content that cannot be mistaken for another namespace's numbering:
 /// `core:wotlk:item:19019`, `coa:wardrobe:10581`, `mod:<module>:item:7`.

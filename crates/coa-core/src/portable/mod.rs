@@ -13,6 +13,7 @@ pub mod ids;
 pub mod merge;
 pub mod model;
 pub mod realm;
+pub mod session;
 pub mod snapshot;
 pub mod store;
 pub mod versions;
@@ -22,6 +23,6 @@ pub(crate) mod fixtures;
 
 pub use collection::IdSet;
 pub use error::{PortableError, Result};
-pub use ids::{CharacterId, ContentId, ImportId, PortableItemId, PortablePetId, ProfileId};
+pub use ids::{CharacterId, ContentId, ImportId, PortableItemId, PortablePetId, ProfileId, SessionId};
 pub use model::{PortableCharacter, Ruleset};
 pub use store::Store;
