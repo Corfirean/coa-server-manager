@@ -25,6 +25,7 @@ pub mod population;
 pub mod process;
 pub mod manifest;
 pub mod migrations;
+pub mod portable;
 pub mod multiworld;
 pub mod repair;
 pub mod schema_check;

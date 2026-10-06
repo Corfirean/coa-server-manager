@@ -10,7 +10,7 @@ serde_json = "1"
 sha2 = "0.10"
 hex = "0.4"
 thiserror = "2"
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 dunce = "1"
 fs4 = "0.13"
@@ -25,6 +25,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 sha1 = "0.10"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tempfile = "3"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
