@@ -22,10 +22,10 @@ use std::time::Duration;
 use crate::db::Db;
 
 use super::super::error::{PortableError, Result};
-use super::super::ids::{CharacterId, ContentId, ImportId};
+use super::super::ids::{CharacterId, ContentId, ImportId, SessionId};
 use super::super::model::{PortableCharacter, Ruleset};
 use super::super::store::{pet_identity, ImportAllocation, ImportState, JournalEntry, JournalKind, PlannedItem, PlannedPet, Store};
-use super::plan::{build_plan, parse_report, Allocation, ImportPlan, PlanContext, IMPORT_LOCK};
+use super::plan::{build_plan, parse_report, Allocation, ImportPlan, PlanContext, SessionArm, IMPORT_LOCK};
 use super::script::{self, parse_output, Query};
 use super::sqlenc::Val;
 use super::{realm_error, ruleset_of};
@@ -251,6 +251,11 @@ pub fn run_realm_import(db: &Db, plan: &ImportPlan) -> Result<(Allocation, bool)
 
 /// Import the character's current canonical revision into a stopped realm.
 pub fn import_character(db: &Db, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions) -> Result<ImportOutcome> {
+    import_character_in_session(db, store, character_id, server_id, account, opts, None)
+}
+
+/// The same, arming the runtime portable session `session` on the arrival (the core takes the baseline at its first load).
+pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions, session: Option<SessionId>) -> Result<ImportOutcome> {
     let record = store.character(character_id)?;
     let model = store.load_snapshot(character_id, record.revision)?;
     if store.server_mappings(character_id)?.iter().any(|m| m.server_id == server_id) {
@@ -267,7 +272,7 @@ pub fn import_character(db: &Db, store: &mut Store, character_id: CharacterId, s
     let pets = planned_pets(&model);
     let ticket = store.begin_import(character_id, server_id, record.revision, &items, &pets)?;
 
-    let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe }) {
+    let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe, session: session.map(|session_id| SessionArm { session_id, character_id, generation: 1 }) }) {
         Ok(plan) => plan,
         Err(e) => {
             store.abort_import(ticket.import_id, &format!("the import plan could not be built: {e}"))?;

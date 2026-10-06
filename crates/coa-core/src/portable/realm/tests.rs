@@ -43,7 +43,7 @@ fn raw(guid: u32) -> RawExport {
 }
 
 fn export_as(guid: u32, ruleset: Ruleset, prior: &HashMap<u32, (PortableItemId, String)>) -> Result<Exported> {
-    build(&raw(guid), &ExportRequest { ruleset, local_guid: guid, character_id: None, prior_items: prior, prior_pets: &HashMap::new() })
+    build(&raw(guid), &ExportRequest { ruleset, local_guid: guid, character_id: None, prior_items: prior, prior_pets: &HashMap::new(), allow_online_session: false })
 }
 
 fn export(guid: u32) -> Exported {
@@ -313,7 +313,7 @@ fn items_keep_their_portable_ids_but_a_recycled_guid_gets_a_new_one() {
 #[test]
 fn a_reexport_keeps_the_portable_character_id() {
     let id = CharacterId::new();
-    let e = build(&raw(1002), &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: Some(id), prior_items: &HashMap::new(), prior_pets: &HashMap::new() }).unwrap();
+    let e = build(&raw(1002), &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: Some(id), prior_items: &HashMap::new(), prior_pets: &HashMap::new(), allow_online_session: false }).unwrap();
     assert_eq!(e.model.character_id, id);
 }
 
@@ -355,7 +355,7 @@ fn windows_line_endings_do_not_matter() {
     let crlf = answer(1002).replace("\r\n", "\n").replace('\n', "\r\n");
     let queries = script::queries(1002, &probe()).unwrap();
     let parsed = script::parse_output(&crlf, &queries).unwrap();
-    let e = build(&parsed, &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: None, prior_items: &HashMap::new(), prior_pets: &HashMap::new() }).unwrap();
+    let e = build(&parsed, &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: None, prior_items: &HashMap::new(), prior_pets: &HashMap::new(), allow_online_session: false }).unwrap();
     assert_eq!((e.model.items.len(), e.model.identity.name.as_str()), (60, "Geared"));
 }
 
@@ -379,7 +379,7 @@ fn damaged_answers_never_panic() {
             bytes[at] = [b'Z', b'\t', b'\n', b'x', b'-', b'9', b'0', b'~'][next() as usize % 8];
         }
         let Ok(text) = String::from_utf8(bytes) else { continue };
-        match script::parse_output(&text, &queries).and_then(|raw| build(&raw, &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: None, prior_items: &HashMap::new(), prior_pets: &HashMap::new() })) {
+        match script::parse_output(&text, &queries).and_then(|raw| build(&raw, &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: None, prior_items: &HashMap::new(), prior_pets: &HashMap::new(), allow_online_session: false })) {
             Ok(e) => {
                 e.model.validate().unwrap();
                 oks += 1;
@@ -428,7 +428,7 @@ fn make_portable_registers_everything_in_one_step_and_refuses_twice() {
 
     // a re-export with the store's mappings keeps every item id, so the next revision is a plain update
     let lookup = store.active_item_lookup(made.character_id, "realm-a").unwrap();
-    let re = build(&raw(1002), &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: Some(made.character_id), prior_items: &lookup, prior_pets: &HashMap::new() }).unwrap();
+    let re = build(&raw(1002), &ExportRequest { ruleset: Ruleset::Coa, local_guid: 1002, character_id: Some(made.character_id), prior_items: &lookup, prior_pets: &HashMap::new(), allow_online_session: false }).unwrap();
     assert_eq!(re.model, expected_model);
     let revision = store.commit_snapshot(made.character_id, 1, re.model, "realm-a", Some("re-export")).unwrap();
     let report = store.reconcile_item_mappings(made.character_id, "realm-a", revision, &re.observations).unwrap();

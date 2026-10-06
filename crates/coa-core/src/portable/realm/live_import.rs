@@ -22,24 +22,24 @@ use super::import::*;
 use super::plan::{build_plan, PlanContext};
 use super::*;
 
-pub(super) const B: &str = "realm-b";
-pub(super) const ACCOUNT: u32 = 7001;
+pub(crate) const B: &str = "realm-b";
+pub(crate) const ACCOUNT: u32 = 7001;
 
-pub(super) fn tools(var: &str) -> Option<(PathBuf, u16, String)> {
+pub(crate) fn tools(var: &str) -> Option<(PathBuf, u16, String)> {
     let spec = std::env::var(var).ok()?;
     let p: Vec<&str> = spec.split('|').collect();
     assert_eq!(p.len(), 3, "{var} = <bin dir>|<port>|<password>");
     Some((PathBuf::from(p[0]), p[1].parse().expect("port"), p[2].to_string()))
 }
 
-pub(super) struct Realms {
-    pub(super) a: Db,
-    pub(super) b: Db,
+pub(crate) struct Realms {
+    pub(crate) a: Db,
+    pub(crate) b: Db,
     /// A session of the game server's database user, to stand in for a running realm.
-    pub(super) server_user: Db,
+    pub(crate) server_user: Db,
 }
 
-pub(super) fn realms() -> Option<Realms> {
+pub(crate) fn realms() -> Option<Realms> {
     let (bin_a, port_a, pw_a) = tools("COA_PORTABLE_LIVE")?;
     let (bin_b, port_b, pw_b) = tools("COA_PORTABLE_LIVE_B")?;
     Some(Realms {
@@ -49,14 +49,14 @@ pub(super) fn realms() -> Option<Realms> {
     })
 }
 
-pub(super) fn opts() -> ImportOptions {
+pub(crate) fn opts() -> ImportOptions {
     ImportOptions { recovery_grace: Duration::ZERO, lock_wait_seconds: 2, ..ImportOptions::default() }
 }
 
 /// Put realm B back to its baseline (the characters of `realm-b-fixture.sql` and the template characters): removes every
 /// character with a guid above the fixture's and what hangs off it. Every live test starts with this, so the tests do not
 /// depend on each other or on their order.
-pub(super) fn reset_b(db: &Db) {
+pub(crate) fn reset_b(db: &Db) {
     let mut sql = vec!["DROP TRIGGER IF EXISTS acore_characters.coa_test_fail;".to_string()];
     for (table, column) in super::plan::CHARACTER_KEYED {
         sql.push(format!("DELETE FROM acore_characters.`{table}` WHERE `{column}` > 3010;"));
@@ -70,20 +70,20 @@ pub(super) fn reset_b(db: &Db) {
 ")).unwrap();
 }
 
-pub(super) fn on_b(store: &Store, id: CharacterId) -> Vec<crate::portable::store::MappingRecord> {
+pub(crate) fn on_b(store: &Store, id: CharacterId) -> Vec<crate::portable::store::MappingRecord> {
     store.server_mappings(id).unwrap().into_iter().filter(|m| m.server_id == B).collect()
 }
 
-pub(super) fn first(db: &Db, sql: &str) -> String {
+pub(crate) fn first(db: &Db, sql: &str) -> String {
     db.query(sql).unwrap().lines().next().unwrap_or("").to_string()
 }
 
-pub(super) fn number(db: &Db, sql: &str) -> u64 {
+pub(crate) fn number(db: &Db, sql: &str) -> u64 {
     first(db, sql).trim().parse().unwrap_or_else(|_| panic!("not a number: {sql}"))
 }
 
 /// Row counts of every table of the characters schema: the "nothing changed" proof.
-pub(super) fn counts(db: &Db) -> BTreeMap<String, u64> {
+pub(crate) fn counts(db: &Db) -> BTreeMap<String, u64> {
     let tables = db.tables("acore_characters").unwrap();
     let sql = tables.iter().map(|t| format!("SELECT '{t}', COUNT(*) FROM acore_characters.`{t}`")).collect::<Vec<_>>().join(" UNION ALL ");
     db.query(&sql).unwrap().lines().map(|l| {
@@ -92,18 +92,18 @@ pub(super) fn counts(db: &Db) -> BTreeMap<String, u64> {
     }).collect()
 }
 
-pub(super) fn fresh_store() -> (Store, crate::portable::ids::ProfileId) {
+pub(crate) fn fresh_store() -> (Store, crate::portable::ids::ProfileId) {
     let mut store = Store::open_in_memory().unwrap();
     let profile = store.default_profile().unwrap();
     (store, profile)
 }
 
-pub(super) fn make(r: &Realms, store: &mut Store, profile: crate::portable::ids::ProfileId, guid: u32) -> CharacterId {
+pub(crate) fn make(r: &Realms, store: &mut Store, profile: crate::portable::ids::ProfileId, guid: u32) -> CharacterId {
     make_portable(&r.a, store, profile, "realm-a", guid).unwrap().character_id
 }
 
 /// What a trip through a realm legitimately does not preserve. Everything else must come back identical.
-pub(super) fn expected_after_a_trip(canonical: &PortableCharacter, back: &PortableCharacter) -> PortableCharacter {
+pub(crate) fn expected_after_a_trip(canonical: &PortableCharacter, back: &PortableCharacter) -> PortableCharacter {
     let mut c = canonical.clone();
     c.identity.name = back.identity.name.clone(); // a taken or reserved name arrives under a temporary one
     for item in &mut c.items {
@@ -117,7 +117,7 @@ pub(super) fn expected_after_a_trip(canonical: &PortableCharacter, back: &Portab
     c.normalized()
 }
 
-pub(super) fn read_back(r: &Realms, store: &Store, id: CharacterId) -> PortableCharacter {
+pub(crate) fn read_back(r: &Realms, store: &Store, id: CharacterId) -> PortableCharacter {
     let guid = store.server_mappings(id).unwrap().iter().find(|m| m.server_id == B).unwrap().local_guid;
     let prior = store.active_item_lookup(id, B).unwrap();
     let pets = store.active_pet_lookup(id, B).unwrap();
@@ -298,7 +298,7 @@ fn imports_are_refused_before_anything_is_written() {
     // ... and if the server starts between the preflight and the transaction, the transaction's own guard stops it
     let probe = super::probe(&r.b).unwrap();
     let users = vec!["acore".to_string()];
-    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: [1, 2, 3, 4], max_characters_per_account: 10, game_server_users: &users, probe: &probe }).unwrap();
+    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: [1, 2, 3, 4], max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None }).unwrap();
     assert!(run_realm_import(&r.b, &plan).is_err(), "the in-transaction guard must refuse while the game server's session exists");
     session.join().unwrap();
 
@@ -352,7 +352,7 @@ fn a_crash_between_the_two_commits_is_recovered_from_the_marker_in_the_realm() {
     // the realm commits ... and the Manager "dies" before it records anything
     let ticket = store.begin_import(id, B, 1, &import::planned_items(&model), &[]).unwrap();
     let users = vec!["acore".to_string()];
-    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe }).unwrap();
+    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None }).unwrap();
     let (alloc, committed) = run_realm_import(&r.b, &plan).unwrap();
     assert!(committed);
     assert_eq!(store.import_entry(ticket.import_id).unwrap().state, ImportState::Prepared);
@@ -418,7 +418,7 @@ fn a_realm_that_no_longer_matches_the_plan_is_flagged_not_guessed_about() {
     let probe = super::probe(&r.b).unwrap();
     let ticket = store.begin_import(id, B, 1, &import::planned_items(&model), &[]).unwrap();
     let users = vec!["acore".to_string()];
-    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe }).unwrap();
+    let plan = build_plan(&model, &PlanContext { ruleset: Ruleset::Coa, account: ACCOUNT, revision: 1, nonce: ticket.nonce, max_characters_per_account: 10, game_server_users: &users, probe: &probe, session: None }).unwrap();
     let (alloc, _) = run_realm_import(&r.b, &plan).unwrap();
     // someone deletes an item of the new character before the Manager recovers
     r.b.query(&format!("DELETE FROM acore_characters.item_instance WHERE guid = {}", alloc.item_base + 3)).unwrap();
@@ -518,7 +518,7 @@ fn staged() -> bool {
 }
 
 /// Paths at which two JSON values differ (capped).
-pub(super) fn json_diff(path: &str, a: &serde_json::Value, b: &serde_json::Value, out: &mut Vec<String>) {
+pub(crate) fn json_diff(path: &str, a: &serde_json::Value, b: &serde_json::Value, out: &mut Vec<String>) {
     use serde_json::Value::{Array, Null, Object};
     if out.len() >= 60 {
         return;

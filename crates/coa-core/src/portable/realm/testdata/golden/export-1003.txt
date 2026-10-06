@@ -48,6 +48,7 @@
 #T:pet_declined
 #T:settings
 #T:macros
+#T:portable_session
 #T:block:challenge
 0
 #T:block:gamemode

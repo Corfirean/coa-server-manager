@@ -91,6 +91,43 @@ impl Ra {
         }
     }
 
+    /// `portable checkpoint <guid> <session> <sequence>`: the core saves this one character with a checkpoint marker. Only a
+    /// number, a session id and a number are sent. The reply is a request status, **not** proof that anything was written.
+    pub fn portable_checkpoint(&mut self, guid: u32, session: crate::portable::SessionId, sequence: u64) -> Result<crate::portable::session::bridge::CheckpointReply> {
+        use crate::portable::session::bridge::CheckpointReply;
+        let sequence = u32::try_from(sequence).map_err(|_| Error::Invalid("The checkpoint sequence is out of range.".into()))?;
+        let out = self.command(&format!("portable checkpoint {guid} {session} {sequence}"))?;
+        let first = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        Ok(match first.split_whitespace().next() {
+            Some("QUEUED") => CheckpointReply::Queued,
+            Some("BUSY") => CheckpointReply::Busy,
+            Some("NOT_ONLINE") => CheckpointReply::NotOnline,
+            Some("REFUSED") => CheckpointReply::Refused(first.trim_start_matches("REFUSED").trim().to_string()),
+            _ => CheckpointReply::Refused(format!("unexpected answer: {first}")),
+        })
+    }
+
+    /// `portable import <job_id>`: the core imports the job file of that id from its fixed job directory. Only the id travels.
+    pub fn portable_import(&mut self, job_id: crate::portable::ImportId) -> Result<String> {
+        let out = self.command(&format!("portable import {job_id}"))?;
+        let first = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
+        if first.starts_with("OK") {
+            Ok(first)
+        } else {
+            Err(Error::Invalid(format!("The server did not import the job: {first}")))
+        }
+    }
+
+    /// `portable release <session>`: lets a held portable character play. Sent only after its baseline was persisted.
+    pub fn portable_release(&mut self, session: crate::portable::SessionId) -> Result<()> {
+        let out = self.command(&format!("portable release {session}"))?;
+        if out.lines().any(|l| l.trim().starts_with("OK")) {
+            Ok(())
+        } else {
+            Err(Error::Invalid(format!("The server did not release the session: {}", out.lines().last().unwrap_or(""))))
+        }
+    }
+
     /// World update timing from the server's own `server info` report (mean/median/percentiles of the last 500 updates).
     pub fn performance(&mut self) -> Result<Option<Performance>> {
         let out = self.command("server info")?;

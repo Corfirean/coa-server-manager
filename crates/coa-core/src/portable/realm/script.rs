@@ -261,6 +261,25 @@ pub fn queries(guid: u32, probe: &SchemaProbe) -> Result<Vec<Query>> {
         query("macros", &[("time", "d.`time`"), ("data", hex!("d.data"))], "acore_characters.character_account_data d WHERE d.guid = {guid} AND d.`type` = 5", guid),
     ];
 
+    // The portable session marker of the core: read in the same snapshot as the character, so the marker says which save the rows are.
+    if probe.has("coa_portable_session") {
+        out.push(query(
+            "portable_session",
+            &[
+                ("guid", "s.guid"),
+                ("session_id", hex!("s.session_id")),
+                ("character_id", hex!("s.character_id")),
+                ("imported_revision", "s.imported_revision"),
+                ("generation", "s.baseline_generation"),
+                ("state", "s.state"),
+                ("checkpoint_seq", "s.checkpoint_seq"),
+                ("save_seq", "s.save_seq"),
+            ],
+            "acore_characters.coa_portable_session s WHERE s.guid = {guid}",
+            guid,
+        ));
+    }
+
     // Blockers of optional modules: only asked for when the module's table exists.
     if probe.has("coa_character_challenge") {
         out.push(query("block:challenge", &[("n", "COUNT(*)")], "acore_characters.coa_character_challenge WHERE guid = {guid}", guid));

@@ -215,7 +215,7 @@ impl RealmBridge for FakeRealm {
         }
         // the realm's tables are keyed by guid: a later read finds the same rows under the same internal ids
         let model = model.normalized();
-        Ok(RealmRead { exported: Exported { model, local_guid: self.guid, account: 1, observations, pet_observations, warnings: vec![] }, session: self.row.clone(), online: self.online })
+        Ok(RealmRead { exported: Exported { model, local_guid: self.guid, account: 1, observations, pet_observations, session: self.row.clone(), warnings: vec![] }, session: self.row.clone(), online: self.online })
     }
 
     fn request_checkpoint(&mut self, local_guid: u32, session: SessionId, sequence: u64) -> Result<CheckpointReply> {

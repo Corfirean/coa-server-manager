@@ -184,6 +184,21 @@ Manager writes <JobDir>/<job_id>.job (temp name + rename)
 No path, SQL or snapshot travels through RA. Idempotency: the marker row carries the job nonce; re-running a finished job
 rewrites the same result. Never touches a character that is online or already exists.
 
+## 7a. Behaviour of the implementation worth knowing
+
+* The gate holds the **session's packet queue** (`WorldSession::Update` skips it while gated) and makes the character non-attackable
+  and rooted. The timeout is enforced from a world-update hook, not from the session, so sessions without a socket are covered too; a
+  real client is kicked, a bot session (no socket) is only reported.
+* A **clean shutdown logs every player out**: the logout save of each portable character carries `state = 3`, exactly like a normal
+  logout, and the Host sends the final checkpoint and arms the next session. A **crash** leaves `state = 2`: the next login continues the
+  same session with no new baseline.
+* A character that logs in while its row is still `state = 3` (the Host has not closed the session yet) is disconnected with a
+  "try again in a moment" message: a baseline would otherwise be taken against a session the Owner already closed.
+* The session table is read at login by the login query holder (`CHAR_SEL_PORTABLE_SESSION`), so a realm whose database lacks
+  `coa_portable_session` refuses to start like any other missing table: the pending SQL ships with the core.
+* One checkpoint writes one character: verified on a real worldserver with two other characters online by counting the `characters`
+  rows the database was asked to write.
+
 ## 8. What is not in this phase
 
 VPS Registry/Relay and any network transport, public server list, remote account provisioning, Wildcard, vanity/wardrobe

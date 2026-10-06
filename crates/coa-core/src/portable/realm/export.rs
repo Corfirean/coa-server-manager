@@ -16,6 +16,7 @@ use super::super::versions::PORTABLE_CHARACTER_FORMAT_VERSION;
 use super::blockers::{is_internal_account, Blocker};
 use super::policy::{classify_setting, Disposition, QUARANTINE_EXTENSION, SETTINGS_POLICY_VERSION};
 use super::script::{RawExport, Row};
+use super::super::session::bridge::{RowState, SessionRow};
 
 /// Only the cosmetic bits of `playerFlags` are carried: hide helm (0x400) and hide cloak (0x800).
 pub const COSMETIC_FLAG_MASK: u32 = 0x0C00;
@@ -31,6 +32,8 @@ pub struct ExportRequest<'a> {
     pub prior_items: &'a HashMap<u32, (PortableItemId, String)>,
     /// Active pet mappings of that character on this realm: local pet number -> (portable pet id, identity).
     pub prior_pets: &'a HashMap<u32, (PortablePetId, String)>,
+    /// A character with a portable session row may be read while it is online: the core saved it together with its marker.
+    pub allow_online_session: bool,
 }
 
 #[derive(Debug)]
@@ -43,6 +46,8 @@ pub struct Exported {
     pub observations: Vec<ItemObservation>,
     /// One entry per exported pet, ready for the pet mappings.
     pub pet_observations: Vec<PetObservation>,
+    /// The portable session marker of the same snapshot, when the realm has one for this character.
+    pub session: Option<SessionRow>,
     /// Things that were left out or looked wrong; shown to the user, never silently dropped.
     pub warnings: Vec<String>,
 }
@@ -53,10 +58,15 @@ fn corrupt<T>(msg: impl Into<String>) -> Result<T> {
 
 /// Why this character cannot be exported now. Empty = it can.
 pub fn blockers(raw: &RawExport) -> Result<Vec<Blocker>> {
+    blockers_with(raw, false)
+}
+
+pub fn blockers_with(raw: &RawExport, allow_online_session: bool) -> Result<Vec<Blocker>> {
     let chars = raw.section("chars")?;
     let row = chars.iter().next().ok_or_else(|| PortableError::NoSuchRealmCharacter(0))?;
     let mut out = Vec::new();
-    if row.u64("online")? != 0 {
+    let has_session = raw.has("portable_session") && raw.section("portable_session")?.iter().next().is_some();
+    if row.u64("online")? != 0 && !(allow_online_session && has_session) {
         out.push(Blocker::Online);
     }
     if row.u64("deleted")? != 0 {
@@ -91,7 +101,7 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
     if c.u32("guid")? != req.local_guid {
         return corrupt("the realm answered for another character");
     }
-    let blocked = blockers(raw)?;
+    let blocked = blockers_with(raw, req.allow_online_session)?;
     if !blocked.is_empty() {
         return Err(PortableError::NotExportable(blocked));
     }
@@ -222,7 +232,27 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
     .normalized();
     model.validate()?;
 
-    Ok(Exported { model, local_guid: req.local_guid, account: c.u32("account")?, observations, pet_observations, warnings })
+    let session = session_row(raw)?;
+    Ok(Exported { model, local_guid: req.local_guid, account: c.u32("account")?, observations, pet_observations, session, warnings })
+}
+
+/// The core's marker row of this character, if it has one.
+pub fn session_row(raw: &RawExport) -> Result<Option<SessionRow>> {
+    if !raw.has("portable_session") {
+        return Ok(None);
+    }
+    let Some(r) = raw.section("portable_session")?.iter().next() else { return Ok(None) };
+    let state = RowState::from_code(r.u64("state")?).ok_or_else(|| PortableError::CorruptSnapshot("the portable session row has an unknown state".into()))?;
+    Ok(Some(SessionRow {
+        guid: r.u32("guid")?,
+        session_id: r.text("session_id")?.parse()?,
+        character_id: r.text("character_id")?.parse()?,
+        imported_revision: r.u64("imported_revision")?,
+        generation: r.u32("generation")?,
+        state,
+        checkpoint_seq: r.u64("checkpoint_seq")?,
+        save_seq: r.u64("save_seq")?,
+    }))
 }
 
 fn pairs(raw: &RawExport, section: &str) -> Result<Vec<(u32, u8)>> {

@@ -64,6 +64,8 @@ C	coa_custom_trial_active	guid
 C	coa_custom_trial_completion	guid
 C	coa_custom_trial_entry	guid
 C	coa_custom_trial_vote	guid
+C	coa_portable_session	character_id
+C	coa_portable_session	guid
 C	corpse	guid
 C	creature_respawn	guid
 C	gameobject_respawn	guid
@@ -186,6 +188,7 @@ T	coa_custom_trial_completion	-
 T	coa_custom_trial_entry	-
 T	coa_custom_trial_vote	-
 T	coa_keepers_scroll_blessing	-
+T	coa_portable_session	-
 T	coa_squid_migrations	-
 T	coa_wildcard_skill_card	-
 T	coa_wildcard_skill_card_account	-

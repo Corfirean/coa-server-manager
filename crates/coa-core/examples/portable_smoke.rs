@@ -15,12 +15,21 @@
 //!   update <character-id> <server-id>           bring the realm's own character to the newest revision, in place
 //!   recover <server-id>                         finish or abort interrupted imports and updates
 //!   show <character-id>                         revisions and realm bindings
+//!   session-offer <character-id> <server-id> <offer.json>   (owner store)  offer a character and open its runtime session
+//!   session-import <offer.json> <account> <server-id>       (host store: --host-store)  keep the copy, import it with the session
+//!                      armed (online through the core's import service when --ra-port and --job-dir are given, else offline)
+//!   host-run <owner-store-dir> <server-id>                  (host store)  run the Host: automatic baseline, a checkpoint every
+//!                      --interval seconds (default 60), the final checkpoint at logout; messages go straight to the owner store
+//!   dump <character-id>                         the canonical JSON of the current revision (what a core import job carries)
 //! ```
 
 use std::path::PathBuf;
 
 use coa_core::db::Db;
 use coa_core::portable::realm::{self, ImportOptions};
+use coa_core::portable::session::live::LiveBridge;
+use coa_core::portable::session::protocol::SessionOffer;
+use coa_core::portable::session::{HostConfig, HostService, OwnerService};
 use coa_core::portable::{CharacterId, Store};
 use coa_core::realms::Mode;
 
@@ -63,6 +72,11 @@ fn run() -> Result<(), String> {
     let db = Db::with_tools(tools, port, user, &password, realm_mode);
     let mut store = Store::open(&store_dir).map_err(|e| e.to_string())?;
     let opts = ImportOptions { game_server_users: vec![user.to_string(), "acore".to_string()], ..ImportOptions::default() };
+    let host_dir = PathBuf::from(take("--host-store", Some(&format!("{}-host", store_dir.display())))?);
+    let ra_port: Option<u16> = take("--ra-port", Some("0"))?.parse().ok().filter(|p| *p != 0);
+    let ra_user = take("--ra-user", Some("local"))?;
+    let job_dir = take("--job-dir", Some(""))?;
+    let interval: u64 = take("--interval", Some("60"))?.parse().map_err(|_| "--interval is not a number".to_string())?;
     let id = |s: &str| -> Result<CharacterId, String> { s.parse().map_err(|_| format!("{s:?} is not a character id")) };
 
     let command = if args.is_empty() { usage() } else { args.remove(0) };
@@ -101,6 +115,63 @@ fn run() -> Result<(), String> {
             for r in realm::recover_imports(&db, &mut store, server, &opts).map_err(|e| e.to_string())? {
                 println!("{}: {:?}", r.import_id, r.resolution);
             }
+        }
+        ("session-offer", [character, server, out]) => {
+            let offer = OwnerService::new(&mut store).offer(id(character)?, server).map_err(|e| e.to_string())?;
+            std::fs::write(out, serde_json::to_vec_pretty(&offer).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            println!("session {} offered at canonical revision {} -> {out}", offer.session_id, offer.canonical_revision);
+        }
+        ("session-import", [file, account, server]) => {
+            let offer: SessionOffer = serde_json::from_slice(&std::fs::read(file).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            let mut host = Store::open(&host_dir).map_err(|e| e.to_string())?;
+            let profile = host.default_profile().map_err(|e| e.to_string())?;
+            HostService::new(&mut host, server, HostConfig::default()).accept_offer(profile, &offer).map_err(|e| e.to_string())?;
+            let account: u32 = account.parse().map_err(|_| "account")?;
+            let outcome = match (ra_port, job_dir.is_empty()) {
+                (Some(port), false) => {
+                    let mut ra = coa_core::ra::Ra::connect_to(port, &ra_user, &std::env::var("COA_RA_PASSWORD").map_err(|_| "set COA_RA_PASSWORD".to_string())?).map_err(|e| e.to_string())?;
+                    realm::online::import_character_online(&mut ra, &mut host, offer.character_id, server, account, &opts, std::path::Path::new(&job_dir), Some(offer.session_id)).map_err(|e| e.to_string())?
+                }
+                _ => realm::import_character_in_session(&db, &mut host, offer.character_id, server, account, &opts, Some(offer.session_id)).map_err(|e| e.to_string())?,
+            };
+            HostService::new(&mut host, server, HostConfig::default()).bind(offer.session_id, outcome.local_guid).map_err(|e| e.to_string())?;
+            println!("imported as local character {} \"{}\"; session {} is armed: the realm takes the baseline at its first load", outcome.local_guid, outcome.final_name, offer.session_id);
+        }
+        ("host-run", [owner_dir, server]) => {
+            let mut owner = Store::open(&PathBuf::from(owner_dir)).map_err(|e| e.to_string())?;
+            let mut host = Store::open(&host_dir).map_err(|e| e.to_string())?;
+            let mut service = HostService::new(&mut host, server, HostConfig { checkpoint_interval_secs: interval });
+            let start = std::time::Instant::now();
+            println!("host running for {server}; Ctrl-C to stop");
+            loop {
+                let ra = ra_port.and_then(|port| std::env::var("COA_RA_PASSWORD").ok().and_then(|pw| coa_core::ra::Ra::connect_to(port, &ra_user, &pw).ok()));
+                let mut bridge = match ra {
+                    Some(ra) => LiveBridge::new(&db, ra),
+                    None => LiveBridge::without_console(&db),
+                };
+                match service.tick(&mut bridge, start.elapsed().as_secs()) {
+                    Ok(events) => events.iter().for_each(|e| println!("{e:?}")),
+                    Err(e) => eprintln!("tick failed: {e}"),
+                }
+                for m in service.outbox().map_err(|e| e.to_string())? {
+                    let ack = if m.started { OwnerService::new(&mut owner).handle_started(&m.bytes) } else { OwnerService::new(&mut owner).handle_checkpoint(&m.bytes) };
+                    match ack {
+                        Ok(ack) => {
+                            println!("owner: session {} #{}: {:?} (canonical revision {})", ack.session_id, ack.sequence, ack.outcome, ack.canonical_revision);
+                            if let Err(e) = service.receive_ack(&mut bridge, &ack) {
+                                eprintln!("acknowledgement failed: {e}");
+                            }
+                        }
+                        Err(e) => eprintln!("owner refused a message: {e}"),
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+        ("dump", [character]) => {
+            let model = store.load_current(id(character)?).map_err(|e| e.to_string())?;
+            let json = coa_core::portable::snapshot::canonical_json(&model).map_err(|e| e.to_string())?;
+            println!("{}", String::from_utf8_lossy(&json));
         }
         ("show", [character]) => {
             let c = id(character)?;

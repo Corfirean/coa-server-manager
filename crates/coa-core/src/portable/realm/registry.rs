@@ -132,6 +132,7 @@ pub const TABLES: &[(&str, TableClass)] = &[
     ("coa_custom_trial_entry", TableClass::CharacterLocal),
     ("coa_custom_trial_vote", TableClass::CharacterLocal),
     ("coa_keepers_scroll_blessing", TableClass::Realm),
+    ("coa_portable_session", TableClass::CharacterLocal),
     ("coa_squid_migrations", TableClass::Realm),
     ("coa_wildcard_skill_card", TableClass::Collection),
     ("coa_wildcard_skill_card_account", TableClass::Collection),
@@ -229,7 +230,7 @@ mod tests {
     #[test]
     fn every_table_of_the_real_schema_is_classified_and_nothing_is_stale() {
         let schema: BTreeSet<&str> = SCHEMA_TABLES.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-        assert_eq!(schema.len(), 163);
+        assert_eq!(schema.len(), 164);
         let missing: Vec<_> = schema.iter().filter(|t| classify(t).is_none()).collect();
         assert!(missing.is_empty(), "unclassified tables: {missing:?}");
         let stale: Vec<_> = TABLES.iter().map(|(t, _)| *t).filter(|t| !schema.contains(t)).collect();

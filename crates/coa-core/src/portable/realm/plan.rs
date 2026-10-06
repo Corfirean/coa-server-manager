@@ -96,6 +96,7 @@ pub const CHARACTER_KEYED: &[(&str, &str)] = &[
     ("corpse", "guid"),
     ("item_instance", "owner_guid"),
     ("mod_craftsmans_codex", "guid"),
+    ("coa_portable_session", "guid"),
 ];
 
 /// Tables that name **item guids**. The new item guids start above the highest of all of them, so a stale row (a mail,
@@ -137,6 +138,16 @@ pub struct PlanContext<'a> {
     /// Database users of a running game server; any other session of one of these users means the realm is running.
     pub game_server_users: &'a [String],
     pub probe: &'a SchemaProbe,
+    /// Arm a runtime portable session for the arrival: the core takes the baseline at its first load.
+    pub session: Option<SessionArm>,
+}
+
+/// The portable session a character arrives with (`coa_portable_session` state 0).
+#[derive(Debug, Clone, Copy)]
+pub struct SessionArm {
+    pub session_id: super::super::ids::SessionId,
+    pub character_id: super::super::ids::CharacterId,
+    pub generation: u32,
 }
 
 /// What the plan will write, for assertions and reports.
@@ -474,6 +485,25 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     settings.row(vec![Val::Expr("@char"), Val::text(IMPORT_MARKER_SOURCE), Val::text(marker.clone())])?;
     inserts.push(settings);
 
+    let mut session_row = Insert::new("coa_portable_session", &["guid", "session_id", "character_id", "imported_revision", "baseline_generation", "state", "checkpoint_seq", "save_seq", "updated_at"]);
+    if let Some(arm) = &ctx.session {
+        if !ctx.probe.has("coa_portable_session") {
+            return Err(PortableError::Invalid("this realm's core has no portable session support (coa_portable_session is missing)".into()));
+        }
+        session_row.row(vec![
+            Val::Expr("@char"),
+            Val::text(arm.session_id.to_string()),
+            Val::text(arm.character_id.to_string()),
+            Val::u(ctx.revision),
+            Val::u(arm.generation),
+            Val::u(0u8),
+            Val::u(0u8),
+            Val::u(0u8),
+            Val::Expr("UNIX_TIMESTAMP()"),
+        ])?;
+    }
+    inserts.push(session_row);
+
     let mut macros = Insert::new("character_account_data", &["guid", "type", "time", "data"]);
     if let Some(blob) = model.client_data.get(&5) {
         macros.row(vec![Val::Expr("@char"), Val::u(5u8), Val::u(blob.time), Val::Bytes(blob.data.0.clone())])?;
@@ -547,6 +577,9 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     line(assert_count("acore_characters.character_action WHERE guid = @char", counts.actions));
     line(assert_count("acore_characters.character_pet WHERE owner = @char", counts.pets));
     line(assert_count("acore_characters.character_settings WHERE guid = @char", counts.settings + 1));
+    if ctx.session.is_some() {
+        line(assert_count("acore_characters.coa_portable_session WHERE guid = @char", 1));
+    }
     // every inventory row points at an item of this character, every bag at an item of this character
     line(format!(
         "DO IF((SELECT COUNT(*) FROM acore_characters.character_inventory ci LEFT JOIN acore_characters.item_instance ii ON ii.guid = ci.item AND ii.owner_guid = @char WHERE ci.guid = @char AND ii.guid IS NULL) = 0, 1, {FAIL});"

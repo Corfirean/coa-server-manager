@@ -12,6 +12,7 @@
 pub mod blockers;
 pub mod export;
 pub mod import;
+pub mod online;
 pub mod plan;
 pub mod policy;
 pub mod reconcile;
@@ -31,8 +32,8 @@ use super::model::Ruleset;
 use super::store::{RealmRegistration, Store};
 
 pub use blockers::Blocker;
-pub use export::{build, ExportRequest, Exported};
-pub use import::{import_character, preflight, recover_imports, resolve_import, ImportOptions, ImportOutcome, ImportProblem, PreflightReport, Resolution};
+pub use export::{build, session_row, ExportRequest, Exported};
+pub use import::{import_character, import_character_in_session, preflight, recover_imports, resolve_import, ImportOptions, ImportOutcome, ImportProblem, PreflightReport, Resolution};
 pub use reconcile::{begin_session, reconcile_session, resolve_import_update, update_realm_character, ReconcileOutcome, SessionStart, UpdateOutcome};
 pub use script::SchemaProbe;
 
@@ -155,7 +156,15 @@ pub fn export_character(db: &Db, local_guid: u32, character_id: Option<Character
 pub fn export_character_with_pets(db: &Db, local_guid: u32, character_id: Option<CharacterId>, prior_items: &HashMap<u32, (PortableItemId, String)>, prior_pets: &HashMap<u32, (PortablePetId, String)>) -> Result<Exported> {
     let probe = probe(db)?;
     let raw = read_raw(db, local_guid, &probe)?;
-    export::build(&raw, &ExportRequest { ruleset: ruleset_of(db), local_guid, character_id, prior_items, prior_pets })
+    export::build(&raw, &ExportRequest { ruleset: ruleset_of(db), local_guid, character_id, prior_items, prior_pets, allow_online_session: false })
+}
+
+/// Read a character that may be online, because the core holds a portable session row for it: the character as it was last saved,
+/// and the marker of the same consistent snapshot.
+pub fn read_session_character(db: &Db, local_guid: u32, character_id: CharacterId, prior_items: &HashMap<u32, (PortableItemId, String)>, prior_pets: &HashMap<u32, (PortablePetId, String)>) -> Result<Exported> {
+    let probe = probe(db)?;
+    let raw = read_raw(db, local_guid, &probe)?;
+    export::build(&raw, &ExportRequest { ruleset: ruleset_of(db), local_guid, character_id: Some(character_id), prior_items, prior_pets, allow_online_session: true })
 }
 
 #[derive(Debug)]
@@ -194,7 +203,7 @@ mod import_tests;
 #[cfg(test)]
 mod live;
 #[cfg(test)]
-mod live_import;
+pub(crate) mod live_import;
 #[cfg(test)]
 mod live_roundtrip;
 #[cfg(test)]

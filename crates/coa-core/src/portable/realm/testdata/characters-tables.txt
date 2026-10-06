@@ -85,6 +85,7 @@ coa_custom_trial_completion
 coa_custom_trial_entry
 coa_custom_trial_vote
 coa_keepers_scroll_blessing
+coa_portable_session
 coa_squid_migrations
 coa_wildcard_skill_card
 coa_wildcard_skill_card_account

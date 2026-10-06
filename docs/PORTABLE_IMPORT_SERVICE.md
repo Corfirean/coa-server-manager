@@ -1,7 +1,8 @@
 # PortableImportService (production importer): design
 
-Status: **design only, approved, not implemented.** It is a core-side workstream (the fork's `src/server/game/Tools/`, next to
-`PlayerDump`). The offline importer ([`PORTABLE_IMPORT.md`](PORTABLE_IMPORT.md)) stays the tool for stopped realms and for
+Status: **implemented in Phase 5** (core fork branch `feat/portable-session-bridge`: `src/server/coa/CoAPortableImport.{h,cpp}`,
+`CoAPortableJson.{h,cpp}`; Manager side `portable/realm/online.rs`). Differences from this design are listed at the end. It is a core-side
+workstream next to `PlayerDump`. The offline importer ([`PORTABLE_IMPORT.md`](PORTABLE_IMPORT.md)) stays the tool for stopped realms and for
 tests.
 
 ## Why in-core
@@ -75,3 +76,21 @@ the level-cap projection hooks of Phase 8.
 
 Exports from a running realm (checkpoints need a per-character save command, `.character save <name>`, tracked separately),
 a payload over RA, a path argument, a remote caller of any kind.
+
+## Implementation notes (Phase 5)
+
+* **Job format.** The job file is `<header JSON>
+<canonical JSON of the character>`, not zstd: the core has neither a JSON nor a zstd
+  dependency, and a small strict parser (`CoAPortableJson`: bounded depth/nodes/string size, integers only, duplicate and unknown
+  fields refused, UTF-8 checked) is easier to audit than a new dependency. The header carries `snapshot_sha256` of the exact bytes of the
+  second line; the file size is capped at 24 MiB before it is read. The Manager ships the character **without extensions** and without
+  settings the policy does not carry.
+* **Writes.** Every row is written by a prepared `INSERT` (`CHAR_INS_PORTABLE_*`); the only string-built statements are the
+  `DELETE ... WHERE <fixed column> = <numeric guid>` that clear leftovers of a deleted character with the same guid.
+* **Commit.** `DirectCommitTransaction`, then the marker is read back; the name cache entry, the item/pet/player generators and
+  `UpdateRealmCharCount` change only after that read confirms the commit.
+* **Talents.** Stock talent rows are written only when the spell is a talent of the realm's own `TalentSpellPos` (the check the worldserver
+  asserts on); everything else is reported in `not_applied`.
+* **Idempotency.** The marker `coa.portable.import = <nonce words> <revision>` is looked up first; a repeated job id answers `OK` and creates nothing.
+* **Session.** With a `session` in the header the same transaction writes the `coa_portable_session` row in state 0, so the character's
+  first load takes its baseline (see `PORTABLE_SESSIONS.md`).

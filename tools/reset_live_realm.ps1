@@ -19,7 +19,8 @@ param(
   [Parameter(Mandatory)] [int] $Port,
   [Parameter(Mandatory)] [string] $Fixture,
   [Parameter(Mandatory)] [string] $Sql,
-  [string] $RootPassword = 'portable-test'
+  [string] $RootPassword = 'portable-test',
+  [string] $ExtraSql = ''
 )
 $ErrorActionPreference = 'Stop'
 $dir = Join-Path $Root $Name
@@ -52,4 +53,5 @@ for ($i = 0; $i -lt 60; $i++) {
 }
 $env:MYSQL_PWD = $RootPassword
 Get-Content $Sql -Raw | & (Join-Path $bin 'bin\mysql.exe') --protocol=tcp --host=127.0.0.1 "--port=$Port" --user=root --default-character-set=utf8mb4 --max-allowed-packet=64M
+if ($ExtraSql) { Get-Content $ExtraSql -Raw | & (Join-Path $bin 'bin\mysql.exe') --protocol=tcp --host=127.0.0.1 "--port=$Port" --user=root --default-character-set=utf8mb4 }
 "realm $Name reset: pid $($p.Id), port $Port"
