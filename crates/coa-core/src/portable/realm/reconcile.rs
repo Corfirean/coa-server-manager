@@ -214,6 +214,56 @@ pub fn update_realm_character(db: &Db, store: &mut Store, id: CharacterId, serve
 
 /// The same, arming the runtime portable session `session` on the updated character in the same realm transaction.
 pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions, session: Option<SessionId>) -> Result<UpdateOutcome> {
+    update_inner(db, store, id, server_id, opts, session, false)
+}
+
+/// What a re-evaluation did.
+#[derive(Debug)]
+pub struct Reevaluation {
+    /// The realm's content profile is the one the character was last synchronised under: nothing was looked at.
+    pub profile_unchanged: bool,
+    /// The realm's character was written (held-back appearances that the realm can now show).
+    pub update: Option<UpdateOutcome>,
+    pub extensions: Vec<super::super::extension::ExtensionOutcome>,
+}
+
+/// The realm's content profile changed since this character was synchronised with it (a newer client data directory, a module added or
+/// removed): look again at what was held back **even though the canonical revision did not change**. Only additions are made: an
+/// appearance the realm can now show and does not have is written, a module payload that now has an adapter is applied; nothing the
+/// realm itself has or changed since is touched. Afterwards the character carries the new profile hash.
+///
+/// The realm must be stopped, as for an update. Without capabilities in the options there is nothing to compare and it is refused.
+pub fn reevaluate_realm_character(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions) -> Result<Reevaluation> {
+    let caps = opts.capabilities.clone().ok_or_else(|| PortableError::Invalid("re-evaluation needs the realm's content profile".into()))?;
+    if store.mapping_profile(id, server_id)?.as_deref() == Some(caps.content_profile_hash.as_str()) {
+        return Ok(Reevaluation { profile_unchanged: true, update: None, extensions: vec![] });
+    }
+    let update = update_inner(db, store, id, server_id, opts, None, true)?;
+    let (guid, _) = local_guid(store, id, server_id)?;
+    let canonical = store.load_current(id)?;
+    let extensions = super::profile::apply_extensions(db, store, id, server_id, opts, guid, &canonical)?;
+    store.set_mapping_profile(id, server_id, &caps.content_profile_hash)?;
+    Ok(Reevaluation { profile_unchanged: false, update: update.updated.then_some(update), extensions })
+}
+
+/// The realm's character with the appearances the canonical character has, the realm can now show and the realm lacks added: a
+/// category without a selection gets the canonical one, an outfit that is not there is added. What the realm has stays.
+fn restored_wardrobe(current: &PortableCharacter, canonical: &PortableCharacter, knows: &dyn Fn(u32) -> bool) -> PortableCharacter {
+    let mut out = current.clone();
+    for (category, appearance) in &canonical.wardrobe.active {
+        if knows(*appearance) && !out.wardrobe.active.contains_key(category) {
+            out.wardrobe.active.insert(*category, *appearance);
+        }
+    }
+    for (name, ids) in &canonical.wardrobe.outfits {
+        if !out.wardrobe.outfits.contains_key(name) && ids.iter().all(|id| *id == 0 || knows(*id)) {
+            out.wardrobe.outfits.insert(name.clone(), ids.clone());
+        }
+    }
+    out
+}
+
+fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions, session: Option<SessionId>, reevaluate: bool) -> Result<UpdateOutcome> {
     let (guid, last_revision) = local_guid(store, id, server_id)?;
     if store.open_baseline(id, server_id)?.is_some() {
         return Err(PortableError::SessionOpen);
@@ -222,7 +272,11 @@ pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: Charact
         return Err(PortableError::ImportInProgress { import_id: open.import_id });
     }
     let record = store.character(id)?;
-    if record.revision == last_revision {
+    if reevaluate {
+        if record.revision != last_revision {
+            return Err(PortableError::Invalid("the realm is not at the canonical revision: update it first, then re-evaluate".into()));
+        }
+    } else if record.revision == last_revision {
         return Ok(UpdateOutcome { import_id: None, from_revision: last_revision, to_revision: last_revision, updated: false, counts: UpdateCounts::default(), changes: vec![], left_alone: vec![], warnings: vec![] });
     }
     if record.revision < last_revision {
@@ -230,12 +284,30 @@ pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: Charact
     }
     let synced = store.synced_model(id, server_id)?.ok_or_else(|| PortableError::Invalid("the realm has no synchronised snapshot to update from".into()))?;
     let canonical = store.load_current(id)?;
+    let mut operations = vec![super::super::compat::Operation::Update];
+    if session.is_some() {
+        operations.push(super::super::compat::Operation::RuntimeSession);
+    }
+    let compatibility = super::profile::gate(opts, &canonical, &operations)?;
     let view = read_realm(db, store, id, server_id, guid)?;
 
-    let merged = merge3(&view.exported.model, &synced, &canonical, Mode::Strict)?;
-    if !merged.conflicts.is_empty() {
-        return Err(PortableError::UpdateConflicts(merged.conflicts.iter().map(|c| format!("{}: {}", c.path, c.detail)).collect()));
-    }
+    let merged = if reevaluate {
+        let model = match opts.knowledge.as_deref() {
+            Some(k) => restored_wardrobe(&view.exported.model, &canonical, &|id| k.knows_appearance(id)),
+            None => view.exported.model.clone(),
+        };
+        let changes = if model.wardrobe != view.exported.model.wardrobe { vec!["wardrobe: appearances the realm can now show were restored".to_string()] } else { vec![] };
+        if changes.is_empty() {
+            return Ok(UpdateOutcome { import_id: None, from_revision: last_revision, to_revision: last_revision, updated: false, counts: UpdateCounts::default(), changes: vec![], left_alone: vec![], warnings: vec![] });
+        }
+        super::super::merge::Merged { model, changes, left_alone: vec![], conflicts: vec![], items: Default::default(), pets: Default::default() }
+    } else {
+        let merged = merge3(&view.exported.model, &synced, &canonical, Mode::Strict)?;
+        if !merged.conflicts.is_empty() {
+            return Err(PortableError::UpdateConflicts(merged.conflicts.iter().map(|c| format!("{}: {}", c.path, c.detail)).collect()));
+        }
+        merged
+    };
     let schema = probe(db)?;
     let context = |nonce| UpdateContext {
         ruleset: ruleset_of(db),
@@ -291,6 +363,8 @@ pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: Charact
             }
         }
     }
+    let mut warnings = view.exported.warnings;
+    warnings.extend(super::profile::after_write(Some(db), store, id, server_id, opts, guid, &canonical, compatibility.as_ref())?);
     Ok(UpdateOutcome {
         import_id: Some(ticket.import_id),
         from_revision: last_revision,
@@ -299,7 +373,7 @@ pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: Charact
         counts: script.counts,
         changes: merged.changes,
         left_alone: merged.left_alone,
-        warnings: view.exported.warnings,
+        warnings,
     })
 }
 

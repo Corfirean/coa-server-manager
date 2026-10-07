@@ -118,6 +118,12 @@ impl Ra {
         }
     }
 
+    /// `portable capabilities`: the realm's core says what it is and what portable features it has. An older core does not know the command.
+    pub fn portable_capabilities(&mut self) -> Result<crate::portable::capabilities::CoreReport> {
+        let out = self.command("portable capabilities")?;
+        crate::portable::capabilities::CoreReport::parse(&out).map_err(|e| Error::Invalid(e.to_string()))
+    }
+
     /// `portable release <session>`: lets a held portable character play. Sent only after its baseline was persisted.
     pub fn portable_release(&mut self, session: crate::portable::SessionId) -> Result<()> {
         let out = self.command(&format!("portable release {session}"))?;

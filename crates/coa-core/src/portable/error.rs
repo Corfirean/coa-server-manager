@@ -52,6 +52,8 @@ pub enum PortableError {
     UnknownImport(ImportId),
     #[error("import {import_id} is {state}, which does not allow this")]
     ImportState { import_id: ImportId, state: String },
+    #[error("this realm cannot take the {operation}; nothing was written: {}", .reasons.join("; "))]
+    Incompatible { operation: String, reasons: Vec<String> },
     #[error("the import was refused before anything was written: {}", .0.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("; "))]
     ImportRefused(Vec<ImportProblem>),
     #[error("import {import_id} needs attention: {detail}")]

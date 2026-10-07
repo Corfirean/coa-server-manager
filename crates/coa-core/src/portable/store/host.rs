@@ -128,7 +128,7 @@ fn install_copy_in_tx(tx: &Transaction<'_>, profile: ProfileId, model: &Portable
     }
     if revision == record.revision {
         let (_, have) = read_snapshot_row(tx, id, revision)?;
-        if have.content_hash != encoded.content_hash {
+        if snapshot::semantic_hash(&have.payload, &have.content_hash)? != encoded.content_hash {
             return Err(PortableError::Invalid("the Host already holds a different canonical state at this revision".into()));
         }
         return Ok(());
@@ -417,5 +417,14 @@ impl Store {
         let mut stmt = self.conn.prepare("SELECT account, kind, pending FROM host_collection WHERE server_id = ?1 AND pending IS NOT NULL ORDER BY account, kind")?;
         let rows = stmt.query_map([server_id], |r| Ok(CollectionOutboxMessage { account: r.get::<_, i64>(0)? as u32, kind: r.get(1)?, bytes: r.get(2)? }))?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Forget what was read and acknowledged of every account collection of a realm: the next look reads and reports them again. Used
+    /// when the realm's content profile changed (it may now know ids it did not).
+    pub fn host_collection_reset(&mut self, server_id: &str) -> Result<usize> {
+        let tx = self.write_tx()?;
+        let n = tx.execute("UPDATE host_collection SET fingerprint = '', acked_hash = NULL, pending = NULL, updated_at = ?2 WHERE server_id = ?1", params![server_id, now()])?;
+        tx.commit()?;
+        Ok(n)
     }
 }

@@ -43,6 +43,9 @@ pub struct FakeRealm {
     pub fingerprints: u32,
     pub full_reads: u32,
     pub collection_writes: u32,
+    /// The fake module of the realm and the adapters that read it into every read of the character.
+    pub extension_realm: super::super::extension::fake::FakeExtensionRealm,
+    pub registry: Option<super::super::extension::ExtensionRegistry>,
 }
 
 pub fn new_internal_item(n: u64, slot: u8, entry: u64) -> PortableItem {
@@ -90,6 +93,8 @@ impl FakeRealm {
             fingerprints: 0,
             full_reads: 0,
             collection_writes: 0,
+            extension_realm: super::super::extension::fake::FakeExtensionRealm { guid, has_module: false, ..Default::default() },
+            registry: None,
         }
     }
 
@@ -232,6 +237,11 @@ impl RealmBridge for FakeRealm {
             };
             pet.id = id;
             pet_observations.push(PetObservation { portable_pet_id: id, local_pet_number: number, identity });
+        }
+        if let Some(registry) = &self.registry {
+            model.extensions.retain(|k, _| !super::super::extension::is_module_namespace(k));
+            let (exported, _) = registry.export_all(&mut self.extension_realm);
+            model.extensions.extend(exported);
         }
         // the realm's tables are keyed by guid: a later read finds the same rows under the same internal ids
         let model = model.normalized();

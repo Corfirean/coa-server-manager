@@ -333,7 +333,16 @@ pub fn merge3(target: &PortableCharacter, base: &PortableCharacter, ours: &Porta
         cx.scalar("wardrobe.can_see_spell", &mut out.wardrobe.can_see_spell, &base.wardrobe.can_see_spell, &ours.wardrobe.can_see_spell);
         cx.map("client_data", &mut out.client_data, &base.client_data, &ours.client_data);
     }
-    // extensions are the canonical character's own (quarantined data); a realm never contributes to them
+    // Module extensions: a realm contributes only what an adapter of its own exported (its B0 and B1 hold nothing else), and only
+    // what changed between them; everything else of the canonical character, unknown namespaces included, is left exactly as it is.
+    // The Manager's own `coa:*` blobs (quarantined settings) are canonical-only: a realm never contributes to them.
+    {
+        let module = |m: &BTreeMap<String, Extension>| -> BTreeMap<String, Extension> { m.iter().filter(|(k, _)| super::extension::is_module_namespace(k)).map(|(k, v)| (k.clone(), v.clone())).collect() };
+        let mut merged = module(&out.extensions);
+        cx.map("extensions", &mut merged, &module(&base.extensions), &module(&ours.extensions));
+        out.extensions.retain(|k, _| !super::extension::is_module_namespace(k));
+        out.extensions.extend(merged);
+    }
 
     // ---- items and pets ------------------------------------------------------------------------------------------------
     let items = merge_items(&mut cx, &mut out, target, base, ours)?;

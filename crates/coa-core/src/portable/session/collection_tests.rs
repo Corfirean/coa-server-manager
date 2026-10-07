@@ -414,3 +414,20 @@ fn what_the_host_has_not_had_acknowledged_survives_a_restart_and_what_it_has_ack
     assert!(queued(&events).is_empty() && h.collection_outbox().unwrap().is_empty());
     assert_eq!(realm.full_reads, reads, "nothing was read again after the first look of the two kinds");
 }
+
+#[test]
+fn a_session_that_changes_nothing_on_a_format_1_store_makes_no_new_revision() {
+    let Rig { mut owner, mut host, mut realm, id, .. } = rig(|_| {});
+    owner.downgrade_head_to_format_1(id).unwrap();
+    let before = owner.character(id).unwrap().revision;
+    let mut h = HostService::new(&mut host, SERVER, HostConfig::default());
+    let mut o = OwnerService::new(&mut owner);
+    start(&mut h, &mut o, &mut realm);
+    h.tick(&mut realm, 100).unwrap();
+    h.tick(&mut realm, 101).unwrap();
+    deliver_characters(&mut h, &mut o, &mut realm);
+    realm.logout();
+    h.tick(&mut realm, 200).unwrap();
+    deliver_characters(&mut h, &mut o, &mut realm);
+    assert_eq!(o.store().character(id).unwrap().revision, before, "the same character in a newer format is not a change");
+}

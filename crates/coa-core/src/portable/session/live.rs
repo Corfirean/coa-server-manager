@@ -17,20 +17,27 @@ pub struct LiveBridge<'a> {
     db: &'a Db,
     ra: Option<Ra>,
     knowledge: Option<std::sync::Arc<RealmKnowledge>>,
+    extensions: Option<std::sync::Arc<super::super::extension::ExtensionRegistry>>,
 }
 
 impl<'a> LiveBridge<'a> {
     pub fn new(db: &'a Db, ra: Ra) -> Self {
-        Self { db, ra: Some(ra), knowledge: None }
+        Self { db, ra: Some(ra), knowledge: None, extensions: None }
     }
 
     pub fn without_console(db: &'a Db) -> Self {
-        Self { db, ra: None, knowledge: None }
+        Self { db, ra: None, knowledge: None, extensions: None }
     }
 
     /// What the realm's client data knows: without it no account collection is ever written to the realm.
     pub fn with_knowledge(mut self, knowledge: Option<std::sync::Arc<RealmKnowledge>>) -> Self {
         self.knowledge = knowledge;
+        self
+    }
+
+    /// The extension adapters that read their module's data of a character into every baseline and checkpoint.
+    pub fn with_extensions(mut self, extensions: Option<std::sync::Arc<super::super::extension::ExtensionRegistry>>) -> Self {
+        self.extensions = extensions;
         self
     }
 
@@ -79,8 +86,11 @@ impl RealmBridge for LiveBridge<'_> {
     fn read(&mut self, local_guid: u32, prior_items: &HashMap<u32, (PortableItemId, String)>, prior_pets: &HashMap<u32, (PortablePetId, String)>) -> Result<RealmRead> {
         let row = self.session_row(local_guid)?;
         let character = row.as_ref().map(|r| r.character_id).ok_or_else(|| PortableError::Invalid("the character has no portable session row".into()))?;
-        let _ = probe(self.db)?;
-        let exported = read_session_character(self.db, local_guid, character, prior_items, prior_pets)?;
+        let schema = probe(self.db)?;
+        let mut exported = read_session_character(self.db, local_guid, character, prior_items, prior_pets)?;
+        if let Some(registry) = &self.extensions {
+            exported.warnings.extend(super::super::realm::profile::export_extensions(self.db, &schema, local_guid, registry, &mut exported.model));
+        }
         let session = exported.session.clone();
         Ok(RealmRead { exported, session, online: true })
     }

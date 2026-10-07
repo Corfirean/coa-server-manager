@@ -992,3 +992,37 @@ fn baselines_mappings_and_the_synced_snapshot_survive_reopening_the_file() {
     drop(store);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---- Phase 6.1: stores written by format 1 stay readable and comparable --------------------------------------------------------
+
+#[test]
+fn a_store_that_holds_format_1_snapshots_reads_them_and_compares_them_by_what_they_say_not_by_their_format() {
+    let mut owner = Store::open_in_memory().unwrap();
+    let profile = owner.default_profile().unwrap();
+    let model = crate::portable::fixtures::geared_level_eighty();
+    let id = owner.create_character(profile, model.clone(), "realm-a").unwrap();
+    owner.downgrade_head_to_format_1(id).unwrap();
+
+    // read as the current format, with an empty wardrobe, hash verified against the stored (format 1) hash
+    let current = owner.load_current(id).unwrap();
+    let mut expected = model.clone().normalized();
+    expected.character_id = id;
+    assert_eq!(current, expected);
+    assert!(current.wardrobe.is_empty());
+
+    // a Host that is handed the same revision in the current format accepts it, one that is handed another character state refuses
+    let mut host = Store::open_in_memory().unwrap();
+    let host_profile = host.default_profile().unwrap();
+    host.host_install_copy(host_profile, &current, 1, "owner").unwrap();
+    host.downgrade_head_to_format_1(id).unwrap();
+    host.host_install_copy(host_profile, &current, 1, "owner").expect("the same character in another format is the same character");
+    let mut other = current.clone();
+    other.progression.money += 1;
+    assert!(host.host_install_copy(host_profile, &other, 1, "owner").is_err());
+
+    // a new revision is made on top of the old one without touching it
+    let rev = owner.commit_snapshot(id, 1, other.clone(), "realm-a", None).unwrap();
+    assert_eq!(rev, 2);
+    assert_eq!(owner.load_snapshot(id, 1).unwrap(), current, "the old revision is still readable as it was");
+    assert_eq!(owner.load_current(id).unwrap(), other);
+}

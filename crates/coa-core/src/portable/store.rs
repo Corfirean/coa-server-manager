@@ -18,7 +18,7 @@ use super::versions::{PORTABLE_COLLECTION_FORMAT_VERSION, SNAPSHOT_FORMAT_VERSIO
 pub const DATABASE_FILE: &str = "portable.db";
 /// `PRAGMA application_id`: "COAP". Refuses to adopt an unrelated SQLite file.
 const APPLICATION_ID: i64 = 0x434F_4150;
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql"), include_str!("migrations/003_import_journal.sql"), include_str!("migrations/004_reconciliation.sql"), include_str!("migrations/005_sessions.sql"), include_str!("migrations/006_collections.sql")];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql"), include_str!("migrations/002_item_mapping_lifecycle.sql"), include_str!("migrations/003_import_journal.sql"), include_str!("migrations/004_reconciliation.sql"), include_str!("migrations/005_sessions.sql"), include_str!("migrations/006_collections.sql"), include_str!("migrations/007_capabilities.sql")];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
 pub const MAX_HISTORY_KEEP: u32 = 1_000;
@@ -545,6 +545,19 @@ impl Store {
         read_collection(&self.conn, profile, kind)
     }
 
+    /// Rewrite the current revision exactly as format 1 stored it (the stores of Phases 1-5 hold such snapshots). Tests only.
+    #[cfg(test)]
+    pub(crate) fn downgrade_head_to_format_1(&mut self, id: CharacterId) -> Result<()> {
+        let record = read_character(&self.conn, id)?;
+        let model = self.load_current(id)?;
+        let v1 = snapshot::encode_as_format_1(&model);
+        self.conn.execute(
+            "UPDATE snapshot SET content_hash = ?3, uncompressed_size = ?4, payload = ?5 WHERE character_id = ?1 AND revision = ?2",
+            params![id.to_string(), record.revision as i64, v1.content_hash.as_slice(), v1.uncompressed_size as i64, v1.payload],
+        )?;
+        Ok(())
+    }
+
     pub fn path_of(dir: &Path) -> PathBuf {
         dir.join(DATABASE_FILE)
     }
@@ -636,6 +649,15 @@ fn prune_tx(tx: &Transaction<'_>, id: CharacterId, current: u64, keep: u32) -> R
 
 /// Read one revision and verify it against its recorded hash. Also returns the re-encoded form so a rollback can store
 /// exactly the same payload.
+/// The hash a revision has in the current character format (see [`snapshot::semantic_hash`]): what to compare with a freshly
+/// encoded character, whatever version the stored snapshot was written in.
+pub(super) fn head_semantic_hash(conn: &Connection, id: CharacterId, revision: u64) -> Result<[u8; 32]> {
+    let (blob, payload): (Vec<u8>, Vec<u8>) = conn
+        .query_row("SELECT content_hash, payload FROM snapshot WHERE character_id = ?1 AND revision = ?2", params![id.to_string(), revision as i64], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|_| PortableError::UnknownRevision { character: id, revision })?;
+    snapshot::semantic_hash(&payload, &hash_from_blob(blob)?)
+}
+
 fn read_snapshot_row(conn: &Connection, id: CharacterId, revision: u64) -> Result<(PortableCharacter, EncodedSnapshot)> {
     let row = conn
         .query_row(
@@ -1019,10 +1041,12 @@ fn validate_observations(server_id: &str, observations: &[ItemObservation]) -> R
 }
 
 mod host;
+mod profile;
 mod journal;
 mod owner;
 mod sync;
 pub use host::*;
+pub use profile::*;
 pub use journal::*;
 pub use sync::*;
 

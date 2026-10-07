@@ -44,11 +44,16 @@ pub struct ImportOptions {
     /// What the destination's client data knows (appearances, vanity items). Without it no appearance or collection is
     /// written to the realm (all of it stays canonical); see `PORTABLE_APPEARANCE.md`.
     pub knowledge: Option<std::sync::Arc<super::knowledge::RealmKnowledge>>,
+    /// The realm's content profile. With it, every import, update and session is evaluated against it **before** anything is
+    /// written (an incompatible one is refused, a partly compatible one reports what stays canonical); without it nothing is evaluated.
+    pub capabilities: Option<std::sync::Arc<super::super::capabilities::RealmCapabilities>>,
+    /// The extension adapters this Manager has.
+    pub extensions: Option<std::sync::Arc<super::super::extension::ExtensionRegistry>>,
 }
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        Self { max_characters_per_account: 10, game_server_users: vec!["acore".to_string()], recovery_grace: Duration::from_secs(30), lock_wait_seconds: 30, knowledge: None }
+        Self { max_characters_per_account: 10, game_server_users: vec!["acore".to_string()], recovery_grace: Duration::from_secs(30), lock_wait_seconds: 30, knowledge: None, capabilities: None, extensions: None }
     }
 }
 
@@ -265,6 +270,11 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
         return Err(PortableError::AlreadyOnRealm { character: character_id, server_id: server_id.to_string() });
     }
 
+    let mut operations = vec![super::super::compat::Operation::OfflineImport];
+    if session.is_some() {
+        operations.push(super::super::compat::Operation::RuntimeSession);
+    }
+    let compatibility = super::profile::gate(opts, &model, &operations)?;
     let report = preflight(db, &model, account, opts)?;
     if !report.problems.is_empty() {
         return Err(PortableError::ImportRefused(report.problems));
@@ -293,7 +303,9 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
                 Resolution::Committed(alloc) => {
                     // the realm's own report was lost: read the final name back
                     let (final_name, renamed) = read_name(db, alloc.local_guid)?;
-                    Ok(ImportOutcome { import_id: ticket.import_id, local_guid: alloc.local_guid, final_name, renamed, items: plan.counts.items, pets: plan.counts.pets, not_applied: plan.not_applied_settings, warnings: report.warnings })
+                    let mut not_applied = plan.not_applied_settings;
+                    not_applied.extend(super::profile::after_write(Some(db), store, character_id, server_id, opts, alloc.local_guid, &model, compatibility.as_ref())?);
+                    Ok(ImportOutcome { import_id: ticket.import_id, local_guid: alloc.local_guid, final_name, renamed, items: plan.counts.items, pets: plan.counts.pets, not_applied, warnings: report.warnings })
                 }
                 Resolution::Aborted => Err(original.unwrap_or_else(|| PortableError::RealmRead("the realm did not commit the import".into()))),
                 Resolution::Pending(why) => Err(PortableError::ImportNeedsAttention { import_id: ticket.import_id, detail: format!("the outcome in the realm is not known yet ({why}); run recovery") }),
@@ -302,6 +314,8 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
     };
 
     store.finish_import(ticket.import_id, ImportAllocation { local_guid: allocation.local_guid, item_base: allocation.item_base, pet_base: allocation.pet_base })?;
+    let mut not_applied = plan.not_applied_settings;
+    not_applied.extend(super::profile::after_write(Some(db), store, character_id, server_id, opts, allocation.local_guid, &model, compatibility.as_ref())?);
     Ok(ImportOutcome {
         import_id: ticket.import_id,
         local_guid: allocation.local_guid,
@@ -309,7 +323,7 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
         renamed: allocation.renamed,
         items: plan.counts.items,
         pets: plan.counts.pets,
-        not_applied: plan.not_applied_settings,
+        not_applied,
         warnings: report.warnings,
     })
 }

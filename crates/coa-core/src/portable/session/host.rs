@@ -4,10 +4,11 @@
 use std::collections::{HashMap, HashSet};
 
 use super::super::collection::IdSet;
+use super::super::capabilities::RealmCapabilities;
 use super::super::error::{PortableError, Result};
 use super::super::realm::collections::Applied;
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, ProfileId, SessionId};
-use super::super::store::{AckEffect, CollectionOutboxMessage, HostSession, HostState, OutboxMessage, Store};
+use super::super::store::{AckEffect, CollectionOutboxMessage, HostSession, HostState, OutboxMessage, ProfileChange, StaleMapping, Store};
 use super::bridge::{CheckpointReply, RealmBridge, RealmRead, RowState};
 use super::protocol::*;
 
@@ -303,5 +304,20 @@ impl<'a> HostService<'a> {
         let canonical_hash = state.set.hash_bytes()?;
         self.store.host_collection_acknowledge(&self.server_id, account, &state.kind, Some(&fingerprint), Some(&now_hash), &now_hash, state.collection_revision, Some(&canonical_hash))?;
         Ok(Some(applied))
+    }
+
+    // ---- the realm's content profile (Phase 7) ------------------------------------------------------------------------------
+
+    /// The realm's content profile as it is now. When it differs from the one remembered, what the Host sent and received of the account
+    /// collections is forgotten so that the next look reports every account again (the realm may now know ids it did not, and the Owner
+    /// answers with what it holds); the characters whose profile is stale are returned for a re-evaluation (whatever their revision).
+    pub fn observe_profile(&mut self, caps: &RealmCapabilities, source: &str) -> Result<(ProfileChange, Vec<StaleMapping>)> {
+        let change = self.store.set_realm_profile(&self.server_id, caps, source)?;
+        if change.changed() {
+            self.store.host_collection_reset(&self.server_id)?;
+            self.last_collection.clear();
+        }
+        let stale = self.store.mappings_with_other_profile(&self.server_id, &caps.content_profile_hash)?;
+        Ok((change, stale))
     }
 }

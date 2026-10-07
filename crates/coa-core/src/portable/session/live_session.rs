@@ -410,3 +410,96 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
     refused(b"{\"job_id\":\"x\"}\nnot json".to_vec(), "garbage");
     server.stop();
 }
+
+#[test]
+#[ignore]
+fn the_core_reports_what_it_is_the_manager_evaluates_before_it_writes_and_the_core_refuses_a_job_format_it_does_not_read() {
+    use crate::portable::capabilities::*;
+    use crate::portable::extension::ExtensionRegistry;
+    use crate::portable::realm::profile::{core_report, probe_capabilities};
+    let (Some(r), Some(spec), Some(jobs)) = (realms(), spec(), job_dir()) else { return };
+    reset_b(&r.b);
+    std::fs::create_dir_all(&jobs).unwrap();
+    let data = std::path::Path::new("C:/games/coa-schema-fixture-20261005/Data");
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open_file(&dir.path().join("portable.db")).unwrap();
+    let profile = store.default_profile().unwrap();
+    let server = Server::start(spec);
+    let mut ra = server.ra();
+
+    // what the core says of itself, and the profile assembled from it
+    let report = core_report(&mut ra).unwrap();
+    assert_eq!(report.portable.job_formats, [2]);
+    assert_eq!(report.portable.character_formats, [2]);
+    assert!(report.has_feature("runtime_sessions") && report.has_feature("wardrobe"));
+    assert!(report.core.commit.len() >= 7 && !report.core.branch.is_empty());
+    assert!(report.catalog().contains_key("Appearances.dbc") && report.catalog().contains_key("VanityCollection.dbc"));
+    let registry = ExtensionRegistry::new();
+    let caps = probe_capabilities(&r.b, Some(data), Some(&mut ra), &registry).unwrap();
+    assert!(caps.content.supports(Feature::RuntimeSessions) && caps.content.supports(Feature::Wardrobe) && caps.content.supports(Feature::Collections));
+    assert_eq!(caps.content.online_import_job_formats, [2]);
+    assert_eq!(caps.core.as_ref().unwrap().commit, report.core.commit);
+    assert_eq!(probe_capabilities(&r.b, Some(data), Some(&mut ra), &registry).unwrap(), caps, "asking twice gives the same profile");
+    assert!(caps.to_json().unwrap().len() < 4096, "a few hundred bytes of hashes, no id lists");
+    // the catalog the Manager hashed from the data directory is the one the core loaded: a different directory is refused outright
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::create_dir(elsewhere.path().join("dbc")).unwrap();
+    std::fs::copy(data.join("dbc/Appearances.dbc"), elsewhere.path().join("dbc/Appearances.dbc")).unwrap();
+    let mut changed = std::fs::read(elsewhere.path().join("dbc/Appearances.dbc")).unwrap();
+    let last = changed.len() - 2;
+    changed[last] ^= 1;
+    std::fs::write(elsewhere.path().join("dbc/Appearances.dbc"), changed).unwrap();
+    assert!(probe_capabilities(&r.b, Some(elsewhere.path()), Some(&mut ra), &registry).is_err(), "another Appearances.dbc than the one the core loaded");
+
+    // an online import is evaluated before the job file is written: a profile whose core reads another job format
+    let id = make(&r, &mut store, profile, 1005);
+    let mut other = caps.content.clone();
+    other.online_import_job_formats = vec![3];
+    let other = RealmCapabilities::new(None, other).unwrap();
+    let mut o = opts();
+    o.capabilities = Some(std::sync::Arc::new(other));
+    let before = number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters");
+    let error = crate::portable::realm::online::import_character_online(&mut ra, &mut store, id, B, ACCOUNT, &o, &jobs, None).expect_err("the core reads job format 3 only according to this profile");
+    assert!(matches!(error, crate::portable::PortableError::Incompatible { .. }), "{error}");
+    assert!(std::fs::read_dir(&jobs).unwrap().next().is_none(), "no job file was written");
+    assert_eq!(number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters"), before);
+    assert!(store.open_imports(B).unwrap().is_empty());
+
+    // with the real profile it goes through, and the character remembers the profile it was synchronised under
+    o.capabilities = Some(std::sync::Arc::new(caps.clone()));
+    let imported = crate::portable::realm::online::import_character_online(&mut ra, &mut store, id, B, ACCOUNT, &o, &jobs, None).unwrap();
+    assert_eq!(number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters"), before + 1);
+    assert_eq!(store.mapping_profile(id, B).unwrap().as_deref(), Some(caps.content_profile_hash.as_str()));
+    let _ = imported;
+
+    // the core itself refuses a job whose format it does not read, before it looks at the body: a newer one, one without the field
+    // (what Phase 5 wrote), one that is not a number
+    let id = make(&r, &mut store, profile, 1003);
+    let record = store.character(id).unwrap();
+    let model = store.load_snapshot(id, record.revision).unwrap();
+    let ticket = store.begin_import(id, B, record.revision, &crate::portable::realm::import::planned_items(&model), &crate::portable::realm::import::planned_pets(&model)).unwrap();
+    let good = crate::portable::realm::online::job_bytes(ticket.import_id, ticket.nonce, ACCOUNT, record.revision, 10, &model, None, None).unwrap();
+    let text = String::from_utf8(good).unwrap();
+    assert!(text.starts_with("{\"job_format\":2,"), "{}", &text[..60]);
+    let chars = number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters") + number(&r.b, "SELECT COUNT(*) FROM acore_characters.item_instance");
+    for (why, edited) in [
+        ("a newer job format", text.replacen("\"job_format\":2", "\"job_format\":99", 1)),
+        ("a job without a format", text.replacen("\"job_format\":2,", "", 1)),
+        ("a job whose format is not a number", text.replacen("\"job_format\":2", "\"job_format\":\"2\"", 1)),
+        ("the format of Phase 5", text.replacen("\"job_format\":2", "\"job_format\":1", 1)),
+        ("a body that is garbage behind a format the core does not read", format!("{{\"job_format\":7}}\n{{{{ not json at all")),
+    ] {
+        let job = ImportId::new();
+        let edited = edited.replacen(&ticket.import_id.to_string(), &job.to_string(), 1);
+        std::fs::write(jobs.join(format!("{job}.job")), edited).unwrap();
+        let reply = ra.portable_import(job);
+        assert!(reply.as_ref().is_err_and(|e| e.to_string().contains("unsupported_job_format")), "{why}: {reply:?}");
+        let result = std::fs::read_to_string(jobs.join(format!("{job}.result"))).unwrap();
+        assert!(result.contains("unsupported_job_format") && result.contains("\"supported_job_formats\":[2]"), "{why}: {result}");
+        assert_eq!(number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters") + number(&r.b, "SELECT COUNT(*) FROM acore_characters.item_instance"), chars, "{why}: nothing was written");
+        let _ = std::fs::remove_file(jobs.join(format!("{job}.job")));
+        let _ = std::fs::remove_file(jobs.join(format!("{job}.result")));
+    }
+    store.abort_import(ticket.import_id, "test").ok();
+    server.stop();
+}

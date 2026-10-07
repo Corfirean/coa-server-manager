@@ -3,15 +3,16 @@
 What is stored locally and how it is serialised. Code: `crates/coa-core/src/portable/`. Reasoning:
 `PORTABLE_CHARACTERS_AUDIT.md`.
 
-**Status:** format version 1 is *provisional* until the Phase 3 gate (Realm A -> Manager -> Realm B) passes. Until then
-a change of shape may be made without a migration because nothing outside development machines holds version 1 data.
-After that gate every change bumps the version.
+**Status:** the Phase 3 gate passed with format 1; since then **every change of shape bumps the version**. Phase 6 added the optional
+`wardrobe` section, so the character format is now **2** (Phase 6.1); version 1 is still read, through the strict migration below.
 
 ## Versions (`versions.rs`)
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `PORTABLE_CHARACTER_FORMAT_VERSION` | 1 | the serialised `PortableCharacter` |
+| `PORTABLE_CHARACTER_FORMAT_VERSION` | 2 | the serialised `PortableCharacter` this build writes |
+| `PORTABLE_CHARACTER_MIN_READ_VERSION` | 1 | the oldest character format this build still reads |
+| `ONLINE_IMPORT_JOB_FORMAT_VERSION` | 2 | the online import job (`<job_id>.job`) the core reads; checked by the core before it parses the body |
 | `PORTABLE_COLLECTION_FORMAT_VERSION` | 1 | the encoded id set of a collection |
 | `EXTENSION_FORMAT_VERSION` | 1 | the extension container |
 | `SNAPSHOT_FORMAT_VERSION` | 1 | the stored snapshot envelope (compressed canonical JSON) |
@@ -20,6 +21,27 @@ After that gate every change bumps the version.
 
 A reader **refuses** data whose version is newer than it knows (checked before the shape is parsed), and reads older
 versions through a migration.
+
+### Character format 1 -> 2 (Phase 6.1)
+
+Format 2 is format 1 plus the optional `wardrobe` section (absent when empty, so an empty one serialises to the same bytes as before apart from
+`format_version`). The migration is strict and lives in `snapshot.rs`:
+
+1. the payload is decompressed under the size caps and its SHA-256 is verified against the **stored** hash **before** anything is
+   interpreted or migrated (the original format 1 hash is what was recorded; a payload that does not match it is corrupt);
+2. `format_version` is read first; newer than 2 is refused, 0 or non-numeric is refused;
+3. a format 1 payload that contains a `wardrobe` (even an empty object) is **rejected**: format 1 had none, so it is not a format 1 payload;
+4. a genuine format 1 payload becomes a format 2 character with an empty wardrobe; `deny_unknown_fields` still applies to everything else.
+
+Stored snapshots are never rewritten. The same character has a different hash in the two formats, so anything that asks "is this the same
+character?" compares `snapshot::semantic_hash` (the hash of the character as format 2 writes it, for a stored payload of either version) and
+never a stored hash with a freshly encoded one (the owner's checkpoint head check, the reconcile head check, the Host's same-revision check).
+
+### Online import job format 2
+
+The header gained `job_format` (first field). The core reads the header line first and refuses a job whose `job_format` it does not read, or that
+has none (what Phase 5 wrote), with `unsupported_job_format` and the list of formats it reads, **before** it computes the body hash or parses
+the body; the body must be character format 2 (`wardrobe` optional).
 
 ## Identity
 

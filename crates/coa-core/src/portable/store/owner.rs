@@ -53,8 +53,7 @@ fn read_owner_row(conn: &Connection, session: SessionId) -> Result<Option<OwnerR
 }
 
 fn head_hash(conn: &Connection, id: CharacterId, revision: u64) -> Result<[u8; 32]> {
-    let blob: Vec<u8> = conn.query_row("SELECT content_hash FROM snapshot WHERE character_id = ?1 AND revision = ?2", params![id.to_string(), revision as i64], |r| r.get(0)).map_err(|_| PortableError::UnknownRevision { character: id, revision })?;
-    hash_from_blob(blob)
+    head_semantic_hash(conn, id, revision)
 }
 
 fn ack(session: SessionId, sequence: u64, outcome: AckOutcome, revision: u64, hash: [u8; 32]) -> OwnerAck {

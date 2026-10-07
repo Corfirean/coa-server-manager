@@ -28,6 +28,8 @@ use super::policy::{classify_setting, Disposition};
 /// The header line of a job file.
 #[derive(Debug, Serialize)]
 struct JobHeader {
+    /// The job format: the core refuses a job whose format it does not read before it parses anything else.
+    job_format: u32,
     job_id: ImportId,
     nonce: [u32; 4],
     account: u32,
@@ -62,6 +64,7 @@ pub fn job_model(model: &PortableCharacter, knowledge: Option<&super::knowledge:
 pub fn job_bytes(job_id: ImportId, nonce: [u32; 4], account: u32, revision: u64, max_characters: u32, model: &PortableCharacter, session: Option<(SessionId, u32)>, knowledge: Option<&super::knowledge::RealmKnowledge>) -> Result<Vec<u8>> {
     let snapshot_json = snapshot::canonical_json(&job_model(model, knowledge))?;
     let header = JobHeader {
+        job_format: super::super::versions::ONLINE_IMPORT_JOB_FORMAT_VERSION,
         job_id,
         nonce,
         account,
@@ -115,11 +118,23 @@ struct JobProblem {
 
 /// Import the character's current canonical revision into a **running** realm through the core's import service.
 pub fn import_character_online(ra: &mut Ra, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions, job_dir: &Path, session: Option<SessionId>) -> Result<ImportOutcome> {
+    import_character_online_on(None, ra, store, character_id, server_id, account, opts, job_dir, session)
+}
+
+/// The same, with the realm's database connection: the extensions of the character are then applied by their adapters after the core
+/// committed the import (without it they stay canonical-only and are reported as not applied).
+#[allow(clippy::too_many_arguments)]
+pub fn import_character_online_on(db: Option<&crate::db::Db>, ra: &mut Ra, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions, job_dir: &Path, session: Option<SessionId>) -> Result<ImportOutcome> {
     let record = store.character(character_id)?;
     let model = store.load_snapshot(character_id, record.revision)?;
     if store.server_mappings(character_id)?.iter().any(|m| m.server_id == server_id) {
         return Err(PortableError::AlreadyOnRealm { character: character_id, server_id: server_id.to_string() });
     }
+    let mut operations = vec![super::super::compat::Operation::OnlineImport];
+    if session.is_some() {
+        operations.push(super::super::compat::Operation::RuntimeSession);
+    }
+    let compatibility = super::profile::gate(opts, &model, &operations)?;
     let ticket = store.begin_import(character_id, server_id, record.revision, &planned_items(&model), &planned_pets(&model))?;
     let (job_file, result_file) = job_paths(job_dir, ticket.import_id);
     let write = || -> Result<()> {
@@ -150,7 +165,9 @@ pub fn import_character_online(ra: &mut Ra, store: &mut Store, character_id: Cha
             }
             store.finish_import(ticket.import_id, allocation)?;
             cleanup();
-            Ok(ImportOutcome { import_id: ticket.import_id, local_guid: r.local_guid, final_name: r.final_name, renamed: r.renamed, items: r.items, pets: r.pets, not_applied: r.not_applied, warnings: vec![] })
+            let mut not_applied = r.not_applied;
+            not_applied.extend(super::profile::after_write(db, store, character_id, server_id, opts, r.local_guid, &model, compatibility.as_ref())?);
+            Ok(ImportOutcome { import_id: ticket.import_id, local_guid: r.local_guid, final_name: r.final_name, renamed: r.renamed, items: r.items, pets: r.pets, not_applied, warnings: vec![] })
         }
         Some(r) if r.status == "refused" => {
             let detail = r.problems.iter().map(|p| format!("{}: {}", p.code, p.detail)).collect::<Vec<_>>().join("; ");

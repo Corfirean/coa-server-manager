@@ -83,7 +83,8 @@ a payload over RA, a path argument, a remote caller of any kind.
 <canonical JSON of the character>`, not zstd: the core has neither a JSON nor a zstd
   dependency, and a small strict parser (`CoAPortableJson`: bounded depth/nodes/string size, integers only, duplicate and unknown
   fields refused, UTF-8 checked) is easier to audit than a new dependency. The header carries `snapshot_sha256` of the exact bytes of the
-  second line; the file size is capped at 24 MiB before it is read. The Manager ships the character **without extensions** and without
+  second line; the header's first field is `job_format` (Phase 6.1: the core refuses a job whose format it does not read before it looks at
+  anything else); the file size is capped at 24 MiB before it is read. The Manager ships the character **without extensions** and without
   settings the policy does not carry.
 * **Writes.** Every row is written by a prepared `INSERT` (`CHAR_INS_PORTABLE_*`); the only string-built statements are the
   `DELETE ... WHERE <fixed column> = <numeric guid>` that clear leftovers of a deleted character with the same guid.

@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 use super::error::{PortableError, Result};
 use super::model::{limits::*, PortableCharacter};
-use super::versions::PORTABLE_CHARACTER_FORMAT_VERSION;
+use super::versions::{PORTABLE_CHARACTER_FORMAT_VERSION, PORTABLE_CHARACTER_MIN_READ_VERSION};
 
 const ZSTD_LEVEL: i32 = 3;
 
@@ -54,8 +54,33 @@ pub fn encode(model: &PortableCharacter) -> Result<EncodedSnapshot> {
     Ok(EncodedSnapshot { content_hash, uncompressed_size: json.len() as u64, payload })
 }
 
+/// A decoded snapshot with where it came from: the character is always in the current format, `source_version` and
+/// `source_hash` say what was stored (the hash of the payload as it was written, verified before any migration).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decoded {
+    pub model: PortableCharacter,
+    pub source_version: u32,
+    pub source_hash: [u8; 32],
+}
+
 /// Decode and fully verify. `expected_hash` is the hash recorded next to the payload.
 pub fn decode(payload: &[u8], expected_hash: Option<&[u8; 32]>) -> Result<PortableCharacter> {
+    decode_verified(payload, expected_hash).map(|d| d.model)
+}
+
+/// The hash of the character **as the current format writes it**, for a stored payload of any readable version. A payload that was
+/// written in format 1 has another hash than the same character in format 2; whoever asks "is this the same character?" compares
+/// these, never the stored hash with a freshly encoded one.
+pub fn semantic_hash(payload: &[u8], stored_hash: &[u8; 32]) -> Result<[u8; 32]> {
+    let decoded = decode_verified(payload, Some(stored_hash))?;
+    if decoded.source_version == PORTABLE_CHARACTER_FORMAT_VERSION {
+        return Ok(decoded.source_hash);
+    }
+    content_hash(&decoded.model)
+}
+
+/// [`decode`] that also reports the stored version and the stored hash.
+pub fn decode_verified(payload: &[u8], expected_hash: Option<&[u8; 32]>) -> Result<Decoded> {
     if payload.len() > MAX_COMPRESSED_BYTES {
         return Err(PortableError::LimitExceeded(format!("the compressed snapshot is larger than {MAX_COMPRESSED_BYTES} bytes")));
     }
@@ -69,18 +94,29 @@ pub fn decode(payload: &[u8], expected_hash: Option<&[u8; 32]>) -> Result<Portab
     if json.len() > MAX_SNAPSHOT_BYTES {
         return Err(PortableError::LimitExceeded(format!("the snapshot inflates beyond {MAX_SNAPSHOT_BYTES} bytes")));
     }
+    // the hash of the payload as it was written is verified BEFORE anything is migrated or interpreted
+    let source_hash: [u8; 32] = Sha256::digest(&json).into();
     if let Some(expected) = expected_hash {
-        let actual: [u8; 32] = Sha256::digest(&json).into();
-        if &actual != expected {
+        if &source_hash != expected {
             return Err(PortableError::CorruptSnapshot("content hash mismatch".into()));
         }
     }
-    decode_json(&json)
+    let (model, source_version) = decode_json_versioned(&json)?;
+    Ok(Decoded { model, source_version, source_hash })
 }
 
 /// Decode canonical JSON (already decompressed and, if needed, hash-checked).
 pub fn decode_json(json: &[u8]) -> Result<PortableCharacter> {
-    let value: serde_json::Value = serde_json::from_slice(json)?;
+    decode_json_versioned(json).map(|(model, _)| model)
+}
+
+/// Decode canonical JSON of any readable version into the current model, and say which version it was.
+///
+/// The version is read and checked before the shape. A newer one is refused. Version 1 is migrated strictly: it is the current
+/// shape without `wardrobe`, so a version 1 payload that carries a `wardrobe` is not a version 1 payload and is refused, and a
+/// genuine one becomes a character with an empty wardrobe. Every other field is still checked by `deny_unknown_fields`.
+pub fn decode_json_versioned(json: &[u8]) -> Result<(PortableCharacter, u32)> {
+    let mut value: serde_json::Value = serde_json::from_slice(json)?;
     let version = value
         .get("format_version")
         .and_then(|v| v.as_u64())
@@ -88,9 +124,30 @@ pub fn decode_json(json: &[u8]) -> Result<PortableCharacter> {
     if version > PORTABLE_CHARACTER_FORMAT_VERSION as u64 {
         return Err(PortableError::UnsupportedFormat { found: version.min(u32::MAX as u64) as u32, supported: PORTABLE_CHARACTER_FORMAT_VERSION });
     }
+    if version < PORTABLE_CHARACTER_MIN_READ_VERSION as u64 {
+        return Err(PortableError::UnsupportedFormat { found: version as u32, supported: PORTABLE_CHARACTER_FORMAT_VERSION });
+    }
+    if version == 1 {
+        let object = value.as_object_mut().ok_or_else(|| PortableError::CorruptSnapshot("a snapshot is not an object".into()))?;
+        if object.contains_key("wardrobe") {
+            return Err(PortableError::CorruptSnapshot("a format 1 snapshot cannot contain a wardrobe (it was added in format 2)".into()));
+        }
+        object.insert("format_version".into(), serde_json::json!(PORTABLE_CHARACTER_FORMAT_VERSION));
+    }
     let model: PortableCharacter = serde_json::from_value(value)?;
     model.validate()?;
-    Ok(model)
+    Ok((model, version as u32))
+}
+
+/// What format 1 wrote for a character that has no wardrobe (the one thing the migration needs to read): the same canonical JSON with
+/// `format_version` 1. Used by the tests of the migration and of the stores that still hold such snapshots.
+#[cfg(test)]
+pub(crate) fn encode_as_format_1(model: &PortableCharacter) -> EncodedSnapshot {
+    assert!(model.wardrobe.is_empty(), "format 1 has no wardrobe");
+    let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(model).unwrap()).unwrap();
+    value["format_version"] = serde_json::json!(1);
+    let json = serde_json::to_vec(&value).unwrap();
+    EncodedSnapshot { content_hash: Sha256::digest(&json).into(), uncompressed_size: json.len() as u64, payload: zstd::stream::encode_all(json.as_slice(), ZSTD_LEVEL).unwrap() }
 }
 
 #[cfg(test)]
@@ -226,5 +283,59 @@ mod tests {
     fn a_geared_snapshot_is_small() {
         let encoded = encode(&fixtures::geared_level_eighty()).unwrap();
         assert!(encoded.payload.len() < 64 * 1024, "{} bytes", encoded.payload.len());
+    }
+
+    #[test]
+    fn a_genuine_format_1_snapshot_migrates_with_an_empty_wardrobe_and_its_original_hash_is_verified_first() {
+        let model = fixtures::geared_level_eighty();
+        let v1 = encode_as_format_1(&model);
+        let decoded = decode_verified(&v1.payload, Some(&v1.content_hash)).unwrap();
+        assert_eq!((decoded.source_version, decoded.source_hash), (1, v1.content_hash));
+        assert_eq!(decoded.model.format_version, PORTABLE_CHARACTER_FORMAT_VERSION);
+        assert!(decoded.model.wardrobe.is_empty());
+        assert_eq!(decoded.model, model.clone().normalized(), "nothing but the version changed");
+        assert_ne!(v1.content_hash, content_hash(&decoded.model).unwrap(), "the same character has another hash in format 2");
+        assert_eq!(semantic_hash(&v1.payload, &v1.content_hash).unwrap(), content_hash(&decoded.model).unwrap());
+        let v2 = encode(&model).unwrap();
+        assert_eq!(semantic_hash(&v2.payload, &v2.content_hash).unwrap(), v2.content_hash);
+
+        // the stored hash is checked against the payload as it was written, before the migration can hide a difference
+        let mut wrong = v1.content_hash;
+        wrong[0] ^= 1;
+        assert!(matches!(decode(&v1.payload, Some(&wrong)), Err(PortableError::CorruptSnapshot(m)) if m.contains("hash")));
+        // the migrated form's hash is not accepted for the old payload
+        assert!(decode(&v1.payload, Some(&content_hash(&decoded.model).unwrap())).is_err());
+    }
+
+    #[test]
+    fn a_format_1_payload_with_a_wardrobe_is_not_a_format_1_payload() {
+        let mut model = fixtures::geared_level_eighty();
+        model.wardrobe.active.insert(1, 100);
+        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&model).unwrap()).unwrap();
+        value["format_version"] = serde_json::json!(1);
+        let json = serde_json::to_vec(&value).unwrap();
+        let payload = zstd::stream::encode_all(json.as_slice(), ZSTD_LEVEL).unwrap();
+        let hash: [u8; 32] = Sha256::digest(&json).into();
+        // even with a correct hash, an old version cannot carry what the old version did not have
+        assert!(matches!(decode(&payload, Some(&hash)), Err(PortableError::CorruptSnapshot(m)) if m.contains("wardrobe")));
+        assert!(decode_json(&json).is_err());
+        // an empty wardrobe object written by hand is still a wardrobe in a version that had none
+        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap()).unwrap();
+        value["format_version"] = serde_json::json!(1);
+        value["wardrobe"] = serde_json::json!({});
+        assert!(decode_json(&serde_json::to_vec(&value).unwrap()).is_err());
+    }
+
+    #[test]
+    fn format_1_keeps_every_other_strictness_and_version_0_is_not_a_version() {
+        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap()).unwrap();
+        value["format_version"] = serde_json::json!(1);
+        value["identity"]["secret_flag"] = serde_json::json!(1);
+        assert!(decode_json(&serde_json::to_vec(&value).unwrap()).is_err(), "unknown fields are refused in the old format too");
+        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap()).unwrap();
+        value["format_version"] = serde_json::json!(0);
+        assert!(matches!(decode_json(&serde_json::to_vec(&value).unwrap()), Err(PortableError::UnsupportedFormat { .. })));
+        value["format_version"] = serde_json::json!("1");
+        assert!(decode_json(&serde_json::to_vec(&value).unwrap()).is_err());
     }
 }

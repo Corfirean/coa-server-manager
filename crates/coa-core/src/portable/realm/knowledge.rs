@@ -11,6 +11,9 @@
 
 use std::path::Path;
 
+use sha2::{Digest, Sha256};
+
+use super::super::capabilities::{CatalogEntry, ClientCatalog, CATALOG_TABLES};
 use super::super::collection::IdSet;
 use super::super::error::{PortableError, Result};
 
@@ -30,6 +33,9 @@ const MAX_DBC_BYTES: u64 = 64 * 1024 * 1024;
 pub struct RealmKnowledge {
     appearances: IdSet,
     vanity: IdSet,
+    /// The SHA-256 and record count of the client tables this knowledge was read from (empty when it was built by hand): compared with
+    /// the catalog of the realm's content profile, so that what the Manager reads is what the realm loaded.
+    catalog: ClientCatalog,
 }
 
 impl std::fmt::Debug for RealmKnowledge {
@@ -40,15 +46,34 @@ impl std::fmt::Debug for RealmKnowledge {
 
 impl RealmKnowledge {
     pub fn new(appearances: IdSet, vanity: IdSet) -> Self {
-        Self { appearances, vanity }
+        Self { appearances, vanity, catalog: ClientCatalog::new() }
+    }
+
+    pub fn catalog(&self) -> &ClientCatalog {
+        &self.catalog
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_catalog_for_test(&mut self, table: &str, sha256: &str, records: u32) {
+        self.catalog.insert(table.to_string(), CatalogEntry { sha256: sha256.to_string(), records });
     }
 
     /// Read `<data_dir>/dbc/Appearances.dbc` and `VanityCollection.dbc`.
     pub fn from_data_dir(data_dir: &Path) -> Result<Self> {
         let dbc = data_dir.join("dbc");
-        let appearances = read_ids(&dbc.join("Appearances.dbc"), 0, 9)?;
-        let vanity = read_ids(&dbc.join("VanityCollection.dbc"), 1, 77)?;
-        Ok(Self { appearances: IdSet::from_ids(appearances)?, vanity: IdSet::from_ids(vanity)? })
+        let (appearances, appearances_entry) = read_table(&dbc.join("Appearances.dbc"), 0, 9)?;
+        let (vanity, vanity_entry) = read_table(&dbc.join("VanityCollection.dbc"), 1, 77)?;
+        let mut catalog = ClientCatalog::new();
+        catalog.insert("Appearances.dbc".into(), appearances_entry);
+        catalog.insert("VanityCollection.dbc".into(), vanity_entry);
+        for name in CATALOG_TABLES {
+            if !catalog.contains_key(name) {
+                if let Some(entry) = table_entry(&dbc.join(name)) {
+                    catalog.insert(name.to_string(), entry);
+                }
+            }
+        }
+        Ok(Self { appearances: IdSet::from_ids(appearances)?, vanity: IdSet::from_ids(vanity)?, catalog })
     }
 
     pub fn knows_appearance(&self, id: u32) -> bool {
@@ -66,6 +91,25 @@ impl RealmKnowledge {
     pub fn vanity_count(&self) -> usize {
         self.vanity.len()
     }
+}
+
+/// The SHA-256 and record count of a client table, or `None` when the realm does not have it (or it is not a WDBC file).
+pub fn table_entry(path: &Path) -> Option<CatalogEntry> {
+    let size = std::fs::metadata(path).ok()?.len();
+    if size > MAX_DBC_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() < HEADER || &bytes[..4] != b"WDBC" {
+        return None;
+    }
+    Some(CatalogEntry { sha256: hex::encode(Sha256::digest(&bytes)), records: u32::from_le_bytes(bytes[4..8].try_into().ok()?) })
+}
+
+fn read_table(path: &Path, id_dword: usize, minimum_dwords: usize) -> Result<(Vec<u32>, CatalogEntry)> {
+    let ids = read_ids(path, id_dword, minimum_dwords)?;
+    let entry = table_entry(path).ok_or_else(|| PortableError::SchemaMismatch(format!("{}: is not a client table", path.display())))?;
+    Ok((ids, entry))
 }
 
 /// The ids of one DWORD column of a WDBC file (`WDBC`, record count, field count, record size, string size, records, strings).

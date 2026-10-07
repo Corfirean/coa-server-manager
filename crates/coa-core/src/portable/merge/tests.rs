@@ -513,3 +513,53 @@ fn a_character_without_a_wardrobe_has_the_bytes_it_had_before_the_section_existe
     let back: PortableCharacter = serde_json::from_str(&json).unwrap();
     assert_eq!(back, worn);
 }
+
+// ---- Phase 7: module extensions ----------------------------------------------------------------------------------------------
+
+fn ext(format: u32, bytes: &[u8]) -> Extension {
+    Extension::new("1.0", format, bytes.to_vec())
+}
+
+#[test]
+fn an_extension_nobody_on_this_realm_understands_survives_any_session() {
+    let mut c0 = c0();
+    c0.extensions.insert("mod:somebody-elses".into(), ext(5, b"opaque payload of another module"));
+    c0.extensions.insert("coa:unlisted-settings".into(), ext(1, b"{}"));
+    let c0 = c0.normalized();
+    let (b0, _) = normalized_by_the_realm(&c0);
+    let mut b0 = b0;
+    b0.extensions.clear();
+    let mut b1 = b0.clone();
+    b1.progression.money += 10;
+    let merged = merge3(&c0, &b0, &b1, Mode::Lenient).unwrap();
+    assert_eq!(merged.model.extensions, c0.extensions, "the realm exported none of them, so none of them is touched");
+    assert_eq!(merged.model.progression.money, c0.progression.money + 10);
+}
+
+#[test]
+fn what_a_realms_adapter_exports_is_carried_and_a_change_replaces_it_but_the_managers_own_blobs_are_never_contributed() {
+    let c0 = c0();
+    let mut b0 = c0.clone();
+    b0.extensions.insert("mod:fake".into(), ext(2, b"one"));
+    b0.extensions.insert("coa:unlisted-settings".into(), ext(1, b"realm side"));
+    let mut b1 = b0.clone();
+    b1.extensions.insert("mod:fake".into(), ext(2, b"two"));
+    b1.extensions.insert("coa:unlisted-settings".into(), ext(1, b"realm side changed"));
+    let merged = merge3(&c0, &b0, &b1, Mode::Lenient).unwrap();
+    assert_eq!(merged.model.extensions["mod:fake"].payload.0, b"two");
+    assert!(!merged.model.extensions.contains_key("coa:unlisted-settings"), "the Manager's own blobs are canonical-only");
+
+    // an unchanged export is not a change (the realm's own representation of what the canonical character already had)
+    let mut c0b = c0.clone();
+    c0b.extensions.insert("mod:fake".into(), ext(2, b"canonical"));
+    let mut b0 = c0.clone();
+    b0.extensions.insert("mod:fake".into(), ext(2, b"as the realm rewrote it"));
+    let merged = merge3(&c0b, &b0, &b0.clone(), Mode::Lenient).unwrap();
+    assert_eq!(merged.model.extensions["mod:fake"].payload.0, b"canonical");
+
+    // a realm that deleted its module data says so: B0 had it, B1 does not
+    let mut b1 = b0.clone();
+    b1.extensions.remove("mod:fake");
+    let merged = merge3(&c0b, &b0, &b1, Mode::Lenient).unwrap();
+    assert!(!merged.model.extensions.contains_key("mod:fake"));
+}

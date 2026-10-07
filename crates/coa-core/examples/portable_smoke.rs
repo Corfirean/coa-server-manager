@@ -23,6 +23,9 @@
 //!   dump <character-id>                         the canonical JSON of the current revision (what a core import job carries)
 //!   collection-states <out.json>                (owner store)  the canonical account collections as messages
 //!   collection-apply <states.json> <account> <server-id>   write the canonical collections to the realm account (known ids only, INSERT IGNORE)
+//!   capabilities <server-id>                    the realm's content profile (from its core when --ra-port is given), remembered in the store
+//!   preflight <character-id> <server-id> [online|session]   what would happen to the character on that realm, before anything is written
+//!   reevaluate <character-id> <server-id>       look again at what was held back when the realm's content profile changed (realm stopped)
 //!   collection-add <kind> <id>...               (owner store)  add ids to a profile collection by hand (a test aid)
 //!   collection-show [<account>]                 the Owner's collections (revision, count, hash) and, with an account, the realm's
 //!
@@ -41,6 +44,20 @@ use coa_core::portable::session::protocol::SessionOffer;
 use coa_core::portable::session::{HostConfig, HostService, OwnerService};
 use coa_core::portable::{CharacterId, Store};
 use coa_core::realms::Mode;
+
+/// The options of a command, with the realm's content profile: assembled from its schema, its client data and (given an RA port) its
+/// core, and remembered in the store. Without `--data-dir` there is no profile and nothing is evaluated.
+fn with_profile(db: &Db, store: &mut Store, base: &ImportOptions, data_dir: &str, ra_port: Option<u16>, ra_user: &str, server: &str) -> Result<ImportOptions, String> {
+    if data_dir.is_empty() {
+        return Ok(base.clone());
+    }
+    let registry = coa_core::portable::extension::ExtensionRegistry::new();
+    let mut ra = ra_port.and_then(|port| std::env::var("COA_RA_PASSWORD").ok().and_then(|pw| coa_core::ra::Ra::connect_to(port, ra_user, &pw).ok()));
+    let caps = realm::profile::probe_capabilities(db, Some(std::path::Path::new(data_dir)), ra.as_mut(), &registry).map_err(|e| e.to_string())?;
+    let change = store.set_realm_profile(server, &caps, if ra.is_some() { "live" } else { "offline" }).map_err(|e| e.to_string())?;
+    eprintln!("realm {server}: content profile {}{}", &caps.content_profile_hash[..16], if change.changed() { " (new or changed)" } else { "" });
+    Ok(ImportOptions { capabilities: Some(std::sync::Arc::new(caps)), extensions: Some(std::sync::Arc::new(registry)), ..base.clone() })
+}
 
 fn usage() -> ! {
     eprintln!("{}", include_str!("portable_smoke.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
@@ -80,7 +97,8 @@ fn run() -> Result<(), String> {
     let user: &'static str = Box::leak(user.into_boxed_str());
     let db = Db::with_tools(tools, port, user, &password, realm_mode);
     let mut store = Store::open(&store_dir).map_err(|e| e.to_string())?;
-    let knowledge = match take("--data-dir", Some(""))?.as_str() {
+    let data_dir = take("--data-dir", Some(""))?;
+    let knowledge = match data_dir.as_str() {
         "" => None,
         dir => Some(std::sync::Arc::new(coa_core::portable::realm::knowledge::RealmKnowledge::from_data_dir(std::path::Path::new(dir)).map_err(|e| e.to_string())?)),
     };
@@ -89,6 +107,7 @@ fn run() -> Result<(), String> {
     let ra_port: Option<u16> = take("--ra-port", Some("0"))?.parse().ok().filter(|p| *p != 0);
     let ra_user = take("--ra-user", Some("local"))?;
     let job_dir = take("--job-dir", Some(""))?;
+    let profile_for = |db: &Db, store: &mut Store, server: &str| -> Result<ImportOptions, String> { with_profile(db, store, &opts, &data_dir, ra_port, &ra_user, server) };
     let interval: u64 = take("--interval", Some("60"))?.parse().map_err(|_| "--interval is not a number".to_string())?;
     let collection_interval: u64 = take("--collection-interval", Some("300"))?.parse().map_err(|_| "--collection-interval is not a number".to_string())?;
     let id = |s: &str| -> Result<CharacterId, String> { s.parse().map_err(|_| format!("{s:?} is not a character id")) };
@@ -106,7 +125,11 @@ fn run() -> Result<(), String> {
             println!("portable character {} (revision {}) {}", made.character_id, made.revision, made.warnings.join("; "));
         }
         ("import", [character, server, account]) => {
+            let opts = profile_for(&db, &mut store, server)?;
             let o = realm::import_character(&db, &mut store, id(character)?, server, account.parse().map_err(|_| "account")?, &opts).map_err(|e| e.to_string())?;
+            for line in &o.not_applied {
+                println!("  not applied: {line}");
+            }
             println!("imported as local character {} \"{}\" ({} items, {} pets, renamed: {})", o.local_guid, o.final_name, o.items, o.pets, o.renamed);
         }
         ("begin-session", [character, server]) => {
@@ -122,7 +145,11 @@ fn run() -> Result<(), String> {
             }
         }
         ("update", [character, server]) => {
+            let opts = profile_for(&db, &mut store, server)?;
             let o = realm::update_realm_character(&db, &mut store, id(character)?, server, &opts).map_err(|e| e.to_string())?;
+            for line in &o.warnings {
+                println!("  {line}");
+            }
             println!("{} (revision {} -> {}): {:?}", if o.updated { "updated in place" } else { "already up to date" }, o.from_revision, o.to_revision, o.counts);
         }
         ("recover", [server]) => {
@@ -141,6 +168,7 @@ fn run() -> Result<(), String> {
             let profile = host.default_profile().map_err(|e| e.to_string())?;
             HostService::new(&mut host, server, HostConfig::default()).accept_offer(profile, &offer).map_err(|e| e.to_string())?;
             let account: u32 = account.parse().map_err(|_| "account")?;
+            let opts = with_profile(&db, &mut host, &opts, &data_dir, ra_port, &ra_user, server)?;
             let outcome = match (ra_port, job_dir.is_empty()) {
                 (Some(port), false) => {
                     let mut ra = coa_core::ra::Ra::connect_to(port, &ra_user, &std::env::var("COA_RA_PASSWORD").map_err(|_| "set COA_RA_PASSWORD".to_string())?).map_err(|e| e.to_string())?;
@@ -212,6 +240,38 @@ fn run() -> Result<(), String> {
             for state in &states {
                 let applied = service.receive_collection_state(&mut bridge, account, state).map_err(|e| e.to_string())?;
                 println!("{}: {:?}", state.kind, applied);
+            }
+        }
+        ("capabilities", [server]) => {
+            let caps = profile_for(&db, &mut store, server)?.capabilities.ok_or("give --data-dir to read the realm's client data")?;
+            println!("{}", serde_json::to_string_pretty(&*caps).map_err(|e| e.to_string())?);
+        }
+        ("preflight", [character, server, rest @ ..]) => {
+            let opts = profile_for(&db, &mut store, server)?;
+            let caps = opts.capabilities.clone().ok_or("give --data-dir to read the realm's client data")?;
+            let model = store.load_current(id(character)?).map_err(|e| e.to_string())?;
+            let operation = match rest.first().map(String::as_str) {
+                Some("online") => coa_core::portable::compat::Operation::OnlineImport,
+                Some("session") => coa_core::portable::compat::Operation::RuntimeSession,
+                _ if store.server_mappings(model.character_id).map_err(|e| e.to_string())?.iter().any(|m| &m.server_id == server) => coa_core::portable::compat::Operation::Update,
+                _ => coa_core::portable::compat::Operation::OfflineImport,
+            };
+            let report = coa_core::portable::compat::evaluate(&coa_core::portable::compat::Inputs { operation, model: &model, capabilities: &caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref() });
+            println!("{} on {server} (content profile {}): {:?}", report.operation, &caps.content_profile_hash[..16], report.verdict());
+            for o in &report.outcomes {
+                println!("  {o}");
+            }
+        }
+        ("reevaluate", [character, server]) => {
+            let opts = profile_for(&db, &mut store, server)?;
+            let r = realm::reevaluate_realm_character(&db, &mut store, id(character)?, server, &opts).map_err(|e| e.to_string())?;
+            if r.profile_unchanged {
+                println!("the realm's content profile is the one this character was synchronised under: nothing to look at");
+            } else {
+                println!("{}", r.update.map(|u| format!("restored: {:?}", u.changes)).unwrap_or_else(|| "nothing new to show on this realm".into()));
+                for e in r.extensions {
+                    println!("  {e}");
+                }
             }
         }
         ("collection-add", [kind, ids @ ..]) => {

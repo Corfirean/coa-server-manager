@@ -6,8 +6,11 @@
 //!
 //! See `docs/PORTABLE_CHARACTERS_AUDIT.md` for the reasoning and `docs/PORTABLE_FORMAT.md` for the format rules.
 
+pub mod capabilities;
 pub mod collection;
+pub mod compat;
 pub mod error;
+pub mod extension;
 pub mod identity;
 pub mod ids;
 pub mod merge;

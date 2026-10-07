@@ -349,8 +349,8 @@ impl Store {
         }
         let at = now();
         // a session that changed nothing (or only what the realm normalised) makes no new revision
-        let head_hash: Vec<u8> = tx.query_row("SELECT content_hash FROM snapshot WHERE character_id = ?1 AND revision = ?2", params![id.to_string(), record.revision as i64], |r| r.get(0))?;
-        let revision = if head_hash.as_slice() == encoded.content_hash.as_slice() {
+        let head_hash = head_semantic_hash(&tx, id, record.revision)?;
+        let revision = if head_hash == encoded.content_hash {
             record.revision
         } else {
             let revision = record.revision + 1;
