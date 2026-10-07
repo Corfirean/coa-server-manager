@@ -9,3 +9,6 @@ pub use view::*;
 
 #[cfg(test)]
 mod live_service;
+
+#[cfg(test)]
+mod delta_probe;

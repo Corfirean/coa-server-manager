@@ -190,6 +190,71 @@ fn a_character_made_portable_on_a_running_realm_is_armed_on_it_without_a_restart
     drop(server);
 }
 
+#[test]
+#[ignore]
+fn a_manager_restart_with_nothing_to_report_makes_no_revision_and_a_real_change_makes_exactly_one() {
+    let (Some(r), Some(sp), Some(jobs)) = (realms(), spec(), job_dir()) else { return };
+    reset_b(&r.b);
+    sql(&r.b, "DELETE FROM acore_characters.mail_items WHERE receiver > 3010; DELETE FROM acore_characters.mail WHERE receiver > 3010;");
+    std::fs::create_dir_all(&jobs).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let file = descriptor(dir.path());
+    let quick = crate::portable::session::HostConfig { checkpoint_interval_secs: 4, collection_interval_secs: 300 };
+    let open = |dir: &Path| {
+        let mut svc = PortableService::open(&dir.join("portable"), vec![]).unwrap();
+        svc.set_host_config(quick.clone());
+        svc
+    };
+    let mut svc = open(dir.path());
+    svc.add_prepared_realm(&file).unwrap();
+    let profile = svc.owner_profile();
+    let id = crate::portable::realm::live_projection::fixture_character(&r, svc.owner_mut(), profile);
+    let id_text = id.to_string();
+    let server = Server::start(sp);
+    svc.tick();
+    svc.tick();
+    sql(&r.b, "REPLACE INTO acore_auth.realmcharacters (realmid, acctid, numchars) VALUES (1, 7001, 0)");
+    let account = name_of_account(&r.b, 7001);
+    svc.play(&id_text, REALM, Some(&account)).unwrap();
+    let guid = svc.host().server_mappings(id).unwrap().into_iter().find(|m| m.server_id == REALM).unwrap().local_guid;
+    server.ra().run(&format!("botcmd spawnbot {guid}")).unwrap();
+    pump(&mut svc, 90, "playing", |s| status(s) == PlayStatus::Playing);
+    server.ra().run(&format!("botcmd suspend {guid}")).unwrap();
+
+    let acked = |s: &PortableService| s.host().host_live_sessions(REALM).unwrap().first().map(|x| x.acked_sequence).unwrap_or(0);
+    let revision = |s: &PortableService| s.owner().character(id).unwrap().revision;
+
+    // whatever the realm does by itself at the first login arrives with the first checkpoints; then the character is quiet
+    pump(&mut svc, 90, "the first checkpoints", |s| acked(s) >= 1);
+    let from = acked(&svc);
+    pump(&mut svc, 90, "two quiet checkpoints", |s| acked(s) >= from + 2);
+    let settled = svc.owner().load_current(id).unwrap();
+    let n = revision(&svc);
+
+    // the Manager restarts; the new Host has no memory of its last checkpoint and checkpoints at once
+    drop(svc);
+    let mut svc = open(dir.path());
+    let before = acked(&svc);
+    pump(&mut svc, 60, "the Host to be recognised again", |s| status(s) == PlayStatus::Playing);
+    pump(&mut svc, 60, "the immediate checkpoint after the restart", |s| acked(s) > before);
+    assert_eq!(revision(&svc), n, "a restart with nothing to report is not a new revision");
+    let after = svc.owner().load_current(id).unwrap();
+    assert_eq!(after, settled, "field by field: {:?}", super::delta_probe::diff(&settled, &after));
+    assert_eq!(crate::portable::snapshot::content_hash(&after).unwrap(), crate::portable::snapshot::content_hash(&settled).unwrap(), "by hash");
+    let again = acked(&svc);
+    pump(&mut svc, 60, "another quiet checkpoint", |s| acked(s) > again);
+    assert_eq!(revision(&svc), n);
+
+    // a real change in the game: exactly one revision, however many checkpoints follow
+    server.ra().run(&format!("botcmd professiontrainer {guid}")).unwrap();
+    let mark = acked(&svc);
+    pump(&mut svc, 90, "the checkpoints after the change", |s| acked(s) >= mark + 3);
+    assert_eq!(revision(&svc), n + 1, "{:?}", super::delta_probe::diff(&settled, &svc.owner().load_current(id).unwrap()));
+    let changed = svc.owner().load_current(id).unwrap();
+    assert!(changed.build.skills.len() > settled.build.skills.len() || changed.build.spells.len() > settled.build.spells.len(), "the change is the professions");
+    server.ra().run(&format!("botcmd despawn {guid}")).unwrap();
+}
+
 fn name_of_account(db: &crate::db::Db, id: u32) -> String {
     sql(db, &format!("SELECT username FROM acore_auth.account WHERE id = {id}")).trim().to_string()
 }

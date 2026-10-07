@@ -297,6 +297,48 @@ fn the_host_manager_can_restart_between_the_request_and_the_read_and_between_che
 }
 
 #[test]
+fn the_immediate_checkpoint_after_a_host_restart_makes_no_revision_when_the_character_did_not_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let host_file = dir.path().join("host.db");
+    let Setup { mut owner, host, mut realm, id, session, .. } = setup_in(Store::open_in_memory().unwrap(), Store::open_file(&host_file).unwrap());
+    drop(host);
+    let mut o = OwnerService::new(&mut owner);
+    let settled = {
+        let mut hs = Store::open_file(&host_file).unwrap();
+        let mut h = HostService::new(&mut hs, SERVER, HostConfig::default());
+        start(&mut h, &mut o, &mut realm);
+        realm.play(|m| m.progression.money += 7);
+        checkpoint(&mut h, &mut o, &mut realm, 100);
+        assert_eq!(revision(&o, id), 11);
+        checkpoint(&mut h, &mut o, &mut realm, 200);
+        assert_eq!(revision(&o, id), 11, "an unchanged character is not a new revision");
+        o.store().load_current(id).unwrap()
+    };
+    let hash_before = crate::portable::snapshot::content_hash(&settled).unwrap();
+
+    let mut hs = Store::open_file(&host_file).unwrap();
+    let mut h = HostService::new(&mut hs, SERVER, HostConfig::default());
+    h.tick(&mut realm, 210).unwrap();
+    h.tick(&mut realm, 211).unwrap();
+    let acks = deliver(&mut h, &mut o, &mut realm);
+    assert_eq!(acks.len(), 1, "the restarted Host checkpoints at once");
+    assert_eq!(acks[0].outcome, AckOutcome::Applied);
+    assert_eq!(revision(&o, id), 11, "the restart alone changed nothing the player can see");
+    let after = o.store().load_current(id).unwrap();
+    assert_eq!(after, settled, "field by field");
+    assert_eq!(crate::portable::snapshot::content_hash(&after).unwrap(), hash_before, "by hash");
+    assert_eq!(o.session(session).unwrap().unwrap().0, "open");
+
+    realm.play(|m| m.progression.money += 3);
+    h.tick(&mut realm, 300).unwrap();
+    h.tick(&mut realm, 301).unwrap();
+    let acks = deliver(&mut h, &mut o, &mut realm);
+    assert_eq!((acks.len(), &acks[0].outcome), (1, &AckOutcome::Applied));
+    assert_eq!(revision(&o, id), 12, "a real change makes exactly one revision");
+    assert_eq!(o.store().load_current(id).unwrap().progression.money, settled.progression.money + 3);
+}
+
+#[test]
 fn the_owner_manager_can_restart_at_any_point() {
     let dir = tempfile::tempdir().unwrap();
     let owner_file = dir.path().join("owner.db");
