@@ -56,7 +56,14 @@ fn with_profile(db: &Db, store: &mut Store, base: &ImportOptions, data_dir: &str
     }
     let registry = coa_core::portable::extension::ExtensionRegistry::new();
     let mut ra = ra_port.and_then(|port| std::env::var("COA_RA_PASSWORD").ok().and_then(|pw| coa_core::ra::Ra::connect_to(port, ra_user, &pw).ok()));
-    let caps = realm::profile::probe_capabilities(db, Some(std::path::Path::new(data_dir)), ra.as_mut(), &registry).map_err(|e| e.to_string())?;
+    let mut caps = realm::profile::probe_capabilities(db, Some(std::path::Path::new(data_dir)), ra.as_mut(), &registry).map_err(|e| e.to_string())?;
+    if ra.is_none() {
+        let remembered = store.realm_profile(server).map_err(|e| e.to_string())?;
+        caps = realm::profile::with_remembered_progression(caps, remembered.as_ref()).map_err(|e| e.to_string())?;
+        if caps.progression.is_none() {
+            eprintln!("realm {server}: its progression (level cap) has never been read from a running core: start it once and run `capabilities` with --ra-port");
+        }
+    }
     let change = store.set_realm_profile(server, &caps, if ra.is_some() { "live" } else { "offline" }).map_err(|e| e.to_string())?;
     eprintln!("realm {server}: content profile {}{}", &caps.content_profile_hash[..16], if change.changed() { " (new or changed)" } else { "" });
     Ok(ImportOptions { capabilities: Some(std::sync::Arc::new(caps)), extensions: Some(std::sync::Arc::new(registry)), ..base.clone() })
@@ -268,7 +275,7 @@ fn run() -> Result<(), String> {
                 _ if store.server_mappings(model.character_id).map_err(|e| e.to_string())?.iter().any(|m| &m.server_id == server) => coa_core::portable::compat::Operation::Update,
                 _ => coa_core::portable::compat::Operation::OfflineImport,
             };
-            let report = coa_core::portable::compat::evaluate(&coa_core::portable::compat::Inputs { operation, model: &model, capabilities: &caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref(), projection_decider: opts.projection.is_some() || matches!(operation, coa_core::portable::compat::Operation::OnlineImport) });
+            let report = coa_core::portable::compat::evaluate(&coa_core::portable::compat::Inputs { operation, model: &model, capabilities: &caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref(), projection_decider: opts.projection.is_some() || matches!(operation, coa_core::portable::compat::Operation::OnlineImport | coa_core::portable::compat::Operation::RuntimeSession) && ra_port.is_some() });
             println!("{} on {server} (content profile {}): {:?}", report.operation, &caps.content_profile_hash[..16], report.verdict());
             for o in &report.outcomes {
                 println!("  {o}");

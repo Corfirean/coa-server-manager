@@ -235,6 +235,22 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_realm_keeps_the_progression_its_core_last_reported() {
+        use super::super::profile::with_remembered_progression;
+        let live = caps(60, SIG);
+        let mut offline = live.clone();
+        offline.progression = None;
+        offline.content.features.remove(&Feature::LevelProjection);
+        let offline = RealmCapabilities::build(None, offline.content, None).unwrap();
+        assert!(offline.needs_reprobe());
+        let merged = with_remembered_progression(offline.clone(), Some(&live)).unwrap();
+        assert_eq!(merged.progression, live.progression);
+        assert!(merged.content.supports(Feature::LevelProjection));
+        assert!(with_remembered_progression(offline.clone(), None).unwrap().needs_reprobe(), "nothing remembered, nothing invented");
+        assert_eq!(with_remembered_progression(live.clone(), Some(&caps(70, &"ab".repeat(32)))).unwrap(), live, "a live profile keeps its own");
+    }
+
+    #[test]
     fn a_query_job_names_its_character_and_its_hash() {
         let c = geared_level_eighty();
         let id = ImportId::new();

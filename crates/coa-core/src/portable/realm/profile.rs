@@ -96,6 +96,21 @@ pub fn probe_capabilities(db: &Db, data_dir: Option<&Path>, ra: Option<&mut Ra>,
     assemble(db, &schema, data_dir, report.as_ref(), registry)
 }
 
+/// A profile assembled without the realm's core (a stopped realm) knows nothing of its progression. The progression the realm's core last
+/// reported live (remembered in the store) is the best there is: the profile gets it, and the core still refuses a character prepared for
+/// another progression at login, so a realm whose rules changed since is caught, not trusted.
+pub fn with_remembered_progression(offline: RealmCapabilities, remembered: Option<&RealmCapabilities>) -> Result<RealmCapabilities> {
+    let Some(progression) = remembered.and_then(|r| r.progression.clone()) else { return Ok(offline) };
+    if offline.progression.is_some() {
+        return Ok(offline);
+    }
+    let mut content = offline.content.clone();
+    if remembered.is_some_and(|r| r.content.supports(Feature::LevelProjection)) {
+        content.features.insert(Feature::LevelProjection);
+    }
+    RealmCapabilities::build(offline.core.clone(), content, Some(progression))
+}
+
 /// The table-level view an adapter needs to say whether its module is present, before any character is involved.
 struct NoRealm<'a> {
     probe: &'a SchemaProbe,
