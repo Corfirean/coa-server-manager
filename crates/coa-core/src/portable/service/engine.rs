@@ -36,7 +36,7 @@ use super::super::compat::{self, CompatibilityReport, Inputs, Operation, Outcome
 use super::super::error::PortableError;
 use super::super::extension::ExtensionRegistry;
 use super::super::ids::{CharacterId, SessionId};
-use super::super::projection::{Decision, Oracle, SuppliedDecision};
+use super::super::projection::{Decision, Oracle, ProgressionPin, SuppliedDecision};
 use super::super::realm::knowledge::RealmKnowledge;
 use super::super::realm::online::import_character_online_on;
 use super::super::realm::profile::{probe_capabilities, with_remembered_progression};
@@ -441,7 +441,7 @@ impl PortableService {
 
     // ---- views --------------------------------------------------------------------------------------------------------------------
 
-    fn realm_view(&self, id: &str) -> Res<RealmView> {
+    pub fn realm_view(&self, id: &str) -> Res<RealmView> {
         let a = self.access(id)?;
         let o = self.obs.get(id);
         let caps = o.and_then(|o| o.caps.as_ref());
@@ -494,7 +494,7 @@ impl PortableService {
             }
         } else if behind || stale {
             PlayStatus::UpdateRequired
-        } else if let Some(Verdict::Degraded) = self.verdicts.get(&(character, realm_id.to_string())) {
+        } else if projected.is_some() || self.verdicts.get(&(character, realm_id.to_string())) == Some(&Verdict::Degraded) {
             PlayStatus::CompatWarning
         } else {
             PlayStatus::Ready
@@ -510,7 +510,7 @@ impl PortableService {
             for m in self.host.server_mappings(c.character_id).unwrap_or_default() {
                 let Some(realm) = self.realms.iter().find(|r| r.id == m.server_id) else { continue };
                 let (status, behind, projected_level, rev, at) = self.copy_status(c.character_id, c.revision, &m.server_id);
-                let degraded = self.verdicts.get(&(c.character_id, m.server_id.clone())) == Some(&Verdict::Degraded);
+                let degraded = projected_level.is_some() || self.verdicts.get(&(c.character_id, m.server_id.clone())) == Some(&Verdict::Degraded);
                 copies.push(CopyView { realm_id: m.server_id.clone(), realm_name: realm.name.clone(), status, synced_revision: rev, behind, projected_level, degraded, updated_at: at });
             }
             let active = copies.iter().find(|x| matches!(x.status, PlayStatus::Playing | PlayStatus::Saving | PlayStatus::WaitingLogin | PlayStatus::Syncing)).cloned();
@@ -900,6 +900,13 @@ impl PortableService {
             let _ = self.host.detach_realm_copy(made.character_id, realm_id);
             return Err(e.into());
         }
+        if let Ok(mut ra) = access.ra() {
+            if let Ok(caps) = self.capabilities(&access, &db, &mut ra, true) {
+                if let Some(p) = &caps.progression {
+                    let _ = self.host.set_mapping_pin(made.character_id, realm_id, Some(&ProgressionPin::native(p, &caps.content_profile_hash)));
+                }
+            }
+        }
         self.publish();
         self.state().characters.into_iter().find(|c| c.id == made.character_id.to_string()).ok_or_else(|| fail("other", "The character was not registered."))
     }
@@ -954,7 +961,7 @@ impl PortableService {
             .owner
             .list_revisions(cid)?
             .into_iter()
-            .map(|r| HistoryEntry { revision: r.revision, at: r.created_at, source_realm: names.get(r.source_server_id.as_str()).map(|n| n.to_string()).unwrap_or(r.source_server_id), note: r.note })
+            .map(|r| HistoryEntry { revision: r.revision, at: r.created_at, source_realm: names.get(r.source_server_id.as_str()).map(|n| n.to_string()).unwrap_or(r.source_server_id), kind: HistoryKind::of(r.note.as_deref()) })
             .collect();
         out.sort_by(|a, b| b.revision.cmp(&a.revision));
         Ok(out)
@@ -1001,6 +1008,12 @@ impl PortableService {
             characters.push(CharacterDiagnostics { character_id: c.character_id.to_string(), canonical_revision: c.revision, copies });
         }
         DiagnosticsReport { generated_at: now_text(), manager_version: env!("CARGO_PKG_VERSION").to_string(), realms, characters, errors: self.errors.iter().cloned().collect() }
+    }
+
+    /// What the interface needs to start the game for a realm: the installation id (when this Manager runs the server) and the address.
+    pub fn realm_launch_info(&self, realm_id: &str) -> Res<(Option<String>, String)> {
+        let a = self.access(realm_id)?;
+        Ok((a.install_id.clone(), a.address.clone()))
     }
 
     pub fn saved(&self, character: &str, realm_id: &str) -> Option<(u64, String)> {

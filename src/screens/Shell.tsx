@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Archive, Bot, Bug, Gauge, Globe, Puzzle, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
+import { Archive, Bot, Bug, Gauge, Globe, Puzzle, Server, Settings, Swords, Terminal, Users, type LucideIcon } from "lucide-react";
 import { api, type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
 import logo from "@/assets/logo.png";
@@ -14,11 +14,12 @@ import { FriendsPage } from "@/screens/FriendsPage";
 import { ReportPage } from "@/screens/ReportPage";
 import { ModulesPage } from "@/screens/ModulesPage";
 import { ConsolePage } from "@/screens/ConsolePage";
+import { PortablePage } from "@/screens/PortablePage";
 import { Button } from "@/components/ui/button";
 import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
 import { startClientPolling } from "@/lib/clientUpdate";
 
-type Page = "overview" | "bots" | "server" | "modules" | "players" | "friends" | "backups" | "console" | "report" | "settings";
+type Page = "overview" | "bots" | "server" | "modules" | "players" | "characters" | "friends" | "backups" | "console" | "report" | "settings";
 
 const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "overview", label: "nav.overview", icon: Gauge, question: "q.overview" },
@@ -26,6 +27,7 @@ const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "server", label: "nav.server", icon: Server, question: "q.server" },
   { id: "modules", label: "nav.modules", icon: Puzzle, question: "q.modules" },
   { id: "players", label: "nav.players", icon: Users, question: "q.players" },
+  { id: "characters", label: "nav.characters", icon: Swords, question: "q.characters" },
   { id: "friends", label: "nav.friends", icon: Globe, question: "q.friends" },
   { id: "backups", label: "nav.backups", icon: Archive, question: "q.backups" },
   { id: "console", label: "nav.console", icon: Terminal, question: "q.console" },
@@ -140,6 +142,8 @@ export function Shell(props: {
           <FriendsPage key={server.id} serverId={server.id} />
         ) : page === "settings" ? (
           <SettingsHome key={server.id} serverId={server.id} />
+        ) : page === "characters" ? (
+          <PortablePage key="characters" />
         ) : page === "players" ? (
           <PlayersPage key={server.id} serverId={server.id} />
         ) : page === "backups" ? (

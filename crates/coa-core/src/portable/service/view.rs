@@ -149,7 +149,41 @@ pub struct HistoryEntry {
     pub revision: u64,
     pub at: String,
     pub source_realm: String,
-    pub note: Option<String>,
+    pub kind: HistoryKind,
+}
+
+/// What a saved version came from, in words a player understands; internal session and checkpoint identifiers never leave the service.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryKind {
+    Created,
+    Play,
+    Other,
+}
+
+impl HistoryKind {
+    pub fn of(note: Option<&str>) -> Self {
+        match note {
+            Some("created") => Self::Created,
+            Some(n) if n.starts_with("session ") => Self::Play,
+            _ => Self::Other,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_notes_become_kinds_without_identifiers() {
+        assert_eq!(HistoryKind::of(Some("created")), HistoryKind::Created);
+        assert_eq!(HistoryKind::of(Some("session 01a11638-9ccf-7111-b5e9-124d1ecf84bb checkpoint 3")), HistoryKind::Play);
+        assert_eq!(HistoryKind::of(Some("re-export")), HistoryKind::Other);
+        assert_eq!(HistoryKind::of(None), HistoryKind::Other);
+        let json = serde_json::to_string(&HistoryEntry { revision: 2, at: "t".into(), source_realm: "r".into(), kind: HistoryKind::of(Some("session 01a11638-9ccf-7111-b5e9-124d1ecf84bb checkpoint 3")) }).unwrap();
+        assert!(!json.contains("01a1") && !json.contains("checkpoint"), "{json}");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

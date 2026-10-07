@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use coa_core::backup::{self, Kind, RecoveryPoint, Trigger, VerifyReport};
 use coa_core::config::{self, Scope, SettingsView};
@@ -15,12 +15,13 @@ use coa_core::update::{self, Resolution};
 use coa_core::error::UiError;
 use coa_core::layout::{self, Classification, ScanReport};
 use coa_core::process::{self, Observed};
+use coa_core::portable::service::{self as portable_service, PortableRuntime, ServiceError};
 use coa_core::registry::{metadata_dir_for, InstallKind, InstallMeta, MetaDir, Registry};
 use coa_core::{Error, Result};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 struct AppState {
     registry: Registry,
@@ -30,7 +31,112 @@ struct AppState {
     install_cancel: Mutex<Option<Cancel>>,
     /// Cancel handle of the game-client check or download currently running, if any.
     client_cancel: Mutex<Option<Cancel>>,
+    /// The portable play runtime (the Host loop): started with the application, stopped with it.
+    portable: Option<Arc<PortableRuntime>>,
 }
+
+/// Starting and stopping the servers this Manager installed, for the portable runtime.
+struct InstallControl {
+    registry: Registry,
+}
+
+impl InstallControl {
+    fn run(&self, install_id: &str, verb: Verb) -> Result<()> {
+        let root = self.registry.list()?.into_iter().find(|(i, _)| i == install_id).map(|(_, p)| p).ok_or_else(|| Error::UnknownInstallation(install_id.to_string()))?;
+        let out = driver::run(&root, verb)?;
+        if out.ok { Ok(()) } else { Err(Error::Invalid(out.output.lines().last().unwrap_or("The server did not answer.").to_string())) }
+    }
+}
+
+impl portable_service::ServerControl for InstallControl {
+    fn stop_all(&self, install_id: &str) -> Result<()> { self.run(install_id, Verb::StopAll) }
+    fn start_database(&self, install_id: &str) -> Result<()> { self.run(install_id, Verb::StartMysql) }
+    fn start_all(&self, install_id: &str) -> Result<()> { self.run(install_id, Verb::StartAll) }
+}
+
+fn runtime(state: &State<'_, AppState>) -> std::result::Result<Arc<PortableRuntime>, ServiceError> {
+    state.portable.clone().ok_or_else(|| ServiceError { code: "stopped".into(), message: "The portable play service could not start; see the Manager's log.".into(), notes: vec![] })
+}
+
+/// Run one action of the portable play service on its own thread without blocking the interface.
+async fn portable_call<R: Send + 'static>(state: &State<'_, AppState>, f: impl FnOnce(&mut portable_service::PortableService) -> std::result::Result<R, ServiceError> + Send + 'static) -> std::result::Result<R, ServiceError> {
+    let rt = runtime(state)?;
+    tauri::async_runtime::spawn_blocking(move || rt.call(f))
+        .await
+        .map_err(|e| ServiceError { code: "other".into(), message: e.to_string(), notes: vec![] })?
+        .and_then(|r| r)
+}
+
+#[tauri::command]
+fn portable_state(state: State<'_, AppState>) -> portable_service::PortableState {
+    state.portable.as_ref().map(|r| r.state()).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn portable_preflight(state: State<'_, AppState>, character: String, realm: String) -> std::result::Result<portable_service::PreflightView, ServiceError> {
+    portable_call(&state, move |s| s.preflight(&character, &realm)).await
+}
+
+#[tauri::command]
+async fn portable_play(state: State<'_, AppState>, character: String, realm: String, account: Option<String>) -> std::result::Result<portable_service::PlayView, ServiceError> {
+    portable_call(&state, move |s| s.play(&character, &realm, account.as_deref())).await
+}
+
+#[tauri::command]
+async fn portable_local_characters(state: State<'_, AppState>, realm: String) -> std::result::Result<Vec<portable_service::LocalCharacterView>, ServiceError> {
+    portable_call(&state, move |s| s.local_characters(&realm)).await
+}
+
+#[tauri::command]
+async fn portable_make(state: State<'_, AppState>, realm: String, token: u32) -> std::result::Result<portable_service::CharacterView, ServiceError> {
+    portable_call(&state, move |s| s.make_portable(&realm, token)).await
+}
+
+#[tauri::command]
+async fn portable_resolve(state: State<'_, AppState>, character: String, realm: String, action: portable_service::Resolve) -> std::result::Result<(), ServiceError> {
+    portable_call(&state, move |s| s.resolve(&character, &realm, action)).await
+}
+
+#[tauri::command]
+async fn portable_history(state: State<'_, AppState>, character: String) -> std::result::Result<Vec<portable_service::HistoryEntry>, ServiceError> {
+    portable_call(&state, move |s| s.history(&character)).await
+}
+
+#[tauri::command]
+async fn portable_add_realm(state: State<'_, AppState>, path: String) -> std::result::Result<portable_service::RealmView, ServiceError> {
+    portable_call(&state, move |s| s.add_prepared_realm(std::path::Path::new(&path))).await
+}
+
+#[tauri::command]
+async fn portable_remove_realm(state: State<'_, AppState>, realm: String) -> std::result::Result<(), ServiceError> {
+    portable_call(&state, move |s| s.remove_prepared_realm(&realm)).await
+}
+
+#[tauri::command]
+async fn portable_diagnostics(state: State<'_, AppState>) -> std::result::Result<portable_service::DiagnosticsReport, ServiceError> {
+    portable_call(&state, |s| Ok(s.diagnostics())).await
+}
+
+/// Start the game for a realm that is ready: an installed server uses its own client, any other realm the Player Mode client pointed at
+/// the realm's address.
+#[tauri::command]
+async fn portable_launch(state: State<'_, AppState>, realm: String) -> std::result::Result<(), ServiceError> {
+    let (install, address) = portable_call(&state, move |s| s.realm_launch_info(&realm)).await?;
+    let other = |e: UiError| ServiceError { code: "launch".into(), message: e.technical, notes: vec![] };
+    match install {
+        Some(id) => play(state, id).await.map(|_| ()).map_err(other),
+        None => {
+            {
+                let dir = remote_dir();
+                let mut profile = coa_core::remote_client::load(&dir).map_err(|e| other(e.into()))?;
+                profile.host = address;
+                coa_core::remote_client::save(&dir, &profile).map_err(|e| other(e.into()))?;
+            }
+            play(state, REMOTE_CLIENT_ID.to_string()).await.map(|_| ()).map_err(other)
+        }
+    }
+}
+
 
 /// Where official server packages are published (created by the release pipeline, Phase 6).
 /// Where signed update packages are published; override with COA_UPDATE_SOURCE (URL or local package folder).
@@ -72,6 +178,10 @@ struct StatusView {
 
 /// Where the Manager keeps its own state (server list, logs). `%LOCALAPPDATA%` on Windows, the XDG data folder elsewhere.
 fn data_dir() -> PathBuf {
+    // a separate data folder for tests and diagnostics, so that a development build never reads or writes the installed Manager's own state
+    if let Some(dir) = std::env::var_os("COA_MANAGER_DATA_DIR").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return dir;
+    }
     #[cfg(windows)]
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     #[cfg(not(windows))]
@@ -1519,7 +1629,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None) })
+        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None), portable: start_portable(&dir) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
             scan_server,
@@ -1603,10 +1713,42 @@ pub fn run() {
             export_diagnostics,
             console_tail,
             console_risk,
-            console_command
+            console_command,
+            portable_state,
+            portable_preflight,
+            portable_play,
+            portable_local_characters,
+            portable_make,
+            portable_resolve,
+            portable_history,
+            portable_add_realm,
+            portable_remove_realm,
+            portable_diagnostics,
+            portable_launch
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running CoA Server Manager");
+        .build(tauri::generate_context!())
+        .expect("error while building CoA Server Manager")
+        .run(|app, event| {
+            // the Host loop stops with the application: what it is doing is finished first, the stores keep every session
+            if let tauri::RunEvent::Exit = event {
+                if let Some(rt) = app.state::<AppState>().portable.clone() {
+                    rt.shutdown();
+                }
+            }
+        });
+}
+
+fn start_portable(dir: &std::path::Path) -> Option<Arc<PortableRuntime>> {
+    let registry = Registry::at(dir.join("installs.json"));
+    let control = InstallControl { registry: Registry::at(dir.join("installs.json")) };
+    let installs: portable_service::runtime::Installs = Box::new(move || registry.list().unwrap_or_default());
+    match PortableRuntime::start(&dir.join("portable"), installs, Some(Box::new(control))) {
+        Ok(rt) => Some(Arc::new(rt)),
+        Err(e) => {
+            tracing::error!(error = %e, "the portable play service did not start");
+            None
+        }
+    }
 }
 
 #[cfg(all(test, not(windows)))]

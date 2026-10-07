@@ -166,6 +166,30 @@ fn one_click_play_of_a_level_eighty_on_a_cap_sixty_realm_survives_navigation_a_r
     let _ = (name, server);
 }
 
+#[test]
+#[ignore]
+fn a_character_made_portable_on_a_running_realm_is_armed_on_it_without_a_restart() {
+    let (Some(r), Some(sp), Some(jobs)) = (realms(), spec(), job_dir()) else { return };
+    reset_b(&r.b);
+    std::fs::create_dir_all(&jobs).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let file = descriptor(dir.path());
+    let mut svc = PortableService::open(&dir.path().join("portable"), vec![]).unwrap();
+    svc.add_prepared_realm(&file).unwrap();
+    let server = Server::start(sp);
+    svc.tick();
+    svc.tick();
+
+    let local = svc.local_characters(REALM).unwrap();
+    let pick = local.iter().find(|c| c.eligible).expect("an eligible character on the realm");
+    let made = svc.make_portable(REALM, pick.token).unwrap();
+    let pre = svc.preflight(&made.id, REALM).unwrap();
+    assert_eq!(pre.step, Step::Arm, "the realm's own character is current: nothing to update, nothing to restart; {:?}", pre.notes);
+    svc.play(&made.id, REALM, None).unwrap();
+    assert_eq!(status(&svc), PlayStatus::WaitingLogin);
+    drop(server);
+}
+
 fn name_of_account(db: &crate::db::Db, id: u32) -> String {
     sql(db, &format!("SELECT username FROM acore_auth.account WHERE id = {id}")).trim().to_string()
 }
