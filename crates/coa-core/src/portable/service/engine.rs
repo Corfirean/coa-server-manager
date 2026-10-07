@@ -577,6 +577,21 @@ impl PortableService {
         merged.expect("an operation")
     }
 
+    /// The same compatibility check for a realm that is only known by what it advertises (a row of the public list): the Phase 7/8 rules evaluated against the
+    /// advertised capabilities, with nothing written anywhere. What cannot be known from an advertisement (the realm's client tables) is not assumed.
+    pub fn preflight_advert(&mut self, character: &str, capabilities: &serde_json::Value) -> Res<PreflightView> {
+        let cid = self.cid(character)?;
+        let caps = RealmCapabilities::from_json(capabilities.to_string().as_bytes()).map_err(|e| fail("realm_unreadable", e.to_string()))?;
+        let canonical = self.owner.load_current(cid)?;
+        let opts = ImportOptions { capabilities: Some(Arc::new(caps.clone())), extensions: Some(self.registry.clone()), ..ImportOptions::default() };
+        let report = self.report(&canonical, &caps, &opts, &[Operation::OnlineImport, Operation::RuntimeSession], true);
+        let verdict = verdict_of(report.verdict());
+        let notes = notes_of(&report);
+        let projection = projection_of(&report);
+        let step = if verdict == Verdict::Incompatible { Step::Blocked } else { Step::Prepare };
+        Ok(PreflightView { verdict, step, projection, notes, needs_account: false })
+    }
+
     /// What pressing Play would do, found by looking only: nothing is written to a realm or to a store.
     pub fn preflight(&mut self, character: &str, realm_id: &str) -> Res<PreflightView> {
         let cid = self.cid(character)?;

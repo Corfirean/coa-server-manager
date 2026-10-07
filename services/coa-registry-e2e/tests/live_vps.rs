@@ -282,3 +282,105 @@ fn gate_v1_record_republishes_under_v2() {
     assert_eq!((after.body["listing"]["rates"]["xp_kill"].as_f64(), after.body["public_key"].as_str()), (Some(2.0), before.body["public_key"].as_str()));
     println!("GATE_UPGRADE realm {realm} created_at {created} revision {revision_before} -> {}", revision_before + 1);
 }
+
+fn browse_get(client: &reqwest::blocking::Client, base: &str, query: &str) -> (u16, serde_json::Value, std::time::Duration) {
+    loop {
+        let started = Instant::now();
+        let r = client.get(format!("{base}{PATH_LIST}?{query}")).send().expect("the Registry answers");
+        let took = started.elapsed();
+        if r.status().as_u16() == 429 {
+            std::thread::sleep(Duration::from_millis(700));
+            continue;
+        }
+        let status = r.status().as_u16();
+        return (status, r.json().unwrap_or(serde_json::Value::Null), took);
+    }
+}
+
+/// Phase 11: the public list over the real path (Caddy, the Registry, PostgreSQL) with thousands of synthetic realms loaded by `deploy/synthetic.sh`.
+#[test]
+#[ignore]
+fn gate11_the_public_list_pages_through_thousands_of_realms() {
+    let Some(base) = base() else { return };
+    let expected: usize = std::env::var("SYNTHETIC_ONLINE").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(20)).build().unwrap();
+    let mut worst = Duration::ZERO;
+    let mut times: Vec<Duration> = Vec::new();
+    for (sort, order) in [("players", "desc"), ("name", "asc"), ("cap", "desc"), ("created", "asc")] {
+        let mut ids = std::collections::BTreeSet::new();
+        let mut cursor: Option<String> = None;
+        let mut pages = 0;
+        let mut previous: Option<(String, i64)> = None;
+        loop {
+            let mut q = format!("limit=100&sort={sort}&order={order}");
+            if let Some(c) = &cursor {
+                q += &format!("&cursor={c}");
+            }
+            let (status, body, took) = browse_get(&client, &base, &q);
+            assert_eq!(status, 200, "{q}: {body}");
+            worst = worst.max(took);
+            times.push(took);
+            pages += 1;
+            for r in body["realms"].as_array().unwrap() {
+                assert!(ids.insert(r["realm_id"].as_str().unwrap().to_string()), "a realm repeated: {sort}");
+                let key = (r["display_name"].as_str().unwrap().to_lowercase(), match sort {
+                    "players" => r["population"]["players"].as_i64().unwrap(),
+                    "cap" => r["level_cap"].as_i64().unwrap_or(0),
+                    "created" => r["created_at"].as_i64().unwrap(),
+                    _ => 0,
+                });
+                if sort != "name" {
+                    if let Some(p) = &previous {
+                        let ok = if order == "asc" { p.1 <= key.1 } else { p.1 >= key.1 };
+                        assert!(ok, "{sort} {order}: {} then {}", p.1, key.1);
+                    }
+                }
+                previous = Some(key);
+            }
+            match body["next_cursor"].as_str() {
+                Some(c) => cursor = Some(c.to_string()),
+                None => break,
+            }
+        }
+        println!("GATE11 walk sort={sort} order={order}: {} realms in {pages} pages", ids.len());
+        if expected > 0 {
+            assert!(ids.len() >= expected, "{} < {expected}", ids.len());
+        }
+    }
+    times.sort();
+    let p50 = times[times.len() / 2];
+    let p95 = times[times.len() * 95 / 100];
+    println!("GATE11 PASS  {} page requests through Caddy: median {:?}, p95 {:?}, worst {:?}", times.len(), p50, p95, worst);
+    assert!(p95 < Duration::from_secs(2), "p95 {p95:?}");
+
+}
+
+fn send_retrying(client: &reqwest::blocking::Client, make: impl Fn() -> reqwest::blocking::RequestBuilder) -> reqwest::blocking::Response {
+    loop {
+        let r = make().send().expect("the Registry answers");
+        if r.status().as_u16() != 429 {
+            return r;
+        }
+        std::thread::sleep(Duration::from_millis(800));
+    }
+}
+
+/// Filters, revalidation and read-only over the real path.
+#[test]
+#[ignore]
+fn gate11_filters_etag_and_read_only() {
+    let Some(base) = base() else { return };
+    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(20)).build().unwrap();
+    let (status, body, _) = browse_get(&client, &base, "limit=10&ruleset=coa&cap_min=70&cap_max=80&module=playerbots&players_min=100&q=descension&sort=name");
+    assert_eq!(status, 200);
+    assert!(body["realms"].as_array().unwrap().iter().all(|r| r["level_cap"].as_u64().unwrap() >= 70 && r["population"]["players"].as_u64().unwrap() >= 100));
+    let first = send_retrying(&client, || client.get(format!("{base}{PATH_LIST}?limit=5")));
+    let etag = first.headers()["etag"].to_str().unwrap().to_string();
+    let again = send_retrying(&client, || client.get(format!("{base}{PATH_LIST}?limit=5")).header("if-none-match", &etag));
+    assert_eq!(again.status().as_u16(), 304);
+    for method in [reqwest::Method::POST, reqwest::Method::PUT, reqwest::Method::DELETE] {
+        let r = send_retrying(&client, || client.request(method.clone(), format!("{base}{PATH_LIST}")).body("{}"));
+        assert_eq!(r.status().as_u16(), 405, "{method}");
+    }
+    println!("GATE11 PASS  filters, ETag/304 and read-only (405) verified over the real path");
+}

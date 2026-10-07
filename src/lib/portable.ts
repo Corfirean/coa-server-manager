@@ -102,6 +102,7 @@ export const portable = {
   addRealm: (path: string) => invoke<RealmView>("portable_add_realm", { path }),
   removeRealm: (realm: string) => invoke<void>("portable_remove_realm", { realm }),
   diagnostics: () => invoke<unknown>("portable_diagnostics"),
+  preflightRemote: (character: string, capabilities: unknown) => invoke<PreflightView>("portable_preflight_remote", { character, capabilities }),
   launch: (realm: string) => invoke<void>("portable_launch", { realm }),
 };
 

@@ -6,7 +6,7 @@ use std::future::Future;
 use std::sync::Mutex;
 
 use coa_registry_proto::caps::{AdvertisedCapabilities, Ruleset};
-use coa_registry_proto::{HeartbeatRequest, Listing, Population, RealmId, RegisterRequest};
+use coa_registry_proto::{CursorKey, HeartbeatRequest, ListQuery, Listing, Order, Population, RealmId, RealmSummary, RegisterRequest, SortKey, Status, SUMMARY_DESCRIPTION_CHARS};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum StoreError {
@@ -156,6 +156,57 @@ pub fn plan_register(existing: Option<&RealmRow>, req: &RegisterRequest, key: [u
     Ok((row, false))
 }
 
+/// The public summary of a row (the description cut short, no capabilities).
+pub fn summary_of(row: &RealmRow, now: i64, ttl: i64) -> RealmSummary {
+    RealmSummary {
+        realm_id: row.realm_id,
+        display_name: row.listing.display_name.clone(),
+        description: row.listing.description.chars().take(SUMMARY_DESCRIPTION_CHARS).collect(),
+        language: row.listing.language.clone(),
+        region: row.listing.region.clone(),
+        ruleset: row.ruleset,
+        level_cap: row.level_cap,
+        rates: row.listing.rates.clone(),
+        modules: row.listing.modules.clone(),
+        population: row.population,
+        account_provisioning: row.listing.account_provisioning,
+        manager_version: row.listing.manager_version.clone(),
+        capabilities_hash: row.capabilities_hash.clone(),
+        listing_hash: row.listing_hash.clone(),
+        metadata_revision: row.metadata_revision,
+        online: row.published && now - row.last_seen_at <= ttl,
+        created_at: row.created_at,
+        last_seen_at: row.last_seen_at,
+    }
+}
+
+/// The value a row is ordered by, as the cursor keeps it (the same as the database's sort expressions).
+pub fn sort_value(s: &RealmSummary, sort: SortKey) -> CursorKey {
+    match sort {
+        SortKey::Name => CursorKey::Text(s.display_name.to_lowercase()),
+        SortKey::Players => CursorKey::Num(i64::from(s.population.players)),
+        SortKey::Cap => CursorKey::Num(i64::from(s.level_cap.unwrap_or(0))),
+        SortKey::Created => CursorKey::Num(s.created_at),
+    }
+}
+
+/// Everything in a list query except the paging, applied to one summary (the memory store; PostgreSQL does the same in SQL).
+pub fn matches(s: &RealmSummary, q: &ListQuery) -> bool {
+    q.q.as_ref().is_none_or(|t| s.display_name.to_lowercase().contains(&t.to_lowercase()))
+        && q.ruleset.is_none_or(|r| s.ruleset == r)
+        && q.cap_min.is_none_or(|c| s.level_cap.unwrap_or(0) >= c)
+        && q.cap_max.is_none_or(|c| s.level_cap.unwrap_or(0) <= c)
+        && q.module.as_ref().is_none_or(|m| s.modules.iter().any(|e| &e.id == m && e.enabled))
+        && q.players_min.is_none_or(|p| s.population.players >= p)
+        && q.language.as_ref().is_none_or(|l| &s.language == l)
+        && q.region.as_ref().is_none_or(|r| s.region.as_ref() == Some(r))
+        && match q.status {
+            Status::Online => s.online,
+            Status::Offline => !s.online,
+            Status::All => true,
+        }
+}
+
 pub trait Store: Send + Sync + 'static {
     fn ping(&self) -> impl Future<Output = bool> + Send;
     /// The key a realm id is bound to, if it is registered.
@@ -166,6 +217,8 @@ pub trait Store: Send + Sync + 'static {
     fn heartbeat(&self, id: &RealmId, hb: &HeartbeatRequest, now: i64, ts: i64) -> impl Future<Output = StoreResult<HeartbeatOutcome>> + Send;
     /// The metadata revision after the change.
     fn unpublish(&self, id: &RealmId, now: i64, ts: i64) -> impl Future<Output = StoreResult<u64>> + Send;
+    /// Up to `limit + 1` summaries of the published, protocol-2 realms that match, in the query's order after its cursor (the extra one tells the caller there is more).
+    fn list(&self, q: &ListQuery, now: i64, ttl: i64) -> impl Future<Output = StoreResult<Vec<RealmSummary>>> + Send;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -224,6 +277,9 @@ impl<T: Store> Store for std::sync::Arc<T> {
     }
     fn unpublish(&self, id: &RealmId, now: i64, ts: i64) -> impl Future<Output = StoreResult<u64>> + Send {
         (**self).unpublish(id, now, ts)
+    }
+    fn list(&self, q: &ListQuery, now: i64, ttl: i64) -> impl Future<Output = StoreResult<Vec<RealmSummary>>> + Send {
+        (**self).list(q, now, ttl)
     }
 }
 
@@ -285,5 +341,31 @@ impl Store for MemoryStore {
         }
         row.last_request_ts = ts;
         Ok(row.metadata_revision)
+    }
+
+    async fn list(&self, q: &ListQuery, now: i64, ttl: i64) -> StoreResult<Vec<RealmSummary>> {
+        let mut rows: Vec<RealmSummary> = self.rows.lock().unwrap().values().filter(|r| r.published && r.advert_version >= ADVERT_VERSION).map(|r| summary_of(r, now, ttl)).filter(|s| matches(s, q)).collect();
+        let key = |s: &RealmSummary| (sort_value(s, q.sort), s.realm_id);
+        rows.sort_by(|a, b| {
+            let o = cmp_key(&key(a).0, &key(b).0).then(a.realm_id.cmp(&b.realm_id));
+            if q.order == Order::Desc { o.reverse() } else { o }
+        });
+        if let Some(c) = &q.cursor {
+            rows.retain(|s| {
+                let o = cmp_key(&sort_value(s, q.sort), &c.k).then(s.realm_id.cmp(&c.id));
+                if q.order == Order::Desc { o == std::cmp::Ordering::Less } else { o == std::cmp::Ordering::Greater }
+            });
+        }
+        rows.truncate(q.limit as usize + 1);
+        Ok(rows)
+    }
+}
+
+fn cmp_key(a: &CursorKey, b: &CursorKey) -> std::cmp::Ordering {
+    match (a, b) {
+        (CursorKey::Num(x), CursorKey::Num(y)) => x.cmp(y),
+        (CursorKey::Text(x), CursorKey::Text(y)) => x.cmp(y),
+        (CursorKey::Num(_), CursorKey::Text(_)) => std::cmp::Ordering::Less,
+        (CursorKey::Text(_), CursorKey::Num(_)) => std::cmp::Ordering::Greater,
     }
 }

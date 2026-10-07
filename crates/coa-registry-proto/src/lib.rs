@@ -9,10 +9,12 @@
 //! * [`wire`]: request and response bodies with their limits and validation.
 //! * [`caps`]: the strict, bounded form of `RealmCapabilities` a realm advertises.
 
+pub mod browse;
 pub mod caps;
 pub mod sign;
 pub mod wire;
 
+pub use browse::*;
 pub use caps::AdvertisedCapabilities;
 pub use sign::{RealmId, SignedHeaders};
 pub use wire::*;

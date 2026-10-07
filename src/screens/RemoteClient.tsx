@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Gauge, Settings, Swords } from "lucide-react";
+import { Gauge, Globe, Settings, Swords } from "lucide-react";
 import { api, asUiError, REMOTE_CLIENT_ID } from "@/lib/api";
 import { checkClient, startClientPolling, useClientStatus } from "@/lib/clientUpdate";
 import { ClientCard } from "@/screens/ClientCard";
 import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { AboutCard } from "@/screens/AboutCard";
 import { PortablePage } from "@/screens/PortablePage";
+import { BrowsePage } from "@/screens/BrowsePage";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import logo from "@/assets/logo.png";
 export function RemoteClient({ onHost }: { onHost: () => void }) {
   const t = useT();
   const human = useHuman();
-  const [page, setPage] = useState<"overview" | "characters" | "settings">("overview");
+  const [page, setPage] = useState<"servers" | "overview" | "characters" | "settings">("servers");
   const [host, setHost] = useState("");
   const [savedHost, setSavedHost] = useState("");
   const [loading, setLoading] = useState(true);
@@ -57,14 +58,14 @@ export function RemoteClient({ onHost }: { onHost: () => void }) {
     <nav className="flex w-60 shrink-0 flex-col border-r border-line bg-[#0b0c0e] p-3" aria-label={t("nav.main")}>
       <div className="flex items-center gap-2 px-3 pb-4 pt-2 text-sm font-semibold tracking-wide text-gold"><img src={logo} alt="" className="h-7 w-7" />{t("app.name")}</div>
       <ul className="flex flex-col gap-0.5">
-        {(["overview", "characters", "settings"] as const).map(id => { const Icon = id === "overview" ? Gauge : id === "characters" ? Swords : Settings; return <li key={id}>
-          <button onClick={() => setPage(id)} aria-current={page === id ? "page" : undefined} className={cn("flex h-10 w-full cursor-pointer items-center gap-3 rounded-md px-3 text-left text-[15px]", page === id ? "bg-white/[0.07] text-ink" : "text-muted hover:bg-white/5 hover:text-ink")}><Icon className="h-[18px] w-[18px]" aria-hidden />{t(id === "overview" ? "nav.overview" : id === "characters" ? "nav.characters" : "nav.settings")}</button>
+        {(["servers", "overview", "characters", "settings"] as const).map(id => { const Icon = id === "servers" ? Globe : id === "overview" ? Gauge : id === "characters" ? Swords : Settings; return <li key={id}>
+          <button onClick={() => setPage(id)} aria-current={page === id ? "page" : undefined} className={cn("flex h-10 w-full cursor-pointer items-center gap-3 rounded-md px-3 text-left text-[15px]", page === id ? "bg-white/[0.07] text-ink" : "text-muted hover:bg-white/5 hover:text-ink")}><Icon className="h-[18px] w-[18px]" aria-hidden />{t(id === "servers" ? "nav.servers" : id === "overview" ? "nav.overview" : id === "characters" ? "nav.characters" : "nav.settings")}</button>
         </li>; })}
       </ul>
       <div className="mt-auto border-t border-line pt-3"><Button variant="ghost" size="sm" className="w-full justify-start" onClick={onHost}>{t("remote.hostInstead")}</Button></div>
     </nav>
     <main className="h-full flex-1 overflow-y-auto px-10 py-8">
-      {page === "characters" ? <PortablePage /> : page === "settings" ? <><div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">{t("nav.settings")}</h1><LanguagePicker /></div><AboutCard /></> : <>
+      {page === "servers" ? <BrowsePage /> : page === "characters" ? <PortablePage /> : page === "settings" ? <><div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">{t("nav.settings")}</h1><LanguagePicker /></div><AboutCard /></> : <>
         <div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">{t("welcome.connect.title")}</h1><LanguagePicker /></div>
         <p className="mt-2 text-muted">{t("remote.intro")}</p>
         <Card className="mt-6 p-6">

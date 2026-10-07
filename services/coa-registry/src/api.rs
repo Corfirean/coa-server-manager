@@ -29,6 +29,10 @@ pub struct ApiConfig {
     pub general: Rate,
     pub register: Rate,
     pub heartbeat: Rate,
+    /// Reads of the public list and detail, per source address.
+    pub browse: Rate,
+    /// How long a built list or detail is served from memory (0 turns the cache off).
+    pub cache_secs: u64,
 }
 
 impl Default for ApiConfig {
@@ -39,6 +43,8 @@ impl Default for ApiConfig {
             general: Rate::per_minute(120, 120.0),
             register: Rate::per_hour(10, 10.0),
             heartbeat: Rate { burst: 4.0, refill: 1.0 / 10.0 },
+            browse: Rate { burst: 60.0, refill: 2.0 },
+            cache_secs: 5,
         }
     }
 }
@@ -50,8 +56,19 @@ pub struct AppState<S: Store> {
     ip_general: Limiter<IpAddr>,
     ip_register: Limiter<IpAddr>,
     realm_heartbeat: Limiter<RealmId>,
+    ip_browse: Limiter<IpAddr>,
+    cache: std::sync::Mutex<std::collections::HashMap<String, CacheEntry>>,
     started: Instant,
 }
+
+/// A built public answer, served again until it is a few seconds old.
+struct CacheEntry {
+    at: Instant,
+    body: Arc<Vec<u8>>,
+    etag: String,
+}
+
+const CACHE_MAX_ENTRIES: usize = 512;
 
 impl<S: Store> AppState<S> {
     pub fn new(store: S, clock: Clock, cfg: ApiConfig) -> Self {
@@ -59,6 +76,8 @@ impl<S: Store> AppState<S> {
             ip_general: Limiter::new(cfg.general, 100_000),
             ip_register: Limiter::new(cfg.register, 100_000),
             realm_heartbeat: Limiter::new(cfg.heartbeat, 100_000),
+            ip_browse: Limiter::new(cfg.browse, 100_000),
+            cache: std::sync::Mutex::new(std::collections::HashMap::new()),
             store,
             clock,
             cfg,
@@ -116,6 +135,8 @@ pub fn router<S: Store>(state: Arc<AppState<S>>) -> Router {
         .route("/registry/v2/realms/{realm_id}/heartbeat", post(heartbeat::<S>))
         .route("/registry/v2/realms/{realm_id}/unpublish", post(unpublish::<S>))
         .route("/registry/v2/realms/{realm_id}/self", get(self_info::<S>))
+        .route("/registry/v2/realms", get(list_realms::<S>))
+        .route("/registry/v2/realms/{realm_id}", get(realm_detail::<S>))
         .fallback(fallback)
         .with_state(state)
 }
@@ -384,4 +405,113 @@ async fn self_info<S: Store>(State(st): State<Arc<AppState<S>>>, ConnectInfo(Pee
     }
     .await;
     finish("self", realm_for_log.as_ref(), started, result)
+}
+
+/// A public JSON answer with a short server-side cache and an ETag, so that many clients opening the browser do not each reach the database.
+async fn public_json<S: Store, F>(st: &AppState<S>, headers: &HeaderMap, key: String, build: F) -> Result<Response, ApiError>
+where
+    F: std::future::Future<Output = Result<Vec<u8>, ApiError>> + Send,
+{
+    use sha2::{Digest, Sha256};
+    let ttl = std::time::Duration::from_secs(st.cfg.cache_secs);
+    let hit = st.cache.lock().ok().and_then(|c| c.get(&key).filter(|e| e.at.elapsed() < ttl).map(|e| (e.body.clone(), e.etag.clone())));
+    let (body, etag) = match hit {
+        Some(h) => h,
+        None => {
+            let bytes = build.await?;
+            let etag = format!("\"{}\"", hex::encode(&Sha256::digest(&bytes)[..16]));
+            let body = Arc::new(bytes);
+            if st.cfg.cache_secs > 0 {
+                if let Ok(mut c) = st.cache.lock() {
+                    if c.len() >= CACHE_MAX_ENTRIES {
+                        c.retain(|_, e| e.at.elapsed() < ttl);
+                        if c.len() >= CACHE_MAX_ENTRIES {
+                            c.clear();
+                        }
+                    }
+                    c.insert(key, CacheEntry { at: Instant::now(), body: body.clone(), etag: etag.clone() });
+                }
+            }
+            (body, etag)
+        }
+    };
+    let cache_control = format!("public, max-age={}", st.cfg.cache_secs);
+    let fresh = headers.get(axum::http::header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()).is_some_and(|v| v.split(',').any(|t| t.trim().trim_start_matches("W/") == etag || t.trim() == "*"));
+    let builder = Response::builder().header(axum::http::header::ETAG, &etag).header(axum::http::header::CACHE_CONTROL, cache_control);
+    let response = if fresh { builder.status(StatusCode::NOT_MODIFIED).body(Body::empty()) } else { builder.status(StatusCode::OK).header(axum::http::header::CONTENT_TYPE, "application/json").body(Body::from(body.as_ref().clone())) };
+    response.map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal, "the answer could not be built"))
+}
+
+fn browse_admit<S: Store>(st: &AppState<S>, ip: IpAddr) -> Result<(), ApiError> {
+    admit(st, ip, 1.0)?;
+    if st.ip_browse.take(&ip, 1.0, st.mono()) {
+        Ok(())
+    } else {
+        Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, ErrorCode::RateLimited, "too many requests"))
+    }
+}
+
+/// `GET /registry/v2/realms`: the public list. Only discovery metadata, never a key of a realm's Host, a credential or a player.
+async fn list_realms<S: Store>(State(st): State<Arc<AppState<S>>>, ConnectInfo(Peer(peer)): ConnectInfo<Peer>, req: Request<Body>) -> Response {
+    let started = Instant::now();
+    let (parts, _body) = req.into_parts();
+    let ip = client_ip(&parts.headers, peer, st.cfg.trust_proxy);
+    let result: Result<Response, ApiError> = async {
+        browse_admit(&st, ip)?;
+        let q = ListQuery::parse(parts.uri.query()).map_err(|e| ApiError::malformed(e.to_string()))?;
+        let key = format!("list:{}", q.canonical());
+        let (now, ttl) = (st.now(), st.cfg.online_ttl_secs as i64);
+        public_json(&st, &parts.headers, key, async {
+            let mut rows = st.store.list(&q, now, ttl).await?;
+            let more = rows.len() > q.limit as usize;
+            rows.truncate(q.limit as usize);
+            let next = if more { rows.last().map(|last| Cursor { s: q.sort, o: q.order, k: crate::store::sort_value(last, q.sort), id: last.realm_id }.encode()) } else { None };
+            serde_json::to_vec(&RealmPage::new(rows, next)).map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal, "the list could not be built"))
+        })
+        .await
+    }
+    .await;
+    match result {
+        Ok(r) => {
+            log("list", None, started, &Ok((r.status(), String::new())));
+            r
+        }
+        Err(e) => {
+            log("list", None, started, &Err(ApiError { status: e.status, code: e.code, message: String::new() }));
+            e.into_response()
+        }
+    }
+}
+
+/// `GET /registry/v2/realms/{realm_id}`: the public record of a published realm (404 for an unknown, unpublished or protocol-1 one).
+async fn realm_detail<S: Store>(State(st): State<Arc<AppState<S>>>, ConnectInfo(Peer(peer)): ConnectInfo<Peer>, Path(realm_text): Path<String>, req: Request<Body>) -> Response {
+    let started = Instant::now();
+    let (parts, _body) = req.into_parts();
+    let ip = client_ip(&parts.headers, peer, st.cfg.trust_proxy);
+    let mut realm_for_log = None;
+    let result: Result<Response, ApiError> = async {
+        browse_admit(&st, ip)?;
+        if parts.uri.query().is_some() {
+            return Err(ApiError::malformed("this endpoint takes no query string"));
+        }
+        let realm = RealmId::parse(&realm_text).map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, ErrorCode::InvalidRealmId, "the realm id is not a canonical UUIDv7"))?;
+        realm_for_log = Some(realm);
+        let now = st.now();
+        public_json(&st, &parts.headers, format!("detail:{realm}"), async {
+            let row = st.store.get(&realm).await?.filter(|r| r.published && r.advert_version >= crate::store::ADVERT_VERSION).ok_or(StoreError::Unknown)?;
+            serde_json::to_vec(&detail_of(row, now, st.cfg.online_ttl_secs)).map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal, "the record could not be built"))
+        })
+        .await
+    }
+    .await;
+    match result {
+        Ok(r) => {
+            log("detail", realm_for_log.as_ref(), started, &Ok((r.status(), String::new())));
+            r
+        }
+        Err(e) => {
+            log("detail", realm_for_log.as_ref(), started, &Err(ApiError { status: e.status, code: e.code, message: String::new() }));
+            e.into_response()
+        }
+    }
 }

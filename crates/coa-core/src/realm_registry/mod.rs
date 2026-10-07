@@ -6,6 +6,7 @@
 //! portable state. See `docs/REGISTRY_PROTOCOL.md`.
 
 pub mod advert;
+pub mod browse;
 pub mod client;
 pub mod host;
 pub mod keys;
@@ -13,6 +14,7 @@ pub mod runtime;
 pub mod settings;
 
 pub use advert::{advertise, AdvertSource, LocalAdvert, LocalRealmsSource};
+pub use browse::{BrowseClient, BrowseParams};
 pub use client::{ClientError, RegistryClient};
 pub use host::{PublishState, RealmPublishStatus, RegistryHost, RegistryStatus, Timing};
 pub use keys::{FileKeyStore, KeyStore};

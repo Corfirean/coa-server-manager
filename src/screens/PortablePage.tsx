@@ -42,14 +42,14 @@ function noteText(t: ReturnType<typeof useT>, n: Note): string {
   return text === key ? t("portable.note.generic", { detail: n.detail }) : text;
 }
 
-function Notes({ notes }: { notes: Note[] }) {
+export function Notes({ notes }: { notes: Note[] }) {
   const t = useT();
   const shown = notes.filter((n) => n.code !== "projection");
   if (!shown.length) return null;
   return <ul className="mt-3 space-y-1.5 text-sm text-muted">{shown.map((n, i) => <li key={i} className="flex gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden /><span className="selectable">{noteText(t, n)}</span></li>)}</ul>;
 }
 
-function Projection({ from, to, cap }: { from: number; to: number; cap?: number | null }) {
+export function Projection({ from, to, cap }: { from: number; to: number; cap?: number | null }) {
   const t = useT();
   return <div className="mt-3 rounded-md border border-gold/40 bg-gold/10 p-3 text-sm" role="note">
     <p className="font-medium text-gold">{t("portable.projection.title", { cap: cap ?? to })}</p>

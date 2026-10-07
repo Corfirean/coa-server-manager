@@ -1750,6 +1750,10 @@ pub fn run() {
             portable_diagnostics,
             portable_launch,
             registry_status,
+            portable_preflight_remote,
+            browse_list,
+            browse_detail,
+            module_catalog,
             registry_set_url,
             registry_publish,
             registry_unpublish,
@@ -1774,6 +1778,57 @@ pub fn run() {
 
 fn realm_registry(state: &State<'_, AppState>) -> std::result::Result<Arc<coa_core::realm_registry::RegistryRuntime>, UiError> {
     state.realm_registry.clone().ok_or_else(|| Error::Invalid("the publishing service did not start".into()).into())
+}
+
+#[tauri::command]
+async fn portable_preflight_remote(state: State<'_, AppState>, character: String, capabilities: serde_json::Value) -> std::result::Result<portable_service::PreflightView, ServiceError> {
+    portable_call(&state, move |s| s.preflight_advert(&character, &capabilities)).await
+}
+
+fn browse_client() -> std::result::Result<coa_core::realm_registry::BrowseClient, UiError> {
+    let settings = coa_core::realm_registry::settings::load(&data_dir().join("registry"))?;
+    let url = std::env::var("COA_REGISTRY_URL").ok().filter(|u| !u.is_empty()).or(settings.url).ok_or_else(|| Error::Invalid("Enter the Registry address first.".into()))?;
+    Ok(coa_core::realm_registry::BrowseClient::new(&url)?)
+}
+
+fn browse_error(e: coa_core::realm_registry::ClientError) -> UiError {
+    Error::Invalid(e.to_string()).into()
+}
+
+/// One page of the public realm list (a plain read of the Registry; nothing about the player is sent).
+#[tauri::command]
+async fn browse_list(params: coa_core::realm_registry::BrowseParams) -> std::result::Result<coa_registry_proto::RealmPage, UiError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let query = params.to_query()?;
+        browse_client()?.list(&query).map_err(browse_error)
+    })
+    .await
+    .map_err(|e| Error::Invalid(e.to_string()))?
+}
+
+#[tauri::command]
+async fn browse_detail(realm_id: String) -> std::result::Result<coa_registry_proto::RealmDetail, UiError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let id = coa_registry_proto::RealmId::parse(&realm_id).map_err(|e| Error::Invalid(e.to_string()))?;
+        browse_client()?.detail(&id).map_err(browse_error)
+    })
+    .await
+    .map_err(|e| Error::Invalid(e.to_string()))?
+}
+
+#[derive(serde::Serialize)]
+struct ModuleInfo {
+    id: String,
+    name: String,
+    description: std::collections::BTreeMap<String, String>,
+    status: String,
+    icon: String,
+}
+
+/// The Manager's own module catalog: names and descriptions of the modules a realm's advertisement lists by id.
+#[tauri::command]
+fn module_catalog() -> Vec<ModuleInfo> {
+    coa_core::modules::catalog().into_iter().map(|e| ModuleInfo { id: e.id, name: e.name, description: e.description, status: e.status, icon: e.icon }).collect()
 }
 
 #[tauri::command]
