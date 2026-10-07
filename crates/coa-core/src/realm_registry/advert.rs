@@ -92,6 +92,15 @@ pub fn modules_of(root: &Path) -> Vec<ModuleEntry> {
     out
 }
 
+/// The realm a local id names: an installed server (`srv-<install id>` or the bare install id) or a prepared descriptor.
+pub fn find_access(descriptors: &Path, installs: &[(String, PathBuf)], local_id: &str) -> Option<RealmAccess> {
+    if let Some((id, root)) = installs.iter().find(|(id, _)| format!("srv-{id}") == local_id || id == local_id) {
+        return Some(RealmAccess::from_install(id, root));
+    }
+    let (found, _) = load_descriptors(descriptors);
+    found.into_iter().find(|d| d.id == local_id).and_then(|d| RealmAccess::from_descriptor(d).ok())
+}
+
 struct Cached {
     at: Instant,
     advert: LocalAdvert,
@@ -103,7 +112,7 @@ struct Inner {
     installs: Box<dyn Fn() -> Vec<(String, PathBuf)> + Send + Sync>,
     registry: Arc<ExtensionRegistry>,
     /// Can this Manager create game accounts for joining players (the control service runs)?
-    provisioning: Box<dyn Fn() -> bool + Send + Sync>,
+    provisioning: Box<dyn Fn(&str) -> bool + Send + Sync>,
     cache: Mutex<HashMap<String, Cached>>,
     inflight: Mutex<HashSet<String>>,
     fresh: Duration,
@@ -120,11 +129,11 @@ pub struct LocalRealmsSource {
 
 impl LocalRealmsSource {
     pub fn new(descriptors: impl Into<PathBuf>, installs: impl Fn() -> Vec<(String, PathBuf)> + Send + Sync + 'static) -> Self {
-        Self::with_provisioning(descriptors, installs, || false)
+        Self::with_provisioning(descriptors, installs, |_| false)
     }
 
-    /// `provisioning` says whether this Manager is serving account creation: a realm only advertises automatic accounts when that is true.
-    pub fn with_provisioning(descriptors: impl Into<PathBuf>, installs: impl Fn() -> Vec<(String, PathBuf)> + Send + Sync + 'static, provisioning: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+    /// `provisioning` says, for a local realm id, whether this Manager is serving account creation for it: a realm only advertises automatic accounts when that is true.
+    pub fn with_provisioning(descriptors: impl Into<PathBuf>, installs: impl Fn() -> Vec<(String, PathBuf)> + Send + Sync + 'static, provisioning: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
         Self {
             inner: Arc::new(Inner {
                 descriptors: descriptors.into(),
@@ -142,17 +151,13 @@ impl LocalRealmsSource {
 
 impl Inner {
     fn access(&self, local_id: &str) -> Option<RealmAccess> {
-        if let Some((id, root)) = (self.installs)().into_iter().find(|(id, _)| format!("srv-{id}") == local_id || id == local_id) {
-            return Some(RealmAccess::from_install(&id, &root));
-        }
-        let (descriptors, _) = load_descriptors(&self.descriptors);
-        descriptors.into_iter().find(|d| d.id == local_id).and_then(|d| RealmAccess::from_descriptor(d).ok())
+        find_access(&self.descriptors, &(self.installs)(), local_id)
     }
 
     fn probe(&self, local_id: &str) {
         let previous = self.cache.lock().ok().and_then(|c| c.get(local_id).map(|c| (c.advert.clone(), c.caps_at)));
         let Some(access) = self.access(local_id) else { return };
-        let automatic = (self.provisioning)();
+        let automatic = (self.provisioning)(local_id);
         let mut advert = LocalAdvert {
             running: false,
             capabilities: previous.as_ref().and_then(|(a, _)| a.capabilities.clone()),

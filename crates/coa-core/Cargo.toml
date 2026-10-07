@@ -28,13 +28,15 @@ tempfile = "3"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 if-addrs = "0.15"
 coa-registry-proto = { path = "../coa-registry-proto" }
+coa-control-proto = { path = "../coa-control-proto" }
+tungstenite = { version = "0.26", default-features = false, features = ["handshake", "native-tls"] }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Diagnostics_ToolHelp", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Diagnostics_ToolHelp", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Security_Cryptography"] }
 
 [features]
 testkit = []

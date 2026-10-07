@@ -128,6 +128,15 @@ struct Saved {
     at: String,
 }
 
+/// A realm character exported for a remote player (see [`PortableService::export_for_claim`]).
+#[derive(Debug, Clone)]
+pub struct ClaimBundle {
+    pub character_id: CharacterId,
+    pub payload: Vec<u8>,
+    pub content_hash: [u8; 32],
+    pub collections: BTreeMap<String, Vec<u32>>,
+}
+
 pub struct PortableService {
     dir: PathBuf,
     owner: Store,
@@ -924,6 +933,65 @@ impl PortableService {
         }
         self.publish();
         self.state().characters.into_iter().find(|c| c.id == made.character_id.to_string()).ok_or_else(|| fail("other", "The character was not registered."))
+    }
+
+    // ---- remote claims (Phase 12) --------------------------------------------------------------------------------------------------
+
+    /// How to reach a realm this Manager knows (its database and console).
+    pub fn realm_access(&self, id: &str) -> Res<RealmAccess> {
+        self.access(id)
+    }
+
+    /// Is this realm character already registered with this Manager's host store (made portable here before)?
+    pub fn is_portable_here(&self, realm_id: &str, local_guid: u32) -> Res<bool> {
+        Ok(self.host.find_by_local(realm_id, local_guid)?.is_some())
+    }
+
+    /// Read an offline character of a realm this Manager hosts and register it, **for a remote player who claims it**: the character is registered with the host
+    /// store only (the player's own Manager keeps the canonical copy), and what leaves is the encoded snapshot and the account's collections. A character that is
+    /// already registered is read from the store again (a retried claim returns the same character).
+    pub fn export_for_claim(&mut self, realm_id: &str, local_guid: u32) -> Res<ClaimBundle> {
+        let access = self.access(realm_id)?;
+        let db = access.db().map_err(|e| fail("realm_offline", e.to_string()))?;
+        let character_id = match self.host.find_by_local(realm_id, local_guid)? {
+            Some(c) => c,
+            None => realm::make_portable(&db, &mut self.host, self.host_profile, realm_id, local_guid)?.character_id,
+        };
+        let model = self.host.load_current(character_id)?;
+        let encoded = super::super::snapshot::encode(&model)?;
+        let mut collections = BTreeMap::new();
+        if realm::ruleset_of(&db) == super::super::model::Ruleset::Coa {
+            if let Some(account) = realm::collections::account_of(&db, local_guid)? {
+                for kind in ["coa:appearance", "coa:vanity"] {
+                    if let Ok(set) = realm::collections::read_set(&db, account, kind) {
+                        collections.insert(kind.to_string(), set.ids().to_vec());
+                    }
+                }
+            }
+        }
+        self.publish();
+        Ok(ClaimBundle { character_id, payload: encoded.payload, content_hash: encoded.content_hash, collections })
+    }
+
+    /// Store a character claimed on a remote realm as this player's canonical one (revision 1), with the account collections that came with it. The payload is verified
+    /// against the hash and the character id before anything is written; a character that is already here is left alone.
+    pub fn adopt_claim(&mut self, realm_id: &str, character_id: CharacterId, payload: &[u8], content_hash: &[u8; 32], collections: &BTreeMap<String, Vec<u32>>) -> Res<CharacterView> {
+        let model = super::super::snapshot::decode(payload, Some(content_hash))?;
+        if model.character_id != character_id {
+            return Err(fail("other", "The character data does not belong to the character that was claimed."));
+        }
+        if self.owner.character(character_id).is_err() {
+            self.owner.create_character_with_id(self.owner_profile, model, realm_id)?;
+        }
+        for (kind, ids) in collections {
+            if !matches!(kind.as_str(), "coa:appearance" | "coa:vanity") {
+                continue;
+            }
+            let set = super::super::collection::IdSet::from_ids(ids.iter().copied())?;
+            self.owner.merge_collection(self.owner_profile, kind, &set)?;
+        }
+        self.publish();
+        self.state().characters.into_iter().find(|c| c.id == character_id.to_string()).ok_or_else(|| fail("other", "The character was not registered."))
     }
 
     /// The two ways out of a divergence the Manager does not own.

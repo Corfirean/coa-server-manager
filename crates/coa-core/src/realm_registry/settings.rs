@@ -22,12 +22,35 @@ pub struct PublishConfig {
     /// A coarse region tag (`EU`, `NA`, `RU`…), or none.
     #[serde(default)]
     pub region: Option<String>,
+    /// The realm does not create accounts for joining players (it only links accounts that exist). Off by default: new players get an account.
+    #[serde(default)]
+    pub existing_only: bool,
+    /// An address a player's game client can reach right now (`host` or `host:port`), stated by the owner. It is not discovery and not a relay.
+    #[serde(default)]
+    pub route: Option<String>,
+}
+
+/// A route the owner states: a host name or IPv4 address and an optional port, nothing else.
+pub fn validate_route(route: &str) -> Result<String> {
+    let r = route.trim();
+    let (host, port) = match r.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (r, None),
+    };
+    let port_ok = port.is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u32>().is_ok_and(|n| (1..=65535).contains(&n)));
+    if r.is_empty() || r.len() > 255 || !port_ok || !crate::client::host_ok(host) || host.contains(':') {
+        return Err(Error::Invalid("The address must be a host name or an IPv4 address and an optional port.".into()));
+    }
+    Ok(r.to_string())
 }
 
 impl PublishConfig {
     pub fn validate(&self) -> Result<()> {
         if let Some(r) = &self.region {
             coa_registry_proto::validate_region(r).map_err(|e| Error::Invalid(e.to_string()))?;
+        }
+        if let Some(r) = &self.route {
+            validate_route(r)?;
         }
         validate_display_name(&self.display_name).map_err(|e| Error::Invalid(e.to_string()))?;
         validate_description(&self.description).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -106,7 +129,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(load(dir.path()).unwrap(), RegistrySettings::default());
         let mut s = RegistrySettings { url: Some("http://x".into()), ..Default::default() };
-        s.realms.insert("srv-1".into(), PublishConfig { realm_id: Some(RealmId::new()), enabled: true, display_name: "A".into(), description: String::new(), language: "en".into(), region: None });
+        s.realms.insert("srv-1".into(), PublishConfig { realm_id: Some(RealmId::new()), enabled: true, display_name: "A".into(), description: String::new(), language: "en".into(), region: None, existing_only: false, route: None });
         save(dir.path(), &s).unwrap();
         assert_eq!(load(dir.path()).unwrap(), s);
         let text = std::fs::read_to_string(file(dir.path())).unwrap();

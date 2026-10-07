@@ -1,0 +1,22 @@
+[package]
+name = "coa-control-e2e"
+description = "End-to-end tests of the control plane (Phase 12): Host and Player Managers (coa-core) through the real Coordinator service code. Test-only."
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+
+[dev-dependencies]
+coa-core = { path = "../../crates/coa-core", features = ["testkit"] }
+coa-coordinator = { path = "../coa-coordinator" }
+coa-control-proto = { path = "../../crates/coa-control-proto" }
+coa-registry-proto = { path = "../../crates/coa-registry-proto" }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
+ed25519-dalek = "2"
+tungstenite = "0.26"
+tempfile = "3"
+uuid = { version = "1", features = ["v4", "v7"] }

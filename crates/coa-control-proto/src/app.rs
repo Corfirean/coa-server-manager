@@ -1,5 +1,7 @@
 //! The application messages inside the end-to-end channel. One request, one response, in order. Nothing here is ever visible to the Coordinator.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -107,8 +109,9 @@ pub enum Response {
     Welcome { realm_id: coa_registry_proto::RealmId, automatic: bool, existing_only: bool, route: Option<String> },
     Provisioned { username: String, created: bool, reset: bool },
     Characters { characters: Vec<CharacterEntry> },
-    /// The character as the Host exported it: `payload` is the base64 of the encoded portable snapshot, `sha256` its hash.
-    Claimed { character_id: Uuid, sha256: String, payload: String },
+    /// The character as the Host exported it: `payload` is the base64 of the encoded portable snapshot, `sha256` the hash of its canonical JSON, `collections` the account's
+    /// appearance and vanity ids the Host holds for the account (kind -> ids).
+    Claimed { character_id: Uuid, sha256: String, payload: String, collections: BTreeMap<String, Vec<u32>> },
     Linked { username: String },
     Done,
     RouteInfo { address: Option<String> },

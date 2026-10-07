@@ -287,7 +287,8 @@ pub fn parse_server_info(text: &str) -> Option<Performance> {
 /// Account names are letters/digits (3-17); passwords are 6-16 printable characters without spaces or quotes.
 pub fn validate_account(name: &str, password: &str) -> Result<()> {
     let bad = |m: &str| Err(Error::Invalid(m.into()));
-    if !(3..=17).contains(&name.len()) || !name.chars().all(|c| c.is_ascii_alphanumeric()) {
+    // an underscore inside a name is allowed: the Manager gives joining players names like `DMITRY_7K4M`
+    if !(3..=17).contains(&name.len()) || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || name.starts_with('_') || name.ends_with('_') {
         return bad("The username must be 3–17 letters or digits.");
     }
     if !(6..=16).contains(&password.len()) || !password.chars().all(|c| c.is_ascii_graphic() && c != '"' && c != '\'') {

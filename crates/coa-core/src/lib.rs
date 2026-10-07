@@ -6,6 +6,7 @@ pub mod client;
 pub mod remote_client;
 pub mod clientdl;
 pub mod config;
+pub mod control;
 pub mod console;
 pub mod db;
 pub mod diag;
