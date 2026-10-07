@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS player_realm(
     kind       TEXT NOT NULL CHECK (kind IN ('generated', 'linked')),
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS realm_pin(
+    realm_id   TEXT PRIMARY KEY,
+    public_key TEXT NOT NULL,
+    first_seen TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS player_claim(
     realm_id     TEXT NOT NULL,
     character_id TEXT NOT NULL,
@@ -216,6 +221,16 @@ impl ControlStore {
 
     pub fn player_realm_remove(&self, realm_id: &str) -> Result<()> {
         self.conn.execute("DELETE FROM player_realm WHERE realm_id = ?1", [realm_id]).map_err(db)?;
+        Ok(())
+    }
+
+    /// The public key a realm had when this player first reached it. A realm id never changes its key (a new key is a new realm), so a different one is refused.
+    pub fn realm_pin(&self, realm_id: &str) -> Result<Option<String>> {
+        self.conn.query_row("SELECT public_key FROM realm_pin WHERE realm_id = ?1", [realm_id], |r| r.get(0)).optional().map_err(db)
+    }
+
+    pub fn realm_pin_set(&self, realm_id: &str, public_key: &str) -> Result<()> {
+        self.conn.execute("INSERT OR IGNORE INTO realm_pin(realm_id, public_key, first_seen) VALUES (?1, ?2, ?3)", params![realm_id, public_key, now()]).map_err(db)?;
         Ok(())
     }
 

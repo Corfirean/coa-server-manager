@@ -236,6 +236,10 @@ fn existing_only_realms_ask_for_a_one_time_link() {
     assert_eq!(wrong.code(), "wrong_credentials");
     assert_eq!(pc.link_existing(&mut ch, &env.realm, "legacy", "Secret12").unwrap(), "LEGACY");
     assert_eq!(pc.credentials(&env.realm).unwrap().unwrap().password, "Secret12");
+    // joining afterwards confirms the same account and keeps it a linked one
+    let again = pc.ensure_account(&mut ch, &env.realm, None).unwrap();
+    assert_eq!((again.username.as_str(), again.created, again.password_reset), ("LEGACY", false, false));
+    assert_eq!(pc.known_account(&env.realm).unwrap().unwrap().1, coa_core::control::store::AccountKind::Linked);
     assert!(!env.wire_contains("Secret12") && !env.wire_contains("LEGACY"), "the link travelled encrypted");
     // linked once: the host holds the mapping, not the password
     let m = env.store.lock().unwrap().host_player("srv-1", &pc.identity.player_id).unwrap().unwrap();
@@ -341,4 +345,18 @@ fn identity_accounts_and_credentials_survive_a_restart() {
     // no password in the control database
     let db = std::fs::read(dir.path().join("control.sqlite")).unwrap();
     assert!(!db.windows(creds.password.len()).any(|w| w == creds.password.as_bytes()));
+}
+
+#[test]
+fn a_realms_key_is_pinned_at_the_first_visit() {
+    let env = Env::new(true);
+    let dir = tempfile::tempdir().unwrap();
+    let pc = player(dir.path(), Arc::new(MemoryStore::default()));
+    pc.connect(&env.target()).unwrap().close();
+    // a directory (the Registry, or anything on the way to it) that later names another key for the same realm id is refused before anything is sent
+    let swapped = RealmTarget { key: random_key().verifying_key(), ..env.target() };
+    let err = pc.connect(&swapped).err().expect("the pinned key differs");
+    assert_eq!(err.code(), "host_not_verified", "{err}");
+    // the right key still works
+    pc.connect(&env.target()).unwrap().close();
 }

@@ -1,6 +1,6 @@
-# Registry deployment (Phase 10)
+# Registry and Coordinator deployment (Phases 10, 10.1, 11, 12)
 
-How the Registry runs on `coa-infra-01`, how to rebuild or restart it, and what the Phase-10 gate checked. Protocol: [REGISTRY_PROTOCOL.md](REGISTRY_PROTOCOL.md).
+How the Registry and the Coordinator run on `coa-infra-01`, how to rebuild or restart them, and what the gates checked. Protocols: [REGISTRY_PROTOCOL.md](REGISTRY_PROTOCOL.md), [CONTROL_PROTOCOL.md](CONTROL_PROTOCOL.md).
 Node facts: [INFRASTRUCTURE.md](INFRASTRUCTURE.md), [VPS_BASELINE.md](VPS_BASELINE.md). `<VPS_IP>` is the node's public IPv4 (kept out of git); no secret is in this file.
 
 ## Topology
@@ -10,6 +10,7 @@ Internet
   |  22/tcp (sshd)   80/tcp, 443/tcp (Caddy, the only container with published ports)
   v
 Caddy  :80   /registry/*  ->  coa-registry:8080      network coa-ingress
+       :80   /coord/*     ->  coa-coordinator:8081   network coa-ingress   (WebSocket; Phase 12)
                                    |
 Registry container  (coa-registry)  +--- network coa-db (internal) ---+
                                                                        v
@@ -20,7 +21,7 @@ Registry container  (coa-registry)  +--- network coa-db (internal) ---+
   Never add `5432:5432` or `8080:8080`.
 * The Registry joins `coa-ingress` (to be reached by Caddy) and `coa-db` (to reach PostgreSQL). PostgreSQL joins only `coa-db`, which is `--internal`.
 * Caddy serves plain HTTP on :80 (no domain yet: `auto_https off`, admin API off). Port 443 is allowed by UFW and published by Docker, but nothing listens on it until TLS exists.
-  **HTTPS is mandatory before Phase 11 is treated as release-ready**; for this staging gate HTTP is acceptable because every Host request is signed and carries no secret.
+  **HTTPS is mandatory before the list and the control plane are shown to players outside the test group** (the one open item of Phase 11 and of Phase 12's transport); for these staging gates HTTP is acceptable because every Host request is signed, the public list is public, and everything private on the control plane is end-to-end encrypted inside the WebSocket (an on-path observer of plain HTTP learns that a connection to a realm exists and its size and timing, nothing else). No custom PKI is used or planned: TLS needs a domain name and a normal certificate (ACME through Caddy).
 
 ## Files (in git: `services/coa-registry/deploy/`)
 
@@ -28,7 +29,11 @@ Registry container  (coa-registry)  +--- network coa-db (internal) ---+
 |---|---|
 | `postgres.compose.yaml` | `/opt/coa/postgres/compose.yaml` |
 | `registry.compose.yaml` | `/opt/coa/registry/compose.yaml` (+ `.env`: `REGISTRY_TAG`, rate limits) |
-| `Caddyfile` | `/opt/coa/caddy/Caddyfile` (the Phase -1 file is kept as `Caddyfile.phase-1.bak`) |
+| `Caddyfile` | `/opt/coa/caddy/Caddyfile` (the Phase -1 file is kept as `Caddyfile.phase-1.bak`, the Phase-11 one as `.phase-12.bak`) |
+| `../../coa-coordinator/deploy/coordinator.compose.yaml` | `/opt/coa/coordinator/compose.yaml` (+ `.env`: `COORDINATOR_TAG`) |
+| `../../coa-coordinator/deploy/provision-db.sh` | creates `coa_coordinator`, a role that may read four columns of `realms` (`realm_id`, `public_key`, `published`, `advert_version`) and nothing else; also creates its password file |
+| `../../coa-coordinator/deploy/deploy.sh` | builds the Coordinator image on the node and starts it |
+| `../../coa-coordinator/Dockerfile` | same shape as the Registry's (non-root uid 10002, read-only root, all capabilities dropped, no-new-privileges, 256 MB, 128 pids) |
 | `provision-db.sh` | run once (idempotent) as root: creates the least-privilege role `coa_registry` and database `coa_registry` |
 | `deploy.sh` | builds the image on the node from the working tree and restarts the stack |
 | `audit-db.sql` / `audit-db.sh` | what the database holds (gate item 17) |
@@ -40,6 +45,7 @@ Registry container  (coa-registry)  +--- network coa-db (internal) ---+
 ```
 /opt/coa/secrets/postgres_password       root:root   0600   superuser of PostgreSQL; read only by the PostgreSQL entrypoint
 /opt/coa/secrets/registry_db_password    root:10001  0440   password of the role coa_registry; mounted at /run/secrets in the Registry container
+/opt/coa/secrets/coordinator_db_password root:10002  0440   password of the role coa_coordinator (read-only, four columns); mounted in the Coordinator container
 ```
 
 Both were generated on the node (`/dev/urandom`, 40 characters) and never displayed. The Registry connects as `coa_registry` (not a superuser, no CREATEDB/CREATEROLE,
@@ -69,7 +75,8 @@ Staging note: the gate ran with `REGISTRY_REGISTER_BURST=100`; the production de
 
 ```bash
 cd /opt/coa/registry && sudo docker compose ps && sudo docker compose logs --tail 50     # JSON lines
-curl -s http://<VPS_IP>/registry/v1/healthz                                              # {"status":"ok","protocol_version":1}
+curl -s http://<VPS_IP>/registry/v2/healthz                                              # {"status":"ok","protocol_version":2}
+curl -s http://<VPS_IP>/coord/v1/health                                                  # {"hosts":N,"protocol_version":1,"status":"ok"}
 sudo sh /opt/coa/registry/src/services/coa-registry/deploy/audit-db.sh                   # contents audit
 ```
 
@@ -113,3 +120,43 @@ After the logout the final sync was made and the next session armed as usual.
 
 **Found by running it for real** (and fixed): on Windows the key file's access list had to include delete rights or the final rename was refused (`icacls … (F)`); the realm probe, which takes many seconds, was blocking the publishing loop (now a cached, background probe);
 a republish within the same second as the last request was refused as a replay (the counter is carried over).
+
+## The Phase-10.1 gate (protocol 2)
+
+Run on 2026-10-07 against the same node. Tools: `services/coa-registry-e2e/tests/live_vps.rs` (`gate_1_to_12_against_the_node` re-run for protocol 2, `gate_v1_record_republishes_under_v2`), `deploy/gate-restarts.sh`, `deploy/audit-db.sh`, and the real Manager window.
+
+| Item | Result |
+|---|---|
+| A realm republishes under protocol 2 | pass: the real *PT Guest* realm of the smoke setup registered with its structured listing (rates `Rate.*` read from its `worldserver.conf`, modules from the catalog, level cap 60 from the running core, population from its database: 0 players + 12 bots counted separately, capacity none because `PlayerLimit = 0`) |
+| A record written under protocol 1 is migrated, not lost | pass (`gate_v1_record_republishes_under_v2`): the Phase-10 probe realm kept its `RealmId`, key and `created_at`; it was invisible to the public list until it registered again under protocol 2 with the same key, which was one metadata revision (1 → 2) |
+| Records survive restarts | pass (`gate-restarts.sh` re-run for protocol 2: Registry restart, PostgreSQL restart, both stopped and started in the wrong order, `compose down/up`: after each, the realm and its key are intact; a Registry restart while Players were joining did not disturb them) |
+| Protocol 1 is refused by one documented policy | pass: `/registry/v1/*` → `400 unsupported_protocol_version` naming protocol 2 (REGISTRY_PROTOCOL.md section 0); `X-Coa-Registry-Version: 1` on a v2 path → the same code |
+| Human and bot counts are separate | pass (two columns, two fields; the list's "N players + M bots") |
+| Capabilities are hash-checked; so is the listing | pass: a hash that is not the hash of the content → `400 invalid_metadata`; a heartbeat with another hash and no part → `resend_*` and nothing applied |
+| The Phase-10 security gates still pass | pass: `gate_1_to_12_against_the_node` re-run today, 12 items, 45 s |
+
+## The Phase-11 gate (public list)
+
+Run today with 5000 synthetic realms loaded by `deploy/synthetic.sh load 5000` (marked, removed afterwards; the table is back to the one real realm), through the public path (workstation → Internet → Caddy → Registry → PostgreSQL):
+
+| Item | Result |
+|---|---|
+| Paging through thousands of realms | pass: for each of 4 sorts (players, name, cap, created) 5001 realms in 51 pages, no repeat, none skipped, in the order the sort promises (`gate11_the_public_list_pages_through_thousands_of_realms`); 204 page requests, median 107 ms, p95 112 ms, worst 205 ms (the time is the round trip from here, not the query) |
+| The query plan stays an index scan | pass (`synthetic.sh explain`): `realms_browse_name`, `_players`, `_cap`, `_created`, 0.25–0.76 ms for a page of 51 with 5000 rows |
+| Filters, bounds, ETag/cache, read-only | pass (`gate11_filters_etag_and_read_only`): search, mode, cap range, module, online players; limits above 100, a repeated or unknown parameter and a foreign cursor → 400; `If-None-Match` → 304; `POST`/`PUT`/`DELETE` on the public paths → 405 |
+| The Manager's *Servers* page | pass in the real window against the live Registry: the table, filters, sort headers, module chips and tooltips from the local catalog (an unknown id as plain text), the detail drawer with the compatibility verdict of the selected portable character, "—" for ping |
+| Configurable Registry address, none hard-coded | pass (setting + `COA_REGISTRY_URL`) |
+| **TLS** | **not done: the node has no domain.** This is the only gate item that cannot be passed without something the project does not have (a domain name). Nothing was invented instead (no self-signed or private CA) |
+
+## The Coordinator (Phase 12)
+
+`services/coa-coordinator` (own Cargo workspace, like the Registry; `crates/coa-control-proto` is the shared protocol). One container, no published port, Caddy proxies `/coord/*`
+(the health check is `/coord/v1/health`). It holds **nothing on disk and writes nothing to any database**: the connected Hosts are an in-memory table; it reads the realm's public key
+from the Registry's database as `coa_coordinator` (`SELECT (realm_id, public_key, published, advert_version) ON realms`, `default_transaction_read_only`, 4 connections), only to check a Host's proof.
+
+Limits (defaults of `coa_control_proto::coord::limits`, enforced by the service and tested): 16 simultaneous Player channels per Host, 8 connections per source address, 60 new Player channels per minute per realm and 30 per
+address, 16 MiB through one channel, a channel lives at most 600 s and at most 60 s silent, the Host has 10 s to answer a new channel, 20 KiB per forwarded frame, 10 s to say hello, a hello's timestamp within 120 s.
+
+Operating: `VPS=ubuntu@<VPS_IP> TAG=<tag> sh services/coa-coordinator/deploy/deploy.sh` (provisions the role, builds on the node, starts); `sudo docker logs coa-coordinator-coordinator-1` (JSON lines: realm id, channel number, player id, address, byte count, seconds — never a name, a password or a payload; the gate greps for them).
+A restart of the Coordinator drops the Host links; the Hosts reconnect on their own (checked: 5 s, backoff 2 s → 60 s) and joining works again at once. A restart of the Registry changes nothing for established links.
+The Phase-12 gate results are in [CONTROL_PROTOCOL.md](CONTROL_PROTOCOL.md) section 11.

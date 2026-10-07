@@ -170,8 +170,18 @@ impl PlayerControl {
         Ok(self.store()?.player_realm(&realm.to_string())?.map(|r| (r.username, r.kind)))
     }
 
+    /// Open a verified channel to the realm's Host. The realm's key is pinned the first time: the Registry says which key a realm id has, and a Registry (or anything between) that later
+    /// names another key for the same id is refused here, before anything is sent.
     pub fn connect(&self, target: &RealmTarget) -> R<PlayerChannel> {
-        Ok(PlayerChannel::connect(&target.coordinator, &target.realm_id, &target.key, &self.identity, &clock)?)
+        let id = target.realm_id.to_string();
+        let key = coord::encode_public_key(&target.key);
+        match self.store()?.realm_pin(&id)? {
+            Some(pinned) if pinned != key => return Err(ControlFail::Link(LinkError::Auth("this realm's key is not the one it had when you first joined it".into()))),
+            _ => {}
+        }
+        let channel = PlayerChannel::connect(&target.coordinator, &target.realm_id, &target.key, &self.identity, &clock)?;
+        self.store()?.realm_pin_set(&id, &key)?;
+        Ok(channel)
     }
 
     pub fn welcome(&self, ch: &mut PlayerChannel) -> R<(bool, bool, Option<String>)> {
@@ -204,7 +214,12 @@ impl PlayerControl {
             }
         })?;
         self.save_credentials(realm, &Credentials { username: username.clone(), password })?;
-        self.store()?.player_realm_set(&realm.to_string(), &username, AccountKind::Generated)?;
+        // an account the player linked stays a linked one when the realm confirms it again
+        let kind = match self.store()?.player_realm(&realm.to_string())? {
+            Some(known) if known.username == username => known.kind,
+            _ => AccountKind::Generated,
+        };
+        self.store()?.player_realm_set(&realm.to_string(), &username, kind)?;
         Ok(AccountOutcome { username, created, password_reset: reset })
     }
 
