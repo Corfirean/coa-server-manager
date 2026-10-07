@@ -250,6 +250,19 @@ pub fn is_alive(record: &ProcessIdentity) -> bool {
     identity(record.pid).map(|cur| cur.same_as(record)).unwrap_or(false)
 }
 
+/// Every running process whose image file is named one of `names` (compared without case), wherever it lives. Only for
+/// diagnostics: a process found this way is not trusted to belong to any installation.
+pub fn find_by_file_names(names: &[&str]) -> Vec<ProcessIdentity> {
+    sys::all_pids()
+        .into_iter()
+        .filter_map(identity)
+        .filter(|p| {
+            let file = p.exe.rsplit(['\\', '/']).next().unwrap_or("");
+            names.iter().any(|n| file.eq_ignore_ascii_case(n))
+        })
+        .collect()
+}
+
 /// Every running process whose image is exactly `exe`.
 pub fn find_by_exe(exe: &Path) -> Vec<ProcessIdentity> {
     let want = exe.to_string_lossy().to_lowercase().replace('/', "\\");

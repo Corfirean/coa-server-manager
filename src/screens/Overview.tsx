@@ -64,7 +64,7 @@ function Row({ label, s }: { label: string; s: ServiceStatus }) {
   );
 }
 
-export function Overview({ server, companions = true, onForget, onOpenUpdates, onRealmChanged }: { server: ServerSummary; /** the companions module is on */ companions?: boolean; onForget: () => Promise<void>; onOpenUpdates: () => void; onRealmChanged: () => void }) {
+export function Overview({ server, companions = true, onForget, onOpenUpdates, onRealmChanged, onReport }: { server: ServerSummary; /** the companions module is on */ companions?: boolean; onForget: () => Promise<void>; onOpenUpdates: () => void; onRealmChanged: () => void; /** open the problem report, which collects the diagnostics */ onReport: () => void }) {
   const t = useT();
   const human = useHuman();
   const [status, setStatus] = useState<StatusView | null>(null);
@@ -228,6 +228,12 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           />
           {headline}
         </div>
+        {!transitioning && !running && anyUp && (
+          <p className="mt-2 text-sm text-muted">
+            {t("overview.reportHint")}{" "}
+            <button onClick={onReport} className="cursor-pointer text-gold underline hover:text-ink">{t("overview.reportBtn")}</button>
+          </p>
+        )}
 
         <div className="mt-5 divide-y divide-line border-y border-line">
           <Row label={t("overview.database")} s={mysql} />

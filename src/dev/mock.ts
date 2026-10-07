@@ -87,7 +87,8 @@ export {};
         return (S[args.module]??[]).map(s => ({...s, value: moduleEdits[args.module]?.[s.key] ?? s.value}));
       }
       if(cmd==="module_save_settings") { moduleEdits[args.module] = {...moduleEdits[args.module], ...args.changes}; return Object.keys(args.changes); }
-      if(cmd==="report_context") return {manager_version:"0.3.1",windows:"Windows 11 (build 26200)",install_kind:"new",server_version:"0.261001.10"};
+      if(cmd==="report_context") return {manager_version:"0.3.1",windows:"Windows 11 (build 26200)",install_kind:"new",server_version:"0.261001.10",suggested_target:"companions",bots_version:"0.2.1 · 1a2b3c4d"};
+      if(cmd==="report_targets") return [{id:"manager",repo:"Corfirean/coa-server-manager",ours:true},{id:"companions",repo:"Corfirean/mod-coa-playerbots",ours:true},{id:"squid",repo:"Zyth45/mod-playerbots",ours:false}];
       if(cmd==="open_link"){(window as any).__lastLink=args.url;return null;}
       if(cmd==="export_diagnostics") return "C:\\Users\\you\\Desktop\\CoA-Diagnostics-20261001-140000.zip";
       if(cmd==="install_preflight") return {ok:true,problems:[],free_bytes:210*2**30};

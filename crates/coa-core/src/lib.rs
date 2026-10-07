@@ -37,6 +37,7 @@ pub mod realmlist;
 pub mod realms;
 pub mod registry;
 pub mod release;
+pub mod report;
 pub mod release_schema;
 pub mod update;
 pub mod upnp;
