@@ -82,6 +82,9 @@ pub struct Descriptor {
     /// The database users of the game servers: a session of one of them means the realm runs.
     #[serde(default = "default_game_users")]
     pub game_server_users: Vec<String>,
+    /// The server's folder (`Core/configs`, the module catalog's files), when this machine has it: the realm's rates and modules are read from there for the Registry.
+    #[serde(default)]
+    pub server_root: Option<String>,
 }
 
 fn default_game_users() -> Vec<String> {
@@ -178,7 +181,7 @@ impl RealmAccess {
             address: d.address.clone(),
             realm_name: d.realm_name.clone(),
             install_id: None,
-            root: None,
+            root: d.server_root.as_deref().map(PathBuf::from),
             job_dir: PathBuf::from(&d.job_dir),
             data_dir: PathBuf::from(&d.data_dir),
             game_server_users: d.game_server_users.clone(),
@@ -288,6 +291,7 @@ mod tests {
             job_dir: "C:/x/jobs".into(),
             data_dir: "C:/x/Data".into(),
             game_server_users: vec!["acore".into()],
+            server_root: None,
         }
     }
 

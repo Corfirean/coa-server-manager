@@ -221,6 +221,11 @@ impl AdvertisedCapabilities {
         Ok(())
     }
 
+    /// The running core's `MaxPlayerLevel`, when the realm has reported its progression.
+    pub fn level_cap(&self) -> Option<u32> {
+        self.progression.as_ref().map(|p| p.max_player_level)
+    }
+
     /// The hash that identifies this advertisement (the content hash plus the progression signature: both change what a Host can take).
     pub fn advert_hash(&self) -> String {
         let mut h = Sha256::new();

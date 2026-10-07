@@ -1,11 +1,19 @@
-//! What a local realm advertises, and how the Host learns it.
+//! What a local realm advertises, and how the Host learns it. Every value comes from the real thing, and what cannot be known is `None`, never a guess:
+//!
+//! | advertised | source |
+//! |---|---|
+//! | level cap, ruleset | the running core's capabilities (`probe_capabilities`: `MaxPlayerLevel` over RA, the ruleset of the realm's database) |
+//! | rates | the realm's effective worldserver configuration (`allsettings`: the active file, else the documented default), when the server folder is known |
+//! | modules | the Manager's module catalog against the server's `Core/configs/modules` (installed and enabled), when the server folder is known |
+//! | players / bots | the realm's database: online characters of other accounts / of the bot accounts (the bot subsystem's account prefix) |
+//! | capacity | the worldserver's `PlayerLimit` when it is above 0 |
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use coa_registry_proto::AdvertisedCapabilities;
+use coa_registry_proto::{AccountProvisioning, AdvertisedCapabilities, ModuleEntry, Population, Rates};
 
 use crate::portable::capabilities::RealmCapabilities;
 use crate::portable::extension::ExtensionRegistry;
@@ -27,14 +35,61 @@ pub struct LocalAdvert {
     pub running: bool,
     /// What the realm advertises; the last known one while it is stopped, `None` before it was ever seen running.
     pub capabilities: Option<AdvertisedCapabilities>,
-    pub player_count: Option<u32>,
-    pub player_capacity: Option<u32>,
+    pub population: Population,
+    pub rates: Rates,
+    pub modules: Vec<ModuleEntry>,
+    pub account_provisioning: AccountProvisioning,
     pub manager_version: String,
 }
 
 /// Where the publishing loop gets a realm's current advertisement. Implementations must be quick or cache; they are called from the loop's thread.
 pub trait AdvertSource: Send + Sync + 'static {
     fn current(&self, local_id: &str) -> Option<LocalAdvert>;
+}
+
+/// The configuration keys behind the advertised rates (the same ones the Manager's presets set).
+fn rate(items: &[crate::allsettings::Item], key: &str) -> Option<f64> {
+    let v: f64 = items.iter().find(|i| i.key == key)?.value.trim().trim_matches('"').parse().ok()?;
+    (v.is_finite() && (0.0..=coa_registry_proto::MAX_RATE).contains(&v)).then_some(v)
+}
+
+/// The realm's effective rates; every one the configuration does not give is `None`.
+pub fn rates_of(root: &Path) -> Rates {
+    let Ok(items) = crate::allsettings::list(root) else { return Rates::default() };
+    Rates {
+        xp_kill: rate(&items, "Rate.XP.Kill"),
+        xp_quest: rate(&items, "Rate.XP.Quest"),
+        xp_explore: rate(&items, "Rate.XP.Explore"),
+        loot: rate(&items, "Rate.Drop.Item.Normal"),
+        money: rate(&items, "Rate.Drop.Money"),
+        reputation: rate(&items, "Rate.Reputation.Gain"),
+        honor: rate(&items, "Rate.Honor"),
+    }
+}
+
+/// `PlayerLimit` when the realm has one.
+pub fn capacity_of(root: &Path) -> Option<u32> {
+    let items = crate::allsettings::list(root).ok()?;
+    let n: u32 = items.iter().find(|i| i.key == "PlayerLimit")?.value.trim().parse().ok()?;
+    (1..=coa_registry_proto::MAX_PLAYER_NUMBER).contains(&n).then_some(n)
+}
+
+/// A module version fit for the Registry: its first token when that is a plain version, else nothing.
+fn plain_version(v: Option<String>) -> Option<String> {
+    let first = v?.split_whitespace().next()?.to_string();
+    coa_registry_proto::validate_version(&first).ok().map(|_| first)
+}
+
+/// The modules this server build contains, with whether each is on. Hidden ones (settings offered elsewhere) are not listed.
+pub fn modules_of(root: &Path) -> Vec<ModuleEntry> {
+    let mut out: Vec<ModuleEntry> = crate::modules::list(root)
+        .into_iter()
+        .filter(|m| m.installed && !m.hidden && coa_registry_proto::validate_module_id(&m.id).is_ok())
+        .map(|m| ModuleEntry { id: m.id, version: plain_version(m.version), enabled: m.enabled })
+        .collect();
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out.truncate(coa_registry_proto::MAX_MODULES);
+    out
 }
 
 struct Cached {
@@ -47,6 +102,8 @@ struct Inner {
     descriptors: PathBuf,
     installs: Box<dyn Fn() -> Vec<(String, PathBuf)> + Send + Sync>,
     registry: Arc<ExtensionRegistry>,
+    /// Can this Manager create game accounts for joining players (the control service runs)?
+    provisioning: Box<dyn Fn() -> bool + Send + Sync>,
     cache: Mutex<HashMap<String, Cached>>,
     inflight: Mutex<HashSet<String>>,
     fresh: Duration,
@@ -63,11 +120,17 @@ pub struct LocalRealmsSource {
 
 impl LocalRealmsSource {
     pub fn new(descriptors: impl Into<PathBuf>, installs: impl Fn() -> Vec<(String, PathBuf)> + Send + Sync + 'static) -> Self {
+        Self::with_provisioning(descriptors, installs, || false)
+    }
+
+    /// `provisioning` says whether this Manager is serving account creation: a realm only advertises automatic accounts when that is true.
+    pub fn with_provisioning(descriptors: impl Into<PathBuf>, installs: impl Fn() -> Vec<(String, PathBuf)> + Send + Sync + 'static, provisioning: impl Fn() -> bool + Send + Sync + 'static) -> Self {
         Self {
             inner: Arc::new(Inner {
                 descriptors: descriptors.into(),
                 installs: Box::new(installs),
                 registry: Arc::new(ExtensionRegistry::new()),
+                provisioning: Box::new(provisioning),
                 cache: Mutex::new(HashMap::new()),
                 inflight: Mutex::new(HashSet::new()),
                 fresh: Duration::from_secs(10),
@@ -89,12 +152,35 @@ impl Inner {
     fn probe(&self, local_id: &str) {
         let previous = self.cache.lock().ok().and_then(|c| c.get(local_id).map(|c| (c.advert.clone(), c.caps_at)));
         let Some(access) = self.access(local_id) else { return };
-        let mut advert = LocalAdvert { running: false, capabilities: previous.as_ref().and_then(|(a, _)| a.capabilities.clone()), player_count: None, player_capacity: None, manager_version: crate::MANAGER_VERSION.to_string() };
+        let automatic = (self.provisioning)();
+        let mut advert = LocalAdvert {
+            running: false,
+            capabilities: previous.as_ref().and_then(|(a, _)| a.capabilities.clone()),
+            population: Population::default(),
+            rates: Rates::default(),
+            modules: Vec::new(),
+            account_provisioning: AccountProvisioning { automatic, existing_only: !automatic },
+            manager_version: crate::MANAGER_VERSION.to_string(),
+        };
+        // configuration-derived values do not need the realm to be running
+        let mut prefix = "COABOTHOST".to_string();
+        if let Some(root) = access.root.as_deref().filter(|r| r.join("Core/configs").is_dir()) {
+            advert.rates = rates_of(root);
+            advert.modules = modules_of(root);
+            advert.population.capacity = capacity_of(root);
+            prefix = crate::population::bot_account_prefix(root).to_uppercase();
+        }
         let mut caps_at = previous.as_ref().and_then(|(_, t)| *t);
         if access.db_reachable() {
             if let (Ok(db), Ok(mut ra)) = (access.db(), access.ra()) {
                 advert.running = true;
-                advert.player_count = ra.run("server info").ok().and_then(|text| connected_players(&text));
+                if let Ok(p) = crate::population::query_with(&db, &prefix) {
+                    advert.population.players = p.players_online;
+                    advert.population.bots = p.bots_online;
+                }
+                if let Some(c) = advert.population.capacity {
+                    advert.population.players = advert.population.players.min(c);
+                }
                 if caps_at.is_none_or(|t| t.elapsed() >= self.caps_every) || advert.capabilities.is_none() {
                     let data = access.data_dir.is_dir().then_some(access.data_dir.as_path());
                     if let Ok(caps) = probe_capabilities(&db, data, Some(&mut ra), &self.registry) {
@@ -110,12 +196,6 @@ impl Inner {
             cache.insert(local_id.to_string(), Cached { at: Instant::now(), advert, caps_at });
         }
     }
-}
-
-/// `Connected players: 3. Characters in world: 3.`
-pub fn connected_players(server_info: &str) -> Option<u32> {
-    let rest = server_info.split("Connected players:").nth(1)?;
-    rest.trim_start().split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
 }
 
 impl AdvertSource for LocalRealmsSource {
@@ -146,14 +226,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_player_count_is_read_from_the_server_info_report() {
-        assert_eq!(connected_players("Connected players: 3. Characters in world: 3."), Some(3));
-        assert_eq!(connected_players("x\nConnected players: 0.\n"), Some(0));
-        assert_eq!(connected_players("nothing"), None);
-        assert_eq!(connected_players("Connected players: many"), None);
-    }
-
-    #[test]
     fn a_real_profile_is_advertised_without_changing_its_hash() {
         use crate::portable::capabilities::*;
         use crate::portable::model::Ruleset;
@@ -175,5 +247,45 @@ mod tests {
         let advert = advertise(&caps).unwrap();
         assert_eq!(advert.content_profile_hash, caps.content_profile_hash, "the Registry sees the hash the Manager computed");
         assert_eq!(serde_json::to_value(&advert).unwrap(), serde_json::to_value(&caps).unwrap(), "the same JSON, field for field");
+        assert_eq!(advert.level_cap(), Some(60));
+    }
+
+    fn server(root: &Path, conf: &str, dist: &str) {
+        let configs = root.join("Core/configs");
+        std::fs::create_dir_all(configs.join("modules")).unwrap();
+        std::fs::write(configs.join("worldserver.conf"), conf).unwrap();
+        std::fs::write(configs.join("worldserver.conf.dist"), dist).unwrap();
+    }
+
+    const DIST: &str = "[worldserver]\n\n#\n#    Rate.XP.Kill\n#        Default:     1\n#\n\nRate.XP.Kill = 1\n\n#\n#    Rate.XP.Quest\n#        Default:     1\n#\n\nRate.XP.Quest = 1\n\n#\n#    Rate.Drop.Money\n#        Default:     1\n#\n\nRate.Drop.Money = 1\n\n#\n#    PlayerLimit\n#        Default:     0\n#\n\nPlayerLimit = 0\n";
+
+    #[test]
+    fn rates_are_the_effective_configuration_and_unknown_ones_are_null() {
+        let dir = tempfile::tempdir().unwrap();
+        server(dir.path(), "[worldserver]\nRate.XP.Kill = 2.5\nRate.Drop.Money = \"3\"\nPlayerLimit = 120\n", DIST);
+        let r = rates_of(dir.path());
+        assert_eq!((r.xp_kill, r.xp_quest, r.money), (Some(2.5), Some(1.0), Some(3.0)), "the file, else the documented default");
+        assert_eq!((r.loot, r.reputation, r.honor, r.xp_explore), (None, None, None, None), "a rate the server's configuration does not document is not guessed");
+        assert_eq!(capacity_of(dir.path()), Some(120));
+        std::fs::write(dir.path().join("Core/configs/worldserver.conf"), "[worldserver]\nRate.XP.Kill = banana\nPlayerLimit = 0\n").unwrap();
+        let r = rates_of(dir.path());
+        assert_eq!(r.xp_kill, None, "an unreadable value is unknown, not 1");
+        assert_eq!(capacity_of(dir.path()), None, "PlayerLimit 0 is no limit");
+        assert_eq!(rates_of(&dir.path().join("nothing")), Rates::default());
+    }
+
+    #[test]
+    fn module_ids_of_the_catalog_are_all_valid_registry_ids_and_versions_are_sanitised() {
+        for e in crate::modules::catalog() {
+            assert!(coa_registry_proto::validate_module_id(&e.id).is_ok(), "{}", e.id);
+        }
+        assert_eq!(plain_version(Some("v1.4.2 · 0123abcd".into())), Some("v1.4.2".into()));
+        assert_eq!(plain_version(Some("· abc".into())), None);
+        assert_eq!(plain_version(Some("<b>".into())), None);
+        assert_eq!(plain_version(None), None);
+        let dir = tempfile::tempdir().unwrap();
+        server(dir.path(), "[worldserver]\n", DIST);
+        let m = modules_of(dir.path());
+        assert!(m.is_empty(), "a server folder without module files lists no module: {m:?}");
     }
 }

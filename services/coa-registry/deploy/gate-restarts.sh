@@ -9,7 +9,7 @@ remote() { ssh "$VPS" "$1"; }
 wait_healthy() { # $1 container, $2 seconds
   i=0; while [ $i -lt "$2" ]; do
     s=$(remote "sudo docker inspect -f '{{.State.Health.Status}}' $1 2>/dev/null"); [ "$s" = healthy ] && return 0; i=$((i+2)); sleep 2; done; return 1; }
-wait_api() { i=0; while [ $i -lt 90 ]; do code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$REGISTRY_URL/registry/v1/healthz"); [ "$code" = 200 ] && return 0; i=$((i+2)); sleep 2; done; return 1; }
+wait_api() { i=0; while [ $i -lt 90 ]; do code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$REGISTRY_URL/registry/v2/healthz"); [ "$code" = 200 ] && return 0; i=$((i+2)); sleep 2; done; return 1; }
 
 out=$(run cargo test --test live_vps gate_persist_probe_write -- --ignored --nocapture | grep PERSIST_REALM)
 set -- $out; REALM=$2; SEED=$3
@@ -24,12 +24,12 @@ remote "sudo docker restart coa-registry-registry-1 >/dev/null"; wait_healthy co
 
 echo "--- 14a. PostgreSQL container restart (health is degraded meanwhile, then recovers by itself)"
 remote "sudo docker restart coa-postgres-postgres-1 >/dev/null"
-sleep 1; echo "health during the restart: $(curl -s -m 5 -o /dev/null -w '%{http_code}' "$REGISTRY_URL/registry/v1/healthz")"
+sleep 1; echo "health during the restart: $(curl -s -m 5 -o /dev/null -w '%{http_code}' "$REGISTRY_URL/registry/v2/healthz")"
 wait_healthy coa-postgres-postgres-1 90 && wait_api && check "14a: after restarting PostgreSQL (the Registry container was not restarted)"
 
 echo "--- 14b. both stopped, PostgreSQL started later than the Registry (the Registry waits for it)"
 remote "sudo docker stop coa-registry-registry-1 coa-postgres-postgres-1 >/dev/null; sudo docker start coa-registry-registry-1 >/dev/null"
-sleep 6; echo "Registry up without a database: health $(curl -s -m 5 -o /dev/null -w '%{http_code}' "$REGISTRY_URL/registry/v1/healthz")"
+sleep 6; echo "Registry up without a database: health $(curl -s -m 5 -o /dev/null -w '%{http_code}' "$REGISTRY_URL/registry/v2/healthz")"
 remote "sudo docker start coa-postgres-postgres-1 >/dev/null"
 wait_healthy coa-postgres-postgres-1 90 && wait_healthy coa-registry-registry-1 120 && wait_api && check "14b: after a cold start in the wrong order"
 

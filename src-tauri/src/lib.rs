@@ -1788,9 +1788,9 @@ async fn registry_set_url(state: State<'_, AppState>, url: Option<String>) -> st
 }
 
 #[tauri::command]
-async fn registry_publish(state: State<'_, AppState>, local_id: String, display_name: String, description: String, language: String) -> std::result::Result<(), UiError> {
+async fn registry_publish(state: State<'_, AppState>, local_id: String, display_name: String, description: String, language: String, region: Option<String>) -> std::result::Result<(), UiError> {
     let rt = realm_registry(&state)?;
-    tauri::async_runtime::spawn_blocking(move || rt.publish(&local_id, &display_name, &description, &language)).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
+    tauri::async_runtime::spawn_blocking(move || rt.publish(&local_id, &display_name, &description, &language, region.as_deref())).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
 }
 
 #[tauri::command]

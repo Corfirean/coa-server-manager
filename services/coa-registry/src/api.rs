@@ -111,13 +111,21 @@ impl From<StoreError> for ApiError {
 
 pub fn router<S: Store>(state: Arc<AppState<S>>) -> Router {
     Router::new()
-        .route("/registry/v1/healthz", get(healthz::<S>))
-        .route("/registry/v1/realms/register", post(register::<S>))
-        .route("/registry/v1/realms/{realm_id}/heartbeat", post(heartbeat::<S>))
-        .route("/registry/v1/realms/{realm_id}/unpublish", post(unpublish::<S>))
-        .route("/registry/v1/realms/{realm_id}", get(self_info::<S>))
-        .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, ErrorCode::MalformedRequest, "no such endpoint") })
+        .route("/registry/v2/healthz", get(healthz::<S>))
+        .route("/registry/v2/realms/register", post(register::<S>))
+        .route("/registry/v2/realms/{realm_id}/heartbeat", post(heartbeat::<S>))
+        .route("/registry/v2/realms/{realm_id}/unpublish", post(unpublish::<S>))
+        .route("/registry/v2/realms/{realm_id}/self", get(self_info::<S>))
+        .fallback(fallback)
         .with_state(state)
+}
+
+/// Protocol 1 is refused explicitly (the policy of `docs/REGISTRY_PROTOCOL.md`): a Host that still speaks it is told so and stops; nothing is silently accepted or migrated.
+async fn fallback(uri: Uri) -> ApiError {
+    if uri.path() == PATH_PREFIX_V1 || uri.path().starts_with("/registry/v1/") {
+        return ApiError::new(StatusCode::BAD_REQUEST, ErrorCode::UnsupportedProtocolVersion, format!("protocol version 1 is no longer supported; this Registry speaks protocol {REGISTRY_PROTOCOL_VERSION} under {PATH_PREFIX}"));
+    }
+    ApiError::new(StatusCode::NOT_FOUND, ErrorCode::MalformedRequest, "no such endpoint")
 }
 
 fn client_ip(headers: &HeaderMap, peer: SocketAddr, trust_proxy: bool) -> IpAddr {
@@ -247,6 +255,7 @@ async fn register<S: Store>(State(st): State<Arc<AppState<S>>>, ConnectInfo(Peer
             created,
             metadata_revision: row.metadata_revision,
             published: row.published,
+            listing_hash: row.listing_hash.clone(),
             capabilities_hash: row.capabilities_hash.clone(),
             server_time: now,
             heartbeat_interval_secs: HEARTBEAT_INTERVAL_SECS,
@@ -300,7 +309,7 @@ async fn heartbeat<S: Store>(State(st): State<Arc<AppState<S>>>, ConnectInfo(Pee
         hb.validate().map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, ErrorCode::InvalidMetadata, e.to_string()))?;
         let now = st.now();
         let out = st.store.heartbeat(&realm, &hb, now, ts).await?;
-        let resp = HeartbeatResponse { protocol_version: REGISTRY_PROTOCOL_VERSION, metadata_revision: out.metadata_revision, published: true, capabilities_hash: out.capabilities_hash.clone(), resend_capabilities: out.resend_capabilities, server_time: now };
+        let resp = HeartbeatResponse { protocol_version: REGISTRY_PROTOCOL_VERSION, metadata_revision: out.metadata_revision, published: true, listing_hash: out.listing_hash.clone(), capabilities_hash: out.capabilities_hash.clone(), resend_listing: out.resend_listing, resend_capabilities: out.resend_capabilities, server_time: now };
         let (status, response) = json(&resp);
         Ok((status, response, out.capabilities_hash))
     }
@@ -331,27 +340,25 @@ async fn unpublish<S: Store>(State(st): State<Arc<AppState<S>>>, ConnectInfo(Pee
     finish("unpublish", realm_for_log.as_ref(), started, result)
 }
 
-fn self_response(row: RealmRow, now: i64, ttl: u64) -> SelfResponse {
+pub fn detail_of(row: RealmRow, now: i64, ttl: u64) -> RealmDetail {
     let online = row.published && now - row.last_seen_at <= ttl as i64;
-    SelfResponse {
+    RealmDetail {
         protocol_version: REGISTRY_PROTOCOL_VERSION,
         realm_id: row.realm_id,
         public_key: sign::encode_public_key(&ed25519_dalek::VerifyingKey::from_bytes(&row.public_key).expect("a stored key was validated on the way in")),
-        display_name: row.display_name,
-        description: row.description,
-        language: row.language,
+        listing: row.listing,
         ruleset: row.ruleset,
-        manager_version: row.manager_version,
+        level_cap: row.level_cap,
+        population: row.population,
         capabilities: row.capabilities,
         capabilities_hash: row.capabilities_hash,
+        listing_hash: row.listing_hash,
         metadata_revision: row.metadata_revision,
         published: row.published,
         online,
         created_at: row.created_at,
         updated_at: row.updated_at,
         last_seen_at: row.last_seen_at,
-        player_count: row.player_count,
-        player_capacity: row.player_capacity,
         server_time: now,
     }
 }
@@ -372,7 +379,7 @@ async fn self_info<S: Store>(State(st): State<Arc<AppState<S>>>, ConnectInfo(Pee
         realm_for_log = Some(realm);
         let row = st.store.get(&realm).await?.ok_or(StoreError::Unknown)?;
         let caps = row.capabilities_hash.clone();
-        let (status, response) = json(&self_response(row, st.now(), st.cfg.online_ttl_secs));
+        let (status, response) = json(&detail_of(row, st.now(), st.cfg.online_ttl_secs));
         Ok((status, response, caps))
     }
     .await;

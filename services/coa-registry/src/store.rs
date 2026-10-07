@@ -6,7 +6,7 @@ use std::future::Future;
 use std::sync::Mutex;
 
 use coa_registry_proto::caps::{AdvertisedCapabilities, Ruleset};
-use coa_registry_proto::{HeartbeatRequest, RealmId, RegisterRequest};
+use coa_registry_proto::{HeartbeatRequest, Listing, Population, RealmId, RegisterRequest};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum StoreError {
@@ -24,6 +24,9 @@ pub enum StoreError {
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
+/// The version of advertisement a row holds: 1 is a Phase-10 record (identity, key and capabilities kept, nothing structured), 2 is a full v2 listing.
+pub const ADVERT_VERSION: u8 = 2;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RealmRow {
     pub realm_id: RealmId,
@@ -32,17 +35,17 @@ pub struct RealmRow {
     pub updated_at: i64,
     pub last_seen_at: i64,
     pub published: bool,
-    pub display_name: String,
-    pub description: String,
-    pub language: String,
+    pub listing: Listing,
+    pub listing_hash: String,
+    /// Derived from the capabilities.
     pub ruleset: Ruleset,
-    pub manager_version: String,
+    pub level_cap: Option<u32>,
     pub capabilities: AdvertisedCapabilities,
     pub capabilities_hash: String,
+    pub population: Population,
     pub metadata_revision: u64,
     pub last_request_ts: i64,
-    pub player_count: Option<u32>,
-    pub player_capacity: Option<u32>,
+    pub advert_version: u8,
 }
 
 /// The light part of a row a heartbeat decides on (the capabilities JSON stays in the database unless it changes).
@@ -50,40 +53,29 @@ pub struct RealmRow {
 pub struct HeartbeatView {
     pub published: bool,
     pub last_request_ts: i64,
+    pub listing_hash: String,
     pub capabilities_hash: String,
-    pub display_name: String,
-    pub description: String,
-    pub language: String,
-    pub manager_version: String,
     pub metadata_revision: u64,
+    pub advert_version: u8,
 }
 
 impl From<&RealmRow> for HeartbeatView {
     fn from(r: &RealmRow) -> Self {
-        Self {
-            published: r.published,
-            last_request_ts: r.last_request_ts,
-            capabilities_hash: r.capabilities_hash.clone(),
-            display_name: r.display_name.clone(),
-            description: r.description.clone(),
-            language: r.language.clone(),
-            manager_version: r.manager_version.clone(),
-            metadata_revision: r.metadata_revision,
-        }
+        Self { published: r.published, last_request_ts: r.last_request_ts, listing_hash: r.listing_hash.clone(), capabilities_hash: r.capabilities_hash.clone(), metadata_revision: r.metadata_revision, advert_version: r.advert_version }
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeartbeatPlan {
-    pub display_name: String,
-    pub description: String,
-    pub language: String,
-    pub manager_version: String,
+    /// Set only when the listing is applied: the only case in which its columns are written.
+    pub listing: Option<Listing>,
+    pub listing_hash: String,
     /// Set only when the hash changed: the only case in which the large JSON is written.
     pub capabilities: Option<AdvertisedCapabilities>,
     pub capabilities_hash: String,
     pub metadata_revision: u64,
     pub metadata_changed: bool,
+    pub resend_listing: bool,
     pub resend_capabilities: bool,
 }
 
@@ -95,17 +87,26 @@ pub fn plan_heartbeat(view: &HeartbeatView, hb: &HeartbeatRequest, ts: i64) -> S
         return Err(StoreError::NotPublished);
     }
     let mut plan = HeartbeatPlan {
-        display_name: hb.display_name.clone().unwrap_or_else(|| view.display_name.clone()),
-        description: hb.description.clone().unwrap_or_else(|| view.description.clone()),
-        language: hb.language.clone().unwrap_or_else(|| view.language.clone()),
-        manager_version: hb.manager_version.clone().unwrap_or_else(|| view.manager_version.clone()),
+        listing: None,
+        listing_hash: view.listing_hash.clone(),
         capabilities: None,
         capabilities_hash: view.capabilities_hash.clone(),
         metadata_revision: view.metadata_revision,
         metadata_changed: false,
+        resend_listing: false,
         resend_capabilities: false,
     };
-    plan.metadata_changed = plan.display_name != view.display_name || plan.description != view.description || plan.language != view.language || plan.manager_version != view.manager_version;
+    // a record from before protocol 2 has no structured listing: it takes the first one it is given, whatever the hashes say
+    let legacy = view.advert_version < ADVERT_VERSION;
+    match &hb.listing {
+        Some(l) if legacy || hb.listing_hash != view.listing_hash => {
+            plan.listing = Some(l.clone());
+            plan.listing_hash = hb.listing_hash.clone();
+            plan.metadata_changed = true;
+        }
+        None if legacy || hb.listing_hash != view.listing_hash => plan.resend_listing = true,
+        _ => {}
+    }
     match &hb.capabilities {
         Some(c) if hb.capabilities_hash != view.capabilities_hash => {
             plan.capabilities = Some(c.clone());
@@ -121,7 +122,7 @@ pub fn plan_heartbeat(view: &HeartbeatView, hb: &HeartbeatRequest, ts: i64) -> S
     Ok(plan)
 }
 
-/// The new row for a registration: a first one, or the same key announcing itself again (a restart, a changed name, a republication).
+/// The new row for a registration: a first one, or the same key announcing itself again (a restart, a changed name, a republication, a record upgraded from protocol 1).
 pub fn plan_register(existing: Option<&RealmRow>, req: &RegisterRequest, key: [u8; 32], now: i64, ts: i64) -> StoreResult<(RealmRow, bool)> {
     let mut row = RealmRow {
         realm_id: req.realm_id,
@@ -130,17 +131,16 @@ pub fn plan_register(existing: Option<&RealmRow>, req: &RegisterRequest, key: [u
         updated_at: now,
         last_seen_at: now,
         published: true,
-        display_name: req.display_name.clone(),
-        description: req.description.clone(),
-        language: req.language.clone(),
-        ruleset: req.ruleset,
-        manager_version: req.manager_version.clone(),
+        listing: req.listing.clone(),
+        listing_hash: req.listing_hash.clone(),
+        ruleset: req.capabilities.content.ruleset,
+        level_cap: req.capabilities.level_cap(),
         capabilities: req.capabilities.clone(),
         capabilities_hash: req.capabilities_hash.clone(),
+        population: req.population,
         metadata_revision: 1,
         last_request_ts: ts,
-        player_count: req.player_count,
-        player_capacity: req.player_capacity,
+        advert_version: ADVERT_VERSION,
     };
     let Some(old) = existing else { return Ok((row, true)) };
     if old.public_key != key {
@@ -150,13 +150,7 @@ pub fn plan_register(existing: Option<&RealmRow>, req: &RegisterRequest, key: [u
         return Err(StoreError::Stale);
     }
     row.created_at = old.created_at;
-    let changed = !old.published
-        || old.display_name != row.display_name
-        || old.description != row.description
-        || old.language != row.language
-        || old.ruleset != row.ruleset
-        || old.manager_version != row.manager_version
-        || old.capabilities_hash != row.capabilities_hash;
+    let changed = !old.published || old.advert_version < ADVERT_VERSION || old.listing_hash != row.listing_hash || old.capabilities_hash != row.capabilities_hash;
     row.metadata_revision = old.metadata_revision + u64::from(changed);
     row.updated_at = if changed { now } else { old.updated_at };
     Ok((row, false))
@@ -177,7 +171,9 @@ pub trait Store: Send + Sync + 'static {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeartbeatOutcome {
     pub metadata_revision: u64,
+    pub listing_hash: String,
     pub capabilities_hash: String,
+    pub resend_listing: bool,
     pub resend_capabilities: bool,
 }
 
@@ -194,6 +190,12 @@ impl MemoryStore {
     #[doc(hidden)]
     pub fn get_for_test(&self, id: &RealmId) -> Option<RealmRow> {
         self.rows.lock().unwrap().get(id).cloned()
+    }
+
+    /// Put a row in as it is (tests: a record left by an earlier protocol).
+    #[doc(hidden)]
+    pub fn put_for_test(&self, row: RealmRow) {
+        self.rows.lock().unwrap().insert(row.realm_id, row);
     }
 
     /// Forget everything (tests: a Registry that lost its data).
@@ -249,12 +251,14 @@ impl Store for MemoryStore {
         let mut rows = self.rows.lock().unwrap();
         let row = rows.get_mut(id).ok_or(StoreError::Unknown)?;
         let plan = plan_heartbeat(&HeartbeatView::from(&*row), hb, ts)?;
-        row.display_name = plan.display_name;
-        row.description = plan.description;
-        row.language = plan.language;
-        row.manager_version = plan.manager_version;
-        if let Some(c) = plan.capabilities {
+        if let Some(l) = plan.listing.clone() {
+            row.listing = l;
+            row.advert_version = ADVERT_VERSION;
+        }
+        row.listing_hash = plan.listing_hash.clone();
+        if let Some(c) = plan.capabilities.clone() {
             row.ruleset = c.content.ruleset;
+            row.level_cap = c.level_cap();
             row.capabilities = c;
         }
         row.capabilities_hash = plan.capabilities_hash.clone();
@@ -264,9 +268,8 @@ impl Store for MemoryStore {
         row.metadata_revision = plan.metadata_revision;
         row.last_seen_at = now;
         row.last_request_ts = ts;
-        row.player_count = hb.player_count;
-        row.player_capacity = hb.player_capacity;
-        Ok(HeartbeatOutcome { metadata_revision: plan.metadata_revision, capabilities_hash: plan.capabilities_hash, resend_capabilities: plan.resend_capabilities })
+        row.population = hb.population;
+        Ok(HeartbeatOutcome { metadata_revision: plan.metadata_revision, listing_hash: plan.listing_hash, capabilities_hash: plan.capabilities_hash, resend_listing: plan.resend_listing, resend_capabilities: plan.resend_capabilities })
     }
 
     async fn unpublish(&self, id: &RealmId, now: i64, ts: i64) -> StoreResult<u64> {

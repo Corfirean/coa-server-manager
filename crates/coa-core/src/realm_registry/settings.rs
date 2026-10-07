@@ -19,10 +19,16 @@ pub struct PublishConfig {
     pub display_name: String,
     pub description: String,
     pub language: String,
+    /// A coarse region tag (`EU`, `NA`, `RU`…), or none.
+    #[serde(default)]
+    pub region: Option<String>,
 }
 
 impl PublishConfig {
     pub fn validate(&self) -> Result<()> {
+        if let Some(r) = &self.region {
+            coa_registry_proto::validate_region(r).map_err(|e| Error::Invalid(e.to_string()))?;
+        }
         validate_display_name(&self.display_name).map_err(|e| Error::Invalid(e.to_string()))?;
         validate_description(&self.description).map_err(|e| Error::Invalid(e.to_string()))?;
         validate_language(&self.language).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -100,7 +106,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(load(dir.path()).unwrap(), RegistrySettings::default());
         let mut s = RegistrySettings { url: Some("http://x".into()), ..Default::default() };
-        s.realms.insert("srv-1".into(), PublishConfig { realm_id: Some(RealmId::new()), enabled: true, display_name: "A".into(), description: String::new(), language: "en".into() });
+        s.realms.insert("srv-1".into(), PublishConfig { realm_id: Some(RealmId::new()), enabled: true, display_name: "A".into(), description: String::new(), language: "en".into(), region: None });
         save(dir.path(), &s).unwrap();
         assert_eq!(load(dir.path()).unwrap(), s);
         let text = std::fs::read_to_string(file(dir.path())).unwrap();

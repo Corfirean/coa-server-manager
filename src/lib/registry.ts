@@ -11,6 +11,7 @@ export interface RealmPublishStatus {
   display_name: string;
   description: string;
   language: string;
+  region: string | null;
   metadata_revision: number | null;
   last_ok_unix: number | null;
   last_error: string | null;
@@ -25,8 +26,8 @@ export interface RegistryStatus {
 export const realmRegistry = {
   status: () => invoke<RegistryStatus>("registry_status"),
   setUrl: (url: string | null) => invoke<void>("registry_set_url", { url }),
-  publish: (localId: string, displayName: string, description: string, language: string) =>
-    invoke<void>("registry_publish", { localId, displayName, description, language }),
+  publish: (localId: string, displayName: string, description: string, language: string, region: string | null) =>
+    invoke<void>("registry_publish", { localId, displayName, description, language, region }),
   unpublish: (localId: string) => invoke<void>("registry_unpublish", { localId }),
   retry: (localId: string) => invoke<void>("registry_retry", { localId }),
 };

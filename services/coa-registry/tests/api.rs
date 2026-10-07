@@ -4,8 +4,9 @@ mod common;
 
 use coa_registry::api::ApiConfig;
 use coa_registry::limits::Rate;
-use coa_registry::store::MemoryStore;
+use coa_registry::store::{MemoryStore, RealmRow, ADVERT_VERSION};
 use coa_registry_proto::sign::{sign_request, HEADER_SIGNATURE, HEADER_TIMESTAMP, HEADER_VERSION};
+use coa_registry_proto::caps::Ruleset;
 use coa_registry_proto::*;
 use common::*;
 use ed25519_dalek::SigningKey;
@@ -27,22 +28,28 @@ fn lifecycle(s: &TestServer) {
     assert_eq!(r.status, 200, "{:?}", r.body);
     assert_eq!((r.body["created"].as_bool(), r.body["metadata_revision"].as_u64(), r.body["published"].as_bool()), (Some(true), Some(1), Some(true)));
     assert_eq!((r.body["heartbeat_interval_secs"].as_u64(), r.body["online_ttl_secs"].as_u64()), (Some(30), Some(120)));
+    assert_eq!(r.body["protocol_version"], 2);
 
     let me = h.me();
-    assert_eq!(me.status, 200);
-    assert_eq!((me.body["online"].as_bool(), me.body["display_name"].as_str(), me.body["last_seen_at"].as_i64()), (Some(true), Some("Friends' realm"), Some(s.time())));
+    assert_eq!(me.status, 200, "{:?}", me.body);
+    assert_eq!((me.body["online"].as_bool(), me.body["listing"]["display_name"].as_str(), me.body["last_seen_at"].as_i64()), (Some(true), Some("Friends' realm"), Some(s.time())));
     assert_eq!(me.body["capabilities"]["progression"]["max_player_level"], 60);
+    assert_eq!((me.body["level_cap"].as_u64(), me.body["ruleset"].as_str()), (Some(60), Some("coa")), "derived from the capabilities");
+    assert_eq!((me.body["population"]["players"].as_u64(), me.body["population"]["bots"].as_u64()), (Some(1), Some(4)), "players and bots are separate");
+    assert_eq!(me.body["listing"]["rates"]["xp_kill"], 2.0);
+    assert!(me.body["listing"]["rates"]["xp_explore"].is_null(), "an unknown rate stays null");
+    assert_eq!(me.body["listing"]["modules"][0]["id"], "playerbots");
 
     s.advance(30);
     h.ts = s.time();
     let hb = h.heartbeat(60, false);
     assert_eq!(hb.status, 200, "{:?}", hb.body);
-    assert_eq!((hb.body["metadata_revision"].as_u64(), hb.body["resend_capabilities"].as_bool()), (Some(1), Some(false)));
+    assert_eq!((hb.body["metadata_revision"].as_u64(), hb.body["resend_capabilities"].as_bool(), hb.body["resend_listing"].as_bool()), (Some(1), Some(false), Some(false)));
     let me = h.me();
-    assert_eq!((me.body["last_seen_at"].as_i64(), me.body["player_count"].as_u64()), (Some(s.time()), Some(2)), "the heartbeat moved last_seen and the player count");
+    assert_eq!((me.body["last_seen_at"].as_i64(), me.body["population"]["players"].as_u64(), me.body["population"]["bots"].as_u64()), (Some(s.time()), Some(2), Some(4)), "the heartbeat moved last_seen and the counts");
     assert_eq!(me.body["metadata_revision"], 1, "a heartbeat of unchanged metadata is not a metadata update");
 
-    // the same key announcing itself again (a Manager restart) keeps the identity; unchanged metadata keeps the revision
+    // the same key announcing itself again (a restart) keeps the identity; unchanged metadata keeps the revision
     let again = h.register("Friends' realm", 60);
     assert_eq!((again.status, again.body["created"].as_bool(), again.body["metadata_revision"].as_u64()), (200, Some(false), Some(1)));
     let renamed = h.register("Friends' realm II", 60);
@@ -65,7 +72,7 @@ fn presence(s: &TestServer) {
     assert_eq!(h.me().body["online"], true);
 }
 
-/// 6: new capabilities arrive with a heartbeat and move the metadata revision; a changed hash without them asks for them.
+/// 6: new capabilities and a new listing arrive with a heartbeat and move the metadata revision; a changed hash without the part asks for it.
 fn metadata_changes(s: &TestServer) {
     let mut h = Host::new(s, 3);
     assert_eq!(h.register("Caps", 60).status, 200);
@@ -77,16 +84,28 @@ fn metadata_changes(s: &TestServer) {
     let hb = h.heartbeat(70, true);
     assert_eq!((hb.status, hb.body["resend_capabilities"].as_bool(), hb.body["metadata_revision"].as_u64()), (200, Some(false), Some(2)));
     let me = h.me();
-    assert_eq!((me.body["capabilities"]["progression"]["max_player_level"].as_u64(), me.body["metadata_revision"].as_u64()), (Some(70), Some(2)));
+    assert_eq!((me.body["capabilities"]["progression"]["max_player_level"].as_u64(), me.body["level_cap"].as_u64(), me.body["metadata_revision"].as_u64()), (Some(70), Some(70), Some(2)), "the level cap follows the capabilities");
     let hb = h.heartbeat(70, true);
     assert_eq!(hb.body["metadata_revision"], 2, "the same capabilities again change nothing");
-    // a heartbeat may also rename
+    // a changed listing: first only its hash (asks for it), then the listing
     let mut body = h.heartbeat_body(70, false);
-    body.display_name = Some("Renamed".into());
+    let renamed = h.listing("Renamed");
+    body.listing_hash = renamed.hash();
     let path = path_heartbeat(&h.realm);
     let r = h.send("POST", &path, &serde_json::to_vec(&body).unwrap());
+    assert_eq!((r.status, r.body["resend_listing"].as_bool(), r.body["metadata_revision"].as_u64()), (200, Some(true), Some(2)));
+    h.name = "Renamed".into();
+    let body = h.heartbeat_with_listing(70, "Renamed");
+    let r = h.send("POST", &path, &serde_json::to_vec(&body).unwrap());
+    assert_eq!((r.status, r.body["resend_listing"].as_bool(), r.body["metadata_revision"].as_u64()), (200, Some(false), Some(3)));
+    assert_eq!(h.me().body["listing"]["display_name"], "Renamed");
+    // players and bots move without touching the revision
+    let mut body = h.heartbeat_body(70, false);
+    body.population = Population { players: 18, bots: 46, capacity: None };
+    let r = h.send("POST", &path, &serde_json::to_vec(&body).unwrap());
     assert_eq!((r.status, r.body["metadata_revision"].as_u64()), (200, Some(3)));
-    assert_eq!(h.me().body["display_name"], "Renamed");
+    let me = h.me();
+    assert_eq!((me.body["population"]["players"].as_u64(), me.body["population"]["bots"].as_u64(), me.body["metadata_revision"].as_u64()), (Some(18), Some(46), Some(3)));
 }
 
 /// 7: an unrelated key can neither take a realm id over nor speak for it.
@@ -105,7 +124,7 @@ fn takeover(s: &TestServer) {
     let r = thief.me();
     assert_eq!(r.status, 401);
     let me = owner.me();
-    assert_eq!((me.body["display_name"].as_str(), me.body["published"].as_bool()), (Some("Mine"), Some(true)), "the owner's record is untouched");
+    assert_eq!((me.body["listing"]["display_name"].as_str(), me.body["published"].as_bool()), (Some("Mine"), Some(true)), "the owner's record is untouched");
 }
 
 /// 8, 9, 10: tampering, time, and protocol version.
@@ -115,28 +134,24 @@ fn authentication(s: &TestServer) {
     let path = path_heartbeat(&h.realm);
     let body = serde_json::to_vec(&h.heartbeat_body(60, false)).unwrap();
 
-    // a body changed after it was signed
     h.ts += 1;
     let headers = sign_request(&h.key, "POST", &path, &h.realm, h.ts, &body);
     let mut tampered = body.clone();
     tampered.extend_from_slice(b" ");
     let r = h.send_with("POST", &path, &tampered, &headers.pairs());
     assert_eq!((r.status, r.code().as_str()), (401, "invalid_signature"));
-    // the method and the path are signed too
-    let r = h.send_with("POST", &path_unpublish(&h.realm), &serde_json::to_vec(&UnpublishRequest { protocol_version: 1 }).unwrap(), &headers.pairs());
+    let r = h.send_with("POST", &path_unpublish(&h.realm), &serde_json::to_vec(&UnpublishRequest { protocol_version: 2 }).unwrap(), &headers.pairs());
     assert_eq!((r.status, r.code().as_str()), (401, "invalid_signature"), "a signature for one endpoint is not valid for another");
     let r = h.send_with("POST", &path, &body, &headers.pairs());
     assert_eq!(r.status, 200, "the untampered request is fine: {:?}", r.body);
     let r = h.send_with("POST", &path, &body, &headers.pairs());
     assert_eq!((r.status, r.code().as_str()), (401, "timestamp_not_monotonic"), "a captured request cannot be replayed");
 
-    // timestamps outside the window, either way
     for skew in [-400, 400] {
         h.ts = s.time() + skew;
         let r = h.send("POST", &path, &body);
         assert_eq!((r.status, r.code().as_str()), (401, "bad_timestamp"), "skew {skew}");
     }
-    // a timestamp that is in the window but not later than the last applied one
     h.ts = s.time() + 100;
     assert_eq!(h.send("POST", &path, &body).status, 200);
     h.ts = s.time() + 50;
@@ -145,17 +160,18 @@ fn authentication(s: &TestServer) {
     h.ts = s.time() + 101;
     assert_eq!(h.send("POST", &path, &body).status, 200, "later ones are accepted again");
 
-    // protocol version in the header and in the body
-    h.ts += 1;
-    let mut headers = sign_request(&h.key, "POST", &path, &h.realm, h.ts, &body).pairs();
-    headers[0] = (HEADER_VERSION, "2".into());
-    let r = h.send_with("POST", &path, &body, &headers);
+    // protocol version in the header and in the body (version 1 is refused like any other)
+    for wrong in ["1", "3"] {
+        h.ts += 1;
+        let mut headers = sign_request(&h.key, "POST", &path, &h.realm, h.ts, &body).pairs();
+        headers[0] = (HEADER_VERSION, wrong.into());
+        let r = h.send_with("POST", &path, &body, &headers);
+        assert_eq!((r.status, r.code().as_str()), (400, "unsupported_protocol_version"), "header {wrong}");
+    }
+    let mut v1 = h.heartbeat_body(60, false);
+    v1.protocol_version = 1;
+    let r = h.send("POST", &path, &serde_json::to_vec(&v1).unwrap());
     assert_eq!((r.status, r.code().as_str()), (400, "unsupported_protocol_version"));
-    let mut v2 = h.heartbeat_body(60, false);
-    v2.protocol_version = 2;
-    let r = h.send("POST", &path, &serde_json::to_vec(&v2).unwrap());
-    assert_eq!((r.status, r.code().as_str()), (400, "unsupported_protocol_version"));
-    // missing or garbled headers
     let r = h.send_with("POST", &path, &body, &[]);
     assert_eq!(r.status, 400);
     let mut bad = sign_request(&h.key, "POST", &path, &h.realm, h.ts + 1, &body).pairs();
@@ -166,67 +182,91 @@ fn authentication(s: &TestServer) {
     assert_eq!(h.send_with("POST", &path, &body, &bad).status, 400);
 }
 
+/// The one documented policy for protocol 1: it is refused, explicitly, on every endpoint, and nothing is stored or silently migrated.
+fn old_protocol_is_refused(s: &TestServer) {
+    let mut h = Host::new(s, 11);
+    for (method, path) in [("POST", "/registry/v1/realms/register"), ("POST", &*format!("/registry/v1/realms/{}/heartbeat", h.realm)), ("POST", &*format!("/registry/v1/realms/{}/unpublish", h.realm)), ("GET", &*format!("/registry/v1/realms/{}", h.realm)), ("GET", "/registry/v1/healthz"), ("GET", "/registry/v1")] {
+        let r = h.send(method, path, if method == "GET" { b"" } else { br#"{"protocol_version":1}"# });
+        assert_eq!((r.status, r.code().as_str()), (400, "unsupported_protocol_version"), "{method} {path}: {:?}", r.body);
+        assert!(r.body["error"]["message"].as_str().unwrap().contains("protocol version 1 is no longer supported"));
+    }
+    let mut check = Host::new(s, 11);
+    check.realm = h.realm;
+    check.ts = h.ts + 10;
+    assert_eq!(check.me().status, 404, "a refused v1 request created nothing");
+}
+
 /// 11: hostile input is refused safely and stores nothing.
 fn hostile_input(s: &TestServer) {
     let mut h = Host::new(s, 7);
-    // oversized
     let big = vec![b'x'; MAX_REQUEST_BYTES + 1];
     let r = h.send("POST", PATH_REGISTER, &big);
     assert_eq!((r.status, r.code().as_str()), (413, "request_too_large"));
-    // not JSON, not an object, deeply nested
     for body in [b"not json".as_slice(), b"[]", b"null", &b"{\"a\":".repeat(1)] {
         let r = h.send("POST", PATH_REGISTER, body);
         assert_eq!(r.status, 400, "{:?}", String::from_utf8_lossy(body));
     }
     let nested = format!("{}1{}", "[".repeat(30_000), "]".repeat(30_000));
     assert_eq!(h.send("POST", PATH_REGISTER, nested.as_bytes()).status, 400);
-    // metadata outside its limits, one at a time
     let base = serde_json::to_value(h.register_body("Hostile", 60)).unwrap();
-    let cases: Vec<(&str, serde_json::Value)> = vec![
-        ("display_name", json!("x".repeat(81))),
-        ("display_name", json!("")),
-        ("display_name", json!("evil\u{202E}name")),
-        ("display_name", json!("new\nline")),
-        ("description", json!("d".repeat(1025))),
-        ("language", json!("<script>")),
-        ("manager_version", json!("1.0 <b>")),
-        ("player_count", json!(1_000_000)),
-        ("capabilities_hash", json!("0".repeat(64))),
-        ("public_key", json!("short")),
-        ("ruleset", json!("wildcard")),
+    let cases: Vec<(Vec<&str>, serde_json::Value)> = vec![
+        (vec!["listing", "display_name"], json!("x".repeat(81))),
+        (vec!["listing", "display_name"], json!("")),
+        (vec!["listing", "display_name"], json!("evil\u{202E}name")),
+        (vec!["listing", "display_name"], json!("new\nline")),
+        (vec!["listing", "description"], json!("d".repeat(1025))),
+        (vec!["listing", "language"], json!("<script>")),
+        (vec!["listing", "region"], json!("<img src=x>")),
+        (vec!["listing", "manager_version"], json!("1.0 <b>")),
+        (vec!["listing", "rates", "xp_kill"], json!(-1.0)),
+        (vec!["listing", "rates", "loot"], json!(1.0e9)),
+        (vec!["listing", "modules"], json!([{"id": "<script>alert(1)</script>", "enabled": true}])),
+        (vec!["listing", "modules"], json!([{"id": "a", "enabled": true}, {"id": "a", "enabled": false}])),
+        (vec!["listing", "modules"], json!((0..65).map(|i| json!({"id": format!("m{i}"), "enabled": true})).collect::<Vec<_>>())),
+        (vec!["listing", "modules"], json!([{"id": "ok", "version": "v <1>", "enabled": true}])),
+        (vec!["listing", "account_provisioning"], json!({"automatic": false, "existing_only": false})),
+        (vec!["population", "players"], json!(1_000_000)),
+        (vec!["population", "bots"], json!(-5)),
+        (vec!["listing_hash"], json!("0".repeat(64))),
+        (vec!["capabilities_hash"], json!("0".repeat(64))),
+        (vec!["public_key"], json!("short")),
     ];
-    for (field, value) in cases {
+    for (path, value) in cases {
         let mut v = base.clone();
-        v[field] = value;
+        let mut at = &mut v;
+        for key in &path[..path.len() - 1] {
+            at = &mut at[*key];
+        }
+        at[path[path.len() - 1]] = value;
         let r = h.send("POST", PATH_REGISTER, &serde_json::to_vec(&v).unwrap());
-        assert!(r.status == 400, "{field}: {} {:?}", r.status, r.body);
+        assert!(r.status == 400, "{path:?}: {} {:?}", r.status, r.body);
     }
-    // what the protocol has no place for is not accepted, whatever it is
-    for extra in ["character", "snapshot", "password", "ra_password", "db_credentials", "canonical_revision"] {
+    for extra in ["character", "snapshot", "password", "ra_password", "db_credentials", "canonical_revision", "ruleset", "level_cap", "game_mode", "ping"] {
         let mut v = base.clone();
         v[extra] = json!("secret");
         let r = h.send("POST", PATH_REGISTER, &serde_json::to_vec(&v).unwrap());
         assert_eq!((r.status, r.code().as_str()), (400, "malformed_request"), "{extra}");
     }
     let mut v = base.clone();
+    v["listing"]["rates"]["ping"] = json!(5.0);
+    assert_eq!(h.send("POST", PATH_REGISTER, &serde_json::to_vec(&v).unwrap()).status, 400, "no unknown rate");
+    let mut v = base.clone();
     v["capabilities"]["content"]["client_catalog"]["../../etc/passwd"] = json!({"sha256": "a".repeat(64), "records": 1});
     assert_eq!(h.send("POST", PATH_REGISTER, &serde_json::to_vec(&v).unwrap()).status, 400, "capabilities are checked field by field");
     let mut v = base.clone();
     v["capabilities"]["notes"] = json!("free text to store");
     assert_eq!(h.send("POST", PATH_REGISTER, &serde_json::to_vec(&v).unwrap()).status, 400, "no free-form storage in the capabilities");
-    // ids and paths
     let mut other = Host::new(s, 7);
     other.ts = h.ts;
-    let r = h.send("GET", "/registry/v1/realms/not-a-uuid", b"");
+    let r = h.send("GET", "/registry/v2/realms/not-a-uuid/self", b"");
     assert_eq!(r.status, 400);
-    let path = format!("/registry/v1/realms/{}", other.realm.to_string().to_uppercase());
+    let path = format!("/registry/v2/realms/{}/self", other.realm.to_string().to_uppercase());
     assert_eq!(h.send("GET", &path, b"").status, 400, "upper case is not the canonical spelling");
     assert_eq!(h.send("GET", &format!("{}?x=1", path_self(&h.realm)), b"").status, 400, "no query on a signed endpoint");
     let r = h.send("GET", &path_self(&other.realm), b"");
     assert_eq!(r.status, 400, "the realm header names another realm than the path");
-    let r = h.send("GET", "/registry/v1/realms/018f2d9e-5c3a-4b21-8c4d-0e5f6a7b8c9d", b"");
+    let r = h.send("GET", "/registry/v2/realms/018f2d9e-5c3a-4b21-8c4d-0e5f6a7b8c9d/self", b"");
     assert_eq!(r.status, 400, "a version-4 UUID is not a realm id");
-    // nothing was stored by any of it
     let mut clean = Host::new(s, 7);
     clean.realm = h.realm;
     clean.ts = h.ts + 100;
@@ -257,11 +297,11 @@ fn unpublishing(s: &TestServer) {
 }
 
 fn healthz(s: &TestServer) {
-    let r = reqwest::blocking::get(format!("{}/registry/v1/healthz", s.base)).unwrap();
+    let r = reqwest::blocking::get(format!("{}/registry/v2/healthz", s.base)).unwrap();
     assert_eq!(r.status(), 200);
     let v: serde_json::Value = r.json().unwrap();
-    assert_eq!((v["status"].as_str(), v["protocol_version"].as_u64()), (Some("ok"), Some(1)));
-    assert_eq!(reqwest::blocking::get(format!("{}/registry/v1/realms", s.base)).unwrap().status(), 404, "there is no public list");
+    assert_eq!((v["status"].as_str(), v["protocol_version"].as_u64()), (Some("ok"), Some(2)));
+    assert_eq!(reqwest::blocking::get(format!("{}/registry/v2/nothing", s.base)).unwrap().status(), 404);
     assert_eq!(reqwest::blocking::get(format!("{}/admin", s.base)).unwrap().status(), 404, "and no admin surface");
 }
 
@@ -272,6 +312,7 @@ fn all(s: &TestServer) {
     metadata_changes(s);
     takeover(s);
     authentication(s);
+    old_protocol_is_refused(s);
     hostile_input(s);
     unpublishing(s);
 }
@@ -279,6 +320,57 @@ fn all(s: &TestServer) {
 #[test]
 fn the_protocol_on_the_memory_store() {
     all(&memory());
+}
+
+/// A record left by protocol 1 keeps its identity, key and creation time when its Host republishes under protocol 2.
+#[test]
+fn a_protocol_1_record_is_upgraded_in_place() {
+    let store = std::sync::Arc::new(MemoryStore::new());
+    let s = spawn(store.clone(), lax());
+    let mut h = Host::new(&s, 60);
+    let caps = caps(60);
+    let created = START - 86_400;
+    let old = RealmRow {
+        realm_id: h.realm,
+        public_key: *h.key.verifying_key().as_bytes(),
+        created_at: created,
+        updated_at: created,
+        last_seen_at: created,
+        published: true,
+        listing: Listing { display_name: "Old realm".into(), description: "from protocol 1".into(), language: "en".into(), region: None, rates: Rates::default(), modules: vec![], account_provisioning: AccountProvisioning { automatic: false, existing_only: true }, manager_version: "0.6.6".into() },
+        listing_hash: "f".repeat(64),
+        ruleset: Ruleset::Coa,
+        level_cap: Some(60),
+        capabilities: caps.clone(),
+        capabilities_hash: caps.advert_hash(),
+        population: Population::default(),
+        metadata_revision: 5,
+        last_request_ts: s.time() - 1000,
+        advert_version: 1,
+    };
+    store.put_for_test(old);
+    // a heartbeat of the new protocol with only a hash cannot upgrade it: the listing is asked for
+    h.ts = s.time();
+    h.name = "Old realm".into();
+    let r = h.heartbeat(60, false);
+    assert_eq!((r.status, r.body["resend_listing"].as_bool()), (200, Some(true)), "{:?}", r.body);
+    assert_eq!(store.get_for_test(&h.realm).unwrap().advert_version, 1, "nothing was applied");
+    let body = h.heartbeat_with_listing(60, "Old realm");
+    let path = path_heartbeat(&h.realm);
+    let r = h.send("POST", &path, &serde_json::to_vec(&body).unwrap());
+    assert_eq!((r.status, r.body["resend_listing"].as_bool(), r.body["metadata_revision"].as_u64()), (200, Some(false), Some(6)), "{:?}", r.body);
+    let row = store.get_for_test(&h.realm).unwrap();
+    assert_eq!((row.advert_version, ADVERT_VERSION, row.created_at, row.public_key), (2, 2, created, *h.key.verifying_key().as_bytes()), "identity, key and creation time are kept");
+    assert_eq!(row.listing.rates.xp_kill, Some(2.0));
+
+    // and the other way: registering again as itself
+    let mut h2 = Host::new(&s, 61);
+    let old2 = RealmRow { realm_id: h2.realm, public_key: *h2.key.verifying_key().as_bytes(), advert_version: 1, last_request_ts: s.time() - 1000, ..store.get_for_test(&h.realm).unwrap() };
+    store.put_for_test(old2);
+    h2.ts = s.time();
+    let r = h2.register("Republished", 60);
+    assert_eq!((r.status, r.body["created"].as_bool(), r.body["metadata_revision"].as_u64()), (200, Some(false), Some(7)), "{:?}", r.body);
+    assert_eq!(store.get_for_test(&h2.realm).unwrap().created_at, created);
 }
 
 #[test]
@@ -305,7 +397,6 @@ fn a_flood_is_limited() {
     assert_eq!(other.register("Other", 60).status, 200);
     assert_eq!(other.heartbeat(60, false).status, 200, "another realm has its own allowance");
 
-    // forged requests cost their sender, and never the realm they pretend to be
     let s = spawn(MemoryStore::new(), ApiConfig { general: Rate { burst: 12.0, refill: 0.0 }, heartbeat: Rate { burst: 2.0, refill: 0.0 }, ..ApiConfig::default() });
     let mut victim = Host::new(&s, 40);
     assert_eq!(victim.register("Victim", 60).status, 200);
@@ -318,7 +409,6 @@ fn a_flood_is_limited() {
     }
     assert_eq!(&statuses[..2], &[401, 401]);
     assert_eq!(*statuses.last().unwrap(), 429, "the forger runs out of allowance: {statuses:?}");
-    // the victim's own per-realm allowance was never spent by the forgeries (its address allowance may be, which is the forger's address too here)
 }
 
 #[test]

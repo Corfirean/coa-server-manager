@@ -14,7 +14,7 @@ use crate::{Error, Result};
 
 enum Cmd {
     SetUrl(Option<String>, Sender<Result<()>>),
-    Publish { local_id: String, name: String, description: String, language: String, reply: Sender<Result<()>> },
+    Publish { local_id: String, name: String, description: String, language: String, region: Option<String>, reply: Sender<Result<()>> },
     Unpublish(String, Sender<Result<()>>),
     Retry(String),
     Shutdown,
@@ -44,8 +44,8 @@ impl RegistryRuntime {
                     Ok(Cmd::SetUrl(url, reply)) => {
                         let _ = reply.send(host.set_url(url.as_deref(), Instant::now()));
                     }
-                    Ok(Cmd::Publish { local_id, name, description, language, reply }) => {
-                        let _ = reply.send(host.publish(&local_id, &name, &description, &language, Instant::now()));
+                    Ok(Cmd::Publish { local_id, name, description, language, region, reply }) => {
+                        let _ = reply.send(host.publish(&local_id, &name, &description, &language, region.as_deref(), Instant::now()));
                     }
                     Ok(Cmd::Unpublish(local_id, reply)) => {
                         let _ = reply.send(host.unpublish(&local_id, Instant::now()));
@@ -77,8 +77,8 @@ impl RegistryRuntime {
         self.ask(|reply| Cmd::SetUrl(url, reply))
     }
 
-    pub fn publish(&self, local_id: &str, name: &str, description: &str, language: &str) -> Result<()> {
-        self.ask(|reply| Cmd::Publish { local_id: local_id.into(), name: name.into(), description: description.into(), language: language.into(), reply })
+    pub fn publish(&self, local_id: &str, name: &str, description: &str, language: &str, region: Option<&str>) -> Result<()> {
+        self.ask(|reply| Cmd::Publish { local_id: local_id.into(), name: name.into(), description: description.into(), language: language.into(), region: region.map(str::to_string), reply })
     }
 
     pub fn unpublish(&self, local_id: &str) -> Result<()> {

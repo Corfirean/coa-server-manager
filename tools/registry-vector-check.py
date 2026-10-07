@@ -1,4 +1,4 @@
-"""Independent check of the documented Registry test vector with the RFC 8032 reference algorithm (pure Python, not the code under test)."""
+"""Independent check of the documented Registry (protocol 2) test vector with the RFC 8032 reference algorithm (pure Python, not the code under test)."""
 import base64
 import hashlib
 
@@ -81,7 +81,7 @@ def sign(seed, msg):
 b64 = lambda b: base64.urlsafe_b64encode(b).decode().rstrip("=")
 seed = bytes([7]) * 32
 realm = "018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d"
-body = b'{"protocol_version":1}'
-msg = "\n".join(["coa-registry-sig-v1", "1", "POST", f"/registry/v1/realms/{realm}/heartbeat", realm, "1790000000", hashlib.sha256(body).hexdigest()]).encode()
+body = b'{"protocol_version":2}'
+msg = "\n".join(["coa-registry-sig-v2", "2", "POST", f"/registry/v2/realms/{realm}/heartbeat", realm, "1790000000", hashlib.sha256(body).hexdigest()]).encode()
 print("public key ", b64(public(seed)))
 print("signature  ", b64(sign(seed, msg)))

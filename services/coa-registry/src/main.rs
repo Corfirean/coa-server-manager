@@ -32,7 +32,7 @@ fn healthcheck() -> i32 {
     let port = addr.rsplit(':').next().unwrap_or("8080");
     let Ok(mut s) = std::net::TcpStream::connect(format!("127.0.0.1:{port}")) else { return 1 };
     let _ = s.set_read_timeout(Some(Duration::from_secs(3)));
-    if s.write_all(b"GET /registry/v1/healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").is_err() {
+    if s.write_all(b"GET /registry/v2/healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").is_err() {
         return 1;
     }
     let mut out = String::new();

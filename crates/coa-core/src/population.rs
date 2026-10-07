@@ -40,6 +40,14 @@ fn parse_counts(out: &str) -> Result<Population> {
 pub fn query(root: &Path) -> Result<Population> {
     let prefix = bot_account_prefix(root).to_uppercase();
     let db = Db::from_repack(root, Account::App)?;
+    query_with(&db, &prefix)
+}
+
+/// The same counts through any database handle (a realm known by its descriptor); `prefix` is the bot accounts' name prefix, upper case.
+pub fn query_with(db: &Db, prefix: &str) -> Result<Population> {
+    if prefix.is_empty() || !prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(Error::Invalid("the bot account prefix is not a plain name".into()));
+    }
     let sql = format!(
         "SELECT (SELECT COUNT(*) FROM acore_characters.characters WHERE online=1), \
                 (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%'), \

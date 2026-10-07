@@ -20,12 +20,13 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
   const [name, setName] = useState(serverName);
   const [description, setDescription] = useState("");
   const [language, setLanguage] = useState("en");
+  const [region, setRegion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { if (status && status.url !== null) setUrl((u) => (u === "" ? status.url ?? "" : u)); }, [status?.url]);
   useEffect(() => {
-    if (mine && mine.display_name) { setName(mine.display_name); setDescription(mine.description); setLanguage(mine.language || "en"); }
+    if (mine && mine.display_name) { setName(mine.display_name); setDescription(mine.description); setLanguage(mine.language || "en"); setRegion(mine.region ?? ""); }
   }, [mine?.display_name, mine?.description, mine?.language]);
 
   async function run(action: () => Promise<void>) {
@@ -57,8 +58,10 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
         <select id="registry-language" value={language} onChange={(e) => setLanguage(e.target.value)} className="mt-1 rounded-md border border-line bg-card px-3 py-2">
           {LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
+        <label htmlFor="registry-region" className="mt-3 block text-sm font-medium">{t("registry.region")}</label>
+        <input id="registry-region" value={region} maxLength={16} placeholder="EU" onChange={(e) => setRegion(e.target.value)} className="mt-1 w-32 rounded-md border border-line bg-card px-3 py-2" />
         <div className="mt-4">
-          <Button variant="primary" disabled={busy || !status?.url || name.trim() === ""} onClick={() => void run(() => realmRegistry.publish(localId, name, description, language))}>
+          <Button variant="primary" disabled={busy || !status?.url || name.trim() === ""} onClick={() => void run(() => realmRegistry.publish(localId, name, description, language, region.trim() === "" ? null : region.trim()))}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{t("registry.publish")}
           </Button>
           {!status?.url && <p className="mt-2 text-xs text-muted">{t("registry.noUrl")}</p>}

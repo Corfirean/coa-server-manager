@@ -1,7 +1,7 @@
 //! Signed requests. One canonical input, one algorithm (Ed25519); see `docs/REGISTRY_PROTOCOL.md` for the format and test vectors.
 //!
 //! ```text
-//! coa-registry-sig-v1
+//! coa-registry-sig-v2
 //! <protocol version>        decimal
 //! <HTTP method>             upper case
 //! <request path>            exactly as sent, no query
@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::{invalid, Result, REGISTRY_PROTOCOL_VERSION};
 
-pub const SIGNATURE_DOMAIN: &str = "coa-registry-sig-v1";
+pub const SIGNATURE_DOMAIN: &str = "coa-registry-sig-v2";
 
 pub const HEADER_VERSION: &str = "x-coa-registry-version";
 pub const HEADER_REALM: &str = "x-coa-realm";
@@ -185,43 +185,37 @@ mod tests {
         let realm = RealmId::parse(REALM).unwrap();
         let key = key();
         assert_eq!(encode_public_key(&key.verifying_key()), VECTOR_PUBLIC_KEY);
-        let body = br#"{"protocol_version":1}"#;
-        let input = signature_input("post", "/registry/v1/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", &realm, 1_790_000_000, body);
+        let body = br#"{"protocol_version":2}"#;
+        let input = signature_input("post", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", &realm, 1_790_000_000, body);
         assert_eq!(String::from_utf8(input).unwrap(), VECTOR_INPUT);
-        let headers = sign_request(&key, "POST", "/registry/v1/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", &realm, 1_790_000_000, body);
+        let headers = sign_request(&key, "POST", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", &realm, 1_790_000_000, body);
         assert_eq!(B64.encode(headers.signature), VECTOR_SIGNATURE);
-        assert!(verify_request(&key.verifying_key(), &headers, "POST", "/registry/v1/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", body));
+        assert!(verify_request(&key.verifying_key(), &headers, "POST", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", body));
     }
 
     /// The second documented vector: a GET has the empty body, whose SHA-256 is `e3b0c442...`.
     #[test]
     fn the_documented_vector_of_a_read() {
         let realm = RealmId::parse(REALM).unwrap();
-        let headers = sign_request(&key(), "GET", "/registry/v1/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d", &realm, 1_790_000_030, b"");
-        assert_eq!(B64.encode(headers.signature), "38nHMS6yvl8yrTbLmG1w5LiLVkvTaiRdQPrgT2GSvtR8jW_W0z50IRxD_kInBYP5Yl1Qwwm-r6BVDdTR5ts-BQ");
+        let headers = sign_request(&key(), "GET", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/self", &realm, 1_790_000_030, b"");
+        assert_eq!(B64.encode(headers.signature), "yqd_TFTooZcWb0GhLw3Tl9FwnBWCHo3Q2AYpoNn4CCJljENOgW9WaNlODoInEVglrCNKJmoYuahPyZfcEJk_AA");
     }
 
     const VECTOR_PUBLIC_KEY: &str = "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw";
-    const VECTOR_INPUT: &str = "coa-registry-sig-v1
-1
-POST
-/registry/v1/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat
-018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d
-1790000000
-00aa4c2c857995eb8e19cb0fade07e4b49aac774e37a99c37a0c9f549204d9de";
-    const VECTOR_SIGNATURE: &str = "1ys2C7RVjhEtTl0bVrdowpuPELwOnhuiYZKp88dAWdcA3cezP9QuI903OJi2N2mFA9kifblD_fvdT2B_8F5_Dw";
+    const VECTOR_INPUT: &str = "coa-registry-sig-v2\n2\nPOST\n/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat\n018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d\n1790000000\ne68cb099ab8a3557572bff7e669270ac75fe321c1920b12a2aa7a535d1d16155";
+    const VECTOR_SIGNATURE: &str = "MjXmYOIM1Bap5C5XNPspElOTNIAnKBN4pTfvhF6r29zq7A0elzXi7Qk8D3FyfL1CtVmpliUAr3MY1TGrGPyqAQ";
 
     #[test]
     fn every_part_of_the_input_is_covered() {
         let realm = RealmId::parse(REALM).unwrap();
         let other = RealmId::parse("018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9e").unwrap();
         let key = key();
-        let path = "/registry/v1/realms/x";
+        let path = "/registry/v2/realms/x";
         let h = sign_request(&key, "POST", path, &realm, 100, b"body");
         let public = key.verifying_key();
         assert!(verify_request(&public, &h, "POST", path, b"body"));
         assert!(!verify_request(&public, &h, "POST", path, b"bodY"), "the body");
-        assert!(!verify_request(&public, &h, "POST", "/registry/v1/realms/y", b"body"), "the path");
+        assert!(!verify_request(&public, &h, "POST", "/registry/v2/realms/y", b"body"), "the path");
         assert!(!verify_request(&public, &h, "GET", path, b"body"), "the method");
         assert!(!verify_request(&public, &SignedHeaders { realm: other, ..h.clone() }, "POST", path, b"body"), "the realm");
         assert!(!verify_request(&public, &SignedHeaders { timestamp: 101, ..h.clone() }, "POST", path, b"body"), "the timestamp");

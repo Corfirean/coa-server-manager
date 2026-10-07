@@ -82,6 +82,8 @@ pub struct Host {
     pub key: SigningKey,
     pub realm: RealmId,
     pub ts: i64,
+    /// The display name the next heartbeats advertise.
+    pub name: String,
     http: reqwest::blocking::Client,
 }
 
@@ -102,7 +104,7 @@ impl Reply {
 
 impl Host {
     pub fn new(server: &TestServer, seed: u8) -> Self {
-        Self { base: server.base.clone(), key: SigningKey::from_bytes(&[seed; 32]), realm: RealmId::new(), ts: server.time(), http: reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap() }
+        Self { base: server.base.clone(), key: SigningKey::from_bytes(&[seed; 32]), realm: RealmId::new(), ts: server.time(), name: "Test realm".into(), http: reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap() }
     }
 
     /// A client for a Registry that is not in this process (a real node): a random key, the real clock.
@@ -111,7 +113,7 @@ impl Host {
         seed[..16].copy_from_slice(uuid_bytes().as_slice());
         seed[16..].copy_from_slice(uuid_bytes().as_slice());
         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-        Self { base: base.trim_end_matches('/').to_string(), key: SigningKey::from_bytes(&seed), realm: RealmId::new(), ts, http: reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(20)).build().unwrap() }
+        Self { base: base.trim_end_matches('/').to_string(), key: SigningKey::from_bytes(&seed), realm: RealmId::new(), ts, name: "Test realm".into(), http: reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(20)).build().unwrap() }
     }
 
     /// Bring the timestamp up to the real clock (after a pause); it never goes backwards.
@@ -120,27 +122,47 @@ impl Host {
         self.ts = self.ts.max(now);
     }
 
-    pub fn register_body(&self, name: &str, level: u32) -> RegisterRequest {
-        let capabilities = caps(level);
-        RegisterRequest {
-            protocol_version: 1,
-            realm_id: self.realm,
-            public_key: encode_public_key(&self.key.verifying_key()),
+    pub fn listing(&self, name: &str) -> Listing {
+        Listing {
             display_name: name.into(),
             description: "A test realm.".into(),
             language: "en".into(),
-            ruleset: Ruleset::Coa,
+            region: Some("EU".into()),
+            rates: Rates { xp_kill: Some(2.0), xp_quest: Some(2.0), xp_explore: None, loot: Some(1.0), money: Some(1.5), reputation: None, honor: Some(1.0) },
+            modules: vec![ModuleEntry { id: "playerbots".into(), version: Some("1.4.2".into()), enabled: true }, ModuleEntry { id: "content-scaling".into(), version: None, enabled: false }],
+            account_provisioning: AccountProvisioning { automatic: true, existing_only: false },
             manager_version: "0.6.6".into(),
-            capabilities_hash: capabilities.advert_hash(),
-            capabilities,
-            player_count: Some(1),
-            player_capacity: Some(50),
         }
     }
 
+    pub fn register_body(&self, name: &str, level: u32) -> RegisterRequest {
+        let capabilities = caps(level);
+        let listing = self.listing(name);
+        RegisterRequest {
+            protocol_version: 2,
+            realm_id: self.realm,
+            public_key: encode_public_key(&self.key.verifying_key()),
+            listing_hash: listing.hash(),
+            listing,
+            capabilities_hash: capabilities.advert_hash(),
+            capabilities,
+            population: Population { players: 1, bots: 4, capacity: Some(50) },
+        }
+    }
+
+    /// A heartbeat of the realm as `register` described it, with the capabilities of `level` (and their hash) and optionally the parts themselves.
     pub fn heartbeat_body(&self, level: u32, with_caps: bool) -> HeartbeatRequest {
         let capabilities = caps(level);
-        HeartbeatRequest { protocol_version: 1, capabilities_hash: capabilities.advert_hash(), capabilities: with_caps.then_some(capabilities), manager_version: None, player_count: Some(2), player_capacity: Some(50), display_name: None, description: None, language: None }
+        let listing = self.listing(&self.name);
+        HeartbeatRequest { protocol_version: 2, listing_hash: listing.hash(), listing: None, capabilities_hash: capabilities.advert_hash(), capabilities: with_caps.then_some(capabilities), population: Population { players: 2, bots: 4, capacity: Some(50) } }
+    }
+
+    pub fn heartbeat_with_listing(&self, level: u32, name: &str) -> HeartbeatRequest {
+        let mut hb = self.heartbeat_body(level, false);
+        let listing = self.listing(name);
+        hb.listing_hash = listing.hash();
+        hb.listing = Some(listing);
+        hb
     }
 
     /// A fully signed request; the timestamp advances by one for every call.
@@ -166,6 +188,7 @@ impl Host {
     }
 
     pub fn register(&mut self, name: &str, level: u32) -> Reply {
+        self.name = name.into();
         let body = serde_json::to_vec(&self.register_body(name, level)).unwrap();
         self.send("POST", PATH_REGISTER, &body)
     }
@@ -177,7 +200,7 @@ impl Host {
     }
 
     pub fn unpublish(&mut self) -> Reply {
-        let body = serde_json::to_vec(&UnpublishRequest { protocol_version: 1 }).unwrap();
+        let body = serde_json::to_vec(&UnpublishRequest { protocol_version: 2 }).unwrap();
         let path = path_unpublish(&self.realm);
         self.send("POST", &path, &body)
     }

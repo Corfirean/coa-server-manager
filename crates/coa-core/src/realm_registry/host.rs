@@ -92,6 +92,7 @@ pub struct RealmPublishStatus {
     pub display_name: String,
     pub description: String,
     pub language: String,
+    pub region: Option<String>,
     pub metadata_revision: Option<u64>,
     pub last_ok_unix: Option<i64>,
     pub last_error: Option<String>,
@@ -120,8 +121,8 @@ struct Publisher {
     failures: u32,
     clock_failures: u32,
     unpublish_attempts: u32,
-    acked_hash: Option<String>,
-    sent_meta: Option<(String, String, String)>,
+    acked_caps: Option<String>,
+    acked_listing: Option<String>,
     revision: Option<u64>,
     last_ok: Option<i64>,
     last_error: Option<String>,
@@ -141,8 +142,8 @@ impl Publisher {
             failures: 0,
             clock_failures: 0,
             unpublish_attempts: 0,
-            acked_hash: None,
-            sent_meta: None,
+            acked_caps: None,
+            acked_listing: None,
             revision: None,
             last_ok: None,
             last_error: None,
@@ -154,8 +155,8 @@ impl Publisher {
         self.phase = Phase::Register;
         self.failures = 0;
         self.clock_failures = 0;
-        self.acked_hash = None;
-        self.sent_meta = None;
+        self.acked_caps = None;
+        self.acked_listing = None;
         self.last_error = None;
         self.state = PublishState::Starting;
         self.due = Some(now);
@@ -238,7 +239,7 @@ impl RegistryHost {
     }
 
     /// Start (or restart) publishing a local realm. The first time creates its identity; later times keep it.
-    pub fn publish(&mut self, local_id: &str, display_name: &str, description: &str, language: &str, now: Instant) -> Result<()> {
+    pub fn publish(&mut self, local_id: &str, display_name: &str, description: &str, language: &str, region: Option<&str>, now: Instant) -> Result<()> {
         if self.client.is_none() {
             return Err(Error::Invalid("set the Registry address first".into()));
         }
@@ -246,6 +247,7 @@ impl RegistryHost {
         cfg.display_name = display_name.trim().to_string();
         cfg.description = description.trim().to_string();
         cfg.language = language.trim().to_string();
+        cfg.region = region.map(str::trim).filter(|r| !r.is_empty()).map(str::to_string);
         cfg.enabled = true;
         cfg.validate()?;
         // an identity whose key is gone from this machine cannot sign for itself any more: publishing again makes a new identity, never a guess at the old key
@@ -324,6 +326,7 @@ impl RegistryHost {
                 display_name: p.cfg.display_name.clone(),
                 description: p.cfg.description.clone(),
                 language: p.cfg.language.clone(),
+                region: p.cfg.region.clone(),
                 metadata_revision: p.revision,
                 last_ok_unix: p.last_ok,
                 last_error: p.last_error.clone(),
@@ -339,7 +342,7 @@ impl RegistryHost {
     }
 
     /// What the Registry itself says about a published realm (the authenticated read; useful for support and for tests).
-    pub fn registry_record(&mut self, local_id: &str) -> std::result::Result<SelfResponse, ClientError> {
+    pub fn registry_record(&mut self, local_id: &str) -> std::result::Result<RealmDetail, ClientError> {
         let Some(mut p) = self.publishers.remove(local_id) else { return Err(ClientError::Protocol("the realm is not known here".into())) };
         let out = match (self.client.as_ref(), p.realm, p.key.clone()) {
             (Some(client), Some(realm), Some(key)) => {
@@ -394,31 +397,42 @@ impl RegistryHost {
         }
     }
 
+    /// What a player reads about this realm: the owner's words, and everything else as the realm itself reports it.
+    fn listing_of(&self, p: &Publisher, advert: &LocalAdvert) -> Listing {
+        Listing {
+            display_name: p.cfg.display_name.clone(),
+            description: p.cfg.description.clone(),
+            language: p.cfg.language.clone(),
+            region: p.cfg.region.clone(),
+            rates: advert.rates.clone(),
+            modules: advert.modules.clone(),
+            account_provisioning: advert.account_provisioning,
+            manager_version: advert.manager_version.clone(),
+        }
+    }
+
     fn register(&self, client: &RegistryClient, realm: &RealmId, key: &SigningKey, p: &mut Publisher, advert: &LocalAdvert, now: Instant) -> std::result::Result<(), ClientError> {
         let Some(caps) = advert.capabilities.clone().filter(|_| advert.running) else {
             p.state = if advert.running { PublishState::WaitingForRealm } else { PublishState::RealmStopped };
             p.due = Some(now + self.timing.idle_poll);
             return Ok(());
         };
+        let listing = self.listing_of(p, advert);
         let req = RegisterRequest {
             protocol_version: REGISTRY_PROTOCOL_VERSION,
             realm_id: *realm,
             public_key: encode_public_key(&key.verifying_key()),
-            display_name: p.cfg.display_name.clone(),
-            description: p.cfg.description.clone(),
-            language: p.cfg.language.clone(),
-            ruleset: caps.content.ruleset,
-            manager_version: advert.manager_version.clone(),
+            listing_hash: listing.hash(),
+            listing,
             capabilities_hash: caps.advert_hash(),
             capabilities: caps,
-            player_count: advert.player_count,
-            player_capacity: advert.player_capacity,
+            population: advert.population,
         };
         let ts = self.next_ts(p);
         let resp = client.register(key, &req, ts)?;
         p.phase = Phase::Beat;
-        p.acked_hash = Some(resp.capabilities_hash);
-        p.sent_meta = Some((req.display_name, req.description, req.language));
+        p.acked_caps = Some(resp.capabilities_hash);
+        p.acked_listing = Some(resp.listing_hash);
         self.ok(p, resp.metadata_revision, now);
         Ok(())
     }
@@ -429,32 +443,24 @@ impl RegistryHost {
             p.due = Some(now + self.timing.idle_poll);
             return Ok(());
         };
-        let hash = caps.advert_hash();
-        let meta = (p.cfg.display_name.clone(), p.cfg.description.clone(), p.cfg.language.clone());
-        let meta_changed = p.sent_meta.as_ref() != Some(&meta);
+        let listing = self.listing_of(p, advert);
+        let (listing_hash, caps_hash) = (listing.hash(), caps.advert_hash());
         let req = HeartbeatRequest {
             protocol_version: REGISTRY_PROTOCOL_VERSION,
-            capabilities: (p.acked_hash.as_deref() != Some(hash.as_str())).then_some(caps),
-            capabilities_hash: hash,
-            manager_version: Some(advert.manager_version.clone()),
-            player_count: advert.player_count,
-            player_capacity: advert.player_capacity,
-            display_name: meta_changed.then(|| meta.0.clone()),
-            description: meta_changed.then(|| meta.1.clone()),
-            language: meta_changed.then(|| meta.2.clone()),
+            listing: (p.acked_listing.as_deref() != Some(listing_hash.as_str())).then_some(listing),
+            listing_hash,
+            capabilities: (p.acked_caps.as_deref() != Some(caps_hash.as_str())).then_some(caps),
+            capabilities_hash: caps_hash,
+            population: advert.population,
         };
         let ts = self.next_ts(p);
         let resp = client.heartbeat(key, realm, &req, ts)?;
-        if meta_changed {
-            p.sent_meta = Some(meta);
-        }
-        if resp.resend_capabilities {
-            p.acked_hash = None;
-            self.ok(p, resp.metadata_revision, now);
+        // what the Registry holds now decides what is sent next; a part it asked for is sent again at once
+        p.acked_listing = if resp.resend_listing { None } else { Some(resp.listing_hash) };
+        p.acked_caps = if resp.resend_capabilities { None } else { Some(resp.capabilities_hash) };
+        self.ok(p, resp.metadata_revision, now);
+        if resp.resend_listing || resp.resend_capabilities {
             p.due = Some(now + Duration::from_secs(1));
-        } else {
-            p.acked_hash = Some(resp.capabilities_hash);
-            self.ok(p, resp.metadata_revision, now);
         }
         Ok(())
     }
@@ -474,7 +480,8 @@ impl RegistryHost {
         match &e {
             ClientError::Rejected { code: ErrorCode::UnknownRealm | ErrorCode::NotPublished, .. } => {
                 p.phase = Phase::Register;
-                p.acked_hash = None;
+                p.acked_caps = None;
+                p.acked_listing = None;
                 p.failures += 1;
                 p.state = PublishState::Retrying;
                 p.due = Some(now + if p.failures <= 1 { Duration::from_secs(1) } else { backoff(p.failures, self.timing.backoff_base, self.timing.backoff_cap, unit()) });

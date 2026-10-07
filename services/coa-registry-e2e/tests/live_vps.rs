@@ -38,12 +38,12 @@ fn gate_1_to_12_against_the_node() {
     // 1. a fresh realm generates its identity and registers (through the Host Manager code)
     let dir = tempfile::tempdir().unwrap();
     let keys: Arc<dyn KeyStore> = Arc::new(FileKeyStore::new(dir.path().join("keys")));
-    let source = Arc::new(Fixed(LocalAdvert { running: true, capabilities: Some(caps(60)), player_count: Some(2), player_capacity: None, manager_version: "0.6.6".into() }));
+    let source = Arc::new(Fixed(LocalAdvert { running: true, capabilities: Some(caps(60)), population: Population { players: 2, bots: 7, capacity: None }, rates: Rates { xp_kill: Some(2.0), ..Rates::default() }, modules: vec![ModuleEntry { id: "playerbots".into(), version: Some("1.4.2".into()), enabled: true }], account_provisioning: AccountProvisioning { automatic: false, existing_only: true }, manager_version: "0.6.6".into() }));
     let t0 = Instant::now();
     let mut elapsed = Duration::ZERO;
     let mut host = RegistryHost::open(dir.path(), keys.clone(), source.clone(), system_clock(), Timing::default(), t0).unwrap();
     host.set_url(Some(&base), t0).unwrap();
-    host.publish("srv-gate", "Gate realm", "Phase 10 gate", "en", t0).unwrap();
+    host.publish("srv-gate", "Gate realm", "Phase 10.1 gate", "en", Some("EU"), t0).unwrap();
     host.tick(t0);
     assert_eq!(host.status(t0).realms[0].state, PublishState::Online, "{:?}", host.status(t0));
     let realm = host.realm_id("srv-gate").unwrap();
@@ -73,7 +73,7 @@ fn gate_1_to_12_against_the_node() {
     pass(4, &format!("heartbeat moved last_seen_at {} -> {}", rec2.last_seen_at, rec3.last_seen_at));
 
     // 6. a capability change updates the record with the next heartbeat
-    let source2 = Arc::new(Fixed(LocalAdvert { running: true, capabilities: Some(caps(70)), player_count: Some(3), player_capacity: None, manager_version: "0.6.6".into() }));
+    let source2 = Arc::new(Fixed(LocalAdvert { running: true, capabilities: Some(caps(70)), population: Population { players: 3, bots: 7, capacity: None }, rates: Rates { xp_kill: Some(2.0), ..Rates::default() }, modules: vec![ModuleEntry { id: "playerbots".into(), version: Some("1.4.2".into()), enabled: true }], account_provisioning: AccountProvisioning { automatic: false, existing_only: true }, manager_version: "0.6.6".into() }));
     drop(host);
     let mut host = RegistryHost::open(dir.path(), keys.clone(), source2, system_clock(), Timing::default(), t0).unwrap();
     host.set_url(Some(&base), t0).unwrap();
@@ -103,7 +103,7 @@ fn gate_1_to_12_against_the_node() {
     assert_eq!((r.status, r.code().as_str()), (403, "realm_key_mismatch"));
     let r = thief.heartbeat(60, true);
     assert_eq!((r.status, r.code().as_str()), (401, "invalid_signature"));
-    assert_eq!(h.me().body["display_name"], "Raw realm");
+    assert_eq!(h.me().body["listing"]["display_name"], "Raw realm");
     pass(7, "same RealmId signed by another key: register 403 realm_key_mismatch, heartbeat 401 invalid_signature, record untouched");
 
     h.sync_clock();
@@ -134,14 +134,14 @@ fn gate_1_to_12_against_the_node() {
 
     h.sync_clock();
     let mut hv = sign_request(&h.key, "POST", &path, &h.realm, h.ts + 1, &body).pairs();
-    hv[0] = (sign_header_version(), "2".into());
+    hv[0] = (sign_header_version(), "1".into());
     let r = h.send_with("POST", &path, &body, &hv);
     assert_eq!((r.status, r.code().as_str()), (400, "unsupported_protocol_version"));
     let mut v2 = h.heartbeat_body(60, false);
-    v2.protocol_version = 2;
+    v2.protocol_version = 1;
     let r = h.send("POST", &path, &serde_json::to_vec(&v2).unwrap());
     assert_eq!((r.status, r.code().as_str()), (400, "unsupported_protocol_version"));
-    pass(10, "protocol version 2 (header and body): 400 unsupported_protocol_version");
+    pass(10, "protocol version 1 and 3 (header and body): 400 unsupported_protocol_version");
 
     let big = vec![b'x'; MAX_REQUEST_BYTES + 1];
     let r = h.send("POST", PATH_REGISTER, &big);
@@ -150,7 +150,7 @@ fn gate_1_to_12_against_the_node() {
     let base_body = serde_json::to_value(hostile.register_body("Hostile", 60)).unwrap();
     for (field, value) in [("display_name", json!("x".repeat(500))), ("description", json!("d".repeat(5000))), ("language", json!("<script>alert(1)</script>")), ("display_name", json!("evil\u{202E}name"))] {
         let mut v = base_body.clone();
-        v[field] = value;
+        v["listing"][field] = value;
         let r = hostile.send("POST", PATH_REGISTER, &serde_json::to_vec(&v).unwrap());
         assert_eq!(r.status, 400, "{field}");
     }
@@ -232,7 +232,8 @@ fn gate_persist_probe_read() {
     h.key = ed25519_dalek::SigningKey::from_bytes(&bytes.try_into().unwrap());
     h.sync_clock();
     let me = h.me();
-    assert_eq!((me.status, me.body["display_name"].as_str(), me.body["published"].as_bool()), (200, Some("Persist realm"), Some(true)), "{:?}", me.body);
+    assert_eq!((me.status, me.body["listing"]["display_name"].as_str(), me.body["published"].as_bool()), (200, Some("Persist realm"), Some(true)), "{:?}", me.body);
+    assert_eq!((me.body["listing"]["rates"]["xp_kill"].as_f64(), me.body["listing"]["modules"][0]["id"].as_str(), me.body["population"]["bots"].as_u64(), me.body["level_cap"].as_u64()), (Some(2.0), Some("playerbots"), Some(4), Some(60)), "the structured metadata survived: {:?}", me.body);
     h.sync_clock();
     assert_eq!(h.heartbeat(60, false).status, 200, "and it can still heartbeat with its own key");
     println!("PERSIST_OK {realm}");
@@ -252,4 +253,32 @@ fn gate_registration_rate_limit() {
     let limited = codes.iter().filter(|c| **c == 429).count();
     assert!(ok >= 1 && limited >= 1 && ok + limited == 13, "{codes:?}");
     println!("GATE LIMIT PASS  registrations from one address: {ok} accepted, {limited} refused with 429 ({codes:?})");
+}
+
+/// A record written by protocol 1 (`PERSIST_REALM`/`PERSIST_SEED` of the Phase-10 probe) is republished under protocol 2 by the same key: the identity and creation time are kept.
+#[test]
+#[ignore]
+fn gate_v1_record_republishes_under_v2() {
+    let Some(base) = base() else { return };
+    let (Ok(realm), Ok(seed)) = (std::env::var("PERSIST_REALM"), std::env::var("PERSIST_SEED")) else { return };
+    let mut h = Host::remote(&base);
+    h.realm = RealmId::parse(&realm).unwrap();
+    let bytes: Vec<u8> = (0..seed.len() / 2).map(|i| u8::from_str_radix(&seed[2 * i..2 * i + 2], 16).unwrap()).collect();
+    h.key = ed25519_dalek::SigningKey::from_bytes(&bytes.try_into().unwrap());
+    h.sync_clock();
+    let before = h.me();
+    assert_eq!(before.status, 200, "the protocol-1 record is still there and its key still works: {:?}", before.body);
+    let created = before.body["created_at"].as_i64().unwrap();
+    assert!(before.body["listing"]["rates"]["xp_kill"].is_null(), "nothing structured was ever advertised for it");
+    assert_eq!(before.body["level_cap"], 60, "the cap of the capabilities it already held");
+    h.sync_clock();
+    let revision_before = before.body["metadata_revision"].as_u64().unwrap();
+    let r = h.register("Persist realm", 60);
+    assert_eq!((r.status, r.body["created"].as_bool()), (200, Some(false)), "{:?}", r.body);
+    assert_eq!(r.body["metadata_revision"].as_u64(), Some(revision_before + 1), "the upgrade is one metadata revision");
+    h.sync_clock();
+    let after = h.me();
+    assert_eq!(after.body["created_at"].as_i64(), Some(created), "the creation time is kept");
+    assert_eq!((after.body["listing"]["rates"]["xp_kill"].as_f64(), after.body["public_key"].as_str()), (Some(2.0), before.body["public_key"].as_str()));
+    println!("GATE_UPGRADE realm {realm} created_at {created} revision {revision_before} -> {}", revision_before + 1);
 }

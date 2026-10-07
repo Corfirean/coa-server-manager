@@ -110,7 +110,7 @@ impl RegistryClient {
     }
 
     /// The Registry's own record of this realm (the authenticated read).
-    pub fn self_info(&self, key: &SigningKey, realm: &RealmId, ts: i64) -> Result<SelfResponse, ClientError> {
+    pub fn self_info(&self, key: &SigningKey, realm: &RealmId, ts: i64) -> Result<RealmDetail, ClientError> {
         self.send("GET", &path_self(realm), Vec::new(), key, realm, ts)
     }
 }

@@ -34,6 +34,7 @@ fn descriptor(dir: &Path) -> std::path::PathBuf {
         job_dir: jobs.to_string_lossy().into(),
         data_dir: DATA.into(),
         game_server_users: vec!["acore".into()],
+        server_root: None,
     };
     let file = dir.join("scratch-cap60.json");
     std::fs::write(&file, serde_json::to_vec(&d).unwrap()).unwrap();

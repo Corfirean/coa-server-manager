@@ -3,13 +3,16 @@
 use std::time::Duration;
 
 use coa_registry_proto::caps::{AdvertisedCapabilities, Ruleset};
-use coa_registry_proto::{HeartbeatRequest, RealmId, RegisterRequest};
+use coa_registry_proto::{AccountProvisioning, HeartbeatRequest, Listing, ModuleEntry, Population, Rates, RealmId, RegisterRequest};
 use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod, Runtime};
 use tokio_postgres::{NoTls, Row};
 
 use crate::store::*;
 
-const MIGRATIONS: &[(i32, &str, &str)] = &[(1, "realms", include_str!("../migrations/0001_realms.sql"))];
+const MIGRATIONS: &[(i32, &str, &str)] = &[
+    (1, "realms", include_str!("../migrations/0001_realms.sql")),
+    (2, "protocol_v2", include_str!("../migrations/0002_protocol_v2.sql")),
+];
 
 pub struct PgConfig {
     pub host: String,
@@ -47,7 +50,7 @@ impl PgStore {
         Ok(Self { pool })
     }
 
-    async fn conn(&self) -> StoreResult<Object> {
+    pub(crate) async fn conn(&self) -> StoreResult<Object> {
         self.pool.get().await.map_err(backend)
     }
 
@@ -81,16 +84,32 @@ impl PgStore {
     }
 }
 
-const COLUMNS: &str = "realm_id::text, public_key, EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint, EXTRACT(EPOCH FROM last_seen_at)::bigint, published, display_name, description, language, ruleset, manager_version, capabilities, capabilities_hash, metadata_revision, last_request_ts, player_count, player_capacity";
+pub(crate) const COLUMNS: &str = "realm_id::text, public_key, EXTRACT(EPOCH FROM created_at)::bigint, EXTRACT(EPOCH FROM updated_at)::bigint, EXTRACT(EPOCH FROM last_seen_at)::bigint, published, display_name, description, language, region, rates, modules, account_automatic, account_existing_only, manager_version, listing_hash, ruleset, level_cap, capabilities, capabilities_hash, players, bots, capacity, metadata_revision, last_request_ts, advert_version";
 
-fn to_row(r: &Row) -> StoreResult<RealmRow> {
+pub(crate) fn to_row(r: &Row) -> StoreResult<RealmRow> {
     let id: String = r.get(0);
     let key: Vec<u8> = r.get(1);
-    let ruleset: String = r.get(9);
-    let caps: serde_json::Value = r.get(11);
-    let revision: i64 = r.get(13);
-    let count: Option<i32> = r.get(15);
-    let capacity: Option<i32> = r.get(16);
+    let rates: serde_json::Value = r.get(10);
+    let modules: serde_json::Value = r.get(11);
+    let ruleset: String = r.get(16);
+    let level_cap: Option<i32> = r.get(17);
+    let caps: serde_json::Value = r.get(18);
+    let players: Option<i32> = r.get(20);
+    let bots: i32 = r.get(21);
+    let capacity: Option<i32> = r.get(22);
+    let revision: i64 = r.get(23);
+    let version: i16 = r.get(25);
+    let listing = Listing {
+        display_name: r.get(6),
+        description: r.get(7),
+        language: r.get(8),
+        region: r.get(9),
+        rates: serde_json::from_value::<Rates>(rates).unwrap_or_default(),
+        modules: serde_json::from_value::<Vec<ModuleEntry>>(modules).unwrap_or_default(),
+        account_provisioning: AccountProvisioning { automatic: r.get(12), existing_only: r.get(13) },
+        manager_version: r.get(14),
+    };
+    let stored_hash: Option<String> = r.get(15);
     Ok(RealmRow {
         realm_id: RealmId::parse(&id).map_err(backend)?,
         public_key: key.try_into().map_err(|_| StoreError::Backend("a stored key is not 32 bytes".into()))?,
@@ -98,26 +117,34 @@ fn to_row(r: &Row) -> StoreResult<RealmRow> {
         updated_at: r.get(3),
         last_seen_at: r.get(4),
         published: r.get(5),
-        display_name: r.get(6),
-        description: r.get(7),
-        language: r.get(8),
+        listing_hash: stored_hash.unwrap_or_else(|| listing.hash()),
+        listing,
         ruleset: match ruleset.as_str() {
             "coa" => Ruleset::Coa,
             "wildcard" => Ruleset::Wildcard,
             other => return Err(StoreError::Backend(format!("a stored ruleset is unknown: {other}"))),
         },
-        manager_version: r.get(10),
+        level_cap: level_cap.map(|n| n as u32),
         capabilities: serde_json::from_value::<AdvertisedCapabilities>(caps).map_err(backend)?,
-        capabilities_hash: r.get(12),
+        capabilities_hash: r.get(19),
+        population: Population { players: players.unwrap_or(0) as u32, bots: bots as u32, capacity: capacity.map(|n| n as u32) },
         metadata_revision: revision as u64,
-        last_request_ts: r.get(14),
-        player_count: count.map(|n| n as u32),
-        player_capacity: capacity.map(|n| n as u32),
+        last_request_ts: r.get(24),
+        advert_version: version as u8,
     })
 }
 
 fn caps_json(c: &AdvertisedCapabilities) -> StoreResult<serde_json::Value> {
     serde_json::to_value(c).map_err(backend)
+}
+
+struct ListingColumns {
+    rates: serde_json::Value,
+    modules: serde_json::Value,
+}
+
+fn listing_columns(l: &Listing) -> StoreResult<ListingColumns> {
+    Ok(ListingColumns { rates: serde_json::to_value(&l.rates).map_err(backend)?, modules: serde_json::to_value(&l.modules).map_err(backend)? })
 }
 
 impl Store for PgStore {
@@ -149,14 +176,17 @@ impl Store for PgStore {
             let existing = existing.as_ref().map(to_row).transpose()?;
             let (row, created) = plan_register(existing.as_ref(), req, key, now, ts)?;
             let caps = caps_json(&row.capabilities)?;
+            let cols = listing_columns(&row.listing)?;
             let ruleset = row.ruleset.as_str();
-            let players = (row.player_count.map(|n| n as i32), row.player_capacity.map(|n| n as i32));
+            let (players, bots, capacity) = (row.population.players as i32, row.population.bots as i32, row.population.capacity.map(|n| n as i32));
+            let level_cap = row.level_cap.map(|n| n as i32);
+            let l = &row.listing;
             if created {
                 let n = tx
                     .execute(
-                        "INSERT INTO realms (realm_id, public_key, created_at, updated_at, last_seen_at, published, display_name, description, language, ruleset, manager_version, capabilities, capabilities_hash, metadata_revision, last_request_ts, player_count, player_capacity) \
-                         VALUES ($1::text::uuid, $2, to_timestamp($3::bigint), to_timestamp($3::bigint), to_timestamp($3::bigint), true, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13) ON CONFLICT (realm_id) DO NOTHING",
-                        &[&id, &row.public_key.as_slice(), &now, &row.display_name, &row.description, &row.language, &ruleset, &row.manager_version, &caps, &row.capabilities_hash, &ts, &players.0, &players.1],
+                        "INSERT INTO realms (realm_id, public_key, created_at, updated_at, last_seen_at, published, display_name, description, language, region, rates, modules, account_automatic, account_existing_only, manager_version, listing_hash, ruleset, level_cap, capabilities, capabilities_hash, players, bots, capacity, metadata_revision, last_request_ts, advert_version) \
+                         VALUES ($1::text::uuid, $2, to_timestamp($3::bigint), to_timestamp($3::bigint), to_timestamp($3::bigint), true, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 1, $21, 2) ON CONFLICT (realm_id) DO NOTHING",
+                        &[&id, &row.public_key.as_slice(), &now, &l.display_name, &l.description, &l.language, &l.region, &cols.rates, &cols.modules, &l.account_provisioning.automatic, &l.account_provisioning.existing_only, &l.manager_version, &row.listing_hash, &ruleset, &level_cap, &caps, &row.capabilities_hash, &players, &bots, &capacity, &ts],
                     )
                     .await
                     .map_err(backend)?;
@@ -166,8 +196,8 @@ impl Store for PgStore {
                 }
             } else {
                 tx.execute(
-                    "UPDATE realms SET updated_at = to_timestamp($2::bigint), last_seen_at = to_timestamp($3::bigint), published = true, display_name = $4, description = $5, language = $6, ruleset = $7, manager_version = $8, capabilities = $9, capabilities_hash = $10, metadata_revision = $11, last_request_ts = $12, player_count = $13, player_capacity = $14 WHERE realm_id = $1::text::uuid",
-                    &[&id, &row.updated_at, &now, &row.display_name, &row.description, &row.language, &ruleset, &row.manager_version, &caps, &row.capabilities_hash, &(row.metadata_revision as i64), &ts, &players.0, &players.1],
+                    "UPDATE realms SET updated_at = to_timestamp($2::bigint), last_seen_at = to_timestamp($3::bigint), published = true, display_name = $4, description = $5, language = $6, region = $7, rates = $8, modules = $9, account_automatic = $10, account_existing_only = $11, manager_version = $12, listing_hash = $13, ruleset = $14, level_cap = $15, capabilities = $16, capabilities_hash = $17, players = $18, bots = $19, capacity = $20, metadata_revision = $21, last_request_ts = $22, advert_version = 2 WHERE realm_id = $1::text::uuid",
+                    &[&id, &row.updated_at, &now, &l.display_name, &l.description, &l.language, &l.region, &cols.rates, &cols.modules, &l.account_provisioning.automatic, &l.account_provisioning.existing_only, &l.manager_version, &row.listing_hash, &ruleset, &level_cap, &caps, &row.capabilities_hash, &players, &bots, &capacity, &(row.metadata_revision as i64), &ts],
                 )
                 .await
                 .map_err(backend)?;
@@ -183,26 +213,54 @@ impl Store for PgStore {
         let text = id.to_string();
         let tx = c.transaction().await.map_err(backend)?;
         let r = tx
-            .query_opt("SELECT published, last_request_ts, capabilities_hash, display_name, description, language, manager_version, metadata_revision FROM realms WHERE realm_id = $1::text::uuid FOR UPDATE", &[&text])
+            .query_opt("SELECT published, last_request_ts, capabilities_hash, listing_hash, metadata_revision, advert_version, display_name, description, language, region, rates, modules, account_automatic, account_existing_only, manager_version FROM realms WHERE realm_id = $1::text::uuid FOR UPDATE", &[&text])
             .await
             .map_err(backend)?
             .ok_or(StoreError::Unknown)?;
-        let revision: i64 = r.get(7);
-        let view = HeartbeatView { published: r.get(0), last_request_ts: r.get(1), capabilities_hash: r.get(2), display_name: r.get(3), description: r.get(4), language: r.get(5), manager_version: r.get(6), metadata_revision: revision as u64 };
+        let revision: i64 = r.get(4);
+        let version: i16 = r.get(5);
+        let stored_listing_hash: Option<String> = r.get(3);
+        let listing_hash = match stored_listing_hash {
+            Some(h) => h,
+            None => {
+                let l = Listing {
+                    display_name: r.get(6),
+                    description: r.get(7),
+                    language: r.get(8),
+                    region: r.get(9),
+                    rates: serde_json::from_value::<Rates>(r.get(10)).unwrap_or_default(),
+                    modules: serde_json::from_value::<Vec<ModuleEntry>>(r.get(11)).unwrap_or_default(),
+                    account_provisioning: AccountProvisioning { automatic: r.get(12), existing_only: r.get(13) },
+                    manager_version: r.get(14),
+                };
+                l.hash()
+            }
+        };
+        let view = HeartbeatView { published: r.get(0), last_request_ts: r.get(1), capabilities_hash: r.get(2), listing_hash, metadata_revision: revision as u64, advert_version: version as u8 };
         let plan = plan_heartbeat(&view, hb, ts)?;
-        let players = (hb.player_count.map(|n| n as i32), hb.player_capacity.map(|n| n as i32));
+        let (players, bots, capacity) = (hb.population.players as i32, hb.population.bots as i32, hb.population.capacity.map(|n| n as i32));
         tx.execute(
-            "UPDATE realms SET last_seen_at = to_timestamp($2::bigint), last_request_ts = $3, player_count = $4, player_capacity = $5, display_name = $6, description = $7, language = $8, manager_version = $9, capabilities_hash = $10, metadata_revision = $11, updated_at = CASE WHEN $12 THEN to_timestamp($2::bigint) ELSE updated_at END WHERE realm_id = $1::text::uuid",
-            &[&text, &now, &ts, &players.0, &players.1, &plan.display_name, &plan.description, &plan.language, &plan.manager_version, &plan.capabilities_hash, &(plan.metadata_revision as i64), &plan.metadata_changed],
+            "UPDATE realms SET last_seen_at = to_timestamp($2::bigint), last_request_ts = $3, players = $4, bots = $5, capacity = $6, listing_hash = $7, capabilities_hash = $8, metadata_revision = $9, updated_at = CASE WHEN $10 THEN to_timestamp($2::bigint) ELSE updated_at END WHERE realm_id = $1::text::uuid",
+            &[&text, &now, &ts, &players, &bots, &capacity, &plan.listing_hash, &plan.capabilities_hash, &(plan.metadata_revision as i64), &plan.metadata_changed],
         )
         .await
         .map_err(backend)?;
+        if let Some(l) = &plan.listing {
+            let cols = listing_columns(l)?;
+            tx.execute(
+                "UPDATE realms SET display_name = $2, description = $3, language = $4, region = $5, rates = $6, modules = $7, account_automatic = $8, account_existing_only = $9, manager_version = $10, advert_version = 2 WHERE realm_id = $1::text::uuid",
+                &[&text, &l.display_name, &l.description, &l.language, &l.region, &cols.rates, &cols.modules, &l.account_provisioning.automatic, &l.account_provisioning.existing_only, &l.manager_version],
+            )
+            .await
+            .map_err(backend)?;
+        }
         if let Some(caps) = &plan.capabilities {
             let json = caps_json(caps)?;
-            tx.execute("UPDATE realms SET capabilities = $2, ruleset = $3 WHERE realm_id = $1::text::uuid", &[&text, &json, &caps.content.ruleset.as_str()]).await.map_err(backend)?;
+            let level_cap = caps.level_cap().map(|n| n as i32);
+            tx.execute("UPDATE realms SET capabilities = $2, ruleset = $3, level_cap = $4 WHERE realm_id = $1::text::uuid", &[&text, &json, &caps.content.ruleset.as_str(), &level_cap]).await.map_err(backend)?;
         }
         tx.commit().await.map_err(backend)?;
-        Ok(HeartbeatOutcome { metadata_revision: plan.metadata_revision, capabilities_hash: plan.capabilities_hash, resend_capabilities: plan.resend_capabilities })
+        Ok(HeartbeatOutcome { metadata_revision: plan.metadata_revision, listing_hash: plan.listing_hash, capabilities_hash: plan.capabilities_hash, resend_listing: plan.resend_listing, resend_capabilities: plan.resend_capabilities })
     }
 
     async fn unpublish(&self, id: &RealmId, now: i64, ts: i64) -> StoreResult<u64> {
