@@ -93,6 +93,8 @@ pub struct RealmPublishStatus {
     pub description: String,
     pub language: String,
     pub region: Option<String>,
+    pub existing_only: bool,
+    pub route: Option<String>,
     pub metadata_revision: Option<u64>,
     pub last_ok_unix: Option<i64>,
     pub last_error: Option<String>,
@@ -284,6 +286,25 @@ impl RegistryHost {
         Ok(())
     }
 
+    /// How joining players reach this realm: whether it creates accounts for them, and an address a game client can use right now. The realm has to have been published
+    /// before (the choices live with its publishing settings); they take effect at the next heartbeat and on the control link at once.
+    pub fn set_access(&mut self, local_id: &str, existing_only: bool, route: Option<&str>) -> Result<()> {
+        let route = route.map(str::trim).filter(|r| !r.is_empty()).map(settings::validate_route).transpose()?;
+        let Some(cfg) = self.settings.realms.get_mut(local_id) else { return Err(Error::Invalid("Publish this realm first.".into())) };
+        let before = cfg.clone();
+        cfg.existing_only = existing_only;
+        cfg.route = route;
+        let cfg = cfg.clone();
+        if let Err(e) = self.save() {
+            self.settings.realms.insert(local_id.to_string(), before);
+            return Err(e);
+        }
+        if let Some(p) = self.publishers.get_mut(local_id) {
+            p.cfg = cfg;
+        }
+        Ok(())
+    }
+
     /// Stop publishing: the realm is unpublished at the Registry (retried in the background); its identity is kept for a later republication.
     pub fn unpublish(&mut self, local_id: &str, now: Instant) -> Result<()> {
         let Some(cfg) = self.settings.realms.get_mut(local_id) else { return Ok(()) };
@@ -327,6 +348,8 @@ impl RegistryHost {
                 description: p.cfg.description.clone(),
                 language: p.cfg.language.clone(),
                 region: p.cfg.region.clone(),
+                existing_only: p.cfg.existing_only,
+                route: p.cfg.route.clone(),
                 metadata_revision: p.revision,
                 last_ok_unix: p.last_ok,
                 last_error: p.last_error.clone(),

@@ -23,6 +23,8 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod control_cmds;
+
 struct AppState {
     registry: Registry,
     /// Installation ids with a start/stop currently running (one action at a time per server).
@@ -35,6 +37,10 @@ struct AppState {
     portable: Option<Arc<PortableRuntime>>,
     /// Publishing this Manager's realms to the central Registry (Phase 10): its own loop, independent of Player Mode.
     realm_registry: Option<Arc<coa_core::realm_registry::RegistryRuntime>>,
+    /// The player's side of the control plane (Phase 12): identity, protected credentials, joining servers.
+    control: Option<Arc<coa_core::control::join::PlayerControl>>,
+    /// The host's side: one control link per published realm.
+    host_control: Option<Arc<coa_core::control::host_manager::HostControl>>,
 }
 
 /// Starting and stopping the servers this Manager installed, for the portable runtime.
@@ -1648,11 +1654,13 @@ async fn console_command(state: State<'_, AppState>, id: String, command: String
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
+    let portable = start_portable(&dir);
+    let (control, host_control) = control_cmds::start(&dir, portable.clone());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None), portable: start_portable(&dir), realm_registry: start_realm_registry(&dir) })
+        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None), portable, realm_registry: start_realm_registry(&dir), control, host_control })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
             scan_server,
@@ -1757,7 +1765,17 @@ pub fn run() {
             registry_set_url,
             registry_publish,
             registry_unpublish,
-            registry_retry
+            registry_retry,
+            control_cmds::control_status,
+            control_cmds::control_set_preferred_username,
+            control_cmds::registry_set_access,
+            control_cmds::join_realm,
+            control_cmds::join_link,
+            control_cmds::join_account,
+            control_cmds::join_credentials,
+            control_cmds::join_forget,
+            control_cmds::join_characters,
+            control_cmds::join_claim
         ])
         .build(tauri::generate_context!())
         .expect("error while building CoA Server Manager")
@@ -1768,6 +1786,9 @@ pub fn run() {
                     rt.shutdown();
                 }
                 if let Some(rt) = app.state::<AppState>().realm_registry.clone() {
+                    rt.shutdown();
+                }
+                if let Some(rt) = app.state::<AppState>().host_control.clone() {
                     rt.shutdown();
                 }
             }
@@ -1864,7 +1885,11 @@ fn registry_retry(state: State<'_, AppState>, local_id: String) {
 fn start_realm_registry(dir: &std::path::Path) -> Option<Arc<coa_core::realm_registry::RegistryRuntime>> {
     use coa_core::realm_registry::{FileKeyStore, LocalRealmsSource, RegistryRuntime};
     let installs = Registry::at(dir.join("installs.json"));
-    let source = LocalRealmsSource::new(dir.join("portable").join("realms"), move || installs.list().unwrap_or_default());
+    let registry_dir = dir.join("registry");
+    let source = LocalRealmsSource::with_provisioning(dir.join("portable").join("realms"), move || installs.list().unwrap_or_default(), move |local_id| {
+        // a realm creates accounts for joining players unless its owner said it only links the ones that exist
+        coa_core::realm_registry::settings::load(&registry_dir).ok().and_then(|s| s.realms.get(local_id).map(|c| !c.existing_only)).unwrap_or(true)
+    });
     let keys = FileKeyStore::new(dir.join("registry").join("keys"));
     match RegistryRuntime::start(&dir.join("registry"), Arc::new(keys), Arc::new(source)) {
         Ok(rt) => Some(Arc::new(rt)),

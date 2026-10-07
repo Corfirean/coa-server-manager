@@ -644,6 +644,7 @@ dependencies = [
 name = "coa-server-manager"
 version = "0.6.6"
 dependencies = [
+ "coa-control-proto",
  "coa-core",
  "coa-registry-proto",
  "serde",

@@ -21,5 +21,15 @@
 		}
 	}
 
+	# Phase 12: the control plane. WebSocket connections are proxied as they are; the Coordinator rate-limits by the address Caddy saw.
+	handle /coord/* {
+		reverse_proxy coa-coordinator:8081 {
+			header_up X-Forwarded-For {remote_host}
+			transport http {
+				dial_timeout 3s
+			}
+		}
+	}
+
 	respond "not found" 404
 }

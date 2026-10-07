@@ -1,0 +1,37 @@
+# /opt/coa/coordinator/compose.yaml (Phase 12). The Coordinator publishes no host port: Caddy reaches it as coa-coordinator:8081 on coa-ingress. It reads the realms' public
+# keys from the Registry's database with a role that can read four columns and nothing else. It keeps nothing on disk and writes no database row.
+name: coa-coordinator
+services:
+  coordinator:
+    image: coa-coordinator:${COORDINATOR_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      COORD_LISTEN: "0.0.0.0:8081"
+      COORD_TRUST_PROXY: "1"
+      COORD_DB_HOST: coa-postgres
+      COORD_DB_NAME: coa_registry
+      COORD_DB_USER: coa_coordinator
+      COORD_DB_PASSWORD_FILE: /run/secrets/coordinator_db_password
+      RUST_LOG: "info"
+    secrets:
+      - coordinator_db_password
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    networks:
+      coa-ingress:
+        aliases:
+          - coa-coordinator
+      coa-db: {}
+secrets:
+  coordinator_db_password:
+    file: /opt/coa/secrets/coordinator_db_password
+networks:
+  coa-ingress:
+    external: true
+  coa-db:
+    external: true

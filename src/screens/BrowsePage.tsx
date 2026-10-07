@@ -7,6 +7,8 @@ import { asUiError } from "@/lib/api";
 import { realmRegistry, useRegistryStatus } from "@/lib/registry";
 import { asPortableError, portable, usePortable, type PreflightView } from "@/lib/portable";
 import { Notes, Projection } from "@/screens/PortablePage";
+import { JoinPanel } from "@/screens/JoinPanel";
+import { asControlError, control } from "@/lib/control";
 import { browse, rate, type BrowseParams, type ModuleEntry, type ModuleInfo, type RealmDetail, type RealmSummary, type SortKey } from "@/lib/browse";
 
 const VISIBLE_MODULES = 3;
@@ -65,7 +67,7 @@ function SortHeader({ id, sort, order, onSort, children, className }: { id: Sort
 
 function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog: Catalog; onClose: () => void }) {
   const { t } = useI18n();
-  const { state } = usePortable();
+  const { state, refresh: refreshPortable } = usePortable();
   const [detail, setDetail] = useState<RealmDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [character, setCharacter] = useState("");
@@ -140,10 +142,9 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
           </div>}
         </>}
       </section>
-    </div>
-    <div className="border-t border-line p-5">
-      <Button variant="primary" className="w-full" disabled>{t("browse.play")}</Button>
-      <p className="mt-2 text-xs text-muted">{t("browse.playSoon")}</p>
+      <section>
+        <JoinPanel realm={summary.realm_id} character={character} automatic={summary.account_provisioning.automatic} onClaimed={() => void refreshPortable()} />
+      </section>
     </div>
   </aside>;
 }
@@ -166,8 +167,12 @@ export function BrowsePage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<RealmSummary | null>(null);
   const [catalog, setCatalog] = useState<Catalog>({});
+  const [preferred, setPreferred] = useState("");
+  const [preferredSaved, setPreferredSaved] = useState("");
+  const [preferredNote, setPreferredNote] = useState<string | null>(null);
   const ticket = useRef(0);
 
+  useEffect(() => { void control.status().then((c) => { setPreferred(c.preferred_username); setPreferredSaved(c.preferred_username); }).catch(() => {}); }, []);
   useEffect(() => { void browse.modules().then((m) => setCatalog(Object.fromEntries(m.map((x) => [x.id, x])))).catch(() => {}); }, []);
   useEffect(() => { if (status?.url && url === "") setUrl(status.url); }, [status?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -225,6 +230,13 @@ export function BrowsePage() {
       <Button size="sm" disabled={url.trim() === (status?.url ?? "")} onClick={() => void realmRegistry.setUrl(url.trim() || null).then(refresh).catch((e) => setError(asUiError(e).technical))}>{t("registry.urlSave")}</Button>
     </div>
     {noUrl && <p className="mt-2 text-sm text-muted">{t("browse.noUrl")}</p>}
+    <div className="mt-2 flex items-center gap-2 text-sm">
+      <label htmlFor="preferred-name" className="shrink-0 text-muted">{t("join.preferred")}</label>
+      <input id="preferred-name" value={preferred} maxLength={16} placeholder="PLAYER" onChange={(e) => { setPreferred(e.target.value); setPreferredNote(null); }} className="w-44 rounded-md border border-line bg-card px-3 py-1.5" data-testid="preferred-name" />
+      <Button size="sm" disabled={preferred.trim() === preferredSaved} onClick={() => void control.setPreferredUsername(preferred).then((n) => { setPreferred(n); setPreferredSaved(n); setPreferredNote(t("join.preferredSaved")); }).catch((e) => setError(asControlError(e).message))}>{t("registry.urlSave")}</Button>
+      {preferredNote && <span className="text-xs text-ok" role="status">{preferredNote}</span>}
+    </div>
+    <p className="mt-1 text-xs text-muted">{t("join.preferredHint")}</p>
 
     <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
       <input aria-label={t("browse.search")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("browse.search")} className="col-span-2 rounded-md border border-line bg-card px-3 py-2 text-sm" />

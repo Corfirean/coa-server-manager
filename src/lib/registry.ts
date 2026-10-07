@@ -12,6 +12,8 @@ export interface RealmPublishStatus {
   description: string;
   language: string;
   region: string | null;
+  existing_only: boolean;
+  route: string | null;
   metadata_revision: number | null;
   last_ok_unix: number | null;
   last_error: string | null;

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useT, type Key } from "@/i18n";
 import { asUiError } from "@/lib/api";
 import { realmRegistry, useRegistryStatus } from "@/lib/registry";
+import { asControlError, control, type ControlStatus } from "@/lib/control";
 
 const LANGUAGES = ["en", "ru", "de", "fr", "es", "zh", "pt", "pl", "uk"];
 
@@ -23,6 +24,24 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
   const [region, setRegion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingOnly, setExistingOnly] = useState(false);
+  const [route, setRoute] = useState("");
+  const [accessSaved, setAccessSaved] = useState(false);
+  const [ctl, setCtl] = useState<ControlStatus | null>(null);
+  const link = ctl?.hosting.find((h) => h.local_id === localId)?.link;
+
+  useEffect(() => {
+    const load = () => void control.status().then(setCtl).catch(() => {});
+    load();
+    const timer = setInterval(load, 3000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => { if (mine) { setExistingOnly(mine.existing_only); setRoute(mine.route ?? ""); } }, [mine?.existing_only, mine?.route]);
+
+  async function saveAccess() {
+    setBusy(true); setError(null); setAccessSaved(false);
+    try { await control.setAccess(localId, existingOnly, route.trim() === "" ? null : route.trim()); await refresh(); setAccessSaved(true); } catch (e) { setError(asControlError(e).message); } finally { setBusy(false); }
+  }
 
   useEffect(() => { if (status && status.url !== null) setUrl((u) => (u === "" ? status.url ?? "" : u)); }, [status?.url]);
   useEffect(() => {
@@ -77,6 +96,22 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
           {mine.state === "rejected" && <Button size="sm" onClick={() => void run(async () => { await realmRegistry.retry(localId); })}>{t("registry.retry")}</Button>}
           <Button size="sm" disabled={busy} onClick={() => void run(() => realmRegistry.unpublish(localId))}>{t("registry.stop")}</Button>
         </div>
+      </div>}
+      {mine && (published || mine.state === "unpublishing") && <div className="mt-4 rounded-md border border-line p-3 text-sm" data-testid="access-options">
+        <p className="font-medium">{t("access.title")}</p>
+        <p className="mt-1 text-xs text-muted">{t("access.text")}</p>
+        <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={existingOnly} onChange={(e) => setExistingOnly(e.target.checked)} className="mt-1" data-testid="existing-only" /><span>{t("access.existingOnly")}<span className="block text-xs text-muted">{t("access.existingOnlyHint")}</span></span></label>
+        <label htmlFor="access-route" className="mt-3 block font-medium">{t("access.route")}</label>
+        <input id="access-route" value={route} placeholder="play.example.org:3724" onChange={(e) => setRoute(e.target.value)} className="mt-1 w-full rounded-md border border-line bg-card px-3 py-2" data-testid="access-route" />
+        <p className="mt-1 text-xs text-muted">{t("access.routeHint")}</p>
+        <div className="mt-3 flex items-center gap-3">
+          <Button size="sm" disabled={busy} onClick={() => void saveAccess()}>{t("access.save")}</Button>
+          {accessSaved && <span className="text-xs text-ok" role="status">{t("access.saved")}</span>}
+        </div>
+        <p className={cn("mt-3 text-xs", link?.connected ? "text-ok" : "text-muted")} data-testid="control-link" data-connected={link?.connected ? "yes" : "no"}>
+          {link?.connected ? t("access.linkUp") : t("access.linkDown")}{link?.last_error && !link.connected ? ` — ${link.last_error}` : ""}
+        </p>
+        {ctl && ctl.secret_store === "file" && <p className="mt-1 text-xs text-warn">{t("access.fileStore")}</p>}
       </div>}
       {error && <p className="mt-3 text-sm text-bad" role="alert">{error}</p>}
     </Card>

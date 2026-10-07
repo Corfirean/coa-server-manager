@@ -16,6 +16,7 @@ enum Cmd {
     SetUrl(Option<String>, Sender<Result<()>>),
     Publish { local_id: String, name: String, description: String, language: String, region: Option<String>, reply: Sender<Result<()>> },
     Unpublish(String, Sender<Result<()>>),
+    SetAccess { local_id: String, existing_only: bool, route: Option<String>, reply: Sender<Result<()>> },
     Retry(String),
     Shutdown,
 }
@@ -50,6 +51,9 @@ impl RegistryRuntime {
                     Ok(Cmd::Unpublish(local_id, reply)) => {
                         let _ = reply.send(host.unpublish(&local_id, Instant::now()));
                     }
+                    Ok(Cmd::SetAccess { local_id, existing_only, route, reply }) => {
+                        let _ = reply.send(host.set_access(&local_id, existing_only, route.as_deref()));
+                    }
                     Ok(Cmd::Retry(local_id)) => host.retry(&local_id, Instant::now()),
                     Err(RecvTimeoutError::Timeout) => {}
                 }
@@ -83,6 +87,10 @@ impl RegistryRuntime {
 
     pub fn unpublish(&self, local_id: &str) -> Result<()> {
         self.ask(|reply| Cmd::Unpublish(local_id.into(), reply))
+    }
+
+    pub fn set_access(&self, local_id: &str, existing_only: bool, route: Option<&str>) -> Result<()> {
+        self.ask(|reply| Cmd::SetAccess { local_id: local_id.into(), existing_only, route: route.map(str::to_string), reply })
     }
 
     pub fn retry(&self, local_id: &str) {
