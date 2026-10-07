@@ -28,19 +28,20 @@ fn caps(marker: u8, features: &[Feature], jobs: &[u32], ruleset: Ruleset, readab
     let mut catalog = ClientCatalog::new();
     catalog.insert("Appearances.dbc".into(), CatalogEntry { sha256: format!("{marker:02x}").repeat(32), records: 9 });
     Arc::new(
-        RealmCapabilities::new(
+        RealmCapabilities::build(
             None,
             ContentProfile {
                 ruleset,
                 character_formats: CharacterFormats { readable, writable: FormatRange::single(2) },
                 online_import_job_formats: jobs.to_vec(),
-                session_protocol: 1,
-                collection_protocol: 1,
+                session_protocol: 2,
+                collection_protocol: 2,
                 features: features.iter().copied().collect(),
                 collection_kinds: ["coa:appearance".to_string(), "coa:vanity".to_string()].into_iter().collect(),
                 extensions: vec![],
                 client_catalog: catalog,
             },
+            Some(crate::portable::capabilities::Progression { max_player_level: 80, projection_protocol: 1, projection_policy_version: 1, progression_signature: "ee".repeat(32), scaling_enabled: true }),
         )
         .unwrap(),
     )

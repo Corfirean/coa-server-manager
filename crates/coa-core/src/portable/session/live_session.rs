@@ -467,7 +467,7 @@ fn the_core_reports_what_it_is_the_manager_evaluates_before_it_writes_and_the_co
     let id = make(&r, &mut store, profile, 1005);
     let mut other = caps.content.clone();
     other.online_import_job_formats = vec![3];
-    let other = RealmCapabilities::new(None, other).unwrap();
+    let other = RealmCapabilities::build(None, other, caps.progression.clone()).unwrap();
     let mut o = opts();
     o.capabilities = Some(std::sync::Arc::new(other));
     let before = number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters");

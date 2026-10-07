@@ -187,7 +187,9 @@ pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
     }
 
     if i.operation == Operation::RuntimeSession {
-        if content.supports(Feature::RuntimeSessions) {
+        if content.supports(Feature::RuntimeSessions) && content.session_protocol != super::session::protocol::PROTOCOL_VERSION {
+            out.push(Outcome::Blocking { topic: Topic::RuntimeSessions, reason: format!("the realm's Host speaks session protocol {} and this Owner speaks {}: neither reads the other's messages", content.session_protocol, super::session::protocol::PROTOCOL_VERSION) });
+        } else if content.supports(Feature::RuntimeSessions) {
             out.push(Outcome::Compatible(Topic::RuntimeSessions));
         } else {
             out.push(Outcome::Blocking { topic: Topic::RuntimeSessions, reason: "the realm has no portable session support (the core's session table or switch is missing)".into() });
@@ -336,6 +338,20 @@ mod tests {
             Some(Progression { max_player_level: 80, projection_protocol: 1, projection_policy_version: 1, progression_signature: "cd".repeat(32), scaling_enabled: true }),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_host_of_another_session_protocol_is_refused_before_a_character_is_armed() {
+        let model = geared_level_eighty();
+        let mut content = profile(&all(), &[2]).content;
+        let ok = RealmCapabilities::build(None, content.clone(), profile(&all(), &[2]).progression).unwrap();
+        assert_eq!(run(Operation::RuntimeSession, &model, &ok, None, &[], None).verdict(), Verdict::Compatible);
+        content.session_protocol = 1;
+        let old = RealmCapabilities::build(None, content, profile(&all(), &[2]).progression).unwrap();
+        let r = run(Operation::RuntimeSession, &model, &old, None, &[], None);
+        assert_eq!(r.verdict(), Verdict::Incompatible);
+        assert!(r.blocking()[0].to_string().contains("session protocol 1"));
+        assert_eq!(run(Operation::Update, &model, &old, None, &[], None).verdict(), Verdict::Compatible, "only sessions depend on it");
     }
 
     fn all() -> Vec<Feature> {
