@@ -711,6 +711,8 @@ mod tests {
         assert!(runs[1].args.windows(2).any(|w| w == ["--env", "AC_WORLD_DATABASE_INFO"]), "name only, the value is in the environment");
     }
 
+    // Unix only: the folder is a Linux path (a Windows path has a colon, which a Docker folder may not).
+    #[cfg(unix)]
     #[test]
     fn a_release_fixture_runs_its_database_on_the_package_data_directory_not_on_a_volume() {
         let (_d, root) = server("t1");
