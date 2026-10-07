@@ -1,0 +1,36 @@
+[package]
+name = "coa-coordinator"
+description = "CoA control-plane Coordinator (Phase 12): routes end-to-end encrypted control frames between a Host Manager and Player Managers. Never reads them."
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace]
+
+[dependencies]
+coa-control-proto = { path = "../../crates/coa-control-proto" }
+coa-registry-proto = { path = "../../crates/coa-registry-proto" }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws", "query"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync"] }
+tower = { version = "0.5", features = ["limit", "util"] }
+tokio-postgres = "0.7"
+deadpool-postgres = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ed25519-dalek = "2"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+hex = "0.4"
+pin-project-lite = "0.2"
+
+[dev-dependencies]
+tungstenite = "0.26"
+tempfile = "3"
+uuid = { version = "1", features = ["v4", "v7"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
