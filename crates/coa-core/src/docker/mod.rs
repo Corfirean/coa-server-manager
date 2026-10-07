@@ -15,6 +15,7 @@
 //! ```
 
 mod cli;
+pub mod fixture;
 pub mod install;
 mod lifecycle;
 
@@ -63,6 +64,10 @@ pub struct Config {
     /// mounted read-only, so one copy can serve several servers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_dir: Option<String>,
+    /// A MySQL data directory the database container uses in place of its volume. Only for the disposable fixture that
+    /// validates a release (the data directory of the signed base package); an installation never sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mysql_data: Option<String>,
 }
 
 pub(crate) struct Names {
@@ -96,10 +101,10 @@ impl Config {
         if self.bind_address.parse::<IpAddr>().is_err() {
             return Err(Error::Invalid(format!("{} is not an IP address.", self.bind_address)));
         }
-        if let Some(d) = &self.data_dir {
-            // The folder goes into a `--volume host:container:ro` option, where a colon would be read as a separator.
+        for d in [&self.data_dir, &self.mysql_data].into_iter().flatten() {
+            // The folder goes into a `--volume host:container` option, where a colon would be read as a separator.
             if !Path::new(d).is_absolute() || d.contains(':') {
-                return Err(Error::Invalid("The game data folder must be a full path without a colon.".into()));
+                return Err(Error::Invalid("A Docker folder must be a full path without a colon.".into()));
             }
         }
         let image_ok = !self.mysql_image.is_empty() && self.mysql_image.chars().all(|c| c.is_ascii_alphanumeric() || "._/:@-".contains(c));

@@ -210,7 +210,7 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
     if !state.get(&n.db).is_some_and(Container::running) {
         remove(d, &n.db);
         let mut call = Call::new(&[], Duration::from_secs(120));
-        call.args = db_args(cfg, &n);
+        call.args = db_args(cfg, &n, owner_of(root).as_deref());
         call.env = vec![("MYSQL_ROOT_PASSWORD".into(), secrets.root.clone())];
         let o = d.run(&call).or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))?;
         if !o.ok() {
@@ -333,12 +333,22 @@ fn connect_ip(cfg: &Config) -> IpAddr {
 
 // ------------------------------------------------------------------------------------------------- argument lists
 
-fn db_args(cfg: &Config, n: &Names) -> Vec<String> {
+fn db_args(cfg: &Config, n: &Names, owner: Option<&str>) -> Vec<String> {
     let mut a: Vec<String> = ["run", "--detach", "--name"].iter().map(|s| s.to_string()).collect();
     a.push(n.db.clone());
     a.extend(["--network".into(), n.network.clone(), "--network-alias".into(), "db".into()]);
     a.extend(["--label".into(), format!("coa.project={}", cfg.project)]);
-    a.extend(["--volume".into(), format!("{}:/var/lib/mysql", n.volume)]);
+    match &cfg.mysql_data {
+        Some(dir) => {
+            // A data directory from a Windows repack: it is written by the person who owns the folder, and its table names
+            // were folded to lower case (the repack's setting), which the server must be told because a Linux one does not.
+            a.extend(["--volume".into(), format!("{dir}:/var/lib/mysql")]);
+            if let Some(o) = owner {
+                a.extend(["--user".into(), o.into()]);
+            }
+        }
+        None => a.extend(["--volume".into(), format!("{}:/var/lib/mysql", n.volume)]),
+    }
     // The password comes from the environment of the docker client, not from this command line.
     a.extend(["--env".into(), "MYSQL_ROOT_PASSWORD".into()]);
     // "mysqladmin ping" succeeds as soon as the server answers, with or without a login. It must go over TCP, like
@@ -349,6 +359,9 @@ fn db_args(cfg: &Config, n: &Names) -> Vec<String> {
     a.extend(["--health-interval".into(), "5s".into(), "--health-timeout".into(), "5s".into(), "--health-retries".into(), "40".into()]);
     a.extend(["--stop-timeout".into(), "60".into()]);
     a.push(cfg.mysql_image.clone());
+    if cfg.mysql_data.is_some() {
+        a.push("--lower-case-table-names=1".into());
+    }
     a
 }
 
@@ -696,6 +709,26 @@ mod tests {
         assert!(runs[2].env.iter().any(|(k, _)| k == "AC_LOGIN_DATABASE_INFO"));
         assert!(!runs[2].env.iter().any(|(k, _)| k == "AC_WORLD_DATABASE_INFO"), "auth does not need the world database");
         assert!(runs[1].args.windows(2).any(|w| w == ["--env", "AC_WORLD_DATABASE_INFO"]), "name only, the value is in the environment");
+    }
+
+    #[test]
+    fn a_release_fixture_runs_its_database_on_the_package_data_directory_not_on_a_volume() {
+        let (_d, root) = server("t1");
+        fs::write(root.join("Settings/docker.json"), r#"{"project":"t1","mysqlData":"/work/fixture/mysql/data"}"#).unwrap();
+        let sim = Sim::new();
+        assert!(run_with(&sim, &root, Verb::StartMysql).unwrap().ok);
+        let db = &sim.calls_of("run")[0].args;
+        assert!(db.windows(2).any(|w| w == ["--volume", "/work/fixture/mysql/data:/var/lib/mysql"]), "{db:?}");
+        assert!(!db.iter().any(|a| a.starts_with("coa-t1-db:")), "no named volume: {db:?}");
+        assert!(db.iter().any(|a| a == "--user"), "the folder is written by its owner");
+        assert_eq!(db.last().map(String::as_str), Some("--lower-case-table-names=1"), "a server option, so after the image name");
+        // An installation never gets any of it.
+        let (_d2, root2) = server("t2");
+        let sim2 = Sim::new();
+        assert!(run_with(&sim2, &root2, Verb::StartMysql).unwrap().ok);
+        let plain = &sim2.calls_of("run")[0].args;
+        assert!(plain.windows(2).any(|w| w == ["--volume", "coa-t2-db:/var/lib/mysql"]), "{plain:?}");
+        assert!(!plain.iter().any(|a| a == "--lower-case-table-names=1" || a == "--user"));
     }
 
     #[test]
