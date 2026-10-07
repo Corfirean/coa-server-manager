@@ -23,6 +23,7 @@
 //!   dump <character-id>                         the canonical JSON of the current revision (what a core import job carries)
 //!   collection-states <out.json>                (owner store)  the canonical account collections as messages
 //!   collection-apply <states.json> <account> <server-id>   write the canonical collections to the realm account (known ids only, INSERT IGNORE)
+//!   collection-add <kind> <id>...               (owner store)  add ids to a profile collection by hand (a test aid)
 //!   collection-show [<account>]                 the Owner's collections (revision, count, hash) and, with an account, the realm's
 //!
 //!   --collection-interval <seconds>   how often host-run looks at the account collections (default 300; a session start and the final
@@ -212,6 +213,13 @@ fn run() -> Result<(), String> {
                 let applied = service.receive_collection_state(&mut bridge, account, state).map_err(|e| e.to_string())?;
                 println!("{}: {:?}", state.kind, applied);
             }
+        }
+        ("collection-add", [kind, ids @ ..]) => {
+            let profile = store.default_profile().map_err(|e| e.to_string())?;
+            let ids = ids.iter().map(|i| i.parse::<u32>().map_err(|_| format!("{i:?} is not an id"))).collect::<Result<Vec<_>, _>>()?;
+            let set = coa_core::portable::collection::IdSet::from_ids(ids).map_err(|e| e.to_string())?;
+            let merge = store.merge_collection(profile, kind, &set).map_err(|e| e.to_string())?;
+            println!("{kind}: {} id(s) added{}", merge.added, merge.info.map(|i| format!(", revision {}, {} ids", i.revision, i.count)).unwrap_or_default());
         }
         ("collection-show", rest) => {
             let profile = store.default_profile().map_err(|e| e.to_string())?;
