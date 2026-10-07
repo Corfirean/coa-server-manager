@@ -8,7 +8,8 @@ use rusqlite::{params, OptionalExtension};
 
 use super::*;
 use crate::portable::ids::SessionId;
-use crate::portable::merge::{merge3, Mode};
+use crate::portable::merge::{merge3_with, MergeProjection, Mode};
+use crate::portable::projection::ProgressionPin;
 use crate::portable::session::protocol::*;
 
 struct OwnerRow {
@@ -24,18 +25,26 @@ struct OwnerRow {
     b0_payload: Option<Vec<u8>>,
     head_revision: u64,
     last_sequence: u64,
+    progression: Option<SessionProgression>,
+}
+
+impl OwnerRow {
+    fn pin(&self) -> Option<ProgressionPin> {
+        self.progression.as_ref().map(|p| p.pin.clone())
+    }
 }
 
 fn read_owner_row(conn: &Connection, session: SessionId) -> Result<Option<OwnerRow>> {
-    type Raw = (String, String, String, i64, Vec<u8>, Vec<u8>, Option<i64>, Option<Vec<u8>>, Option<Vec<u8>>, i64, i64);
+    type Raw = (String, String, String, i64, Vec<u8>, Vec<u8>, Option<i64>, Option<Vec<u8>>, Option<Vec<u8>>, i64, i64, Option<String>);
     let raw: Option<Raw> = conn
         .query_row(
-            "SELECT character_id, server_id, state, c0_revision, c0_hash, c0_payload, baseline_generation, b0_hash, b0_payload, head_revision, last_sequence FROM owner_session WHERE session_id = ?1",
+            "SELECT character_id, server_id, state, c0_revision, c0_hash, c0_payload, baseline_generation, b0_hash, b0_payload, head_revision, last_sequence, progression FROM owner_session WHERE session_id = ?1",
             [session.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?)),
         )
         .optional()?;
-    let Some((character, server_id, state, c0_revision, c0_hash, c0_payload, generation, b0_hash, b0_payload, head, last)) = raw else { return Ok(None) };
+    let Some((character, server_id, state, c0_revision, c0_hash, c0_payload, generation, b0_hash, b0_payload, head, last, progression)) = raw else { return Ok(None) };
+    let progression: Option<SessionProgression> = progression.map(|j| serde_json::from_str(&j).map_err(|e| PortableError::CorruptSnapshot(format!("a stored session progression is not valid: {e}")))).transpose()?;
     Ok(Some(OwnerRow {
         session_id: session,
         character_id: character.parse()?,
@@ -49,6 +58,7 @@ fn read_owner_row(conn: &Connection, session: SessionId) -> Result<Option<OwnerR
         b0_payload,
         head_revision: head as u64,
         last_sequence: last as u64,
+        progression,
     }))
 }
 
@@ -57,7 +67,7 @@ fn head_hash(conn: &Connection, id: CharacterId, revision: u64) -> Result<[u8; 3
 }
 
 fn ack(session: SessionId, sequence: u64, outcome: AckOutcome, revision: u64, hash: [u8; 32]) -> OwnerAck {
-    OwnerAck { protocol_version: PROTOCOL_VERSION, session_id: session, sequence, outcome, canonical_revision: revision, canonical_hash: hex::encode(hash), owned_items: vec![], owned_pets: vec![], canonical: None, next_session: None }
+    OwnerAck { protocol_version: PROTOCOL_VERSION, session_id: session, sequence, outcome, canonical_revision: revision, canonical_hash: hex::encode(hash), owned_items: vec![], owned_pets: vec![], canonical: None, next_session: None, pin: None }
 }
 
 fn owned_ids(model: &PortableCharacter) -> (Vec<PortableItemId>, Vec<crate::portable::ids::PortablePetId>) {
@@ -135,8 +145,10 @@ impl Store {
         };
         match row.state.as_str() {
             "open" => {
-                return Ok(if row.b0_hash == Some(b0_hash) && row.generation == Some(msg.baseline_generation) {
-                    ack(msg.session_id, 0, AckOutcome::Duplicate, row.head_revision, current_hash)
+                return Ok(if row.b0_hash == Some(b0_hash) && row.generation == Some(msg.baseline_generation) && row.progression == msg.progression {
+                    let mut a = ack(msg.session_id, 0, AckOutcome::Duplicate, row.head_revision, current_hash);
+                    a.pin = row.pin();
+                    a
                 } else {
                     reject("this session already has a different baseline")
                 })
@@ -152,12 +164,27 @@ impl Store {
         if b0.character_id != row.character_id || b0.ruleset != c0.ruleset || b0.content_namespace != c0.content_namespace {
             return Ok(reject("the baseline is another character or ruleset"));
         }
+        if let Some(p) = &msg.progression {
+            if let Err(e) = p.validate() {
+                return Ok(reject(&format!("the progression of the session is not valid: {e}")));
+            }
+            if let Some(ctx) = &p.projection {
+                if ctx.canonical_level != c0.progression.level as u32 || ctx.canonical_revision != row.c0_revision {
+                    return Ok(reject("the projection was made for another canonical level or revision than this session's"));
+                }
+            } else if p.pin.projected {
+                return Ok(reject("a projected session must carry its projection"));
+            }
+        }
+        let progression_json = msg.progression.as_ref().map(serde_json::to_string).transpose()?;
         tx.execute(
-            "UPDATE owner_session SET state = 'open', baseline_generation = ?2, b0_hash = ?3, b0_payload = ?4, updated_at = ?5 WHERE session_id = ?1",
-            params![msg.session_id.to_string(), msg.baseline_generation, b0_hash.as_slice(), msg.b0.bytes()?, now()],
+            "UPDATE owner_session SET state = 'open', baseline_generation = ?2, b0_hash = ?3, b0_payload = ?4, progression = ?6, updated_at = ?5 WHERE session_id = ?1",
+            params![msg.session_id.to_string(), msg.baseline_generation, b0_hash.as_slice(), msg.b0.bytes()?, now(), progression_json],
         )?;
         tx.commit()?;
-        Ok(ack(msg.session_id, 0, AckOutcome::Applied, row.head_revision, current_hash))
+        let mut a = ack(msg.session_id, 0, AckOutcome::Applied, row.head_revision, current_hash);
+        a.pin = msg.progression.as_ref().map(|p| p.pin.clone());
+        Ok(a)
     }
 
     /// Apply one checkpoint of the realm: `merge3(C0, B0, B1)`.
@@ -196,6 +223,7 @@ impl Store {
             }
             let revision = revision as u64;
             let mut a = ack(msg.session_id, msg.sequence, AckOutcome::Duplicate, revision, head_hash(&tx, row.character_id, revision)?);
+            a.pin = row.pin();
             if let Ok((model, _)) = read_snapshot_row(&tx, row.character_id, revision) {
                 (a.owned_items, a.owned_pets) = owned_ids(&model);
                 if was_final == 1 {
@@ -215,6 +243,9 @@ impl Store {
         if msg.sequence < row.last_sequence {
             return Ok(outcome(AckOutcome::StaleSequence));
         }
+        if msg.pin != row.pin() {
+            return Ok(reject("the checkpoint was taken under another progression profile than the session started under"));
+        }
         if record.revision != row.head_revision {
             tx.execute("UPDATE owner_session SET state = 'superseded', updated_at = ?2 WHERE session_id = ?1", params![msg.session_id.to_string(), now()])?;
             tx.commit()?;
@@ -229,7 +260,8 @@ impl Store {
         if b1.character_id != row.character_id || b1.ruleset != c0.ruleset || b1.content_namespace != c0.content_namespace {
             return Ok(reject("the snapshot is another character or ruleset"));
         }
-        let merged = match merge3(&c0, &b0, &b1, Mode::Lenient) {
+        let projection = row.progression.as_ref().and_then(|p| p.projection.as_ref()).map(|ctx| MergeProjection { freeze_progression: true, blocked: ctx.hold.blocked_settings.iter().cloned().collect() });
+        let merged = match merge3_with(&c0, &b0, &b1, Mode::Lenient, projection.as_ref()) {
             Ok(m) => m.model,
             Err(e) => return Ok(reject(&format!("the checkpoint cannot be merged: {e}"))),
         };
@@ -251,6 +283,7 @@ impl Store {
         };
 
         let mut a = ack(msg.session_id, msg.sequence, AckOutcome::Applied, revision, encoded.content_hash);
+        a.pin = row.pin();
         (a.owned_items, a.owned_pets) = owned_ids(&merged);
         let mut next_id = None;
         if msg.final_checkpoint {

@@ -298,7 +298,7 @@ fn hostile_or_broken_collection_messages_change_nothing() {
     // a set that decodes to more ids than the cap allows is refused before it is built
     let mut huge = vec![1u8];
     huge.extend([0xFF, 0xFF, 0xFF, 0xFF, 0x0F]);
-    let message = serde_json::json!({"protocol_version": 1, "server_id": SERVER, "kind": APPEARANCE, "set": {"hash": "00".repeat(32), "count": 1, "ids": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, huge)}});
+    let message = serde_json::json!({"protocol_version": PROTOCOL_VERSION, "server_id": SERVER, "kind": APPEARANCE, "set": {"hash": "00".repeat(32), "count": 1, "ids": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, huge)}});
     assert!(matches!(o.handle_collection(&serde_json::to_vec(&message).unwrap()).unwrap().outcome, CollectionOutcome::Rejected(_)));
 }
 

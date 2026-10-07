@@ -54,6 +54,10 @@ pub enum PortableError {
     ImportState { import_id: ImportId, state: String },
     #[error("this realm cannot take the {operation}; nothing was written: {}", .reasons.join("; "))]
     Incompatible { operation: String, reasons: Vec<String> },
+    #[error("this character is level {character_level} and the realm's cap is {cap}: it must be projected, and only a running core can say what a projection holds (start the realm, or supply a projection made by its core); nothing was written")]
+    ProjectionNeedsRunningCore { character_level: u32, cap: u32 },
+    #[error("the realm's progression profile is not the one this was projected for: {0}")]
+    ProgressionChanged(String),
     #[error("the import was refused before anything was written: {}", .0.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("; "))]
     ImportRefused(Vec<ImportProblem>),
     #[error("import {import_id} needs attention: {detail}")]

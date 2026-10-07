@@ -118,6 +118,18 @@ impl Ra {
         }
     }
 
+    /// `portable project <job_id>`: the core decides what a projection of the job file's character at its level cap holds, and writes the
+    /// decision to the job's result file. Only the id travels.
+    pub fn portable_project(&mut self, job_id: crate::portable::ImportId) -> Result<String> {
+        let out = self.command(&format!("portable project {job_id}"))?;
+        let first = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
+        if first.starts_with("OK") {
+            Ok(first)
+        } else {
+            Err(Error::Invalid(format!("The server did not answer the projection query: {first}")))
+        }
+    }
+
     /// `portable capabilities`: the realm's core says what it is and what portable features it has. An older core does not know the command.
     pub fn portable_capabilities(&mut self) -> Result<crate::portable::capabilities::CoreReport> {
         let out = self.command("portable capabilities")?;

@@ -41,6 +41,19 @@ pub struct UpdateContext<'a> {
     pub session: Option<super::plan::SessionArm>,
     /// What the destination's client data knows: appearances it does not know are not written.
     pub knowledge: Option<&'a super::knowledge::RealmKnowledge>,
+    /// What happens to the character's `coa.portable.pin` row.
+    pub pin: PinWrite,
+}
+
+/// What an update does to the realm's record of the progression the character was prepared for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PinWrite {
+    /// The row stays as it is.
+    Keep,
+    /// The character was prepared for this progression (policy, cap, signature words).
+    Set(Vec<u32>),
+    /// The character is not bound to a progression any more.
+    Clear,
 }
 
 /// What the script does, in numbers (and as the plan the journal records).
@@ -643,11 +656,16 @@ pub fn build_update(current: &PortableCharacter, merged: &PortableCharacter, ctx
 
     // the markers: replaced, not added
     let markers = [Val::text(IMPORT_MARKER_SOURCE), Val::text(ALLOC_MARKER_SOURCE)];
-    line(format!("DELETE FROM acore_characters.`character_settings` WHERE `guid` = @char AND `source` IN ({}, {});", markers[0].sql(), markers[1].sql()));
+    let pin_source = Val::text(super::policy::PIN_SOURCE);
+    let sources = if ctx.pin == PinWrite::Keep { format!("{}, {}", markers[0].sql(), markers[1].sql()) } else { format!("{}, {}, {}", markers[0].sql(), markers[1].sql(), pin_source.sql()) };
+    line(format!("DELETE FROM acore_characters.`character_settings` WHERE `guid` = @char AND `source` IN ({sources});"));
     let mut m = Insert::new("character_settings", &["guid", "source", "data"]);
     m.row(vec![Val::Expr("@char"), markers[0].clone(), Val::text(marker.clone())])?;
     m.row(vec![Val::Expr("@char"), markers[1].clone(), Val::Expr("CONCAT(@item_base, ' ', @pet_base, ' ')")])?;
-    line(m.sql().expect("two rows"));
+    if let PinWrite::Set(words) = &ctx.pin {
+        m.row(vec![Val::Expr("@char"), pin_source.clone(), Val::text(words.iter().map(|w| format!("{w} ")).collect::<String>())])?;
+    }
+    line(m.sql().expect("at least two rows"));
     if let Some(arm) = &ctx.session {
         if !ctx.probe.has("coa_portable_session") {
             return Err(PortableError::Invalid("this realm's core has no portable session support (coa_portable_session is missing)".into()));

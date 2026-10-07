@@ -8,6 +8,7 @@ use rusqlite::{params, OptionalExtension};
 
 use super::*;
 use crate::portable::ids::{PortablePetId, SessionId};
+use crate::portable::projection::ProgressionPin;
 use crate::portable::session::protocol::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +45,11 @@ pub struct HostSession {
     pub acked_sequence: u64,
     pub owned_items: Vec<PortableItemId>,
     pub owned_pets: Vec<PortablePetId>,
+    /// The progression this session runs under (set when `B0` was taken; carried over to the next session).
+    pub pin: Option<ProgressionPin>,
+    /// The realm's progression profile changed under this session: its last checkpoint was taken under the old pin and the working copy
+    /// must be projected again before the realm is armed for this (next) session.
+    pub reproject: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,15 +73,16 @@ pub enum AckEffect {
 }
 
 fn read_host_session(conn: &Connection, session: SessionId) -> Result<Option<HostSession>> {
-    type Raw = (String, String, Option<i64>, i64, i64, String, i64, Option<i64>, i64, String, String);
+    type Raw = (String, String, Option<i64>, i64, i64, String, i64, Option<i64>, i64, String, String, Option<String>, i64);
     let raw: Option<Raw> = conn
         .query_row(
-            "SELECT character_id, server_id, local_guid, base_revision, generation, state, next_sequence, pending_sequence, acked_sequence, owned_items, owned_pets FROM host_session WHERE session_id = ?1",
+            "SELECT character_id, server_id, local_guid, base_revision, generation, state, next_sequence, pending_sequence, acked_sequence, owned_items, owned_pets, pin, reproject FROM host_session WHERE session_id = ?1",
             [session.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?)),
         )
         .optional()?;
-    let Some((character, server_id, guid, base, generation, state, next, pending, acked, items, pets)) = raw else { return Ok(None) };
+    let Some((character, server_id, guid, base, generation, state, next, pending, acked, items, pets, pin, reproject)) = raw else { return Ok(None) };
+    let pin: Option<ProgressionPin> = pin.map(|j| serde_json::from_str(&j).map_err(|e| PortableError::CorruptSnapshot(format!("a stored session pin is not valid: {e}")))).transpose()?;
     Ok(Some(HostSession {
         session_id: session,
         character_id: character.parse()?,
@@ -89,17 +96,20 @@ fn read_host_session(conn: &Connection, session: SessionId) -> Result<Option<Hos
         acked_sequence: acked as u64,
         owned_items: serde_json::from_str(&items)?,
         owned_pets: serde_json::from_str(&pets)?,
+        pin,
+        reproject: reproject != 0,
     }))
 }
 
-fn insert_host_session(tx: &Transaction<'_>, session: SessionId, id: CharacterId, server_id: &str, guid: Option<u32>, base: u64, generation: u32, model: &PortableCharacter) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+fn insert_host_session(tx: &Transaction<'_>, session: SessionId, id: CharacterId, server_id: &str, guid: Option<u32>, base: u64, generation: u32, model: &PortableCharacter, pin: Option<&ProgressionPin>, reproject: bool) -> Result<()> {
     let items: Vec<PortableItemId> = model.items.iter().map(|i| i.id).collect();
     let pets: Vec<PortablePetId> = model.pets.iter().map(|p| p.id).collect();
     let at = now();
     tx.execute(
-        "INSERT INTO host_session(session_id, character_id, server_id, local_guid, base_revision, generation, state, next_sequence, acked_sequence, owned_items, owned_pets, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'armed', 1, 0, ?7, ?8, ?9, ?9)",
-        params![session.to_string(), id.to_string(), server_id, guid, base as i64, generation, serde_json::to_string(&items)?, serde_json::to_string(&pets)?, at],
+        "INSERT INTO host_session(session_id, character_id, server_id, local_guid, base_revision, generation, state, next_sequence, acked_sequence, owned_items, owned_pets, pin, reproject, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'armed', 1, 0, ?7, ?8, ?10, ?11, ?9, ?9)",
+        params![session.to_string(), id.to_string(), server_id, guid, base as i64, generation, serde_json::to_string(&items)?, serde_json::to_string(&pets)?, at, pin.map(serde_json::to_string).transpose()?, reproject as i64],
     )?;
     Ok(())
 }
@@ -176,7 +186,7 @@ impl Store {
         if let Some(existing) = read_host_session(&tx, offer.session_id)? {
             return Ok(existing);
         }
-        insert_host_session(&tx, offer.session_id, offer.character_id, &offer.server_id, None, offer.canonical_revision, 1, model)?;
+        insert_host_session(&tx, offer.session_id, offer.character_id, &offer.server_id, None, offer.canonical_revision, 1, model, None, false)?;
         tx.commit()?;
         Ok(read_host_session(&self.conn, offer.session_id)?.expect("just inserted"))
     }
@@ -226,7 +236,8 @@ impl Store {
         capture_baseline_in_tx(&tx, s.character_id, &s.server_id, &BaselineInput { b0, items, pets })?;
         let bytes = to_json(msg)?;
         tx.execute("INSERT INTO host_outbox(session_id, sequence, kind, message, state, created_at) VALUES (?1, 0, 'started', ?2, 'pending', ?3)", params![session.to_string(), bytes, now()])?;
-        tx.execute("UPDATE host_session SET state = 'open', generation = ?2, updated_at = ?3 WHERE session_id = ?1", params![session.to_string(), msg.baseline_generation, now()])?;
+        let pin = msg.progression.as_ref().map(|p| serde_json::to_string(&p.pin)).transpose()?;
+        tx.execute("UPDATE host_session SET state = 'open', generation = ?2, pin = ?4, updated_at = ?3 WHERE session_id = ?1", params![session.to_string(), msg.baseline_generation, now(), pin])?;
         tx.commit()?;
         Ok(())
     }
@@ -238,6 +249,9 @@ impl Store {
         let s = read_host_session(&tx, session)?.ok_or_else(|| PortableError::Invalid(format!("unknown session {session}")))?;
         if s.state != HostState::Open || s.pending_sequence != Some(msg.sequence) {
             return Err(PortableError::Invalid("this checkpoint was not reserved".into()));
+        }
+        if msg.pin != s.pin {
+            return Err(PortableError::ProgressionChanged("the checkpoint is not under the pin the session started under".into()));
         }
         let baseline = read_open_baseline(&tx, s.character_id, &s.server_id)?.ok_or(PortableError::NoBaseline)?;
         let (c0_items, b0_items): (std::collections::HashSet<_>, std::collections::HashSet<_>) = (baseline.c0.items.iter().map(|i| i.id).collect(), baseline.b0.items.iter().map(|i| i.id).collect());
@@ -256,6 +270,23 @@ impl Store {
         tx.execute("INSERT INTO host_outbox(session_id, sequence, kind, message, state, created_at) VALUES (?1, ?2, 'checkpoint', ?3, 'pending', ?4)", params![session.to_string(), msg.sequence as i64, bytes, now()])?;
         tx.execute("UPDATE host_session SET next_sequence = ?2, pending_sequence = NULL, updated_at = ?3 WHERE session_id = ?1", params![session.to_string(), msg.sequence as i64 + 1, now()])?;
         tx.commit()?;
+        Ok(())
+    }
+
+    /// The realm's progression profile changed under this session: when its final checkpoint is acknowledged, the next session must not be
+    /// armed before the working copy is projected again.
+    pub fn host_mark_reproject(&mut self, session: SessionId) -> Result<()> {
+        let n = self.conn.execute("UPDATE host_session SET reproject = 1, updated_at = ?2 WHERE session_id = ?1 AND state <> 'closed'", params![session.to_string(), now()])?;
+        if n == 0 {
+            return Err(PortableError::Invalid(format!("session {session} is not live")));
+        }
+        Ok(())
+    }
+
+    /// The working copy was projected again under the new profile: the session may be armed.
+    pub fn host_clear_reproject(&mut self, session: SessionId, pin: Option<&ProgressionPin>) -> Result<()> {
+        let json = pin.map(serde_json::to_string).transpose()?;
+        self.conn.execute("UPDATE host_session SET reproject = 0, pin = ?3, updated_at = ?2 WHERE session_id = ?1", params![session.to_string(), now(), json])?;
         Ok(())
     }
 
@@ -292,6 +323,9 @@ impl Store {
             Some(_) => {}
         }
         let at = now();
+        if ack.outcome.accepted() && ack.pin != s.pin {
+            return Err(PortableError::ProgressionChanged("the acknowledgement is under another progression profile than the session".into()));
+        }
         if !ack.outcome.accepted() {
             tx.execute("UPDATE host_outbox SET state = 'acked' WHERE session_id = ?1 AND sequence = ?2", params![ack.session_id.to_string(), ack.sequence as i64])?;
             if matches!(ack.outcome, AckOutcome::StaleSession) {
@@ -325,7 +359,11 @@ impl Store {
         set_synced_in_tx(&tx, s.character_id, &s.server_id, &encoded)?;
         tx.execute("UPDATE realm_baseline SET state = 'closed', updated_at = ?3 WHERE character_id = ?1 AND server_id = ?2 AND state = 'open'", params![s.character_id.to_string(), s.server_id, at])?;
         tx.execute("UPDATE host_session SET state = 'closed', updated_at = ?2 WHERE session_id = ?1", params![ack.session_id.to_string(), at])?;
-        insert_host_session(&tx, next.session_id, s.character_id, &s.server_id, s.local_guid, next.canonical_revision, s.generation + 1, &model)?;
+        insert_host_session(&tx, next.session_id, s.character_id, &s.server_id, s.local_guid, next.canonical_revision, s.generation + 1, &model, s.pin.as_ref(), s.reproject)?;
+        tx.execute(
+            "UPDATE realm_projection SET canonical_revision = ?3, context = json_set(context, '$.canonical_revision', ?3), updated_at = ?4 WHERE character_id = ?1 AND server_id = ?2",
+            params![s.character_id.to_string(), s.server_id, next.canonical_revision as i64, at],
+        )?;
         tx.commit()?;
         Ok(AckEffect::Finished { next_session: next.session_id, next_revision: next.canonical_revision })
     }

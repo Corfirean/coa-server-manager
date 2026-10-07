@@ -23,6 +23,12 @@
 //!   taken from `ours` if it has come back; in `base` only (the realm's own addition / filtered at the target): ignored;
 //!   new in `ours`: added.
 //!
+//! **Under a level-cap projection** ([`MergeProjection`]) two things change: the level and the xp of the working copy are the realm's own
+//! (the cap, xp 0) and never reach the canonical character, and the build records the core rewrites at every save
+//! (`core.ascension_slot.*`, `core.ascension_build.*`, `core.ascension_bar.*`) are merged **key by key** instead of as one value, so that
+//! what the realm could not hold survives in the canonical record. Everything else is as above: what the projection holds is absent from
+//! the realm's `B0` and `B1`, which is exactly "filtered away by the realm: kept".
+//!
 //! [`Mode::Strict`] additionally reports a **conflict** when `target` and `ours` both departed from `base` and disagree;
 //! [`Mode::Lenient`] (sessions) takes `ours`.
 
@@ -32,6 +38,16 @@ use std::fmt::Debug;
 use super::error::{PortableError, Result};
 use super::ids::{PortableItemId, PortablePetId};
 use super::model::*;
+use super::projection::settings::{classify, Record};
+
+/// How a projected character is merged: see the module documentation.
+#[derive(Clone, Debug, Default)]
+pub struct MergeProjection {
+    /// The canonical level and xp stay as they are (a session reconciling a working copy into its canonical character).
+    pub freeze_progression: bool,
+    /// Build records the core could not take apart: the realm's value is ignored.
+    pub blocked: BTreeSet<String>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -211,6 +227,47 @@ impl Ctx {
         }
     }
 
+    /// The settings of a projected character: build records key by key, blocked ones untouched, the rest as one value each.
+    fn projected_settings(&mut self, target: &mut BTreeMap<String, Vec<u32>>, base: &BTreeMap<String, Vec<u32>>, ours: &BTreeMap<String, Vec<u32>>, projection: &MergeProjection) {
+        let special = |k: &String| classify(k).is_some() || projection.blocked.contains(k);
+        let plain = |m: &BTreeMap<String, Vec<u32>>| -> BTreeMap<String, Vec<u32>> { m.iter().filter(|(k, _)| !special(k)).map(|(k, v)| (k.clone(), v.clone())).collect() };
+        let mut rest = plain(target);
+        self.map("settings", &mut rest, &plain(base), &plain(ours));
+        target.retain(|k, _| special(k));
+        target.extend(rest);
+
+        let sources: BTreeSet<&String> = ours.keys().filter(|k| special(k)).collect();
+        for source in sources {
+            if projection.blocked.contains(source) {
+                self.left_alone.push(format!("settings[{source:?}]: not merged, the projection could not take it apart"));
+                continue;
+            }
+            let Some(kind) = classify(source) else { continue };
+            let (Some(o), t) = (ours.get(source), target.get(source)) else { continue };
+            let Some(ours_record) = Record::parse(kind, o) else {
+                self.left_alone.push(format!("settings[{source:?}]: the realm's value is not a build record, left alone"));
+                continue;
+            };
+            let Some(t) = t else {
+                self.changes.push(format!("settings[{source:?}]: added"));
+                target.insert(source.clone(), ours_record.write());
+                continue;
+            };
+            let Some(mut merged) = Record::parse(kind, t) else {
+                self.left_alone.push(format!("settings[{source:?}]: the canonical value is not a build record, left alone"));
+                continue;
+            };
+            let base_record = base.get(source).and_then(|b| Record::parse(kind, b)).unwrap_or_else(|| Record::parse(kind, &empty_record(kind)).expect("an empty record parses"));
+            self.scalar(&format!("settings[{source:?}].head"), &mut merged.head, &base_record.head, &ours_record.head);
+            self.map(&format!("settings[{source:?}].entries"), &mut merged.entries, &base_record.entries, &ours_record.entries);
+            self.map(&format!("settings[{source:?}].buttons"), &mut merged.buttons, &base_record.buttons, &ours_record.buttons);
+            let written = merged.write();
+            if Record::parse(kind, t).map(|r| r.write()).as_ref() != Some(&written) {
+                target.insert(source.clone(), written);
+            }
+        }
+    }
+
     fn set<K: Ord + Clone + Debug>(&mut self, path: &str, target: &mut BTreeSet<K>, base: &BTreeSet<K>, ours: &BTreeSet<K>) {
         let mut t: BTreeMap<K, ()> = target.iter().map(|k| (k.clone(), ())).collect();
         let b: BTreeMap<K, ()> = base.iter().map(|k| (k.clone(), ())).collect();
@@ -224,8 +281,21 @@ fn to_map<T, K: Ord, V>(items: &[T], f: impl Fn(&T) -> (K, V)) -> BTreeMap<K, V>
     items.iter().map(f).collect()
 }
 
+fn empty_record(kind: super::projection::settings::SettingKind) -> Vec<u32> {
+    use super::projection::settings::SettingKind;
+    match kind {
+        SettingKind::Slot => vec![1, 12, 0, 0, 0],
+        SettingKind::Build | SettingKind::Bar => vec![0],
+    }
+}
+
 /// Apply `base -> ours` onto `target`.
 pub fn merge3(target: &PortableCharacter, base: &PortableCharacter, ours: &PortableCharacter, mode: Mode) -> Result<Merged> {
+    merge3_with(target, base, ours, mode, None)
+}
+
+/// [`merge3`], optionally of a projected character.
+pub fn merge3_with(target: &PortableCharacter, base: &PortableCharacter, ours: &PortableCharacter, mode: Mode, projection: Option<&MergeProjection>) -> Result<Merged> {
     if target.ruleset != base.ruleset || target.ruleset != ours.ruleset {
         return Err(PortableError::Invalid("three characters of different rulesets cannot be merged".into()));
     }
@@ -243,13 +313,19 @@ pub fn merge3(target: &PortableCharacter, base: &PortableCharacter, ours: &Porta
     // ---- progression ---------------------------------------------------------------------------------------------
     let (t, b, o) = (&mut out.progression, &base.progression, &ours.progression);
     let leveled = b.level != o.level;
-    cx.scalar("progression.level", &mut t.level, &b.level, &o.level);
-    if leveled {
-        cx.scalar("progression.xp", &mut t.xp, &b.xp, &o.xp);
+    if projection.is_some_and(|p| p.freeze_progression) {
+        if b.level != o.level || b.xp != o.xp {
+            cx.left_alone.push(format!("progression: the realm's level {} xp {} is the working copy's own and never reaches the canonical character", o.level, o.xp));
+        }
     } else {
-        let mut xp = t.xp as u64;
-        cx.add("progression.xp", &mut xp, b.xp as u64, o.xp as u64, u32::MAX as u64);
-        t.xp = xp as u32;
+        cx.scalar("progression.level", &mut t.level, &b.level, &o.level);
+        if leveled {
+            cx.scalar("progression.xp", &mut t.xp, &b.xp, &o.xp);
+        } else {
+            let mut xp = t.xp as u64;
+            cx.add("progression.xp", &mut xp, b.xp as u64, o.xp as u64, u32::MAX as u64);
+            t.xp = xp as u32;
+        }
     }
     macro_rules! accumulate {
         ($path:literal, $field:expr, $b:expr, $o:expr, $max:expr) => {{
@@ -326,7 +402,10 @@ pub fn merge3(target: &PortableCharacter, base: &PortableCharacter, ours: &Porta
         cx.map("actions", &mut actions, &to_map(&base.actions, |a| ((a.spec, a.button), (a.action, a.kind))), &to_map(&ours.actions, |a| ((a.spec, a.button), (a.action, a.kind))));
         out.actions = actions.into_iter().map(|((spec, button), (action, kind))| ActionButton { spec, button, action, kind }).collect();
 
-        cx.map("settings", &mut out.settings, &base.settings, &ours.settings);
+        match projection {
+            Some(p) => cx.projected_settings(&mut out.settings, &base.settings, &ours.settings, p),
+            None => cx.map("settings", &mut out.settings, &base.settings, &ours.settings),
+        }
         cx.map("wardrobe.active", &mut out.wardrobe.active, &base.wardrobe.active, &ours.wardrobe.active);
         cx.map("wardrobe.outfits", &mut out.wardrobe.outfits, &base.wardrobe.outfits, &ours.wardrobe.outfits);
         cx.scalar("wardrobe.can_see_item", &mut out.wardrobe.can_see_item, &base.wardrobe.can_see_item, &ours.wardrobe.can_see_item);

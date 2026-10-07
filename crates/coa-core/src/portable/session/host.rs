@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::super::collection::IdSet;
-use super::super::capabilities::RealmCapabilities;
+use super::super::capabilities::{Progression, RealmCapabilities};
 use super::super::error::{PortableError, Result};
 use super::super::realm::collections::Applied;
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, ProfileId, SessionId};
@@ -44,6 +44,11 @@ pub enum HostEvent {
     Refused { session: SessionId, why: String },
     /// The realm account's collection of this kind changed: the whole compact set was queued for the Owner.
     CollectionQueued { kind: String, count: usize },
+    /// The realm's progression (level cap or rules) is not the one this session started under: the session ends with a final checkpoint taken
+    /// **under the old pin**, and the working copy must be projected again before the next session is armed.
+    ProfileMoved { session: SessionId },
+    /// The realm's progression moved but the character is online under the old one (or could not be read): the session ends at its logout.
+    ProfileWaiting { session: SessionId, why: String },
 }
 
 pub struct HostService<'a> {
@@ -54,11 +59,13 @@ pub struct HostService<'a> {
     last_checkpoint: HashMap<SessionId, u64>,
     /// When the account collections of each session were last looked at.
     last_collection: HashMap<SessionId, u64>,
+    /// The progression the realm reports now (from the last observed profile).
+    progression: Option<Progression>,
 }
 
 impl<'a> HostService<'a> {
     pub fn new(store: &'a mut Store, server_id: &str, config: HostConfig) -> Self {
-        Self { store, server_id: server_id.to_string(), config, last_checkpoint: HashMap::new(), last_collection: HashMap::new() }
+        Self { store, server_id: server_id.to_string(), config, last_checkpoint: HashMap::new(), last_collection: HashMap::new(), progression: None }
     }
 
     pub fn store(&self) -> &Store {
@@ -93,6 +100,19 @@ impl<'a> HostService<'a> {
         let mut events = Vec::new();
         for s in self.store.host_live_sessions(&self.server_id)? {
             let Some(guid) = s.local_guid else { continue };
+            if self.moved(&s)? {
+                if !s.reproject {
+                    match s.state {
+                        HostState::Open => self.end_for_profile(bridge, &s, guid, &mut events)?,
+                        HostState::Armed => {
+                            self.store.host_mark_reproject(s.session_id)?;
+                            events.push(HostEvent::ProfileMoved { session: s.session_id });
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
             let Some(row) = bridge.session_row(guid)? else { continue };
             if row.session_id != s.session_id {
                 if s.state == HostState::Open {
@@ -119,6 +139,44 @@ impl<'a> HostService<'a> {
         Ok(events)
     }
 
+    /// The realm's progression is not the one this session runs under.
+    fn moved(&self, s: &HostSession) -> Result<bool> {
+        let Some(current) = &self.progression else { return Ok(false) };
+        let pin = match &s.pin {
+            Some(pin) => Some(pin.clone()),
+            None => self.store.character_pin(s.character_id, &s.server_id)?,
+        };
+        Ok(pin.is_some_and(|p| p.progression_signature != current.progression_signature || p.max_player_level != current.max_player_level || p.policy_version != current.projection_policy_version))
+    }
+
+    /// End a session whose realm changed its progression: the realm's state is read as it is (the realm's core refuses the character at
+    /// login under the new progression, so nobody has played it) and sent as the **final checkpoint under the old pin**. The Owner merges it
+    /// as it merges any other; the next session is not armed until the working copy is projected again.
+    fn end_for_profile(&mut self, bridge: &mut dyn RealmBridge, s: &HostSession, guid: u32, events: &mut Vec<HostEvent>) -> Result<()> {
+        let (items, pets) = self.priors(s)?;
+        let read = match bridge.read(guid, &items, &pets) {
+            Ok(read) => read,
+            Err(e) => {
+                events.push(HostEvent::ProfileWaiting { session: s.session_id, why: e.to_string() });
+                return Ok(());
+            }
+        };
+        if read.online {
+            events.push(HostEvent::ProfileWaiting { session: s.session_id, why: "the character is online".into() });
+            return Ok(());
+        }
+        if read.session.as_ref().is_none_or(|r| r.session_id != s.session_id) {
+            return Ok(());
+        }
+        let sequence = self.store.host_begin_checkpoint(s.session_id)?;
+        let msg = PortableCheckpoint::new(s.session_id, s.character_id, &s.server_id, s.base_revision, sequence, true, &read.exported.model, s.pin.clone())?;
+        self.store.host_queue_checkpoint(s.session_id, &msg, &read.exported.observations, &read.exported.pet_observations)?;
+        self.store.host_mark_reproject(s.session_id)?;
+        events.push(HostEvent::CheckpointQueued { session: s.session_id, sequence, final_checkpoint: true });
+        events.push(HostEvent::ProfileMoved { session: s.session_id });
+        Ok(())
+    }
+
     fn priors(&self, s: &HostSession) -> Result<(HashMap<u32, (PortableItemId, String)>, HashMap<u32, (PortablePetId, String)>)> {
         Ok((self.store.active_item_lookup(s.character_id, &s.server_id)?, self.store.active_pet_lookup(s.character_id, &s.server_id)?))
     }
@@ -131,7 +189,8 @@ impl<'a> HostService<'a> {
             events.push(HostEvent::BaselineRetry { session: s.session_id, why: "the marker moved while the baseline was being read".into() });
             return Ok(());
         };
-        let msg = PortableSessionStarted::new(s.session_id, s.character_id, &s.server_id, s.base_revision, row.generation, &exported.model)?;
+        let progression = self.session_progression(s)?;
+        let msg = PortableSessionStarted::new(s.session_id, s.character_id, &s.server_id, s.base_revision, row.generation, &exported.model, progression)?;
         self.store.host_queue_started(s.session_id, &msg, &exported.model, &exported.observations, &exported.pet_observations)?;
         // the baseline is persisted (and queued): only now may the player move on
         bridge.release(s.session_id)?;
@@ -169,11 +228,21 @@ impl<'a> HostService<'a> {
         if final_checkpoint && row.state != RowState::Ended {
             return Ok(());
         }
-        let msg = PortableCheckpoint::new(s.session_id, s.character_id, &s.server_id, s.base_revision, sequence, final_checkpoint, &exported.model)?;
+        let msg = PortableCheckpoint::new(s.session_id, s.character_id, &s.server_id, s.base_revision, sequence, final_checkpoint, &exported.model, s.pin.clone())?;
         self.store.host_queue_checkpoint(s.session_id, &msg, &exported.observations, &exported.pet_observations)?;
         self.last_checkpoint.insert(s.session_id, now_secs);
         events.push(HostEvent::CheckpointQueued { session: s.session_id, sequence, final_checkpoint });
         Ok(())
+    }
+
+    /// What the session runs under: the projection of the character on this realm, else the realm's progression it was synchronised under.
+    fn session_progression(&self, s: &HostSession) -> Result<Option<SessionProgression>> {
+        if let Some(ctx) = self.store.projection_context(s.character_id, &s.server_id)? {
+            let progression = SessionProgression { pin: ctx.pin(), projection: Some(ctx) };
+            progression.validate()?;
+            return Ok(Some(progression));
+        }
+        Ok(self.store.character_pin(s.character_id, &s.server_id)?.map(|pin| SessionProgression { pin, projection: None }))
     }
 
     /// Messages waiting for delivery, in order.
@@ -186,7 +255,9 @@ impl<'a> HostService<'a> {
         let session = self.store.host_session(ack.session_id)?;
         let effect = self.store.host_receive_ack(ack)?;
         if let (AckEffect::Finished { next_session, next_revision }, Some(old)) = (&effect, session) {
-            self.rearm(bridge, old.character_id, *next_session, *next_revision)?;
+            if !old.reproject {
+                self.rearm(bridge, old.character_id, *next_session, *next_revision)?;
+            }
         }
         Ok(effect)
     }
@@ -201,7 +272,7 @@ impl<'a> HostService<'a> {
             if current.as_ref().is_some_and(|r| r.session_id == s.session_id) {
                 continue;
             }
-            if s.generation > 1 {
+            if s.generation > 1 && !s.reproject {
                 bridge.arm(guid, s.session_id, s.character_id, s.base_revision, s.generation)?;
                 n += 1;
             }
@@ -313,6 +384,7 @@ impl<'a> HostService<'a> {
     /// answers with what it holds); the characters whose profile is stale are returned for a re-evaluation (whatever their revision).
     pub fn observe_profile(&mut self, caps: &RealmCapabilities, source: &str) -> Result<(ProfileChange, Vec<StaleMapping>)> {
         let change = self.store.set_realm_profile(&self.server_id, caps, source)?;
+        self.progression = caps.progression.clone();
         if change.changed() {
             self.store.host_collection_reset(&self.server_id)?;
             self.last_collection.clear();

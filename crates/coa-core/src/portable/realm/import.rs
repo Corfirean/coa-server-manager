@@ -49,11 +49,14 @@ pub struct ImportOptions {
     pub capabilities: Option<std::sync::Arc<super::super::capabilities::RealmCapabilities>>,
     /// The extension adapters this Manager has.
     pub extensions: Option<std::sync::Arc<super::super::extension::ExtensionRegistry>>,
+    /// Where the decision of a level-cap projection comes from when the realm is not running (a decision supplied from the realm's core);
+    /// a running realm is asked directly. Without either, a character above the cap is refused.
+    pub projection: Option<super::super::projection::Oracle>,
 }
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        Self { max_characters_per_account: 10, game_server_users: vec!["acore".to_string()], recovery_grace: Duration::from_secs(30), lock_wait_seconds: 30, knowledge: None, capabilities: None, extensions: None }
+        Self { max_characters_per_account: 10, game_server_users: vec!["acore".to_string()], recovery_grace: Duration::from_secs(30), lock_wait_seconds: 30, knowledge: None, capabilities: None, extensions: None, projection: None }
     }
 }
 
@@ -265,7 +268,7 @@ pub fn import_character(db: &Db, store: &mut Store, character_id: CharacterId, s
 /// The same, arming the runtime portable session `session` on the arrival (the core takes the baseline at its first load).
 pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions, session: Option<SessionId>) -> Result<ImportOutcome> {
     let record = store.character(character_id)?;
-    let model = store.load_snapshot(character_id, record.revision)?;
+    let canonical = store.load_snapshot(character_id, record.revision)?;
     if store.server_mappings(character_id)?.iter().any(|m| m.server_id == server_id) {
         return Err(PortableError::AlreadyOnRealm { character: character_id, server_id: server_id.to_string() });
     }
@@ -274,7 +277,9 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
     if session.is_some() {
         operations.push(super::super::compat::Operation::RuntimeSession);
     }
-    let compatibility = super::profile::gate(opts, &model, &operations)?;
+    let compatibility = super::profile::gate(opts, &canonical, &operations)?;
+    let projection = super::project::plan(&canonical, record.revision, opts, None)?;
+    let model = projection.view.clone();
     let report = preflight(db, &model, account, opts)?;
     if !report.problems.is_empty() {
         return Err(PortableError::ImportRefused(report.problems));
@@ -285,7 +290,7 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
     let pets = planned_pets(&model);
     let ticket = store.begin_import(character_id, server_id, record.revision, &items, &pets)?;
 
-    let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe, session: session.map(|session_id| SessionArm { session_id, character_id, generation: 1 }), knowledge: opts.knowledge.as_deref() }) {
+    let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe, session: session.map(|session_id| SessionArm { session_id, character_id, generation: 1 }), pin: projection.pin.as_ref().map(|p| p.words()), knowledge: opts.knowledge.as_deref() }) {
         Ok(plan) => plan,
         Err(e) => {
             store.abort_import(ticket.import_id, &format!("the import plan could not be built: {e}"))?;
@@ -303,6 +308,7 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
                 Resolution::Committed(alloc) => {
                     // the realm's own report was lost: read the final name back
                     let (final_name, renamed) = read_name(db, alloc.local_guid)?;
+                    super::project::remember(store, character_id, server_id, &projection)?;
                     let mut not_applied = plan.not_applied_settings;
                     not_applied.extend(super::profile::after_write(Some(db), store, character_id, server_id, opts, alloc.local_guid, &model, compatibility.as_ref())?);
                     Ok(ImportOutcome { import_id: ticket.import_id, local_guid: alloc.local_guid, final_name, renamed, items: plan.counts.items, pets: plan.counts.pets, not_applied, warnings: report.warnings })
@@ -314,6 +320,7 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
     };
 
     store.finish_import(ticket.import_id, ImportAllocation { local_guid: allocation.local_guid, item_base: allocation.item_base, pet_base: allocation.pet_base })?;
+    super::project::remember(store, character_id, server_id, &projection)?;
     let mut not_applied = plan.not_applied_settings;
     not_applied.extend(super::profile::after_write(Some(db), store, character_id, server_id, opts, allocation.local_guid, &model, compatibility.as_ref())?);
     Ok(ImportOutcome {

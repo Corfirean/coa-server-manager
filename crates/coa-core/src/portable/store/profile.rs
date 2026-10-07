@@ -13,11 +13,19 @@ use crate::portable::capabilities::RealmCapabilities;
 pub struct ProfileChange {
     pub previous: Option<String>,
     pub current: String,
+    /// The progression signature the realm had before, and now (`None`: not known).
+    pub previous_progression: Option<String>,
+    pub current_progression: Option<String>,
 }
 
 impl ProfileChange {
     pub fn changed(&self) -> bool {
         self.previous.as_deref() != Some(self.current.as_str())
+    }
+
+    /// The realm's level cap or progression rules are not the ones it had when it was last looked at.
+    pub fn progression_changed(&self) -> bool {
+        self.previous.is_some() && self.previous_progression != self.current_progression
     }
 }
 
@@ -40,14 +48,16 @@ impl Store {
         caps.validate()?;
         let json = String::from_utf8(caps.to_json()?).map_err(|_| PortableError::Invalid("the profile is not UTF-8".into()))?;
         let tx = self.write_tx()?;
-        let previous: Option<String> = tx.query_row("SELECT content_profile_hash FROM realm_profile WHERE server_id = ?1", [server_id], |r| r.get(0)).optional()?;
+        let previous_row: Option<(String, String)> = tx.query_row("SELECT content_profile_hash, profile FROM realm_profile WHERE server_id = ?1", [server_id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+        let previous = previous_row.as_ref().map(|(h, _)| h.clone());
+        let previous_progression = previous_row.and_then(|(_, json)| RealmCapabilities::from_json(json.as_bytes()).ok()).and_then(|c| c.progression).map(|p| p.progression_signature);
         tx.execute(
             "INSERT INTO realm_profile(server_id, content_profile_hash, profile, source, fetched_at) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(server_id) DO UPDATE SET content_profile_hash = excluded.content_profile_hash, profile = excluded.profile, source = excluded.source, fetched_at = excluded.fetched_at",
             params![server_id, caps.content_profile_hash, json, source, now()],
         )?;
         tx.commit()?;
-        Ok(ProfileChange { previous, current: caps.content_profile_hash.clone() })
+        Ok(ProfileChange { previous, current: caps.content_profile_hash.clone(), previous_progression, current_progression: caps.progression.as_ref().map(|p| p.progression_signature.clone()) })
     }
 
     pub fn realm_profile(&self, server_id: &str) -> Result<Option<RealmCapabilities>> {

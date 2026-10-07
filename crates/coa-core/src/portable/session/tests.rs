@@ -398,7 +398,7 @@ fn messages_for_the_wrong_character_session_or_realm_and_malformed_ones_change_n
         ("a snapshot of another character", {
             let mut other = geared_level_eighty();
             other.character_id = other_character;
-            to_json(&PortableCheckpoint::new(session, id, SERVER, 10, 1, false, &other).unwrap()).unwrap()
+            to_json(&PortableCheckpoint::new(session, id, SERVER, 10, 1, false, &other, None).unwrap()).unwrap()
         }),
         ("a snapshot that does not match its hash", tamper(&good, |v| {
             let payload = v["realm_snapshot"]["payload"].as_str().unwrap().to_string();
@@ -456,7 +456,7 @@ fn checkpoints_out_of_order_or_with_reused_sequences_are_refused_safely() {
     let reused = tamper(&two, |v| {
         let mut m = geared_level_eighty();
         m.progression.money += 123;
-        let other = PortableCheckpoint::new(session, id, SERVER, 10, 2, false, &m).unwrap();
+        let other = PortableCheckpoint::new(session, id, SERVER, 10, 2, false, &m, None).unwrap();
         v["realm_snapshot"] = serde_json::to_value(&other.realm_snapshot).unwrap();
         v["content_hash"] = other.content_hash.into();
     });

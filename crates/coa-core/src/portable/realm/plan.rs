@@ -140,6 +140,8 @@ pub struct PlanContext<'a> {
     pub probe: &'a SchemaProbe,
     /// Arm a runtime portable session for the arrival: the core takes the baseline at its first load.
     pub session: Option<SessionArm>,
+    /// The pin the core stores in `coa.portable.pin` (the progression the character was prepared for): it refuses a session character whose pin is not its own.
+    pub pin: Option<Vec<u32>>,
     /// What the destination's client data knows: appearances it does not know are not written.
     pub knowledge: Option<&'a super::knowledge::RealmKnowledge>,
 }
@@ -500,6 +502,9 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     counts.settings = settings.len();
     let marker = marker_data(ctx.nonce, ctx.revision);
     settings.row(vec![Val::Expr("@char"), Val::text(IMPORT_MARKER_SOURCE), Val::text(marker.clone())])?;
+    if let Some(words) = &ctx.pin {
+        settings.row(vec![Val::Expr("@char"), Val::text(super::policy::PIN_SOURCE), Val::text(words.iter().map(|w| format!("{w} ")).collect::<String>())])?;
+    }
     inserts.push(settings);
 
     let mut session_row = Insert::new("coa_portable_session", &["guid", "session_id", "character_id", "imported_revision", "baseline_generation", "state", "checkpoint_seq", "save_seq", "updated_at"]);

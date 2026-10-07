@@ -38,6 +38,17 @@ struct JobHeader {
     snapshot_sha256: String,
     character_id: CharacterId,
     session: Option<SessionHeader>,
+    /// The progression the character was prepared for: the core refuses a job prepared for another one, and pins the character to it.
+    projection: Option<ProjectionHeader>,
+}
+
+#[derive(Debug, Serialize)]
+struct ProjectionHeader {
+    /// The character was projected down to the cap (and the core checks that nothing above the cap is left in it).
+    active: bool,
+    level: u32,
+    policy_version: u32,
+    progression_signature: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,7 +72,7 @@ pub fn job_model(model: &PortableCharacter, knowledge: Option<&super::knowledge:
 }
 
 /// The bytes of a job file: the header, a newline, the canonical JSON of the character.
-pub fn job_bytes(job_id: ImportId, nonce: [u32; 4], account: u32, revision: u64, max_characters: u32, model: &PortableCharacter, session: Option<(SessionId, u32)>, knowledge: Option<&super::knowledge::RealmKnowledge>) -> Result<Vec<u8>> {
+pub fn job_bytes(job_id: ImportId, nonce: [u32; 4], account: u32, revision: u64, max_characters: u32, model: &PortableCharacter, session: Option<(SessionId, u32)>, knowledge: Option<&super::knowledge::RealmKnowledge>, pin: Option<&super::super::projection::ProgressionPin>) -> Result<Vec<u8>> {
     let snapshot_json = snapshot::canonical_json(&job_model(model, knowledge))?;
     let header = JobHeader {
         job_format: super::super::versions::ONLINE_IMPORT_JOB_FORMAT_VERSION,
@@ -73,6 +84,7 @@ pub fn job_bytes(job_id: ImportId, nonce: [u32; 4], account: u32, revision: u64,
         snapshot_sha256: hex::encode(Sha256::digest(&snapshot_json)),
         character_id: model.character_id,
         session: session.map(|(session_id, generation)| SessionHeader { session_id, generation }),
+        projection: pin.map(|p| ProjectionHeader { active: p.projected, level: p.max_player_level, policy_version: p.policy_version, progression_signature: p.progression_signature.clone() }),
     };
     let mut out = serde_json::to_vec(&header)?;
     out.push(b'\n');
@@ -126,7 +138,7 @@ pub fn import_character_online(ra: &mut Ra, store: &mut Store, character_id: Cha
 #[allow(clippy::too_many_arguments)]
 pub fn import_character_online_on(db: Option<&crate::db::Db>, ra: &mut Ra, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions, job_dir: &Path, session: Option<SessionId>) -> Result<ImportOutcome> {
     let record = store.character(character_id)?;
-    let model = store.load_snapshot(character_id, record.revision)?;
+    let canonical = store.load_snapshot(character_id, record.revision)?;
     if store.server_mappings(character_id)?.iter().any(|m| m.server_id == server_id) {
         return Err(PortableError::AlreadyOnRealm { character: character_id, server_id: server_id.to_string() });
     }
@@ -134,11 +146,16 @@ pub fn import_character_online_on(db: Option<&crate::db::Db>, ra: &mut Ra, store
     if session.is_some() {
         operations.push(super::super::compat::Operation::RuntimeSession);
     }
-    let compatibility = super::profile::gate(opts, &model, &operations)?;
+    let compatibility = super::profile::gate(opts, &canonical, &operations)?;
+    let projection = {
+        let oracle = super::project::CoreOracle::new(ra, job_dir);
+        super::project::plan(&canonical, record.revision, opts, Some(&oracle))?
+    };
+    let model = projection.view.clone();
     let ticket = store.begin_import(character_id, server_id, record.revision, &planned_items(&model), &planned_pets(&model))?;
     let (job_file, result_file) = job_paths(job_dir, ticket.import_id);
     let write = || -> Result<()> {
-        let bytes = job_bytes(ticket.import_id, ticket.nonce, account, record.revision, opts.max_characters_per_account, &model, session.map(|s| (s, 1)), opts.knowledge.as_deref())?;
+        let bytes = job_bytes(ticket.import_id, ticket.nonce, account, record.revision, opts.max_characters_per_account, &model, session.map(|s| (s, 1)), opts.knowledge.as_deref(), projection.pin.as_ref())?;
         let temp = job_file.with_extension("job.tmp");
         std::fs::write(&temp, bytes)?;
         std::fs::rename(&temp, &job_file)?;
@@ -164,6 +181,7 @@ pub fn import_character_online_on(db: Option<&crate::db::Db>, ra: &mut Ra, store
                 return finish_by_recovery(store, ticket.import_id, opts);
             }
             store.finish_import(ticket.import_id, allocation)?;
+            super::project::remember(store, character_id, server_id, &projection)?;
             cleanup();
             let mut not_applied = r.not_applied;
             not_applied.extend(super::profile::after_write(db, store, character_id, server_id, opts, r.local_guid, &model, compatibility.as_ref())?);
@@ -200,7 +218,7 @@ mod tests {
         model.settings.insert("core.spell_charge.1".into(), vec![9]);
         model.settings.insert("core.ascension_build.54".into(), vec![1, 2]);
         let id = ImportId::new();
-        let bytes = job_bytes(id, [1, 2, 3, 4], 7001, 5, 10, &model, Some((SessionId::new(), 1)), None).unwrap();
+        let bytes = job_bytes(id, [1, 2, 3, 4], 7001, 5, 10, &model, Some((SessionId::new(), 1)), None, None).unwrap();
         let split = bytes.iter().position(|b| *b == b'\n').unwrap();
         let header: serde_json::Value = serde_json::from_slice(&bytes[..split]).unwrap();
         let body = &bytes[split + 1..];
@@ -209,10 +227,11 @@ mod tests {
         assert_eq!(header["nonce"], serde_json::json!([1, 2, 3, 4]));
         assert!(header["session"]["session_id"].is_string());
         assert!(!body.contains(&b'\n'), "the snapshot is one line");
+        assert!(header["projection"].is_null(), "a job without a pin carries no projection header");
         let sent: PortableCharacter = serde_json::from_slice(body).unwrap();
         assert!(sent.extensions.is_empty(), "opaque module payloads are not shipped to the realm");
         assert!(sent.settings.contains_key("core.ascension_build.54") && !sent.settings.contains_key("core.spell_charge.1"));
         assert_eq!(sent.items.len(), model.items.len());
-        assert!(job_bytes(id, [0; 4], 1, 1, 10, &model, None, None).unwrap().len() > 100);
+        assert!(job_bytes(id, [0; 4], 1, 1, 10, &model, None, None, None).unwrap().len() > 100);
     }
 }

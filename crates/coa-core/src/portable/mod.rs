@@ -15,6 +15,7 @@ pub mod identity;
 pub mod ids;
 pub mod merge;
 pub mod model;
+pub mod projection;
 pub mod realm;
 pub mod session;
 pub mod snapshot;

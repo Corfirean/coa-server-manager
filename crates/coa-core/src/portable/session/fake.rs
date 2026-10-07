@@ -101,6 +101,11 @@ impl FakeRealm {
     /// The character arrives (an import): items and pets get local ids in plan order, like the offline importer does.
     pub fn import(&mut self, store: &mut Store, character: CharacterId, server_id: &str, revision: u64, session: SessionId) -> Result<()> {
         let model = store.load_snapshot(character, revision)?;
+        self.import_model(store, character, server_id, revision, session, model)
+    }
+
+    /// The same, for a character that is not the canonical one as it is (a working copy projected for this realm).
+    pub fn import_model(&mut self, store: &mut Store, character: CharacterId, server_id: &str, revision: u64, session: SessionId, model: PortableCharacter) -> Result<()> {
         let items: Vec<PlannedItem> = model.items.iter().map(|i| PlannedItem { id: i.id, entry: i.entry.clone(), identity: item_identity(&i.entry, i.random_property_id) }).collect();
         let pets: Vec<PlannedPet> = model.pets.iter().map(|p| PlannedPet { id: p.id, entry: p.entry.clone(), identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell) }).collect();
         let ticket = store.begin_import(character, server_id, revision, &items, &pets)?;

@@ -16,7 +16,7 @@ fn probe_with(tables: &[&str]) -> SchemaProbe {
 }
 
 fn ctx<'a>(probe: &'a SchemaProbe, users: &'a [String]) -> PlanContext<'a> {
-    PlanContext { ruleset: Ruleset::Coa, account: 5001, revision: 3, nonce: [11, 22, 33, 44], max_characters_per_account: 10, game_server_users: users, probe, session: None, knowledge: None }
+    PlanContext { ruleset: Ruleset::Coa, account: 5001, revision: 3, nonce: [11, 22, 33, 44], max_characters_per_account: 10, game_server_users: users, probe, session: None, pin: None, knowledge: None }
 }
 
 fn users() -> Vec<String> {

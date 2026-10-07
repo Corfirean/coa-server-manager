@@ -65,6 +65,10 @@ pub fn assemble(db: &Db, probe: &SchemaProbe, data_dir: Option<&Path>, core: Opt
     if probe.has("coa_portable_session") && core.is_some_and(|c| c.has_feature("runtime_sessions")) {
         features.insert(Feature::RuntimeSessions);
     }
+    let progression = core.and_then(|c| c.progression.clone());
+    if progression.is_some() && core.is_some_and(|c| c.has_feature("level_projection")) {
+        features.insert(Feature::LevelProjection);
+    }
 
     let mut extension_realm = NoRealm { probe };
     let extensions = registry.supported_on(&mut extension_realm);
@@ -79,7 +83,11 @@ pub fn assemble(db: &Db, probe: &SchemaProbe, data_dir: Option<&Path>, core: Opt
         extensions,
         client_catalog: catalog,
     };
-    RealmCapabilities::new(core.map(|c| c.core.clone()), content)
+    let caps = RealmCapabilities::new(core.map(|c| c.core.clone()), content)?;
+    match progression {
+        Some(p) => caps.with_progression(p),
+        None => Ok(caps),
+    }
 }
 
 /// Probe a running or stopped realm: the schema from the database, the core from RA when a console is given.
@@ -118,7 +126,8 @@ pub fn gate(opts: &ImportOptions, model: &PortableCharacter, operations: &[Opera
     let Some(caps) = opts.capabilities.as_deref() else { return Ok(None) };
     let mut merged: Option<CompatibilityReport> = None;
     for op in operations {
-        let report = compat::evaluate(&Inputs { operation: *op, model, capabilities: caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref() });
+        let decider = opts.projection.is_some() || operations.contains(&Operation::OnlineImport);
+        let report = compat::evaluate(&Inputs { operation: *op, model, capabilities: caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref(), projection_decider: decider });
         merged = Some(match merged {
             None => report,
             Some(mut m) => {

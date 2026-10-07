@@ -375,7 +375,7 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
     let record = store.character(id).unwrap();
     let model = store.load_snapshot(id, record.revision).unwrap();
     let ticket = store.begin_import(id, B, record.revision, &crate::portable::realm::import::planned_items(&model), &crate::portable::realm::import::planned_pets(&model)).unwrap();
-    let bytes = crate::portable::realm::online::job_bytes(ticket.import_id, ticket.nonce, ACCOUNT, record.revision, 10, &model, None, None).unwrap();
+    let bytes = crate::portable::realm::online::job_bytes(ticket.import_id, ticket.nonce, ACCOUNT, record.revision, 10, &model, None, None, None).unwrap();
     let file = jobs.join(format!("{}.job", ticket.import_id));
     std::fs::write(&file, &bytes).unwrap();
     let before = number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters");
@@ -401,9 +401,9 @@ fn the_core_imports_characters_into_a_running_realm_like_the_offline_importer_do
     };
     let mut impossible = imported[0].3.clone();
     impossible.items[0].entry = crate::portable::ids::ContentId::new("coa", "item", 4_000_000_000).unwrap();
-    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 9], ACCOUNT, 1, 10, &impossible, None, None).unwrap(), "an item the realm does not know");
-    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 8], 99_999_999, 1, 10, &model, None, None).unwrap(), "an account that does not exist");
-    let mut tampered = crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 7], ACCOUNT, 1, 10, &model, None, None).unwrap();
+    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 9], ACCOUNT, 1, 10, &impossible, None, None, None).unwrap(), "an item the realm does not know");
+    refused(crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 8], 99_999_999, 1, 10, &model, None, None, None).unwrap(), "an account that does not exist");
+    let mut tampered = crate::portable::realm::online::job_bytes(ticket.import_id, [9, 9, 9, 7], ACCOUNT, 1, 10, &model, None, None, None).unwrap();
     let last = tampered.len() - 3;
     tampered[last] ^= 1;
     refused(tampered, "a snapshot that does not match its hash");
@@ -478,7 +478,7 @@ fn the_core_reports_what_it_is_the_manager_evaluates_before_it_writes_and_the_co
     let record = store.character(id).unwrap();
     let model = store.load_snapshot(id, record.revision).unwrap();
     let ticket = store.begin_import(id, B, record.revision, &crate::portable::realm::import::planned_items(&model), &crate::portable::realm::import::planned_pets(&model)).unwrap();
-    let good = crate::portable::realm::online::job_bytes(ticket.import_id, ticket.nonce, ACCOUNT, record.revision, 10, &model, None, None).unwrap();
+    let good = crate::portable::realm::online::job_bytes(ticket.import_id, ticket.nonce, ACCOUNT, record.revision, 10, &model, None, None, None).unwrap();
     let text = String::from_utf8(good).unwrap();
     assert!(text.starts_with("{\"job_format\":2,"), "{}", &text[..60]);
     let chars = number(&r.b, "SELECT COUNT(*) FROM acore_characters.characters") + number(&r.b, "SELECT COUNT(*) FROM acore_characters.item_instance");

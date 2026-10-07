@@ -29,6 +29,10 @@ pub const IMPORT_MARKER_SOURCE: &str = "coa.portable.import";
 /// them when the realm's answer was lost).
 pub const ALLOC_MARKER_SOURCE: &str = "coa.portable.alloc";
 
+/// The progression a session character was prepared for (policy version, level cap, signature words): the core refuses to let a session
+/// character in when its own progression is another one.
+pub const PIN_SOURCE: &str = "coa.portable.pin";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Disposition {
     Carry,

@@ -53,6 +53,8 @@ pub enum Topic {
     Wardrobe,
     Collection(String),
     Extension(String),
+    /// The realm's level cap against the character's level (Phase 8).
+    Progression,
 }
 
 impl std::fmt::Display for Topic {
@@ -66,6 +68,7 @@ impl std::fmt::Display for Topic {
             Topic::Wardrobe => f.write_str("wardrobe"),
             Topic::Collection(kind) => write!(f, "collection {kind}"),
             Topic::Extension(ns) => write!(f, "extension {ns}"),
+            Topic::Progression => f.write_str("progression"),
         }
     }
 }
@@ -74,6 +77,9 @@ impl std::fmt::Display for Topic {
 pub enum Outcome {
     Compatible(Topic),
     Held { topic: Topic, held: usize, applicable: usize, reason: String },
+    /// The character is above the realm's level cap and is given to the realm as a working copy at the cap; what the copy cannot hold stays
+    /// canonical. The core decides what that is when the operation runs.
+    Projected { topic: Topic, from: u32, to: u32 },
     Unsupported { topic: Topic, reason: String },
     Blocking { topic: Topic, reason: String },
 }
@@ -81,7 +87,7 @@ pub enum Outcome {
 impl Outcome {
     pub fn topic(&self) -> &Topic {
         match self {
-            Outcome::Compatible(t) | Outcome::Held { topic: t, .. } | Outcome::Unsupported { topic: t, .. } | Outcome::Blocking { topic: t, .. } => t,
+            Outcome::Compatible(t) | Outcome::Held { topic: t, .. } | Outcome::Projected { topic: t, .. } | Outcome::Unsupported { topic: t, .. } | Outcome::Blocking { topic: t, .. } => t,
         }
     }
 }
@@ -91,6 +97,7 @@ impl std::fmt::Display for Outcome {
         match self {
             Outcome::Compatible(t) => write!(f, "{t}: compatible"),
             Outcome::Held { topic, held, applicable, reason } => write!(f, "{topic}: {applicable} applied, {held} held back in the canonical character ({reason})"),
+            Outcome::Projected { topic, from, to } => write!(f, "{topic}: level {from} is above the realm's cap {to}: projected to {to}, what the working copy cannot hold stays in the canonical character"),
             Outcome::Unsupported { topic, reason } => write!(f, "{topic}: not supported by this realm, nothing applied and nothing lost ({reason})"),
             Outcome::Blocking { topic, reason } => write!(f, "{topic}: BLOCKS the operation ({reason})"),
         }
@@ -149,6 +156,8 @@ pub struct Inputs<'a> {
     /// The Owner's canonical collections that would be applied to the realm's account alongside.
     pub collections: &'a [(&'a str, &'a IdSet)],
     pub extensions: Option<&'a ExtensionRegistry>,
+    /// Something can decide what a projection holds when the operation runs: a running core (an online import) or a decision supplied from one.
+    pub projection_decider: bool,
 }
 
 pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
@@ -185,6 +194,8 @@ pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
         }
     }
 
+    out.push(progression_outcome(i));
+
     if let Some(k) = i.knowledge {
         if let Some(why) = catalog_mismatch(k, i.capabilities) {
             out.push(Outcome::Blocking { topic: Topic::ClientData, reason: why });
@@ -200,6 +211,28 @@ pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
     }
 
     CompatibilityReport { operation: i.operation, content_profile_hash: i.capabilities.content_profile_hash.clone(), outcomes: out }
+}
+
+fn progression_outcome(i: &Inputs<'_>) -> Outcome {
+    use super::projection::{activation, Activation, POLICY_VERSION, PROTOCOL};
+    let topic = Topic::Progression;
+    let Some(p) = &i.capabilities.progression else {
+        return Outcome::Blocking { topic, reason: "the realm's progression profile is not known (a profile from before level projection, or a realm probed without its core): probe it through its core first".into() };
+    };
+    match activation(i.model.progression.level, p) {
+        Activation::None => Outcome::Compatible(topic),
+        Activation::Active { canonical_level, projected_level } => {
+            if !i.capabilities.content.supports(Feature::LevelProjection) {
+                Outcome::Blocking { topic, reason: format!("the character is level {canonical_level} and the realm's cap is {projected_level}, and its core cannot project") }
+            } else if p.projection_protocol != PROTOCOL || p.projection_policy_version != POLICY_VERSION {
+                Outcome::Blocking { topic, reason: format!("the core projects with protocol {} / policy {}; this Manager speaks {PROTOCOL} / {POLICY_VERSION}", p.projection_protocol, p.projection_policy_version) }
+            } else if !i.projection_decider {
+                Outcome::Blocking { topic, reason: format!("the character is level {canonical_level} and the realm's cap is {projected_level}: only a running core can say what a projection holds (start the realm, or supply a projection made by its core)") }
+            } else {
+                Outcome::Projected { topic, from: canonical_level, to: projected_level }
+            }
+        }
+    }
 }
 
 /// The client tables the Manager read must be the ones the realm's profile describes.
@@ -287,19 +320,20 @@ mod tests {
     fn profile(features: &[Feature], jobs: &[u32]) -> RealmCapabilities {
         let mut catalog = ClientCatalog::new();
         catalog.insert("Appearances.dbc".into(), CatalogEntry { sha256: "ab".repeat(32), records: 3 });
-        RealmCapabilities::new(
+        RealmCapabilities::build(
             None,
             ContentProfile {
                 ruleset: Ruleset::Coa,
                 character_formats: ContentProfile::manager_formats(),
                 online_import_job_formats: jobs.to_vec(),
-                session_protocol: 1,
-                collection_protocol: 1,
+                session_protocol: 2,
+                collection_protocol: 2,
                 features: features.iter().copied().collect(),
                 collection_kinds: ["coa:appearance".to_string(), "coa:vanity".to_string()].into_iter().collect(),
                 extensions: vec![],
                 client_catalog: catalog,
             },
+            Some(Progression { max_player_level: 80, projection_protocol: 1, projection_policy_version: 1, progression_signature: "cd".repeat(32), scaling_enabled: true }),
         )
         .unwrap()
     }
@@ -313,7 +347,7 @@ mod tests {
     }
 
     fn run(op: Operation, model: &PortableCharacter, caps: &RealmCapabilities, k: Option<&RealmKnowledge>, collections: &[(&str, &IdSet)], reg: Option<&ExtensionRegistry>) -> CompatibilityReport {
-        evaluate(&Inputs { operation: op, model, capabilities: caps, knowledge: k, collections, extensions: reg })
+        evaluate(&Inputs { operation: op, model, capabilities: caps, knowledge: k, collections, extensions: reg, projection_decider: true })
     }
 
     #[test]
@@ -390,7 +424,7 @@ mod tests {
         reg.register(FakeAdapter::new(2, 3)).unwrap();
         let mut caps = profile(&all(), &[2]).content;
         caps.extensions = vec![ExtensionSupport { namespace: "mod:fake".into(), module_version: "1.0.0".into(), formats: FormatRange::new(2, 3) }];
-        let caps = RealmCapabilities::new(None, caps).unwrap();
+        let caps = RealmCapabilities::build(None, caps, profile(&all(), &[2]).progression).unwrap();
         let r = run(Operation::Update, &model, &caps, None, &[], Some(&reg));
         assert_eq!(r.outcome(&Topic::Extension("mod:fake".into())), Some(&Outcome::Compatible(Topic::Extension("mod:fake".into()))));
         assert!(matches!(r.outcome(&Topic::Extension("mod:other".into())), Some(Outcome::Held { reason, .. }) if reason.contains("does not have this module")));

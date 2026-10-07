@@ -10,9 +10,13 @@ use serde::{Deserialize, Serialize};
 use super::super::error::{PortableError, Result};
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, SessionId};
 use super::super::model::{limits::MAX_COMPRESSED_BYTES, PortableCharacter};
+use super::super::projection::{ProgressionPin, ProjectionContext};
 use super::super::snapshot;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Version 2 (Phase 8): `PortableSessionStarted` carries the progression the session runs under, every `PortableCheckpoint` and `OwnerAck` its pin.
+/// A version 1 peer and a version 2 peer read each other's messages as unsupported, and the realm's capability profile (`session_protocol`)
+/// says so before any character is armed.
+pub const PROTOCOL_VERSION: u32 = 2;
 /// A message carries at most one compressed snapshot (base64: 4/3) plus a little structure.
 pub const MAX_MESSAGE_BYTES: usize = MAX_COMPRESSED_BYTES * 4 / 3 + 64 * 1024;
 /// The most item/pet ids an acknowledgement lists.
@@ -68,6 +72,32 @@ pub struct SessionOffer {
     pub snapshot: Envelope,
 }
 
+/// The progression a session runs under: what the realm's cap and rules were when it started, and, when the character is above the cap,
+/// the projection the working copy was made with. Nothing in a session may change it: a message under another pin is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionProgression {
+    pub pin: ProgressionPin,
+    pub projection: Option<ProjectionContext>,
+}
+
+impl SessionProgression {
+    pub fn validate(&self) -> Result<()> {
+        self.pin.validate()?;
+        match (&self.projection, self.pin.projected) {
+            (Some(ctx), true) => {
+                ctx.validate()?;
+                if ctx.pin() != self.pin {
+                    return Err(PortableError::Invalid("the projection is not the one the pin names".into()));
+                }
+            }
+            (None, false) => {}
+            _ => return Err(PortableError::Invalid("a projected pin needs its projection and a native one has none".into())),
+        }
+        Ok(())
+    }
+}
+
 /// Host -> Owner: the realm's own first load/save of the character was captured, before any gameplay.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -80,6 +110,8 @@ pub struct PortableSessionStarted {
     pub baseline_generation: u32,
     pub b0: Envelope,
     pub content_hash: String,
+    /// The progression the session runs under; `None` when the Host does not know its realm's progression (no profile).
+    pub progression: Option<SessionProgression>,
 }
 
 /// Host -> Owner: the realm's state now. `sequence` is monotonic per session; `final_checkpoint` ends it.
@@ -95,6 +127,8 @@ pub struct PortableCheckpoint {
     pub final_checkpoint: bool,
     pub realm_snapshot: Envelope,
     pub content_hash: String,
+    /// The pin the session started under (`None` as the start said).
+    pub pin: Option<ProgressionPin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,6 +176,8 @@ pub struct OwnerAck {
     pub canonical: Option<Envelope>,
     /// Only on the acknowledgement of a final checkpoint: the session that follows.
     pub next_session: Option<NextSession>,
+    /// The pin the Owner holds for this session (`None` before the start was accepted, or when the session has none).
+    pub pin: Option<ProgressionPin>,
 }
 
 pub fn to_json<T: Serialize>(message: &T) -> Result<Vec<u8>> {
@@ -167,16 +203,19 @@ pub fn from_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
 }
 
 impl PortableSessionStarted {
-    pub fn new(session_id: SessionId, character_id: CharacterId, server_id: &str, base_canonical_revision: u64, baseline_generation: u32, b0: &PortableCharacter) -> Result<Self> {
+    pub fn new(session_id: SessionId, character_id: CharacterId, server_id: &str, base_canonical_revision: u64, baseline_generation: u32, b0: &PortableCharacter, progression: Option<SessionProgression>) -> Result<Self> {
+        if let Some(p) = &progression {
+            p.validate()?;
+        }
         let b0 = Envelope::seal(b0)?;
-        Ok(Self { protocol_version: PROTOCOL_VERSION, session_id, character_id, server_id: server_id.to_string(), base_canonical_revision, baseline_generation, content_hash: b0.content_hash.clone(), b0 })
+        Ok(Self { protocol_version: PROTOCOL_VERSION, session_id, character_id, server_id: server_id.to_string(), base_canonical_revision, baseline_generation, content_hash: b0.content_hash.clone(), b0, progression })
     }
 }
 
 impl PortableCheckpoint {
-    pub fn new(session_id: SessionId, character_id: CharacterId, server_id: &str, base_canonical_revision: u64, sequence: u64, final_checkpoint: bool, b1: &PortableCharacter) -> Result<Self> {
+    pub fn new(session_id: SessionId, character_id: CharacterId, server_id: &str, base_canonical_revision: u64, sequence: u64, final_checkpoint: bool, b1: &PortableCharacter, pin: Option<ProgressionPin>) -> Result<Self> {
         let realm_snapshot = Envelope::seal(b1)?;
-        Ok(Self { protocol_version: PROTOCOL_VERSION, session_id, character_id, server_id: server_id.to_string(), base_canonical_revision, sequence, final_checkpoint, content_hash: realm_snapshot.content_hash.clone(), realm_snapshot })
+        Ok(Self { protocol_version: PROTOCOL_VERSION, session_id, character_id, server_id: server_id.to_string(), base_canonical_revision, sequence, final_checkpoint, content_hash: realm_snapshot.content_hash.clone(), realm_snapshot, pin })
     }
 }
 

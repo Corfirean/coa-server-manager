@@ -14,6 +14,8 @@ mod collection_tests;
 #[cfg(test)]
 mod profile_tests;
 #[cfg(test)]
+mod projection_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod live_session;

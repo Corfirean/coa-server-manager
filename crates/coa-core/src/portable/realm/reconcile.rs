@@ -24,14 +24,14 @@ use crate::db::Db;
 
 use super::super::error::{PortableError, Result};
 use super::super::ids::{CharacterId, ImportId, PortableItemId, PortablePetId, SessionId};
-use super::super::merge::{merge3, ItemOutcome, Mode, PetOutcome};
+use super::super::merge::{merge3_with, ItemOutcome, MergeProjection, Mode, PetOutcome};
 use super::super::model::PortableCharacter;
 use super::super::store::{BaselineInput, ImportAllocation, ImportState, JournalEntry, JournalKind, PlannedItem, PlannedPet, Store, UpdatePlan};
 use super::import::{ImportOptions, ImportProblem, Resolution};
 use super::plan::{SessionArm, IMPORT_LOCK};
 use super::script::{parse_output, Query};
 use super::sqlenc::Val;
-use super::update::{build_update, new_content, parse_update_report, UpdateContext, UpdateCounts};
+use super::update::{build_update, new_content, parse_update_report, PinWrite, UpdateContext, UpdateCounts};
 use super::{export_character_with_pets, probe, realm_error, ruleset_of};
 use crate::portable::store::pet_identity;
 
@@ -133,9 +133,14 @@ pub fn reconcile_session(db: &Db, store: &mut Store, id: CharacterId, server_id:
         return Err(PortableError::StaleRevision { expected: baseline.head_revision, current: record.revision });
     }
     let view = read_realm(db, store, id, server_id, guid)?;
-    let merged = merge3(&baseline.c0, &baseline.b0, &view.exported.model, Mode::Lenient)?;
+    let context = store.projection_context(id, server_id)?;
+    let projection = context.as_ref().map(|c| MergeProjection { freeze_progression: true, blocked: c.hold.blocked_settings.iter().cloned().collect() });
+    let merged = merge3_with(&baseline.c0, &baseline.b0, &view.exported.model, Mode::Lenient, projection.as_ref())?;
     let before = record.revision;
     let revision = store.commit_reconciled(id, server_id, merged.model, &view.exported.observations, &view.exported.pet_observations, note)?;
+    if context.is_some() {
+        store.advance_projection_revision(id, server_id, revision)?;
+    }
     if close_session {
         store.close_baseline(id, server_id)?;
     }
@@ -217,6 +222,18 @@ pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: Charact
     update_inner(db, store, id, server_id, opts, session, false)
 }
 
+/// The realm's progression (level cap or rules) moved under a runtime session: the session ended with its final checkpoint under the old
+/// pin, and the next one is waiting, not armed. Project the character again for the realm as it is now (an in-place update from what the
+/// realm holds to the canonical character under the new cap, which arms the next session in the same realm transaction) and release it.
+/// `None`: no session of this character on this realm waits for it.
+pub fn reproject_session(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions) -> Result<Option<UpdateOutcome>> {
+    let Some(next) = store.host_live_sessions(server_id)?.into_iter().find(|s| s.character_id == id && s.reproject && s.state == super::super::store::HostState::Armed) else { return Ok(None) };
+    let outcome = update_realm_character_in_session(db, store, id, server_id, opts, Some(next.session_id))?;
+    let pin = store.character_pin(id, server_id)?;
+    store.host_clear_reproject(next.session_id, pin.as_ref())?;
+    Ok(Some(outcome))
+}
+
 /// What a re-evaluation did.
 #[derive(Debug)]
 pub struct Reevaluation {
@@ -272,11 +289,16 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
         return Err(PortableError::ImportInProgress { import_id: open.import_id });
     }
     let record = store.character(id)?;
+    let stored_pin = store.character_pin(id, server_id)?;
+    let stale_pin = !reevaluate && opts.capabilities.as_deref().and_then(|c| c.progression.as_ref()).is_some_and(|p| match &stored_pin {
+        Some(pin) => pin.progression_signature != p.progression_signature || pin.max_player_level != p.max_player_level || pin.policy_version != p.projection_policy_version,
+        None => true,
+    });
     if reevaluate {
         if record.revision != last_revision {
             return Err(PortableError::Invalid("the realm is not at the canonical revision: update it first, then re-evaluate".into()));
         }
-    } else if record.revision == last_revision {
+    } else if record.revision == last_revision && !stale_pin {
         return Ok(UpdateOutcome { import_id: None, from_revision: last_revision, to_revision: last_revision, updated: false, counts: UpdateCounts::default(), changes: vec![], left_alone: vec![], warnings: vec![] });
     }
     if record.revision < last_revision {
@@ -284,11 +306,16 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
     }
     let synced = store.synced_model(id, server_id)?.ok_or_else(|| PortableError::Invalid("the realm has no synchronised snapshot to update from".into()))?;
     let canonical = store.load_current(id)?;
+    let old_context = store.projection_context(id, server_id)?;
+    if opts.capabilities.is_none() && old_context.is_some() {
+        return Err(PortableError::ProgressionChanged("this character is projected on this realm: the update needs the realm's current progression profile".into()));
+    }
     let mut operations = vec![super::super::compat::Operation::Update];
     if session.is_some() {
         operations.push(super::super::compat::Operation::RuntimeSession);
     }
     let compatibility = super::profile::gate(opts, &canonical, &operations)?;
+    let new_plan = if reevaluate { super::project::Plan { view: super::project::stored_view(&canonical, old_context.as_ref()), context: old_context.clone(), pin: stored_pin.clone() } } else { super::project::plan(&canonical, record.revision, opts, None)? };
     let view = read_realm(db, store, id, server_id, guid)?;
 
     let merged = if reevaluate {
@@ -302,7 +329,11 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
         }
         super::super::merge::Merged { model, changes, left_alone: vec![], conflicts: vec![], items: Default::default(), pets: Default::default() }
     } else {
-        let merged = merge3(&view.exported.model, &synced, &canonical, Mode::Strict)?;
+        let base = super::project::stored_view(&synced, old_context.as_ref());
+        let projected = old_context.is_some() || new_plan.context.is_some();
+        let blocked: std::collections::BTreeSet<String> = old_context.iter().chain(new_plan.context.iter()).flat_map(|c| c.hold.blocked_settings.iter().cloned()).collect();
+        let projection = projected.then_some(MergeProjection { freeze_progression: false, blocked });
+        let merged = merge3_with(&view.exported.model, &base, &new_plan.view, Mode::Strict, projection.as_ref())?;
         if !merged.conflicts.is_empty() {
             return Err(PortableError::UpdateConflicts(merged.conflicts.iter().map(|c| format!("{}: {}", c.path, c.detail)).collect()));
         }
@@ -320,6 +351,10 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
         pets: &view.pets,
         session: session.map(|session_id| SessionArm { session_id, character_id: id, generation: 1 }),
         knowledge: opts.knowledge.as_deref(),
+        pin: match (&new_plan.pin, reevaluate) {
+            (Some(p), false) => PinWrite::Set(p.words()),
+            _ => PinWrite::Keep,
+        },
     };
     // the plan (what is added, what is removed) does not depend on the nonce
     let draft = build_update(&view.exported.model, &merged.model, &context([0; 4]))?;
@@ -362,6 +397,9 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
                 }
             }
         }
+    }
+    if !reevaluate {
+        super::project::remember(store, id, server_id, &new_plan)?;
     }
     let mut warnings = view.exported.warnings;
     warnings.extend(super::profile::after_write(Some(db), store, id, server_id, opts, guid, &canonical, compatibility.as_ref())?);
@@ -461,5 +499,5 @@ pub fn summarize(merged: &PortableCharacter, current: &PortableCharacter) -> Res
     let pets: HashMap<PortablePetId, u32> = current.pets.iter().enumerate().map(|(i, p)| (p.id, i as u32 + 1)).collect();
     let users = ["acore".to_string()];
     let schema = super::script::SchemaProbe::default();
-    Ok(build_update(current, merged, &UpdateContext { ruleset: current.ruleset, local_guid: 1, revision: 1, nonce: [0; 4], game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None, knowledge: None })?.counts)
+    Ok(build_update(current, merged, &UpdateContext { ruleset: current.ruleset, local_guid: 1, revision: 1, nonce: [0; 4], game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None, knowledge: None, pin: PinWrite::Keep })?.counts)
 }
