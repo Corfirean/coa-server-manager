@@ -47,7 +47,7 @@ engines                                     unchanged: store, realm::{import,upd
 
 * The runtime is started with the application (`start_portable`) and stopped on `RunEvent::Exit`; it is independent of the screen, so navigating away changes nothing.
 * The Owner and Host stores live under `<data dir>/portable/{owner,host}`. A restart resumes sessions, the outbox and the progression pins from them; `HostMemory` keeps the
-  Host's in-memory throttling between ticks. The first tick after a restart checkpoints at once.
+  Host's in-memory throttling between ticks. After a restart the Host has no memory of its last checkpoint and checkpoints at once; that checkpoint makes a canonical revision only if the character really differs (section 8).
 * One operation at a time (`busy`); status derivation is a pure function of stores + observations (`copy_status`).
 * `COA_MANAGER_DATA_DIR` overrides the data folder (development and tests only).
 
@@ -104,3 +104,19 @@ the recent errors. No credentials, no snapshots, no inventory.
 * The Tauri window was driven over WebView2's DevTools protocol on a fresh data folder: add descriptors, make portable, preflight with the projection warning, Play, status chips,
   navigation away and back, a Manager restart in the middle of a session, logout and the saved version, history wording.
 * Not covered by automation: the real game client (needs the owner's run, see the report).
+
+## 8. Checkpoints after a restart (Phase 9.1)
+
+The immediate checkpoint after a Manager/Host restart stays: it is the safety net for whatever happened while nobody watched. The Owner makes a canonical revision from a
+checkpoint only when `merge3(C0, B0, B1)` differs from the head by `content_hash`; a checkpoint that reproduces the head is acknowledged (`Applied`) and the revision stays.
+
+Investigated on a real worldserver (cap 60, bot AI suspended with `botcmd suspend` so that nothing but the realm acts) and on the owner's real-client store: the restart itself
+adds nothing. The revisions seen "for no reason" were the **first checkpoint of a first login on a realm**, which carries what the realm itself did to the imported character
+after `B0` (default build slot `core.ascension_slot.0`, flight paths, class/mount spells such as 6654/23250/32243/32246, explored areas) and, with a bot standing in for the
+player, the bot's own activity (exploring, an auto-accepted quest). Those are real character state, so they belong in the canonical character; a second login on the same realm
+shows none of them. Logging out with nothing changed also makes no revision.
+
+Regression tests: `session::tests::the_immediate_checkpoint_after_a_host_restart_makes_no_revision_when_the_character_did_not_change` (fake realm, file-backed Host: checkpoint N,
+restart, immediate checkpoint `Applied`, revision unchanged field by field and by hash, then a real change makes exactly N+1) and the live
+`service::live_service::a_manager_restart_with_nothing_to_report_makes_no_revision_and_a_real_change_makes_exactly_one` (real worldserver, `PortableService` reopened mid-session,
+`botcmd professiontrainer` as the gameplay change).
