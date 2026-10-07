@@ -87,6 +87,21 @@ pub fn collect_core_sql(core: &Path) -> Result<Vec<SqlFile>> {
     Ok(out)
 }
 
+/// Dump the three game databases of `server` (a repack or a Docker server, started if needed) into `out` as the starting
+/// databases of a Linux package: `<kind>.sql.zst`. The databases must be in the state in which every migration of the
+/// package is applied. Returns (kind, compressed bytes) per database.
+pub fn export_baseline(server: &Path, out: &Path) -> Result<Vec<(String, u64)>> {
+    fs::create_dir_all(out)?;
+    crate::backup::with_database(server, |db| {
+        let mut done = Vec::new();
+        for (kind, schema) in crate::db::SCHEMAS {
+            let (bytes, _) = db.dump_to(schema, &out.join(format!("{kind}.sql.zst")))?;
+            done.push((kind.to_string(), bytes));
+        }
+        Ok(done)
+    })
+}
+
 /// SQL a bots module checkout ships for the characters database (its `dist/sql`).
 pub fn collect_bots_sql(bots: &Path) -> Result<Vec<SqlFile>> {
     let mut out = Vec::new();

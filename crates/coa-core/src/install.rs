@@ -35,7 +35,7 @@ pub struct Preflight {
     pub free_bytes: u64,
 }
 
-fn problem(code: &'static str, message: &str) -> Problem {
+pub(crate) fn problem(code: &'static str, message: &str) -> Problem {
     Problem { code, message: message.into() }
 }
 
@@ -133,7 +133,7 @@ pub struct Installed {
     pub version: String,
 }
 
-fn random_hex(n: usize) -> String {
+pub(crate) fn random_hex(n: usize) -> String {
     let mut s = String::new();
     while s.len() < n {
         s.push_str(&uuid::Uuid::new_v4().simple().to_string());
@@ -148,7 +148,7 @@ pub(crate) fn bootstrap_database(root: &Path) -> Result<()> {
     with_scratch_ports(root, || bootstrap_database_inner(root))
 }
 
-fn free_port() -> Result<u16> {
+pub(crate) fn free_port() -> Result<u16> {
     Ok(std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 

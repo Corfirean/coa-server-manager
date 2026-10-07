@@ -15,10 +15,12 @@
 //! ```
 
 mod cli;
+pub mod install;
 mod lifecycle;
 
 pub use cli::{Call, Docker, Output, SystemDocker};
-pub use lifecycle::{observe, observe_with, run, run_with};
+pub use lifecycle::{check_docker, observe, observe_with, run, run_with};
+pub(crate) use lifecycle::destroy;
 
 use std::net::IpAddr;
 use std::path::Path;
@@ -31,7 +33,7 @@ use crate::layout::{self, Classification, ScanReport};
 
 /// Present in a Docker installation, absent from a repack.
 pub const MARKER: &str = "Settings/docker.json";
-const MYSQL_IMAGE: &str = "mysql:8.4";
+pub(crate) const MYSQL_IMAGE: &str = "mysql:8.4";
 const RUNTIME_DOCKERFILE: &str = include_str!("Dockerfile.runtime");
 
 pub fn is_docker(root: &Path) -> bool {
@@ -57,6 +59,10 @@ pub struct Config {
     pub bind_address: String,
     #[serde(default = "mysql_image")]
     pub mysql_image: String,
+    /// Where the game data (dbc, maps, vmaps, mmaps) is, when it is not the `Data` folder of the server. Used in place and
+    /// mounted read-only, so one copy can serve several servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_dir: Option<String>,
 }
 
 pub(crate) struct Names {
@@ -74,6 +80,11 @@ impl Config {
         Ok(cfg)
     }
 
+    /// The folder mounted as the game data.
+    pub fn data_path(&self, root: &Path) -> std::path::PathBuf {
+        self.data_dir.as_deref().map(std::path::PathBuf::from).unwrap_or_else(|| root.join("Data"))
+    }
+
     fn validate(&self) -> Result<()> {
         let name_ok = !self.project.is_empty()
             && self.project.len() <= 32
@@ -84,6 +95,12 @@ impl Config {
         }
         if self.bind_address.parse::<IpAddr>().is_err() {
             return Err(Error::Invalid(format!("{} is not an IP address.", self.bind_address)));
+        }
+        if let Some(d) = &self.data_dir {
+            // The folder goes into a `--volume host:container:ro` option, where a colon would be read as a separator.
+            if !Path::new(d).is_absolute() || d.contains(':') {
+                return Err(Error::Invalid("The game data folder must be a full path without a colon.".into()));
+            }
         }
         let image_ok = !self.mysql_image.is_empty() && self.mysql_image.chars().all(|c| c.is_ascii_alphanumeric() || "._/:@-".contains(c));
         if !image_ok {
@@ -101,6 +118,21 @@ impl Config {
         let p = &self.project;
         Names { network: format!("coa-{p}"), volume: format!("coa-{p}-db"), db: format!("coa-{p}-db"), world: format!("coa-{p}-world"), auth: format!("coa-{p}-auth") }
     }
+}
+
+/// Create the world and auth configuration files from their `.dist` templates when they do not exist. A package only
+/// carries the templates, and on Windows the launcher writes the active files at every start; here nothing else would.
+/// An existing file is never touched, so the person's settings survive updates. Returns the files created.
+pub fn ensure_main_configs(root: &Path) -> Result<Vec<String>> {
+    let mut created = Vec::new();
+    for name in ["worldserver", "authserver"] {
+        let (conf, dist) = (root.join(format!("Core/configs/{name}.conf")), root.join(format!("Core/configs/{name}.conf.dist")));
+        if !conf.exists() && dist.is_file() {
+            std::fs::copy(&dist, &conf)?;
+            created.push(format!("{name}.conf"));
+        }
+    }
+    Ok(created)
 }
 
 /// Name of the runtime image: it follows the content of its Dockerfile, so changing the libraries builds a new image.
@@ -123,7 +155,8 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
     let bot_active = modules_dir.join("mod_coa_playerbots.conf");
     let bot_conf = if bot_active.is_file() { bot_active } else { modules_dir.join("mod_coa_playerbots.conf.dist") };
     let bot_config_keys = layout::count_bot_keys(&bot_conf);
-    let has_data = layout::exists(root, "Data/dbc") && layout::exists(root, "Data/maps");
+    let data = cfg.as_ref().map(|c| c.data_path(root)).unwrap_or_else(|_| root.join("Data"));
+    let has_data = data.join("dbc").is_dir() && data.join("maps").is_dir();
     let has_confs = layout::exists(root, "Core/configs/worldserver.conf") && layout::exists(root, "Core/configs/authserver.conf");
 
     let items = vec![
@@ -162,3 +195,30 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
     })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn the_main_configs_are_created_from_their_templates_and_never_overwritten() {
+        let d = tempfile::tempdir().unwrap();
+        let cfg = d.path().join("Core/configs");
+        fs::create_dir_all(&cfg).unwrap();
+        fs::write(cfg.join("worldserver.conf.dist"), "Setting = default\n").unwrap();
+        fs::write(cfg.join("authserver.conf.dist"), "Auth = default\n").unwrap();
+
+        assert_eq!(ensure_main_configs(d.path()).unwrap(), ["worldserver.conf", "authserver.conf"]);
+        assert_eq!(fs::read_to_string(cfg.join("worldserver.conf")).unwrap(), "Setting = default\n");
+
+        // The person's own settings survive the next start.
+        fs::write(cfg.join("worldserver.conf"), "Setting = mine\n").unwrap();
+        assert!(ensure_main_configs(d.path()).unwrap().is_empty());
+        assert_eq!(fs::read_to_string(cfg.join("worldserver.conf")).unwrap(), "Setting = mine\n");
+        // Without a template there is nothing to create and nothing fails.
+        fs::remove_file(cfg.join("authserver.conf")).unwrap();
+        fs::remove_file(cfg.join("authserver.conf.dist")).unwrap();
+        assert!(ensure_main_configs(d.path()).unwrap().is_empty());
+    }
+}
