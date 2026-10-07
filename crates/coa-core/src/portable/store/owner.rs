@@ -260,7 +260,7 @@ impl Store {
         if b1.character_id != row.character_id || b1.ruleset != c0.ruleset || b1.content_namespace != c0.content_namespace {
             return Ok(reject("the snapshot is another character or ruleset"));
         }
-        let projection = row.progression.as_ref().and_then(|p| p.projection.as_ref()).map(|ctx| MergeProjection { freeze_progression: true, blocked: ctx.hold.blocked_settings.iter().cloned().collect() });
+        let projection = row.progression.as_ref().and_then(|p| p.projection.as_ref()).map(|ctx| MergeProjection { freeze_progression: true, adopt_progression: false, blocked: ctx.hold.blocked_settings.iter().cloned().collect() });
         let merged = match merge3_with(&c0, &b0, &b1, Mode::Lenient, projection.as_ref()) {
             Ok(m) => m.model,
             Err(e) => return Ok(reject(&format!("the checkpoint cannot be merged: {e}"))),

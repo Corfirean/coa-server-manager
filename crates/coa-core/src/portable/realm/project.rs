@@ -148,15 +148,12 @@ pub fn stored_view(state: &PortableCharacter, context: Option<&ProjectionContext
     }
 }
 
+/// A realm profile for the tests of this and the sessions' modules: the progression of a core with this cap and signature.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::portable::capabilities::*;
-    use crate::portable::fixtures::geared_level_eighty;
-    use crate::portable::model::Ruleset;
-    use crate::portable::projection::{ProjectionHold, SuppliedDecision, PROTOCOL};
-
-    const SIG: &str = "bd299b9ef5863c6bf006e88a3617fac57c514b5889ea8367f87879aa1ad6d76d";
+pub(crate) mod testing {
+    use super::super::super::capabilities::*;
+    use super::super::super::model::Ruleset;
+    use super::super::super::projection::PROTOCOL;
 
     pub(crate) fn caps(cap: u32, signature: &str) -> RealmCapabilities {
         let content = ContentProfile {
@@ -172,6 +169,17 @@ mod tests {
         };
         RealmCapabilities::build(None, content, Some(Progression { max_player_level: cap, projection_protocol: PROTOCOL, projection_policy_version: 1, progression_signature: signature.into(), scaling_enabled: true })).unwrap()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::caps;
+    use super::*;
+    use crate::portable::capabilities::*;
+    use crate::portable::fixtures::geared_level_eighty;
+    use crate::portable::projection::{ProjectionHold, SuppliedDecision, PROTOCOL};
+
+    const SIG: &str = "bd299b9ef5863c6bf006e88a3617fac57c514b5889ea8367f87879aa1ad6d76d";
 
     fn hold(c: &PortableCharacter, cap: u32, signature: &str) -> ProjectionHold {
         ProjectionHold { protocol: PROTOCOL, policy_version: 1, progression_signature: signature.into(), max_player_level: cap, canonical_level: c.progression.level as u32, projected_level: cap, held_items: vec![c.items[0].id], held_spells: vec![], held_actions: vec![], settings: vec![], blocked_settings: vec![], subject: subject_of(c).unwrap() }

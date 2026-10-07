@@ -1,7 +1,6 @@
 //! Runtime sessions of a character above the realm's level cap (Phase 8): the Owner and the Host as two stores, a simulated realm at
 //! cap 60 between them. The core's decision is supplied (the real core is exercised by the live suite).
 
-use super::bridge::*;
 use super::fake::*;
 use super::protocol::*;
 use super::*;
@@ -23,7 +22,6 @@ struct World {
     id: CharacterId,
     session: SessionId,
     c0: PortableCharacter,
-    caps: RealmCapabilities,
 }
 
 fn caps(cap: u32, signature: &str) -> RealmCapabilities {
@@ -74,7 +72,7 @@ fn world() -> World {
         remember(&mut host, id, SERVER, &plan).unwrap();
         HostService::new(&mut host, SERVER, HostConfig::default()).bind(offer.session_id, GUID).unwrap();
     }
-    World { owner, host, realm, id, session: offer.session_id, c0, caps }
+    World { owner, host, realm, id, session: offer.session_id, c0 }
 }
 
 fn deliver(host: &mut HostService, owner: &mut OwnerService, realm: &mut FakeRealm) -> Vec<OwnerAck> {
@@ -273,4 +271,27 @@ fn a_character_online_under_the_old_profile_ends_at_its_logout() {
     let events = h.tick(&mut realm, 10).unwrap();
     assert!(events.iter().any(|e| matches!(e, HostEvent::ProfileWaiting { session: s, .. } if *s == session)), "{events:?}");
     assert!(h.outbox().unwrap().is_empty(), "nothing is sent while the character is online");
+}
+
+#[test]
+fn what_a_character_is_bound_to_is_remembered_per_realm_and_forgotten_on_request() {
+    let World { mut host, id, c0, .. } = world();
+    let pin = host.character_pin(id, SERVER).unwrap().expect("the import bound the character");
+    assert!(pin.projected && pin.max_player_level == 60 && pin.progression_signature == SIGNATURE);
+    let ctx = host.projection_context(id, SERVER).unwrap().unwrap();
+    assert_eq!((ctx.canonical_level, ctx.projected_level, ctx.canonical_revision), (80, 60, 1));
+    assert!(host.projection_context(id, "another-realm").unwrap().is_none() && host.character_pin(id, "another-realm").unwrap().is_none());
+
+    host.advance_projection_revision(id, SERVER, 7).unwrap();
+    assert_eq!(host.projection_context(id, SERVER).unwrap().unwrap().canonical_revision, 7);
+
+    assert!(host.clear_projection_context(id, SERVER).unwrap());
+    assert!(host.projection_context(id, SERVER).unwrap().is_none());
+    host.set_mapping_pin(id, SERVER, None).unwrap();
+    assert!(host.character_pin(id, SERVER).unwrap().is_none());
+    assert!(host.set_mapping_pin(id, "another-realm", None).is_err(), "a character that is not on a realm has no pin there");
+    let mut bad = pin.clone();
+    bad.progression_signature = "zz".into();
+    assert!(host.set_mapping_pin(id, SERVER, Some(&bad)).is_err());
+    let _ = c0;
 }

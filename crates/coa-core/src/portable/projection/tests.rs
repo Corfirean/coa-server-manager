@@ -64,7 +64,7 @@ fn realm_b0(p: &PortableCharacter) -> PortableCharacter {
 }
 
 fn session(c0: &PortableCharacter, b0: &PortableCharacter, b1: &PortableCharacter, blocked: &[&str]) -> PortableCharacter {
-    let projection = MergeProjection { freeze_progression: true, blocked: blocked.iter().map(|s| s.to_string()).collect() };
+    let projection = MergeProjection { freeze_progression: true, adopt_progression: false, blocked: blocked.iter().map(|s| s.to_string()).collect() };
     merge3_with(c0, b0, b1, Mode::Lenient, Some(&projection)).unwrap().model
 }
 
@@ -213,4 +213,26 @@ fn a_context_must_be_consistent() {
     let json = serde_json::to_string(&ctx).unwrap();
     assert_eq!(serde_json::from_str::<ProjectionContext>(&json).unwrap(), ctx);
     assert!(serde_json::from_str::<ProjectionContext>(&json.replace("\"canonical_level\":80", "\"canonical_level\":80,\"x\":1")).is_err());
+}
+
+#[test]
+fn an_update_from_a_working_copy_takes_the_new_views_level_and_never_reports_the_players_own_as_a_conflict() {
+    let c = canonical();
+    let hold = hold_for(&c);
+    let old_view = apply(&c, &hold);
+    // the realm's own character: the player moved the working copy's level and xp
+    let mut realm = old_view.clone();
+    realm.progression.level = 59;
+    realm.progression.xp = 1234;
+    let strict = |projection: Option<&MergeProjection>| merge3_with(&realm, &old_view, &c, Mode::Strict, projection).unwrap();
+
+    assert!(!strict(None).conflicts.is_empty(), "as a plain character the realm's level and the new level would conflict");
+    let projection = MergeProjection { freeze_progression: false, adopt_progression: true, blocked: Default::default() };
+    let merged = strict(Some(&projection));
+    assert!(merged.conflicts.is_empty(), "{:?}", merged.conflicts);
+    assert_eq!((merged.model.progression.level, merged.model.progression.xp), (80, c.progression.xp), "the new view's level wins");
+
+    // an update that does not move the view leaves the player's own level alone
+    let same = merge3_with(&realm, &old_view, &old_view, Mode::Strict, Some(&projection)).unwrap();
+    assert_eq!((same.model.progression.level, same.model.progression.xp), (59, 1234));
 }

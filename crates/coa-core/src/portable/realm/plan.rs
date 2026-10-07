@@ -598,7 +598,7 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     line(assert_count("acore_characters.character_queststatus_rewarded WHERE guid = @char", counts.rewarded));
     line(assert_count("acore_characters.character_action WHERE guid = @char", counts.actions));
     line(assert_count("acore_characters.character_pet WHERE owner = @char", counts.pets));
-    line(assert_count("acore_characters.character_settings WHERE guid = @char", counts.settings + 1));
+    line(assert_count("acore_characters.character_settings WHERE guid = @char", counts.settings + 1 + usize::from(ctx.pin.is_some())));
     if let Some(w) = &wardrobe_rows {
         line(assert_count("acore_characters.character_appearance WHERE guid = @char", w.active.len()));
         line(assert_count("acore_characters.character_appearance_outfit WHERE guid = @char", w.outfits.len()));

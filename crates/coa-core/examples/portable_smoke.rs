@@ -28,6 +28,9 @@
 //!   reevaluate <character-id> <server-id>       look again at what was held back when the realm's content profile changed (realm stopped)
 //!   collection-add <kind> <id>...               (owner store)  add ids to a profile collection by hand (a test aid)
 //!   collection-show [<account>]                 the Owner's collections (revision, count, hash) and, with an account, the realm's
+//!   project <character-id> <server-id>          ask the realm's running core what a level-cap projection of the character holds (needs --ra-port
+//!                      and --job-dir); --out <file> writes the decision, which a later `import`/`update` of a STOPPED realm can be given with
+//!                      --projection <file> (it answers only for the exact state of the character it was made for)
 //!
 //!   --collection-interval <seconds>   how often host-run looks at the account collections (default 300; a session start and the final
 //!                                 checkpoint always look)
@@ -102,7 +105,16 @@ fn run() -> Result<(), String> {
         "" => None,
         dir => Some(std::sync::Arc::new(coa_core::portable::realm::knowledge::RealmKnowledge::from_data_dir(std::path::Path::new(dir)).map_err(|e| e.to_string())?)),
     };
-    let opts = ImportOptions { game_server_users: vec![user.to_string(), "acore".to_string()], knowledge: knowledge.clone(), ..ImportOptions::default() };
+    let projection_file = take("--projection", Some(""))?;
+    let out_file = take("--out", Some(""))?;
+    let supplied = match projection_file.as_str() {
+        "" => None,
+        file => {
+            let hold: coa_core::portable::projection::ProjectionHold = serde_json::from_slice(&std::fs::read(file).map_err(|e| e.to_string())?).map_err(|e| format!("{file}: {e}"))?;
+            Some(coa_core::portable::projection::Oracle(std::sync::Arc::new(coa_core::portable::projection::SuppliedDecision(hold))))
+        }
+    };
+    let opts = ImportOptions { game_server_users: vec![user.to_string(), "acore".to_string()], knowledge: knowledge.clone(), projection: supplied, ..ImportOptions::default() };
     let host_dir = PathBuf::from(take("--host-store", Some(&format!("{}-host", store_dir.display())))?);
     let ra_port: Option<u16> = take("--ra-port", Some("0"))?.parse().ok().filter(|p| *p != 0);
     let ra_user = take("--ra-user", Some("local"))?;
@@ -256,10 +268,31 @@ fn run() -> Result<(), String> {
                 _ if store.server_mappings(model.character_id).map_err(|e| e.to_string())?.iter().any(|m| &m.server_id == server) => coa_core::portable::compat::Operation::Update,
                 _ => coa_core::portable::compat::Operation::OfflineImport,
             };
-            let report = coa_core::portable::compat::evaluate(&coa_core::portable::compat::Inputs { operation, model: &model, capabilities: &caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref() });
+            let report = coa_core::portable::compat::evaluate(&coa_core::portable::compat::Inputs { operation, model: &model, capabilities: &caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref(), projection_decider: opts.projection.is_some() || matches!(operation, coa_core::portable::compat::Operation::OnlineImport) });
             println!("{} on {server} (content profile {}): {:?}", report.operation, &caps.content_profile_hash[..16], report.verdict());
             for o in &report.outcomes {
                 println!("  {o}");
+            }
+        }
+        ("project", [character, server]) => {
+            let port = ra_port.ok_or("give --ra-port: only a running core can say what a projection holds")?;
+            if job_dir.is_empty() {
+                return Err("give --job-dir (the core's PortableImport.JobDir)".into());
+            }
+            let opts = profile_for(&db, &mut store, server)?;
+            let canonical = store.load_current(id(character)?).map_err(|e| e.to_string())?;
+            let mut ra = coa_core::ra::Ra::connect_to(port, &ra_user, &std::env::var("COA_RA_PASSWORD").map_err(|_| "set COA_RA_PASSWORD".to_string())?).map_err(|e| e.to_string())?;
+            let progression = opts.capabilities.as_ref().and_then(|c| c.progression.clone());
+            match realm::project::decide_with_core(&mut ra, std::path::Path::new(&job_dir), &canonical).map_err(|e| e.to_string())? {
+                coa_core::portable::projection::Decision::Native => println!("not projected: level {} is within the realm's cap {}", canonical.progression.level, progression.map_or("?".to_string(), |p| p.max_player_level.to_string())),
+                coa_core::portable::projection::Decision::Projected(hold) => {
+                    println!("projected level {} -> {} (signature {})", hold.canonical_level, hold.projected_level, &hold.progression_signature[..16]);
+                    println!("  held: {} item(s), {} ability(ies), {} button(s), {} build record(s) edited, {} blocked", hold.held_items.len(), hold.held_spells.len(), hold.held_actions.len(), hold.settings.iter().filter(|s| !s.entries.is_empty() || !s.buttons.is_empty()).count(), hold.blocked_settings.len());
+                    if !out_file.is_empty() {
+                        std::fs::write(&out_file, serde_json::to_vec_pretty(&hold).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                        println!("  decision written to {out_file}");
+                    }
+                }
             }
         }
         ("reevaluate", [character, server]) => {

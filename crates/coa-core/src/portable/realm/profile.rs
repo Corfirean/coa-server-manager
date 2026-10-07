@@ -83,11 +83,7 @@ pub fn assemble(db: &Db, probe: &SchemaProbe, data_dir: Option<&Path>, core: Opt
         extensions,
         client_catalog: catalog,
     };
-    let caps = RealmCapabilities::new(core.map(|c| c.core.clone()), content)?;
-    match progression {
-        Some(p) => caps.with_progression(p),
-        None => Ok(caps),
-    }
+    RealmCapabilities::build(core.map(|c| c.core.clone()), content, progression)
 }
 
 /// Probe a running or stopped realm: the schema from the database, the core from RA when a console is given.

@@ -214,6 +214,8 @@ mod live_roundtrip;
 #[cfg(test)]
 mod live_profile;
 #[cfg(test)]
+pub(crate) mod live_projection;
+#[cfg(test)]
 mod live_update;
 #[cfg(test)]
 mod live_wardrobe;

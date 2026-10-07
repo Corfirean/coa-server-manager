@@ -134,7 +134,7 @@ pub fn reconcile_session(db: &Db, store: &mut Store, id: CharacterId, server_id:
     }
     let view = read_realm(db, store, id, server_id, guid)?;
     let context = store.projection_context(id, server_id)?;
-    let projection = context.as_ref().map(|c| MergeProjection { freeze_progression: true, blocked: c.hold.blocked_settings.iter().cloned().collect() });
+    let projection = context.as_ref().map(|c| MergeProjection { freeze_progression: true, adopt_progression: false, blocked: c.hold.blocked_settings.iter().cloned().collect() });
     let merged = merge3_with(&baseline.c0, &baseline.b0, &view.exported.model, Mode::Lenient, projection.as_ref())?;
     let before = record.revision;
     let revision = store.commit_reconciled(id, server_id, merged.model, &view.exported.observations, &view.exported.pet_observations, note)?;
@@ -332,7 +332,7 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
         let base = super::project::stored_view(&synced, old_context.as_ref());
         let projected = old_context.is_some() || new_plan.context.is_some();
         let blocked: std::collections::BTreeSet<String> = old_context.iter().chain(new_plan.context.iter()).flat_map(|c| c.hold.blocked_settings.iter().cloned()).collect();
-        let projection = projected.then_some(MergeProjection { freeze_progression: false, blocked });
+        let projection = projected.then_some(MergeProjection { freeze_progression: false, adopt_progression: old_context.is_some(), blocked });
         let merged = merge3_with(&view.exported.model, &base, &new_plan.view, Mode::Strict, projection.as_ref())?;
         if !merged.conflicts.is_empty() {
             return Err(PortableError::UpdateConflicts(merged.conflicts.iter().map(|c| format!("{}: {}", c.path, c.detail)).collect()));

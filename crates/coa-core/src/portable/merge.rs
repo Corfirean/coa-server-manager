@@ -45,6 +45,9 @@ use super::projection::settings::{classify, Record};
 pub struct MergeProjection {
     /// The canonical level and xp stay as they are (a session reconciling a working copy into its canonical character).
     pub freeze_progression: bool,
+    /// The realm's level and xp are those of a working copy (the character was projected there): when the new view moves them, the new view
+    /// wins over whatever the player did to the working copy's level, instead of being a conflict.
+    pub adopt_progression: bool,
     /// Build records the core could not take apart: the realm's value is ignored.
     pub blocked: BTreeSet<String>,
 }
@@ -317,6 +320,10 @@ pub fn merge3_with(target: &PortableCharacter, base: &PortableCharacter, ours: &
         if b.level != o.level || b.xp != o.xp {
             cx.left_alone.push(format!("progression: the realm's level {} xp {} is the working copy's own and never reaches the canonical character", o.level, o.xp));
         }
+    } else if projection.is_some_and(|p| p.adopt_progression) && (b.level != o.level || b.xp != o.xp) {
+        cx.changes.push(format!("progression: level {} xp {} -> level {} xp {} (the realm's working copy takes the new view's)", t.level, t.xp, o.level, o.xp));
+        t.level = o.level;
+        t.xp = o.xp;
     } else {
         cx.scalar("progression.level", &mut t.level, &b.level, &o.level);
         if leveled {

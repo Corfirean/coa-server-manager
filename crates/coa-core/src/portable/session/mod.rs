@@ -19,3 +19,5 @@ mod projection_tests;
 mod tests;
 #[cfg(test)]
 mod live_session;
+#[cfg(test)]
+mod live_projection;

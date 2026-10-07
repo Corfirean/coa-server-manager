@@ -26,14 +26,14 @@ use super::live::{read_session_row, LiveBridge};
 use super::protocol::*;
 use super::*;
 
-struct Spec {
-    core: PathBuf,
-    ra_port: u16,
-    user: String,
-    password: String,
+pub(super) struct Spec {
+    pub(super) core: PathBuf,
+    pub(super) ra_port: u16,
+    pub(super) user: String,
+    pub(super) password: String,
 }
 
-fn spec() -> Option<Spec> {
+pub(super) fn spec() -> Option<Spec> {
     let raw = std::env::var("COA_PORTABLE_LIVE_SERVER_B").ok()?;
     let p: Vec<&str> = raw.split('|').collect();
     assert_eq!(p.len(), 3, "COA_PORTABLE_LIVE_SERVER_B = <Core dir>|<RA port>|<repack.json>");
@@ -43,18 +43,24 @@ fn spec() -> Option<Spec> {
 }
 
 /// A worldserver this test started and owns.
-struct Server {
+pub(super) struct Server {
     child: Child,
-    spec: Spec,
+    pub(super) spec: Spec,
 }
 
 impl Server {
-    fn start(spec: Spec) -> Server {
+    pub(super) fn start(spec: Spec) -> Server {
+        Self::start_with(spec, None)
+    }
+
+    /// Start with another configuration file (`None`: the realm's own).
+    pub(super) fn start_with(spec: Spec, conf: Option<&std::path::Path>) -> Server {
+        let conf = conf.map(|c| c.to_path_buf()).unwrap_or_else(|| spec.core.join("configs/worldserver.conf"));
         let child = Command::new(spec.core.join("worldserver.exe"))
-            .args(["-c", spec.core.join("configs/worldserver.conf").to_str().unwrap()])
+            .args(["-c", conf.to_str().unwrap()])
             .current_dir(&spec.core)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(std::fs::File::create(spec.core.join("test-out.log")).map(Stdio::from).unwrap_or_else(|_| Stdio::null()))
             .stderr(Stdio::null())
             .spawn()
             .expect("the worldserver starts");
@@ -72,16 +78,22 @@ impl Server {
         }
     }
 
-    fn ra(&self) -> Ra {
+    /// What the worldserver has printed since it started.
+    pub(super) fn output(&self) -> String {
+        let read = |name: &str| std::fs::read(self.spec.core.join(name)).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+        read("Logs/Server.log") + &read("test-out.log")
+    }
+
+    pub(super) fn ra(&self) -> Ra {
         Ra::connect_to(self.spec.ra_port, &self.spec.user, &self.spec.password).expect("RA")
     }
 
-    fn crash(mut self) {
+    pub(super) fn crash(mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 
-    fn stop(mut self) {
+    pub(super) fn stop(mut self) {
         let _ = self.ra().run("server shutdown 1");
         let end = Instant::now() + Duration::from_secs(120);
         while self.child.try_wait().unwrap().is_none() {
@@ -100,7 +112,7 @@ impl Drop for Server {
     }
 }
 
-fn wait_until(what: &str, seconds: u64, mut f: impl FnMut() -> bool) {
+pub(super) fn wait_until(what: &str, seconds: u64, mut f: impl FnMut() -> bool) {
     let end = Instant::now() + Duration::from_secs(seconds);
     while !f() {
         assert!(Instant::now() < end, "timed out waiting for {what}");
@@ -108,24 +120,24 @@ fn wait_until(what: &str, seconds: u64, mut f: impl FnMut() -> bool) {
     }
 }
 
-fn sql(db: &Db, text: &str) -> String {
+pub(super) fn sql(db: &Db, text: &str) -> String {
     db.query(text).unwrap_or_else(|e| panic!("{e}\n{text}"))
 }
 
 
-fn name_of(db: &Db, guid: u32) -> String {
+pub(super) fn name_of(db: &Db, guid: u32) -> String {
     sql(db, &format!("SELECT name FROM acore_characters.characters WHERE guid = {guid}")).trim().to_string()
 }
 
-fn state_of(db: &Db, guid: u32) -> Option<SessionRow> {
+pub(super) fn state_of(db: &Db, guid: u32) -> Option<SessionRow> {
     read_session_row(db, guid).unwrap()
 }
 
-fn online(db: &Db, guid: u32) -> bool {
+pub(super) fn online(db: &Db, guid: u32) -> bool {
     number(db, &format!("SELECT online FROM acore_characters.characters WHERE guid = {guid}")) != 0
 }
 
-fn deliver(host: &mut HostService, owner: &mut OwnerService, bridge: &mut LiveBridge) -> Vec<OwnerAck> {
+pub(super) fn deliver(host: &mut HostService, owner: &mut OwnerService, bridge: &mut LiveBridge) -> Vec<OwnerAck> {
     let mut acks = Vec::new();
     for m in host.outbox().unwrap() {
         let ack = if m.started { owner.handle_started(&m.bytes) } else { owner.handle_checkpoint(&m.bytes) }.unwrap();
@@ -135,7 +147,7 @@ fn deliver(host: &mut HostService, owner: &mut OwnerService, bridge: &mut LiveBr
     acks
 }
 
-fn tick_until(host: &mut HostService, bridge: &mut LiveBridge, clock: &Instant, what: &str, want: impl Fn(&HostEvent) -> bool) -> Vec<HostEvent> {
+pub(super) fn tick_until(host: &mut HostService, bridge: &mut LiveBridge, clock: &Instant, what: &str, want: impl Fn(&HostEvent) -> bool) -> Vec<HostEvent> {
     let end = Instant::now() + Duration::from_secs(60);
     let mut all = Vec::new();
     loop {
@@ -166,7 +178,7 @@ fn characters_written(log: &str) -> std::collections::BTreeSet<u32> {
     out
 }
 
-struct Rig {
+pub(super) struct Rig {
     owner: Store,
     host: Store,
     id: crate::portable::ids::CharacterId,
@@ -175,7 +187,7 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-fn arrive(r: &crate::portable::realm::live_import::Realms) -> Rig {
+pub(super) fn arrive(r: &crate::portable::realm::live_import::Realms) -> Rig {
     reset_b(&r.b);
     let dir = tempfile::tempdir().unwrap();
     let mut owner = Store::open_file(&dir.path().join("owner.db")).unwrap();
@@ -317,7 +329,7 @@ fn a_character_whose_host_never_answers_is_never_released_and_the_core_disconnec
 
 // ---- the production importer: into a RUNNING realm, through the core's PortableImportService ------------------------------------
 
-fn job_dir() -> Option<PathBuf> {
+pub(super) fn job_dir() -> Option<PathBuf> {
     std::env::var("COA_PORTABLE_LIVE_JOBDIR").ok().map(PathBuf::from)
 }
 
