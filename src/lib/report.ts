@@ -1,9 +1,14 @@
+import type { ReportTarget, ReportTargetId } from "./api";
+
 /** The text of a problem report, always in English so whoever reads it on GitHub can follow it; the person's own words go in as typed. */
 export interface ReportInput {
   managerVersion: string;
   windows: string;
   installKind: "new" | "imported";
   serverVersion: string | null;
+  /** where the report goes; a bot repository is told which Manager and bot release it came from */
+  target: ReportTargetId;
+  botsVersion: string | null;
   what: string;
   expected: string;
   steps: string;
@@ -11,7 +16,10 @@ export interface ReportInput {
   diagnostics: boolean;
 }
 
-export const NEW_ISSUE_URL = "https://github.com/Corfirean/coa-server-manager/issues/new";
+/** The "new issue" page of a repository given as `owner/name`. */
+export function newIssueUrl(repo: string): string {
+  return `https://github.com/${repo}/issues/new`;
+}
 const PRIVACY = "> Please remove passwords, tokens, private IP information or other sensitive data before posting logs.";
 
 export function reportBody(r: ReportInput): string {
@@ -23,6 +31,7 @@ export function reportBody(r: ReportInput): string {
     `**Windows version:** ${r.windows || "unknown"}  `,
     `**Fresh install or imported server:** ${r.installKind === "new" ? "Fresh install" : "Imported server"}  `,
     ...(r.serverVersion ? [`**Server version:** ${r.serverVersion}  `] : []),
+    ...(r.target !== "manager" ? [`**Bot system:** ${r.target === "squid" ? "SQUID Playerbots" : "CoA Companions"}${r.botsVersion ? ` ${r.botsVersion}` : ""}  `] : []),
     "",
     "**What happened?**  ",
     text(r.what, "Describe the problem."),
@@ -54,9 +63,9 @@ export function encodeQuery(s: string): string {
     .join("");
 }
 
-/** A link that opens GitHub's "new issue" page with the title and text filled in. */
-export function issueUrl(title: string, body: string): string {
-  return `${NEW_ISSUE_URL}?labels=bug&title=${encodeQuery(title)}&body=${encodeQuery(body)}`;
+/** A link that opens GitHub's "new issue" page of `target` with the title and text filled in. The bug label is only asked for in our own repositories. */
+export function issueUrl(target: Pick<ReportTarget, "repo" | "ours">, title: string, body: string): string {
+  return `${newIssueUrl(target.repo)}?${target.ours ? "labels=bug&" : ""}title=${encodeQuery(title)}&body=${encodeQuery(body)}`;
 }
 
 /** Links longer than this are not reliable in every browser; the full text is then copied to the clipboard instead. */

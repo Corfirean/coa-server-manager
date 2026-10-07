@@ -234,6 +234,19 @@ export interface ReportContext {
   windows: string;
   install_kind: "new" | "imported";
   server_version: string | null;
+  /** where the form starts: the bot system that is switched on, else the Manager */
+  suggested_target: ReportTargetId;
+  /** the release of the bot system that is on */
+  bots_version: string | null;
+}
+
+export type ReportTargetId = "manager" | "companions" | "squid";
+
+/** A place a problem report can go: its GitHub repository as `owner/name`. */
+export interface ReportTarget {
+  id: ReportTargetId;
+  repo: string;
+  ours: boolean;
 }
 
 export interface InstallRequirements {
@@ -419,6 +432,7 @@ export const api = {
   allSettings: (id: string) => invoke<AllSetting[]>("all_settings", { id }),
   allSettingsSave: (id: string, changes: Record<string, string>) => invoke<string[]>("all_settings_save", { id, changes }),
   reportContext: (id: string) => invoke<ReportContext>("report_context", { id }),
+  reportTargets: () => invoke<ReportTarget[]>("report_targets"),
   listAccounts: (id: string) => invoke<AccountInfo[]>("list_accounts", { id }),
   accountSetPassword: (id: string, name: string, password: string) => invoke<void>("account_set_password", { id, name, password }),
   accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),

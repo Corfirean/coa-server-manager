@@ -127,7 +127,7 @@ export function Shell(props: {
 
       <main className="h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
-          <Overview key={server.id} server={server} companions={botModule === "companions" && !hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} onRealmChanged={reloadModules} />
+          <Overview key={server.id} server={server} companions={botModule === "companions" && !hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} onRealmChanged={reloadModules} onReport={() => setPage("report")} />
         ) : page === "bots" || page === "server" ? (
           <SettingsPage key={`${server.id}-${page}-${botModule}`} serverId={server.id} scope={page} botModule={botModule} title={t(current.label)} question={t(current.question)} />
         ) : page === "console" ? (
