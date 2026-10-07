@@ -1,0 +1,25 @@
+{
+	# No domain yet: plain HTTP on :80 only, no ACME, no admin API. HTTPS is required before the public phases.
+	auto_https off
+	admin off
+}
+
+:80 {
+	respond /healthz "ok" 200
+
+	handle /registry/* {
+		request_body {
+			max_size 70KB
+		}
+		reverse_proxy coa-registry:8080 {
+			# the Registry rate-limits by the address Caddy saw, taken from the last entry of this header
+			header_up X-Forwarded-For {remote_host}
+			transport http {
+				dial_timeout 3s
+				response_header_timeout 15s
+			}
+		}
+	}
+
+	respond "not found" 404
+}

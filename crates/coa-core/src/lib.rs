@@ -36,6 +36,7 @@ pub mod allsettings;
 pub mod modules;
 pub mod realmlist;
 pub mod realms;
+pub mod realm_registry;
 pub mod registry;
 pub mod release;
 pub mod report;

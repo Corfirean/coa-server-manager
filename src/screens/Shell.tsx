@@ -141,7 +141,7 @@ export function Shell(props: {
         ) : page === "friends" ? (
           <FriendsPage key={server.id} serverId={server.id} />
         ) : page === "settings" ? (
-          <SettingsHome key={server.id} serverId={server.id} />
+          <SettingsHome key={server.id} serverId={server.id} serverName={server.name} />
         ) : page === "characters" ? (
           <PortablePage key="characters" />
         ) : page === "players" ? (

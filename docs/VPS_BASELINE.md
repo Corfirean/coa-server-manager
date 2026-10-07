@@ -98,6 +98,11 @@ published as `127.0.0.1:<port>:<port>`.
 - RAM: ~0.5 GiB used of 3.7 GiB (3.2 GiB available).
 - Disk: 2.9 GB of 38 GB used.
 
+## Phase 10 addendum
+
+PostgreSQL 17 and the Registry now run (containers `coa-postgres-postgres-1`, `coa-registry-registry-1`); Caddy proxies `/registry/*` to the Registry. Public ports are unchanged (22, 80; 443 is
+allowed and published but has no listener until TLS). Details and the gate: [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md).
+
 ## Open items
 
 - Fill in region, plan/service ID, network limit from the OVH Control Panel.

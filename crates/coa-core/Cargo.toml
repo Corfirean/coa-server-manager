@@ -27,6 +27,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 tempfile = "3"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 if-addrs = "0.15"
+coa-registry-proto = { path = "../coa-registry-proto" }
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }

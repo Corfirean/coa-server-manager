@@ -4,3 +4,6 @@ dist
 *.log
 .env
 src-tauri/gen
+
+# standalone service workspaces build into their own target folders
+services/*/target/

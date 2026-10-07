@@ -33,6 +33,8 @@ struct AppState {
     client_cancel: Mutex<Option<Cancel>>,
     /// The portable play runtime (the Host loop): started with the application, stopped with it.
     portable: Option<Arc<PortableRuntime>>,
+    /// Publishing this Manager's realms to the central Registry (Phase 10): its own loop, independent of Player Mode.
+    realm_registry: Option<Arc<coa_core::realm_registry::RegistryRuntime>>,
 }
 
 /// Starting and stopping the servers this Manager installed, for the portable runtime.
@@ -1650,7 +1652,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None), portable: start_portable(&dir) })
+        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None), portable: start_portable(&dir), realm_registry: start_realm_registry(&dir) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
             scan_server,
@@ -1746,7 +1748,12 @@ pub fn run() {
             portable_add_realm,
             portable_remove_realm,
             portable_diagnostics,
-            portable_launch
+            portable_launch,
+            registry_status,
+            registry_set_url,
+            registry_publish,
+            registry_unpublish,
+            registry_retry
         ])
         .build(tauri::generate_context!())
         .expect("error while building CoA Server Manager")
@@ -1756,8 +1763,61 @@ pub fn run() {
                 if let Some(rt) = app.state::<AppState>().portable.clone() {
                     rt.shutdown();
                 }
+                if let Some(rt) = app.state::<AppState>().realm_registry.clone() {
+                    rt.shutdown();
+                }
             }
         });
+}
+
+// ---- Public listing (Registry) -----------------------------------------------------------------------------------------------
+
+fn realm_registry(state: &State<'_, AppState>) -> std::result::Result<Arc<coa_core::realm_registry::RegistryRuntime>, UiError> {
+    state.realm_registry.clone().ok_or_else(|| Error::Invalid("the publishing service did not start".into()).into())
+}
+
+#[tauri::command]
+fn registry_status(state: State<'_, AppState>) -> coa_core::realm_registry::RegistryStatus {
+    state.realm_registry.as_ref().map(|r| r.status()).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn registry_set_url(state: State<'_, AppState>, url: Option<String>) -> std::result::Result<(), UiError> {
+    let rt = realm_registry(&state)?;
+    tauri::async_runtime::spawn_blocking(move || rt.set_url(url)).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
+}
+
+#[tauri::command]
+async fn registry_publish(state: State<'_, AppState>, local_id: String, display_name: String, description: String, language: String) -> std::result::Result<(), UiError> {
+    let rt = realm_registry(&state)?;
+    tauri::async_runtime::spawn_blocking(move || rt.publish(&local_id, &display_name, &description, &language)).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
+}
+
+#[tauri::command]
+async fn registry_unpublish(state: State<'_, AppState>, local_id: String) -> std::result::Result<(), UiError> {
+    let rt = realm_registry(&state)?;
+    tauri::async_runtime::spawn_blocking(move || rt.unpublish(&local_id)).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
+}
+
+#[tauri::command]
+fn registry_retry(state: State<'_, AppState>, local_id: String) {
+    if let Some(r) = &state.realm_registry {
+        r.retry(&local_id);
+    }
+}
+
+fn start_realm_registry(dir: &std::path::Path) -> Option<Arc<coa_core::realm_registry::RegistryRuntime>> {
+    use coa_core::realm_registry::{FileKeyStore, LocalRealmsSource, RegistryRuntime};
+    let installs = Registry::at(dir.join("installs.json"));
+    let source = LocalRealmsSource::new(dir.join("portable").join("realms"), move || installs.list().unwrap_or_default());
+    let keys = FileKeyStore::new(dir.join("registry").join("keys"));
+    match RegistryRuntime::start(&dir.join("registry"), Arc::new(keys), Arc::new(source)) {
+        Ok(rt) => Some(Arc::new(rt)),
+        Err(e) => {
+            tracing::error!(error = %e, "the publishing service did not start");
+            None
+        }
+    }
 }
 
 fn start_portable(dir: &std::path::Path) -> Option<Arc<PortableRuntime>> {

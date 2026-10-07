@@ -12,8 +12,8 @@ This file never contains private keys, passwords, DB credentials, transfer PINs,
 Registry API   Relay   Coordinator   PostgreSQL   Caddy (ingress)   monitoring
 ```
 
-Phase -1 only prepared the host. No Registry, Relay, Coordinator or schema is deployed. The VPS is not the source of
-truth for any player data.
+Phase -1 prepared the host. **Phase 10 deployed the Registry and PostgreSQL** (see [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md)); no Relay or Coordinator exists yet.
+The VPS is not the source of truth for any player data.
 
 No domain is registered. Until one exists, services are addressed by IP, and Caddy serves plain HTTP on :80.
 The design keeps client protocols independent of hostnames so the relay can later be moved to separate nodes and
@@ -29,9 +29,9 @@ Internet
    v
  Caddy  (container, network coa-ingress)
    |
-   +--> Registry API   (future, coa-ingress)
+   +--> Registry API   (coa-registry:8080, networks coa-ingress + coa-db, no published port)
             |
-            +--> PostgreSQL (future, network coa-db, --internal, no published port)
+            +--> PostgreSQL (coa-postgres:5432, network coa-db only, --internal, no published port)
 ```
 
 Rules:
@@ -55,8 +55,8 @@ Rules:
 /opt/coa/
 ├── bin/          helper scripts (health.sh)
 ├── caddy/        compose.yaml, Caddyfile
-├── postgres/     compose.yaml (prepared, not started)
-├── registry/     (empty)
+├── postgres/     compose.yaml (running since Phase 10)
+├── registry/     compose.yaml, .env, src/ (the build context of the running image)
 ├── relay/        (empty)
 ├── coordinator/  (empty)
 ├── monitoring/   (empty)
@@ -126,9 +126,9 @@ containers. No monitoring stack is installed on purpose (no Grafana/Prometheus u
 cd /opt/coa/caddy && sudo docker compose up -d
 sudo docker compose logs --tail 50
 
-# PostgreSQL (prepared; do NOT start until a password file exists and the schema phase begins)
-sudo install -m 600 /dev/null /opt/coa/secrets/postgres_password   # then write the password into it (as root)
+# PostgreSQL and the Registry (Phase 10): see REGISTRY_DEPLOYMENT.md
 cd /opt/coa/postgres && sudo docker compose up -d
+cd /opt/coa/registry && sudo docker compose up -d
 ```
 
 ## Backups

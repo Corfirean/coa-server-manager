@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/coa-core", "crates/coa-release", "src-tauri"]
+members = ["crates/coa-core", "crates/coa-release", "crates/coa-registry-proto", "src-tauri"]
+exclude = ["services/coa-registry"]
 
 [workspace.package]
 version = "0.6.6"
