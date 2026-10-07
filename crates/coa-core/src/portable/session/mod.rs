@@ -4,7 +4,7 @@ pub mod host;
 pub mod live;
 pub mod owner;
 
-pub use host::{HostConfig, HostEvent, HostService};
+pub use host::{HostConfig, HostEvent, HostMemory, HostService};
 pub use owner::OwnerService;
 
 #[cfg(test)]
@@ -18,6 +18,6 @@ mod projection_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod live_session;
+pub(crate) mod live_session;
 #[cfg(test)]
 mod live_projection;

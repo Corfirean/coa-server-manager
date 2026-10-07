@@ -44,6 +44,30 @@ impl Store {
         Ok(self.conn.execute("DELETE FROM realm_projection WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id])? > 0)
     }
 
+    /// Stop managing a character's copy on a realm: the mapping, the item and pet mappings, the synchronised snapshot, the open baseline and the projection
+    /// are forgotten; the realm's own character is left exactly as it is. Live sessions of it are closed. `false`: it was not on that realm.
+    pub fn detach_realm_copy(&mut self, id: CharacterId, server_id: &str) -> Result<bool> {
+        check_server_id(server_id)?;
+        let tx = self.write_tx()?;
+        let at = now();
+        let removed = tx.execute("DELETE FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id])?;
+        for sql in [
+            "DELETE FROM realm_projection WHERE character_id = ?1 AND server_id = ?2",
+            "DELETE FROM realm_extension_state WHERE character_id = ?1 AND server_id = ?2",
+            "UPDATE realm_baseline SET state = 'closed', updated_at = ?3 WHERE character_id = ?1 AND server_id = ?2 AND state = 'open'",
+            "UPDATE host_session SET state = 'closed', updated_at = ?3 WHERE character_id = ?1 AND server_id = ?2 AND state IN ('armed', 'open')",
+            "UPDATE owner_session SET state = 'superseded', updated_at = ?3 WHERE character_id = ?1 AND server_id = ?2 AND state IN ('offered', 'open')",
+        ] {
+            if sql.contains("?3") {
+                tx.execute(sql, params![id.to_string(), server_id, at])?;
+            } else {
+                tx.execute(sql, params![id.to_string(), server_id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(removed > 0)
+    }
+
     /// The working copy was brought to a newer canonical revision (an acknowledged checkpoint): the decision stays, the revision moves.
     pub fn advance_projection_revision(&mut self, id: CharacterId, server_id: &str, revision: u64) -> Result<()> {
         self.conn.execute(

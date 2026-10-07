@@ -51,6 +51,16 @@ pub enum HostEvent {
     ProfileWaiting { session: SessionId, why: String },
 }
 
+/// What a Host remembers between two looks at its realm (when it last asked for a checkpoint and for the collections, the progression the realm
+/// reported last). A Host that lives in a long-running process keeps it between ticks; one that is rebuilt after a restart starts empty, which
+/// only means the first tick checkpoints at once.
+#[derive(Debug, Clone, Default)]
+pub struct HostMemory {
+    last_checkpoint: HashMap<SessionId, u64>,
+    last_collection: HashMap<SessionId, u64>,
+    progression: Option<Progression>,
+}
+
 pub struct HostService<'a> {
     store: &'a mut Store,
     server_id: String,
@@ -66,6 +76,15 @@ pub struct HostService<'a> {
 impl<'a> HostService<'a> {
     pub fn new(store: &'a mut Store, server_id: &str, config: HostConfig) -> Self {
         Self { store, server_id: server_id.to_string(), config, last_checkpoint: HashMap::new(), last_collection: HashMap::new(), progression: None }
+    }
+
+    /// A Host continuing with what it remembered.
+    pub fn resume(store: &'a mut Store, server_id: &str, config: HostConfig, memory: HostMemory) -> Self {
+        Self { store, server_id: server_id.to_string(), config, last_checkpoint: memory.last_checkpoint, last_collection: memory.last_collection, progression: memory.progression }
+    }
+
+    pub fn into_memory(self) -> HostMemory {
+        HostMemory { last_checkpoint: self.last_checkpoint, last_collection: self.last_collection, progression: self.progression }
     }
 
     pub fn store(&self) -> &Store {

@@ -219,7 +219,7 @@ pub fn update_realm_character(db: &Db, store: &mut Store, id: CharacterId, serve
 
 /// The same, arming the runtime portable session `session` on the updated character in the same realm transaction.
 pub fn update_realm_character_in_session(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions, session: Option<SessionId>) -> Result<UpdateOutcome> {
-    update_inner(db, store, id, server_id, opts, session, false)
+    update_inner(db, store, id, server_id, opts, session, false, false)
 }
 
 /// The realm's progression (level cap or rules) moved under a runtime session: the session ended with its final checkpoint under the old
@@ -232,6 +232,53 @@ pub fn reproject_session(db: &Db, store: &mut Store, id: CharacterId, server_id:
     let pin = store.character_pin(id, server_id)?;
     store.host_clear_reproject(next.session_id, pin.as_ref())?;
     Ok(Some(outcome))
+}
+
+/// Make the realm's copy what the canonical character is, whatever the realm's copy and the canonical character did since they were
+/// last synchronised: every difference is taken from the canonical character (what only the realm's copy had is dropped). The one way out
+/// of an unmanaged divergence that keeps the canonical character, and the only one that writes to the realm.
+pub fn update_realm_character_to_canonical(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions, session: Option<SessionId>) -> Result<UpdateOutcome> {
+    update_inner(db, store, id, server_id, opts, session, false, true)
+}
+
+/// What an update would meet, found by reading and merging only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpdatePreview {
+    /// The realm's copy is at the canonical revision under the realm's progression: nothing to do.
+    pub up_to_date: bool,
+    /// Both sides changed the same thing differently: the update would be refused.
+    pub conflicts: Vec<String>,
+    /// The character is above the realm's cap and no decision of a running core was supplied: the update cannot be planned.
+    pub needs_decision: bool,
+}
+
+/// Look at what [`update_realm_character`] would do, without writing anything. The character must be offline (it is read like an export).
+pub fn preview_update(db: &Db, store: &Store, id: CharacterId, server_id: &str, opts: &ImportOptions) -> Result<UpdatePreview> {
+    let (guid, last_revision) = local_guid(store, id, server_id)?;
+    let record = store.character(id)?;
+    let stored_pin = store.character_pin(id, server_id)?;
+    let stale_pin = opts.capabilities.as_deref().and_then(|c| c.progression.as_ref()).is_some_and(|p| match &stored_pin {
+        Some(pin) => pin.progression_signature != p.progression_signature || pin.max_player_level != p.max_player_level || pin.policy_version != p.projection_policy_version,
+        None => true,
+    });
+    if record.revision == last_revision && !stale_pin {
+        return Ok(UpdatePreview { up_to_date: true, ..Default::default() });
+    }
+    let synced = store.synced_model(id, server_id)?.ok_or_else(|| PortableError::Invalid("the realm has no synchronised snapshot to update from".into()))?;
+    let canonical = store.load_current(id)?;
+    let old_context = store.projection_context(id, server_id)?;
+    let new_plan = match super::project::plan(&canonical, record.revision, opts, None) {
+        Ok(plan) => plan,
+        Err(PortableError::ProjectionNeedsRunningCore { .. }) => return Ok(UpdatePreview { needs_decision: true, ..Default::default() }),
+        Err(e) => return Err(e),
+    };
+    let view = read_realm(db, store, id, server_id, guid)?;
+    let base = super::project::stored_view(&synced, old_context.as_ref());
+    let projected = old_context.is_some() || new_plan.context.is_some();
+    let blocked: std::collections::BTreeSet<String> = old_context.iter().chain(new_plan.context.iter()).flat_map(|c| c.hold.blocked_settings.iter().cloned()).collect();
+    let projection = projected.then_some(MergeProjection { freeze_progression: false, adopt_progression: old_context.is_some(), blocked });
+    let merged = merge3_with(&view.exported.model, &base, &new_plan.view, Mode::Strict, projection.as_ref())?;
+    Ok(UpdatePreview { up_to_date: false, conflicts: merged.conflicts.iter().map(|c| format!("{}: {}", c.path, c.detail)).collect(), needs_decision: false })
 }
 
 /// What a re-evaluation did.
@@ -255,7 +302,7 @@ pub fn reevaluate_realm_character(db: &Db, store: &mut Store, id: CharacterId, s
     if store.mapping_profile(id, server_id)?.as_deref() == Some(caps.content_profile_hash.as_str()) {
         return Ok(Reevaluation { profile_unchanged: true, update: None, extensions: vec![] });
     }
-    let update = update_inner(db, store, id, server_id, opts, None, true)?;
+    let update = update_inner(db, store, id, server_id, opts, None, true, false)?;
     let (guid, _) = local_guid(store, id, server_id)?;
     let canonical = store.load_current(id)?;
     let extensions = super::profile::apply_extensions(db, store, id, server_id, opts, guid, &canonical)?;
@@ -280,7 +327,7 @@ fn restored_wardrobe(current: &PortableCharacter, canonical: &PortableCharacter,
     out
 }
 
-fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions, session: Option<SessionId>, reevaluate: bool) -> Result<UpdateOutcome> {
+fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, opts: &ImportOptions, session: Option<SessionId>, reevaluate: bool, take_canonical: bool) -> Result<UpdateOutcome> {
     let (guid, last_revision) = local_guid(store, id, server_id)?;
     if store.open_baseline(id, server_id)?.is_some() {
         return Err(PortableError::SessionOpen);
@@ -298,7 +345,7 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
         if record.revision != last_revision {
             return Err(PortableError::Invalid("the realm is not at the canonical revision: update it first, then re-evaluate".into()));
         }
-    } else if record.revision == last_revision && !stale_pin {
+    } else if record.revision == last_revision && !stale_pin && !take_canonical {
         return Ok(UpdateOutcome { import_id: None, from_revision: last_revision, to_revision: last_revision, updated: false, counts: UpdateCounts::default(), changes: vec![], left_alone: vec![], warnings: vec![] });
     }
     if record.revision < last_revision {
@@ -329,7 +376,7 @@ fn update_inner(db: &Db, store: &mut Store, id: CharacterId, server_id: &str, op
         }
         super::super::merge::Merged { model, changes, left_alone: vec![], conflicts: vec![], items: Default::default(), pets: Default::default() }
     } else {
-        let base = super::project::stored_view(&synced, old_context.as_ref());
+        let base = if take_canonical { view.exported.model.clone() } else { super::project::stored_view(&synced, old_context.as_ref()) };
         let projected = old_context.is_some() || new_plan.context.is_some();
         let blocked: std::collections::BTreeSet<String> = old_context.iter().chain(new_plan.context.iter()).flat_map(|c| c.hold.blocked_settings.iter().cloned()).collect();
         let projection = projected.then_some(MergeProjection { freeze_progression: false, adopt_progression: old_context.is_some(), blocked });

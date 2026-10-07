@@ -17,6 +17,7 @@ pub mod merge;
 pub mod model;
 pub mod projection;
 pub mod realm;
+pub mod service;
 pub mod session;
 pub mod snapshot;
 pub mod store;
