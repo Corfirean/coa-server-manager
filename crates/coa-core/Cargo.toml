@@ -25,6 +25,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 sha1 = "0.10"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tempfile = "3"
+if-addrs = "0.15"
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }

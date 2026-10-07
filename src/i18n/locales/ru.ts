@@ -835,6 +835,14 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "upd.current": "У вас последняя версия ({v}).",
   "client.job.checking": "Проверка клиента…",
   "client.job.updating": "Обновление клиента",
+  "fr.lan.address": "Сетевой адрес",
+  "fr.lan.automatic": "Автоматически",
+  "fr.lan.default": "По умолчанию",
+  "fr.lan.custom": "Другой адрес…",
+  "fr.lan.customIpv4": "Свой IPv4-адрес",
+  "fr.lan.unavailable": "Выбранный адрес недоступен",
+  "fr.lan.unavailableText": "Выбранный адрес сейчас не назначен обнаруженному сетевому интерфейсу. Выберите другой адрес, переключитесь на автоматический выбор или намеренно сохраните этот адрес.",
+  "fr.lan.invalid": "Некорректный IPv4-адрес",
 };
 
 export default ru;

@@ -816,6 +816,14 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "upd.current": "Vous êtes à jour (version {v}).",
   "client.job.checking": "Vérification du client…",
   "client.job.updating": "Mise à jour du client",
+  "fr.lan.address": "Adresse réseau",
+  "fr.lan.automatic": "Automatique",
+  "fr.lan.default": "Par défaut",
+  "fr.lan.custom": "Adresse personnalisée…",
+  "fr.lan.customIpv4": "Adresse IPv4 personnalisée",
+  "fr.lan.unavailable": "Adresse sélectionnée indisponible",
+  "fr.lan.unavailableText": "Cette adresse n’est actuellement attribuée à aucune interface locale détectée. Choisissez une autre adresse ou le mode Automatique, ou conservez volontairement cette adresse.",
+  "fr.lan.invalid": "Adresse IPv4 non valide",
 };
 
 export default fr;

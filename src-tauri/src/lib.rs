@@ -1249,6 +1249,7 @@ async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<Dri
 struct FriendsStatus {
     settings: coa_core::friends::Settings,
     lan_ip: Option<String>,
+    lan_addresses: Vec<coa_core::net::LanAddress>,
     exposure: Vec<coa_core::net::Exposure>,
     /// The configuration lets other computers reach the login and world servers.
     servers_open: bool,
@@ -1328,9 +1329,11 @@ async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::
     blocking(move || {
         let meta = meta_dir(&root)?;
         let ports = layout::read_ports(&root);
+        let automatic = coa_core::net::lan_ip().filter(|ip| coa_core::net::is_lan_address(*ip));
         Ok(FriendsStatus {
             settings: coa_core::friends::load(&meta),
-            lan_ip: coa_core::net::lan_ip().map(|a| a.to_string()),
+            lan_ip: automatic.map(|a| a.to_string()),
+            lan_addresses: coa_core::net::lan_addresses(automatic).unwrap_or_default(),
             exposure: coa_core::net::exposure(&ports),
             servers_open: coa_core::friends::bind_is_open(&root),
             firewall: coa_core::firewall::status(),
@@ -1383,9 +1386,10 @@ async fn friends_enable(
     id: String,
     mode: coa_core::friends::Mode,
     host: Option<String>,
+    lan_address_override: Option<String>,
     use_upnp: bool,
 ) -> std::result::Result<FriendsResult, UiError> {
-    use coa_core::friends::{self, Mode, Settings};
+    use coa_core::friends::{self, Mode};
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
@@ -1396,7 +1400,7 @@ async fn friends_enable(
         let secondary = realms.secondary_world_port.filter(|_| realms.simultaneous);
         let host = match mode {
             Mode::Local => "127.0.0.1".to_string(),
-            Mode::Lan => coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("This computer has no network address.".into()))?.to_string(),
+            Mode::Lan => coa_core::net::resolve_lan_host(lan_address_override.as_deref(), coa_core::net::lan_ip())?,
             Mode::Direct => host.filter(|h| !h.is_empty()).ok_or_else(|| Error::Invalid("Check your connection first to learn your public address.".into()))?,
             Mode::Private => coa_core::net::tailscale().ip.ok_or_else(|| Error::Invalid("Tailscale is not connected. Install it, sign in, then try again.".into()))?,
         };
@@ -1417,7 +1421,9 @@ async fn friends_enable(
                 None => note = Some("Your router does not support automatic setup; forward the two game ports by hand or use the private network.".to_string()),
             }
         }
-        friends::save(&meta, &Settings { mode, host: Some(host.clone()) })?;
+        let mut settings = friends::load(&meta);
+        settings.select_mode(mode, host.clone(), lan_address_override);
+        friends::save(&meta, &settings)?;
         let running = coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running;
         if running {
             friends::apply_realm_address(&root, &host)?;
