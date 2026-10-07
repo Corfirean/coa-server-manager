@@ -261,6 +261,12 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
   return (
     <div className="mt-3 border-t border-line pt-3">
       {items === null && !error && <Loader2 className="h-4 w-4 animate-spin text-muted" aria-hidden />}
+      {module.id === "npc-enchanter" && (
+        <div className="mb-4 space-y-2 text-sm text-muted">
+          <p>{t("mod.enchanter.add")}</p>
+          <p>{t("mod.enchanter.remove")}</p>
+        </div>
+      )}
       {module.id === "ah-bot" && (
         <div className="mb-4 space-y-2 text-sm text-muted">
           <p>{t("mod.ahbot.setup")}</p>
