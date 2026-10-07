@@ -233,7 +233,7 @@ export function BrowsePage() {
     <div className="mt-2 flex items-center gap-2 text-sm">
       <label htmlFor="preferred-name" className="shrink-0 text-muted">{t("join.preferred")}</label>
       <input id="preferred-name" value={preferred} maxLength={16} placeholder="PLAYER" onChange={(e) => { setPreferred(e.target.value); setPreferredNote(null); }} className="w-44 rounded-md border border-line bg-card px-3 py-1.5" data-testid="preferred-name" />
-      <Button size="sm" disabled={preferred.trim() === preferredSaved} onClick={() => void control.setPreferredUsername(preferred).then((n) => { setPreferred(n); setPreferredSaved(n); setPreferredNote(t("join.preferredSaved")); }).catch((e) => setError(asControlError(e).message))}>{t("registry.urlSave")}</Button>
+      <Button size="sm" disabled={preferred.trim() === preferredSaved} onClick={() => void control.setPreferredUsername(preferred).then((n) => { setPreferred(n); setPreferredSaved(n); setPreferredNote(t("join.preferredSaved")); }).catch((e) => setError(asControlError(e).message))}>{t("access.save")}</Button>
       {preferredNote && <span className="text-xs text-ok" role="status">{preferredNote}</span>}
     </div>
     <p className="mt-1 text-xs text-muted">{t("join.preferredHint")}</p>
