@@ -361,9 +361,16 @@ export interface ClientDownloadCheck {
 
 export type FriendsMode = "local" | "lan" | "direct" | "private";
 
+export interface LanAddress {
+  interface: string;
+  address: string;
+  is_default: boolean;
+}
+
 export interface FriendsStatus {
-  settings: { mode: FriendsMode; host: string | null };
+  settings: { mode: FriendsMode; host: string | null; lan_address_override: string | null };
   lan_ip: string | null;
+  lan_addresses: LanAddress[];
   exposure: { port: number; what: string; reachable_from_network: boolean; listening: boolean }[];
   servers_open: boolean;
   firewall: { auth: boolean; world: boolean };
@@ -470,8 +477,8 @@ export const api = {
   play: (id: string) => invoke<DriverOutcome>("play", { id }),
   friendsStatus: (id: string) => invoke<FriendsStatus>("friends_status", { id }),
   friendsCheckInternet: () => invoke<InternetCheck>("friends_check_internet"),
-  friendsEnable: (id: string, mode: FriendsMode, host?: string, useUpnp = false) =>
-    invoke<{ host: string; restart_required: boolean; note: string | null }>("friends_enable", { id, mode, host: host ?? null, useUpnp }),
+  friendsEnable: (id: string, mode: FriendsMode, host?: string, useUpnp = false, lanAddressOverride: string | null = null) =>
+    invoke<{ host: string; restart_required: boolean; note: string | null }>("friends_enable", { id, mode, host: host ?? null, useUpnp, lanAddressOverride }),
   friendsPackage: (id: string) => invoke<string>("friends_package", { id }),
   runDiagnostics: (id: string) => invoke<{ checks: DiagCheck[]; problems: number }>("run_diagnostics", { id }),
   verifyFiles: (id: string) => invoke<{ path: string; kind: "missing" | "changed" }[]>("verify_files", { id }),

@@ -827,6 +827,14 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "upd.current": "Du bist auf dem neuesten Stand (Version {v}).",
   "client.job.checking": "Client wird geprüft…",
   "client.job.updating": "Client wird aktualisiert",
+  "fr.lan.address": "Netzwerkadresse",
+  "fr.lan.automatic": "Automatisch",
+  "fr.lan.default": "Standard",
+  "fr.lan.custom": "Eigene Adresse…",
+  "fr.lan.customIpv4": "Eigene IPv4-Adresse",
+  "fr.lan.unavailable": "Ausgewählte Adresse nicht verfügbar",
+  "fr.lan.unavailableText": "Die ausgewählte Adresse ist derzeit keinem erkannten lokalen Netzwerkadapter zugewiesen. Wählen Sie eine andere Adresse oder Automatisch, oder behalten Sie diese Adresse bewusst bei.",
+  "fr.lan.invalid": "Ungültige IPv4-Adresse",
 };
 
 export default de;

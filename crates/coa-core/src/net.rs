@@ -19,6 +19,51 @@ pub fn lan_ip() -> Option<Ipv4Addr> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LanAddress {
+    pub interface: String,
+    pub address: String,
+    pub is_default: bool,
+}
+
+/// Suitable unicast IPv4 addresses; shared carrier/Tailscale space belongs to Private mode.
+pub fn is_lan_address(ip: Ipv4Addr) -> bool {
+    !ip.is_unspecified() && !ip.is_loopback() && !ip.is_link_local()
+        && !ip.is_multicast() && !ip.is_broadcast() && ip.octets()[0] != 0
+        && ip.octets()[0] < 240 && !is_cgnat_range(ip)
+}
+
+pub fn validate_lan_address(address: &str) -> Result<Ipv4Addr> {
+    address.parse::<Ipv4Addr>().ok().filter(|ip| is_lan_address(*ip))
+        .ok_or_else(|| Error::Invalid("Invalid IPv4 address for local network.".into()))
+}
+
+/// An absent/disconnected manual address is intentional: never fall back to another adapter.
+pub fn resolve_lan_host(manual: Option<&str>, automatic: Option<Ipv4Addr>) -> Result<String> {
+    match manual {
+        Some(address) => validate_lan_address(address).map(|ip| ip.to_string()),
+        None => automatic.filter(|ip| is_lan_address(*ip)).map(|ip| ip.to_string())
+            .ok_or_else(|| Error::Invalid("This computer has no usable local network address.".into())),
+    }
+}
+
+fn lan_candidates(rows: impl IntoIterator<Item = (String, Ipv4Addr)>, automatic: Option<Ipv4Addr>) -> Vec<LanAddress> {
+    let mut rows: Vec<_> = rows.into_iter().filter(|(_, ip)| is_lan_address(*ip)).collect();
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    let mut seen = std::collections::HashSet::new();
+    rows.into_iter().filter(|(_, ip)| seen.insert(*ip)).map(|(interface, ip)| LanAddress {
+        interface, address: ip.to_string(), is_default: Some(ip) == automatic,
+    }).collect()
+}
+
+/// Native OS enumeration (GetAdaptersAddresses on Windows, getifaddrs on Unix).
+pub fn lan_addresses(automatic: Option<Ipv4Addr>) -> Result<Vec<LanAddress>> {
+    let interfaces = if_addrs::get_if_addrs()?;
+    Ok(lan_candidates(interfaces.into_iter().filter(|i| i.is_oper_up()).filter_map(|i| {
+        match i.ip() { IpAddr::V4(ip) => Some((i.name, ip)), _ => None }
+    }), automatic))
+}
+
 pub fn is_private(ip: Ipv4Addr) -> bool {
     ip.is_private() || ip.is_loopback() || ip.is_link_local()
 }
@@ -130,6 +175,42 @@ mod tests {
 
     fn ip(s: &str) -> Ipv4Addr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn lan_validation_and_resolution_never_replace_manual_addresses() {
+        for good in ["192.168.1.20", "10.0.0.5", "172.16.2.4"] {
+            assert!(validate_lan_address(good).is_ok());
+        }
+        for bad in ["abc", "999.1.1.1", "0.0.0.0", "0.1.2.3", "127.0.0.1", "127.9.1.2", "169.254.10.20", "100.101.20.5", "224.0.0.1", "255.255.255.255", "240.0.0.1", "192.168.1.1'; DROP TABLE realmlist"] {
+            assert!(validate_lan_address(bad).is_err(), "{bad}");
+        }
+        let automatic = Some(ip("192.168.0.169"));
+        assert_eq!(resolve_lan_host(None, automatic).unwrap(), "192.168.0.169");
+        assert_eq!(resolve_lan_host(Some("192.168.1.50"), automatic).unwrap(), "192.168.1.50");
+        assert_eq!(resolve_lan_host(Some("192.168.1.50"), None).unwrap(), "192.168.1.50");
+        assert!(resolve_lan_host(Some("invalid"), automatic).is_err());
+        assert!(resolve_lan_host(None, None).is_err());
+        assert!(resolve_lan_host(None, Some(ip("169.254.1.2"))).is_err());
+        assert!(resolve_lan_host(None, Some(ip("100.100.1.2"))).is_err());
+    }
+
+    #[test]
+    fn candidates_are_filtered_deduplicated_deterministic_and_default_marked() {
+        let rows = vec![
+            ("Wi-Fi", "192.168.0.25"), ("Ethernet 2", "192.168.1.50"),
+            ("Ethernet", "192.168.0.169"), ("Duplicate", "192.168.1.50"),
+            ("Loopback", "127.0.0.2"), ("APIPA", "169.254.1.2"),
+            ("Tailscale", "100.101.20.5"), ("Empty", "0.0.0.0"),
+            ("Hyper-V Virtual", "10.0.0.5"),
+        ];
+        let make = |rows: Vec<(&str, &str)>| lan_candidates(rows.into_iter().map(|(name, address)| (name.into(), ip(address))), Some(ip("192.168.0.169")));
+        let result = make(rows.clone());
+        assert_eq!(result.len(), 4);
+        assert_eq!(result.iter().filter(|a| a.is_default).count(), 1);
+        assert!(result.iter().any(|a| a.interface == "Hyper-V Virtual"));
+        assert!(result.iter().any(|a| a.is_default && a.address == "192.168.0.169"));
+        assert_eq!(result, make(rows.into_iter().rev().collect()));
     }
 
     #[test]

@@ -848,6 +848,14 @@ const en = {
   "upd.current": "You are up to date (version {v}).",
   "client.job.checking": "Checking the client…",
   "client.job.updating": "Updating the client",
+  "fr.lan.address": "Network address",
+  "fr.lan.automatic": "Automatic",
+  "fr.lan.default": "Default",
+  "fr.lan.custom": "Custom address…",
+  "fr.lan.customIpv4": "Custom IPv4 address",
+  "fr.lan.unavailable": "Selected address unavailable",
+  "fr.lan.unavailableText": "The selected address is not currently assigned to a detected local interface. Choose another address or switch to Automatic, or keep this address intentionally.",
+  "fr.lan.invalid": "Invalid IPv4 address",
 } as const;
 
 export default en;

@@ -827,6 +827,14 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "upd.current": "Estás al día (versión {v}).",
   "client.job.checking": "Comprobando el cliente…",
   "client.job.updating": "Actualizando el cliente",
+  "fr.lan.address": "Dirección de red",
+  "fr.lan.automatic": "Automática",
+  "fr.lan.default": "Predeterminada",
+  "fr.lan.custom": "Dirección personalizada…",
+  "fr.lan.customIpv4": "Dirección IPv4 personalizada",
+  "fr.lan.unavailable": "Dirección seleccionada no disponible",
+  "fr.lan.unavailableText": "La dirección seleccionada no está asignada actualmente a ninguna interfaz local detectada. Elige otra dirección o Automática, o conserva esta dirección si así lo deseas.",
+  "fr.lan.invalid": "Dirección IPv4 no válida",
 };
 
 export default es;

@@ -829,6 +829,14 @@ const zh = {
   "client.job.updating": "正在更新游戏客户端",
   "err.docker_unavailable.title": "Docker 不可用",
   "err.docker_unavailable.message": "此服务器通过 Docker 运行。请安装并启动 Docker，确保当前用户有权使用它，然后重试。",
+  "fr.lan.address": "网络地址",
+  "fr.lan.automatic": "自动",
+  "fr.lan.default": "默认",
+  "fr.lan.custom": "自定义地址…",
+  "fr.lan.customIpv4": "自定义 IPv4 地址",
+  "fr.lan.unavailable": "所选地址不可用",
+  "fr.lan.unavailableText": "所选地址目前未分配给检测到的本地网络接口。请选择其他地址、切换到自动，或有意保留此地址。",
+  "fr.lan.invalid": "无效的 IPv4 地址",
 } as const;
 
 export default zh;
