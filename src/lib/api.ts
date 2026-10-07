@@ -193,6 +193,7 @@ export interface RealmProfile {
 export interface ModuleView {
   id: string;
   name: string;
+  version?: string | null;
   description: Record<string, string>;
   repo: string;
   /** the module is part of this server build (its configuration exists) */
@@ -216,6 +217,7 @@ export interface ModuleSetting {
   value: string;
   default: string | null;
   doc: string;
+  field?: { key: string; type: string; title: string; description: string; group: string; group_title?: string | null; min?: number | null; max?: number | null } | null;
 }
 
 export interface AllSetting {
@@ -232,6 +234,19 @@ export interface ReportContext {
   windows: string;
   install_kind: "new" | "imported";
   server_version: string | null;
+  /** where the form starts: the bot system that is switched on, else the Manager */
+  suggested_target: ReportTargetId;
+  /** the release of the bot system that is on */
+  bots_version: string | null;
+}
+
+export type ReportTargetId = "manager" | "companions" | "squid";
+
+/** A place a problem report can go: its GitHub repository as `owner/name`. */
+export interface ReportTarget {
+  id: ReportTargetId;
+  repo: string;
+  ours: boolean;
 }
 
 export interface InstallRequirements {
@@ -268,6 +283,7 @@ export interface UpdatePreview {
   items: UpdatePlanItem[];
   conflicts: string[];
   migrations: number;
+  pending_migrations?: number;
   download_bytes: number;
 }
 
@@ -345,9 +361,16 @@ export interface ClientDownloadCheck {
 
 export type FriendsMode = "local" | "lan" | "direct" | "private";
 
+export interface LanAddress {
+  interface: string;
+  address: string;
+  is_default: boolean;
+}
+
 export interface FriendsStatus {
-  settings: { mode: FriendsMode; host: string | null };
+  settings: { mode: FriendsMode; host: string | null; lan_address_override: string | null };
   lan_ip: string | null;
+  lan_addresses: LanAddress[];
   exposure: { port: number; what: string; reachable_from_network: boolean; listening: boolean }[];
   servers_open: boolean;
   firewall: { auth: boolean; world: boolean };
@@ -416,6 +439,7 @@ export const api = {
   allSettings: (id: string) => invoke<AllSetting[]>("all_settings", { id }),
   allSettingsSave: (id: string, changes: Record<string, string>) => invoke<string[]>("all_settings_save", { id, changes }),
   reportContext: (id: string) => invoke<ReportContext>("report_context", { id }),
+  reportTargets: () => invoke<ReportTarget[]>("report_targets"),
   listAccounts: (id: string) => invoke<AccountInfo[]>("list_accounts", { id }),
   accountSetPassword: (id: string, name: string, password: string) => invoke<void>("account_set_password", { id, name, password }),
   accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),
@@ -453,8 +477,8 @@ export const api = {
   play: (id: string) => invoke<DriverOutcome>("play", { id }),
   friendsStatus: (id: string) => invoke<FriendsStatus>("friends_status", { id }),
   friendsCheckInternet: () => invoke<InternetCheck>("friends_check_internet"),
-  friendsEnable: (id: string, mode: FriendsMode, host?: string, useUpnp = false) =>
-    invoke<{ host: string; restart_required: boolean; note: string | null }>("friends_enable", { id, mode, host: host ?? null, useUpnp }),
+  friendsEnable: (id: string, mode: FriendsMode, host?: string, useUpnp = false, lanAddressOverride: string | null = null) =>
+    invoke<{ host: string; restart_required: boolean; note: string | null }>("friends_enable", { id, mode, host: host ?? null, useUpnp, lanAddressOverride }),
   friendsPackage: (id: string) => invoke<string>("friends_package", { id }),
   runDiagnostics: (id: string) => invoke<{ checks: DiagCheck[]; problems: number }>("run_diagnostics", { id }),
   verifyFiles: (id: string) => invoke<{ path: string; kind: "missing" | "changed" }[]>("verify_files", { id }),

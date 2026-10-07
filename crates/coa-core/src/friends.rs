@@ -31,11 +31,25 @@ pub struct Settings {
     pub mode: Mode,
     /// The address friends type into their client for this mode.
     pub host: Option<String>,
+    /// Independent of the effective host of the current mode. None means automatic LAN detection.
+    #[serde(default)]
+    pub lan_address_override: Option<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: Mode::Local, host: None }
+        Settings { mode: Mode::Local, host: None, lan_address_override: None }
+    }
+}
+
+impl Settings {
+    /// Only LAN application changes the LAN preference. Other modes keep it for the next LAN session.
+    pub fn select_mode(&mut self, mode: Mode, host: String, lan_override: Option<String>) {
+        if mode == Mode::Lan {
+            self.lan_address_override = lan_override;
+        }
+        self.mode = mode;
+        self.host = Some(host);
     }
 }
 
@@ -233,7 +247,7 @@ CoA.AllowRemoteClients = 0
     fn a_shared_server_gets_its_bind_address_back_before_start_and_a_local_one_is_left_alone() {
         let (_d, root, meta) = setup();
         assert!(!ensure_bind(&root, &meta).unwrap(), "local mode: nothing to do");
-        save(&meta, &Settings { mode: Mode::Private, host: Some("100.64.1.2".into()) }).unwrap();
+        save(&meta, &Settings { mode: Mode::Private, host: Some("100.64.1.2".into()), ..Settings::default() }).unwrap();
         assert!(ensure_bind(&root, &meta).unwrap(), "templates were reset to 127.0.0.1 -> reopened");
         assert!(bind_is_open(&root));
         assert!(!ensure_bind(&root, &meta).unwrap(), "already open: idempotent");
@@ -243,9 +257,37 @@ CoA.AllowRemoteClients = 0
     fn settings_round_trip_and_default_to_local() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(load(d.path()).mode, Mode::Local);
-        save(d.path(), &Settings { mode: Mode::Private, host: Some("100.64.1.2".into()) }).unwrap();
+        save(d.path(), &Settings { mode: Mode::Private, host: Some("100.64.1.2".into()), ..Settings::default() }).unwrap();
         let s = load(d.path());
         assert_eq!((s.mode, s.host.as_deref()), (Mode::Private, Some("100.64.1.2")));
+    }
+
+    #[test]
+    fn old_settings_load_without_migrating_effective_host_to_override() {
+        let s: Settings = serde_json::from_str(r#"{"mode":"lan","host":"192.168.1.50"}"#).unwrap();
+        assert_eq!(s.mode, Mode::Lan);
+        assert_eq!(s.host.as_deref(), Some("192.168.1.50"));
+        assert_eq!(s.lan_address_override, None);
+    }
+
+    #[test]
+    fn lan_preference_survives_save_load_and_every_other_mode_and_can_be_cleared() {
+        let d = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        s.select_mode(Mode::Lan, "192.168.1.50".into(), Some("192.168.1.50".into()));
+        for (mode, host) in [(Mode::Private, "100.101.20.5"), (Mode::Direct, "203.0.113.9"), (Mode::Local, "127.0.0.1")] {
+            s.select_mode(mode, host.into(), None);
+            save(d.path(), &s).unwrap();
+            s = load(d.path());
+            assert_eq!(s.lan_address_override.as_deref(), Some("192.168.1.50"));
+            assert_eq!(s.host.as_deref(), Some(host));
+            let lan = crate::net::resolve_lan_host(s.lan_address_override.as_deref(), Some("192.168.0.169".parse().unwrap())).unwrap();
+            s.select_mode(Mode::Lan, lan, s.lan_address_override.clone());
+            assert_eq!(s.host.as_deref(), Some("192.168.1.50"));
+        }
+        s.select_mode(Mode::Lan, "192.168.0.169".into(), None);
+        save(d.path(), &s).unwrap();
+        assert_eq!(load(d.path()).lan_address_override, None);
     }
 
     #[test]
@@ -273,5 +315,24 @@ CoA.AllowRemoteClients = 0
             assert!(!body.contains("SECRET"));
         }
         assert!(make_friend_package(&root, "bad host; x", false, &d.path().join("x.zip")).is_err());
+    }
+
+    #[test]
+    fn manual_lan_host_survives_startup_bind_restoration_and_drives_friend_package() {
+        let (d, root, meta) = setup();
+        let mut s = Settings::default();
+        s.select_mode(Mode::Lan, "192.168.1.50".into(), Some("192.168.1.50".into()));
+        save(&meta, &s).unwrap();
+        assert!(ensure_bind(&root, &meta).unwrap());
+        assert!(bind_is_open(&root));
+        let restored = load(&meta);
+        assert_eq!(restored.host.as_deref(), Some("192.168.1.50"));
+        assert_eq!(restored.lan_address_override.as_deref(), Some("192.168.1.50"));
+        let package = d.path().join("manual-lan.zip");
+        make_friend_package(&root, restored.host.as_deref().unwrap(), false, &package).unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(package).unwrap()).unwrap();
+        let mut realm = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("realmlist.wtf").unwrap(), &mut realm).unwrap();
+        assert_eq!(realm, "set realmlist 192.168.1.50\r\n");
     }
 }

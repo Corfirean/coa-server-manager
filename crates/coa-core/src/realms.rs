@@ -287,25 +287,35 @@ pub fn prepare_launcher(root: &Path) -> Result<()> {
     Ok(())
 }
 
+const LAUNCHER_REALM_REPLACEMENTS: &[(&str, &str)] = &[
+    ("(\"WorldDatabaseInfo\", \"acore_world\")", "(\"WorldDatabaseInfo\", \"acore_world_wildcard\" if coa_realm() == 'wildcard' else \"acore_world\")"),
+    ("(\"CharacterDatabaseInfo\", \"acore_characters\")", "(\"CharacterDatabaseInfo\", \"acore_characters_wildcard\" if coa_realm() == 'wildcard' else \"acore_characters\")"),
+    ("SET name='AzerothCore',address=", "SET name='{coa_realm_name()}',address="),
+    ("WHERE id=1;", "WHERE id={coa_realm_id()};"),
+    ("mysql(\"UPDATE acore_auth.realmlist SET flag=0", "mysql(f\"UPDATE acore_auth.realmlist SET flag=0"),
+];
+
+const LAUNCHER_REALM_INSERT: &str = "# coa-manager-realm-profiles-v1\ndef coa_realm():\n    path = ROOT / 'Settings/realm-profile.json'\n    return json.loads(path.read_text(encoding='utf-8')).get('active', 'coa') if path.exists() else 'coa'\n\ndef coa_realm_id():\n    return 2 if coa_realm() == 'wildcard' else 1\n\ndef coa_realm_name():\n    return 'Wildcard' if coa_realm() == 'wildcard' else 'Conquest of Azeroth'\n\n";
+
 pub(crate) fn patch_launcher(source: &str) -> Result<String> {
     if source.contains("# coa-manager-realm-profiles-v1") { return Ok(source.into()); }
-    let replacements = [
-        ("(\"WorldDatabaseInfo\", \"acore_world\")", "(\"WorldDatabaseInfo\", \"acore_world_wildcard\" if coa_realm() == 'wildcard' else \"acore_world\")"),
-        ("(\"CharacterDatabaseInfo\", \"acore_characters\")", "(\"CharacterDatabaseInfo\", \"acore_characters_wildcard\" if coa_realm() == 'wildcard' else \"acore_characters\")"),
-        ("SET name='AzerothCore',address=", "SET name='{coa_realm_name()}',address="),
-        ("WHERE id=1;", "WHERE id={coa_realm_id()};"),
-        ("mysql(\"UPDATE acore_auth.realmlist SET flag=0", "mysql(f\"UPDATE acore_auth.realmlist SET flag=0"),
-    ];
     let mut out = source.to_string();
-    for (from, to) in replacements {
+    for &(from, to) in LAUNCHER_REALM_REPLACEMENTS {
         if !out.contains(from) { return Err(Error::Invalid("This launcher does not support realm profiles. Update the server package first.".into())); }
         out = out.replace(from, to);
     }
-    let insert = "# coa-manager-realm-profiles-v1\ndef coa_realm():\n    path = ROOT / 'Settings/realm-profile.json'\n    return json.loads(path.read_text(encoding='utf-8')).get('active', 'coa') if path.exists() else 'coa'\n\ndef coa_realm_id():\n    return 2 if coa_realm() == 'wildcard' else 1\n\ndef coa_realm_name():\n    return 'Wildcard' if coa_realm() == 'wildcard' else 'Conquest of Azeroth'\n\n";
     // Insert before the entry point so ROOT, json and functions are all defined when called.
     let marker = "if __name__ == \"__main__\":";
     if !out.contains(marker) { return Err(Error::Invalid("Unrecognised server launcher entry point.".into())); }
-    Ok(out.replace(marker, &format!("{insert}{marker}")))
+    Ok(out.replace(marker, &format!("{LAUNCHER_REALM_INSERT}{marker}")))
+}
+
+/// Reverse only our exact realm transformation; callers must verify the recovered original hash.
+pub(crate) fn unpatch_launcher(source: &str) -> Option<String> {
+    if !source.contains(LAUNCHER_REALM_INSERT) { return None; }
+    let mut original = source.replacen(LAUNCHER_REALM_INSERT, "", 1);
+    for &(from, to) in LAUNCHER_REALM_REPLACEMENTS { original = original.replace(to, from); }
+    patch_launcher(&original).ok().filter(|patched| patched == source).map(|_| original)
 }
 
 pub fn before_start(root: &Path) -> Result<()> {

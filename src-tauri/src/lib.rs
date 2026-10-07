@@ -807,7 +807,7 @@ async fn check_update(state: State<'_, AppState>, id: String, source: Option<Str
 #[tauri::command]
 fn pending_update(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::Txn>, UiError> {
     let root = path_of(&state, &id)?;
-    Ok(update::unfinished(&meta_dir(&root)?))
+    Ok(update::pending_checked(&meta_dir(&root)?)?)
 }
 
 #[tauri::command]
@@ -1359,6 +1359,7 @@ async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<Dri
 struct FriendsStatus {
     settings: coa_core::friends::Settings,
     lan_ip: Option<String>,
+    lan_addresses: Vec<coa_core::net::LanAddress>,
     exposure: Vec<coa_core::net::Exposure>,
     /// The configuration lets other computers reach the login and world servers.
     servers_open: bool,
@@ -1375,10 +1376,9 @@ struct FriendsStatus {
 #[tauri::command]
 fn open_link(url: String) -> std::result::Result<(), UiError> {
     const ALLOWED: &[&str] = &["https://tailscale.com/", "https://login.tailscale.com/", "https://portforward.com/", "https://github.com/Corfirean/"];
-    // A prefilled "new issue" page of this project: the address must be exactly that page, and its query may carry
-    // `&` between the (percent-encoded) title and text.
-    const NEW_ISSUE: &str = "https://github.com/Corfirean/coa-server-manager/issues/new";
-    let issue = url == NEW_ISSUE || url.starts_with(&format!("{NEW_ISSUE}?"));
+    // A prefilled "new issue" page of one of the places a report can go (the Manager, Companions, SQUID Playerbots): the
+    // address must be exactly that page, and its query may carry `&` between the (percent-encoded) title and text.
+    let issue = coa_core::report::is_new_issue_url(&url);
     let chars_ok = url.chars().all(|c| c.is_ascii_alphanumeric() || "/:._-?=#%".contains(c) || (issue && c == '&'));
     // the GitHub page of a module that is in the bundled catalog (some are not ours)
     let catalog = coa_core::modules::catalog().iter().any(|e| e.repo == url);
@@ -1396,6 +1396,16 @@ struct ReportContext {
     /// "new" for a server the Manager installed, "imported" for one that was added.
     install_kind: String,
     server_version: Option<String>,
+    /// Where the form should start: the bot system that is switched on, else the Manager.
+    suggested_target: String,
+    /// The release of whichever bot system is on, for a report that goes to its repository.
+    bots_version: Option<String>,
+}
+
+/// The places a report can go, each with its GitHub repository.
+#[tauri::command]
+fn report_targets() -> Vec<coa_core::report::Target> {
+    coa_core::report::targets()
 }
 
 /// "Windows 11 (build 26200)" from `ver`; empty if it cannot be read.
@@ -1422,11 +1432,15 @@ async fn report_context(state: State<'_, AppState>, id: String) -> std::result::
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
+        let bots = coa_core::report::bots(&root);
+        let companions = [meta.bots.version.clone(), meta.bots.commit.as_ref().map(|c| c.chars().take(8).collect())].into_iter().flatten().collect::<Vec<String>>().join(" · ");
         Ok(ReportContext {
             manager_version: coa_core::MANAGER_VERSION.to_string(),
             windows: windows_version(),
             install_kind: if meta.kind == coa_core::registry::InstallKind::New { "new".into() } else { "imported".into() },
             server_version: meta.core.version.clone(),
+            suggested_target: bots.suggested.to_string(),
+            bots_version: if bots.suggested == "squid" { bots.squid_version } else if bots.suggested == "companions" && !companions.is_empty() { Some(companions) } else { None },
         })
     })
     .await
@@ -1438,9 +1452,11 @@ async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::
     blocking(move || {
         let meta = meta_dir(&root)?;
         let ports = layout::read_ports(&root);
+        let automatic = coa_core::net::lan_ip().filter(|ip| coa_core::net::is_lan_address(*ip));
         Ok(FriendsStatus {
             settings: coa_core::friends::load(&meta),
-            lan_ip: coa_core::net::lan_ip().map(|a| a.to_string()),
+            lan_ip: automatic.map(|a| a.to_string()),
+            lan_addresses: coa_core::net::lan_addresses(automatic).unwrap_or_default(),
             exposure: coa_core::net::exposure(&ports),
             servers_open: coa_core::friends::bind_is_open(&root),
             firewall: coa_core::firewall::status(),
@@ -1493,9 +1509,10 @@ async fn friends_enable(
     id: String,
     mode: coa_core::friends::Mode,
     host: Option<String>,
+    lan_address_override: Option<String>,
     use_upnp: bool,
 ) -> std::result::Result<FriendsResult, UiError> {
-    use coa_core::friends::{self, Mode, Settings};
+    use coa_core::friends::{self, Mode};
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
@@ -1506,7 +1523,7 @@ async fn friends_enable(
         let secondary = realms.secondary_world_port.filter(|_| realms.simultaneous);
         let host = match mode {
             Mode::Local => "127.0.0.1".to_string(),
-            Mode::Lan => coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("This computer has no network address.".into()))?.to_string(),
+            Mode::Lan => coa_core::net::resolve_lan_host(lan_address_override.as_deref(), coa_core::net::lan_ip())?,
             Mode::Direct => host.filter(|h| !h.is_empty()).ok_or_else(|| Error::Invalid("Check your connection first to learn your public address.".into()))?,
             Mode::Private => coa_core::net::tailscale().ip.ok_or_else(|| Error::Invalid("Tailscale is not connected. Install it, sign in, then try again.".into()))?,
         };
@@ -1527,7 +1544,9 @@ async fn friends_enable(
                 None => note = Some("Your router does not support automatic setup; forward the two game ports by hand or use the private network.".to_string()),
             }
         }
-        friends::save(&meta, &Settings { mode, host: Some(host.clone()) })?;
+        let mut settings = friends::load(&meta);
+        settings.select_mode(mode, host.clone(), lan_address_override);
+        friends::save(&meta, &settings)?;
         let running = coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running;
         if running {
             friends::apply_realm_address(&root, &host)?;
@@ -1580,6 +1599,8 @@ async fn export_diagnostics(state: State<'_, AppState>, id: String) -> std::resu
         let report = coa_core::diag::run(&root, &meta);
         let out = coa_core::diag::desktop_or_temp().join(format!("CoA-Diagnostics-{}.zip", coa_core::diag::stamp()));
         coa_core::diag::export_package(&root, &dir, &data_dir().join("logs").join("manager.log"), &meta, &report, &out)?;
+        // Show the file in its folder so nobody has to look for it; failing to open the folder is not a failure.
+        let _ = tauri_plugin_opener::reveal_item_in_dir(&out);
         Ok(out.to_string_lossy().into_owned())
     })
     .await
@@ -1689,6 +1710,7 @@ pub fn run() {
             companions_delete_all,
             companions_despawn_some,
             open_link,
+            report_targets,
             companion_sizes,
             add_companions,
             remote_connection,

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { applyServerUpdate, clearServerUpdateResult, useServerUpdate } from "@/lib/serverUpdate";
+import { applyServerUpdate, clearServerUpdateResult, refreshServerUpdateState, useServerUpdate } from "@/lib/serverUpdate";
+import { isUpdateCurrent } from "@/lib/serverUpdateStatus";
 import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -23,12 +24,14 @@ export function SettingsHome({ serverId }: { serverId: string }) {
   const human = useHuman();
   const [preview, setPreview] = useState<UpdatePreview | null>(null);
   const [pending, setPending] = useState<UpdateTxn | null>(null);
+  const [pendingChecked, setPendingChecked] = useState(false);
+  const [pendingStateError, setPendingStateError] = useState<UiError | null>(null);
   const [localBusy, setBusy] = useState<"check" | "rollback" | "retry" | null>(null);
   // an update keeps running in the background when this tab is left, so its state is the shared one
   const busy = upd.applying ? "update" : localBusy;
   const progress = upd.applying ? { step: upd.step ?? "Starting", percent: upd.percent } : null;
   const [localError, setError] = useState<UiError | null>(null);
-  const error = localError ?? upd.uiError;
+  const error = pendingStateError ?? localError ?? upd.uiError;
   const [localDone, setDone] = useState<string | null>(null);
   const done = upd.result && "committed" in upd.result ? t("upd.updatedTo", { v: upd.result.committed }) : localDone;
   const [choices, setChoices] = useState<Record<string, "keep" | "replace">>({});
@@ -36,16 +39,36 @@ export function SettingsHome({ serverId }: { serverId: string }) {
   const [source, setSource] = useState("");
 
   useEffect(() => {
-    void api.pendingUpdate(serverId).then(setPending).catch(() => {});
+    let active = true;
+    setPendingChecked(false);
+    setPending(null);
+    setPreview(null);
+    setPendingStateError(null);
+    void api.pendingUpdate(serverId).then((txn) => {
+      if (active) { setPending(txn); setPendingChecked(true); }
+    }).catch((e) => { if (active) setPendingStateError(asUiError(e)); });
+    return () => { active = false; };
   }, [serverId]);
 
-  // the update finished (possibly while another tab was open): drop the stale preview, show what is left to decide
+  // Every finished attempt refreshes the disk state, including failures in the background.
   useEffect(() => {
-    if (!upd.result) return;
+    if (!upd.stateRevision) return;
     setPreview(null);
-    if ("pending" in upd.result) setPending(upd.result.pending);
-    else void api.pendingUpdate(serverId).then(setPending).catch(() => {});
-  }, [upd.result, serverId]);
+    setPendingChecked(!upd.stateError);
+    setPendingStateError(upd.stateError);
+    if (!upd.stateError) setPending(upd.result && "pending" in upd.result ? upd.result.pending : null);
+  }, [upd.stateRevision, serverId]);
+
+  async function refreshPending() {
+    setPendingChecked(false);
+    try {
+      const txn = await refreshServerUpdateState(serverId);
+      setPending(txn);
+      setPendingStateError(null);
+      setPendingChecked(true);
+      return txn;
+    } catch (e) { setPendingStateError(asUiError(e)); throw e; }
+  }
 
   async function check() {
     setBusy("check");
@@ -54,6 +77,8 @@ export function SettingsHome({ serverId }: { serverId: string }) {
     clearServerUpdateResult(serverId);
     setPreview(null);
     try {
+      const txn = await refreshPending();
+      if (txn) return;
       const p = await api.checkUpdate(serverId, source.trim() || undefined);
       setPreview(p);
       setChoices(Object.fromEntries(p.conflicts.map((c) => [c, "keep" as const])));
@@ -65,6 +90,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
   }
 
   async function update() {
+    if (!pendingChecked || pendingStateError || pending) return;
     setError(null);
     setDone(null);
     await applyServerUpdate(serverId, { choices, source: source.trim() || undefined });
@@ -81,6 +107,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
     } catch (e) {
       setError(asUiError(e));
     } finally {
+      try { await refreshPending(); } catch { /* Keep the disk-state error visible. */ }
       setBusy(null);
     }
   }
@@ -97,7 +124,10 @@ export function SettingsHome({ serverId }: { serverId: string }) {
         clearServerUpdateResult(serverId);
       } else setPending(result);
     } catch (e) { setError(asUiError(e)); }
-    finally { setBusy(null); }
+    finally {
+      try { await refreshPending(); } catch { /* Keep the disk-state error visible. */ }
+      setBusy(null);
+    }
   }
 
   async function browse() {
@@ -165,28 +195,27 @@ export function SettingsHome({ serverId }: { serverId: string }) {
           </div>
         )}
 
-        {done && <p className="mt-4 text-sm text-ok" role="status">{done}</p>}
+        {done && pendingChecked && !pendingStateError && <p className="mt-4 text-sm text-ok" role="status">{done}</p>}
         {error && (
           <p className="mt-4 text-sm text-bad" role="alert">
             {error.human.code === "unknown" ? error.technical : human(error.human).message}
           </p>
         )}
 
-        {preview && preview.from_version === preview.to_version && preview.items.every((i) => i.action === "skip") && (
-          // The same version with no file to change: the database scripts of this package are all in the ledger already.
+        {preview && isUpdateCurrent(preview) && (
           <div className="mt-5 border-t border-line pt-4">
             <p className="font-medium text-ok" role="status">{t("upd.current", { v: preview.to_version })}</p>
           </div>
         )}
 
-        {preview && !(preview.from_version === preview.to_version && preview.items.every((i) => i.action === "skip")) && (
+        {preview && !isUpdateCurrent(preview) && (
           <div className="mt-5 border-t border-line pt-4">
             <p className="font-medium">
               {preview.from_version ? t("upd.availableFrom", { to: preview.to_version, from: preview.from_version }) : t("upd.available", { to: preview.to_version })}
             </p>
             <p className="mt-1 text-sm text-muted">
-              {preview.migrations > 0
-                ? t("upd.summaryDb", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length, db: preview.migrations })
+              {(preview.pending_migrations ?? preview.migrations) > 0
+                ? t("upd.summaryDb", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length, db: preview.pending_migrations ?? preview.migrations })
                 : t("upd.summary", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length })}
             </p>
             <ul className="mt-3 max-h-56 divide-y divide-line overflow-auto text-sm">
@@ -211,7 +240,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
                 </li>
               ))}
             </ul>
-            <Button className="mt-4" variant="primary" disabled={!!busy} onClick={() => void update()}>
+            <Button className="mt-4" variant="primary" disabled={!!busy || !pendingChecked || !!pendingStateError || !!pending} onClick={() => void update()}>
               {busy === "update" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
               {t("upd.now")}
             </Button>

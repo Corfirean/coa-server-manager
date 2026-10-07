@@ -21,6 +21,12 @@ pub const DEFAULT_PART_SIZE: u64 = 1_900_000_000;
 /// Archive path of the one-time database credentials shipped with a base package.
 pub const BOOTSTRAP_CREDENTIALS: &str = "Settings/database.bootstrap.json";
 
+/// Folder of a Linux (Docker) package that holds the starting databases: `<kind>.sql.zst` for `auth`, `characters`
+/// and `world`, in the format of the Manager's own backups. They hold the state in which every migration of the package is
+/// already applied (a world database cannot be rebuilt from the repository's SQL files: some migrations are guarded and
+/// only apply to the maintainers' own database).
+pub const BASELINE_DIR: &str = "Database/baseline";
+
 /// Files that never belong in a shipped package: per-install state, logs, secrets, old binaries.
 pub fn excluded(rel: &str) -> bool {
     if rel.replace('\\', "/").to_lowercase().starts_with(".realms/") { return true; }
@@ -41,7 +47,7 @@ pub fn excluded(rel: &str) -> bool {
         || l == "mysql/my.ini"
         || l == "mysql/mysql.pid"
         || l == "mysql/data.7z"
-        || l.starts_with("core/configs/") && !l.ends_with(".dist") // generated at first start from Settings templates
+        || l.starts_with("core/configs/") && !l.ends_with(".dist") && l != "core/configs/modules/playerbots.conf.settings.json" // generated at first start from Settings templates
         || name.ends_with(".pdb")
         || name.ends_with(".bak")
         || name.ends_with(".log")
@@ -56,7 +62,7 @@ fn policy_for(rel: &str) -> (Owner, ReplacePolicy) {
     let l = rel.to_lowercase();
     if l.starts_with("_migrations/") {
         (Owner::Core, ReplacePolicy::NeverTouch) // staged for the migration runner, never copied into the server
-    } else if l.ends_with(".dist") {
+    } else if l.ends_with(".dist") || l == "core/configs/modules/playerbots.conf.settings.json" {
         (Owner::Core, ReplacePolicy::Replace)
     } else if l.starts_with("mysql/data/") {
         (Owner::User, ReplacePolicy::NeverTouch)
@@ -368,6 +374,20 @@ mod tests {
         walk(root, root, &mut v);
         v.sort();
         v
+    }
+
+    #[test]
+    fn upstream_settings_metadata_ships_and_updates_but_active_configs_stay_private() {
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("src");
+        fs::create_dir_all(src.join("Core/configs/modules")).unwrap();
+        fs::write(src.join("Core/configs/modules/playerbots.conf.settings.json"), "{}\n").unwrap();
+        fs::write(src.join("Core/configs/modules/playerbots.conf"), "PlayerbotsDatabaseInfo = private\n").unwrap();
+        let out = d.path().join("package");
+        let manifest = build(&src, &out, &BuildOptions { kind: Kind::Update, version: "1.0.0".into(), core_commit: None, built_at: "test".into(), part_size: 1 << 20, bots_commit: None, migrations: vec![] }, &|_| {}).unwrap();
+        assert_eq!(manifest.files.len(), 1);
+        assert_eq!(manifest.files[0].path, "Core/configs/modules/playerbots.conf.settings.json");
+        assert_eq!(manifest.files[0].policy, ReplacePolicy::Replace);
     }
 
     fn source() -> (tempfile::TempDir, PathBuf) {

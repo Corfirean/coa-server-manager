@@ -38,6 +38,7 @@ pub mod realmlist;
 pub mod realms;
 pub mod registry;
 pub mod release;
+pub mod report;
 pub mod release_schema;
 pub mod update;
 pub mod upnp;
@@ -47,3 +48,5 @@ pub mod srp6;
 pub use error::{Error, ErrorCode, Result};
 
 pub const MANAGER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub mod squid;

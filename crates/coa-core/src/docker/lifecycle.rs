@@ -80,6 +80,26 @@ fn docker(d: &dyn Docker, args: &[&str], timeout: Duration) -> Step<super::cli::
     d.run(&Call::new(args, timeout)).or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))
 }
 
+/// Is docker usable by this user? Returns its version, or the reason in docker's own words.
+pub fn check_docker(d: &dyn Docker) -> Result<String> {
+    let mut log = Log::default();
+    match preflight(d, &mut log) {
+        Ok(()) => Ok(log.0.join(" ")),
+        Err(f) => Err(crate::error::Error::Invalid(format!("{} {}", f.code.human().message, f.output.trim()).trim().to_string())),
+    }
+}
+
+/// Remove everything docker holds for an installation: containers, network and the database volume. Used when an
+/// installation fails before it is finished, and later to uninstall. Missing pieces are not an error.
+pub(crate) fn destroy(d: &dyn Docker, cfg: &Config) {
+    let n = cfg.names();
+    for name in [&n.auth, &n.world, &n.db] {
+        let _ = d.run(&Call::new(&["rm", "--force", name], QUICK));
+    }
+    let _ = d.run(&Call::new(&["network", "rm", &n.network], QUICK));
+    let _ = d.run(&Call::new(&["volume", "rm", &n.volume], QUICK));
+}
+
 fn preflight(d: &dyn Docker, log: &mut Log) -> Step<()> {
     let o = docker(d, &["version", "--format", "{{.Server.Version}}"], QUICK)?;
     if !o.ok() {
@@ -204,6 +224,7 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
     }
 
     ensure_image(d, log)?;
+    super::ensure_main_configs(root).map_err(|e| Failure { code: ErrorCode::ServerFilesIncomplete, output: e.to_string() })?;
     std::fs::create_dir_all(root.join("Core/Logs")).map_err(|e| Failure { code: ErrorCode::ServerFilesIncomplete, output: e.to_string() })?;
     let owner = owner_of(root);
     let host = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -212,7 +233,7 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
     if !state.get(&n.world).is_some_and(Container::running) {
         remove(d, &n.world);
         let mut call = Call::new(&[], Duration::from_secs(60));
-        call.args = game_args(cfg, &n, GameKind::World, &host, ports.world, ports.ra, owner.as_deref());
+        call.args = game_args(cfg, &n, GameKind::World, &host, &cfg.data_path(&host), ports.world, ports.ra, owner.as_deref());
         call.env = database_env(&secrets, true);
         run_container(d, &call, &n.world, log)?;
     }
@@ -221,7 +242,7 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
     if !state.get(&n.auth).is_some_and(Container::running) {
         remove(d, &n.auth);
         let mut call = Call::new(&[], Duration::from_secs(60));
-        call.args = game_args(cfg, &n, GameKind::Auth, &host, ports.auth, 0, owner.as_deref());
+        call.args = game_args(cfg, &n, GameKind::Auth, &host, &cfg.data_path(&host), ports.auth, 0, owner.as_deref());
         call.env = database_env(&secrets, false);
         run_container(d, &call, &n.auth, log)?;
     }
@@ -320,8 +341,11 @@ fn db_args(cfg: &Config, n: &Names) -> Vec<String> {
     a.extend(["--volume".into(), format!("{}:/var/lib/mysql", n.volume)]);
     // The password comes from the environment of the docker client, not from this command line.
     a.extend(["--env".into(), "MYSQL_ROOT_PASSWORD".into()]);
-    // "mysqladmin ping" succeeds as soon as the server answers, with or without a login.
-    a.extend(["--health-cmd".into(), "mysqladmin ping --silent".into()]);
+    // "mysqladmin ping" succeeds as soon as the server answers, with or without a login. It must go over TCP, like
+    // everything the Manager sends: while a new database initialises, the image first runs a temporary server that
+    // answers on its socket but takes no network connection, and a socket ping would call the container healthy for a few
+    // seconds in which every TCP connection is still refused.
+    a.extend(["--health-cmd".into(), "mysqladmin ping --protocol=tcp --host=127.0.0.1 --silent".into()]);
     a.extend(["--health-interval".into(), "5s".into(), "--health-timeout".into(), "5s".into(), "--health-retries".into(), "40".into()]);
     a.extend(["--stop-timeout".into(), "60".into()]);
     a.push(cfg.mysql_image.clone());
@@ -345,7 +369,7 @@ fn database_env(s: &Secrets, world: bool) -> Vec<(String, String)> {
     env
 }
 
-fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, port: u16, ra_port: u16, owner: Option<&str>) -> Vec<String> {
+fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, data: &Path, port: u16, ra_port: u16, owner: Option<&str>) -> Vec<String> {
     let (name, alias, binary, conf, inner_port) = match kind {
         GameKind::World => (&n.world, "world", "./worldserver", "configs/worldserver.conf", WORLD_PORT),
         GameKind::Auth => (&n.auth, "auth", "./authserver", "configs/authserver.conf", AUTH_PORT),
@@ -370,7 +394,7 @@ fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, port: u16, ra
     // the container and stops the server when it cannot find one.
     a.extend(env("AC_UPDATES_ENABLE_DATABASES", "0"));
     if kind == GameKind::World {
-        a.extend(["--volume".into(), format!("{}:{DATA}:ro", host.join("Data").display())]);
+        a.extend(["--volume".into(), format!("{}:{DATA}:ro", data.display())]);
         a.extend(env("AC_DATA_DIR", DATA));
         // The remote console is only ever reachable from this computer.
         a.extend(["--publish".into(), format!("127.0.0.1:{ra_port}:{RA_PORT}")]);
@@ -675,6 +699,17 @@ mod tests {
     }
 
     #[test]
+    fn the_database_is_only_healthy_once_it_takes_tcp_connections() {
+        let (_d, root) = server("t1");
+        let sim = Sim::new();
+        assert!(start_all(&sim, &root).ok);
+        let db = &sim.calls_of("run")[0].args;
+        let i = db.iter().position(|a| a == "--health-cmd").expect("the database has a health check");
+        // Found on a new volume: a socket-only ping reported healthy about four seconds before TCP worked.
+        assert!(db[i + 1].contains("--protocol=tcp") && db[i + 1].contains("--host=127.0.0.1"), "{}", db[i + 1]);
+    }
+
+    #[test]
     fn the_world_container_is_wired_like_the_repack_layout() {
         let (_d, root) = server("t1");
         let sim = Sim::new();
@@ -714,8 +749,8 @@ mod tests {
         let (_d, root) = server("ports");
         let cfg = Config::load(&root).unwrap();
         let n = cfg.names();
-        let world = game_args(&cfg, &n, GameKind::World, &root, 18085, 13443, None);
-        let auth = game_args(&cfg, &n, GameKind::Auth, &root, 13724, 0, None);
+        let world = game_args(&cfg, &n, GameKind::World, &root, &root.join("Data"), 18085, 13443, None);
+        let auth = game_args(&cfg, &n, GameKind::Auth, &root, &root.join("Data"), 13724, 0, None);
         assert!(world.iter().any(|a| a == "127.0.0.1:18085:8085"));
         assert!(world.iter().any(|a| a == "127.0.0.1:13443:3443"));
         assert!(world.iter().any(|a| a == "AC_WORLD_SERVER_PORT=8085"));

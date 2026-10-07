@@ -5,6 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useT, type Key } from "@/i18n";
 
+/** Convenience only; Rust validates again before applying or saving. */
+function validLanIpv4(value: string): boolean {
+  if (!/^(0|[1-9]\d{0,2})(\.(0|[1-9]\d{0,2})){3}$/.test(value)) return false;
+  const octets = value.split(".").map(Number);
+  const [a, b] = octets;
+  return octets.every((n) => n <= 255) && a > 0 && a < 224 && a !== 127
+    && !(a === 169 && b === 254) && !(a === 100 && b >= 64 && b <= 127);
+}
+
 function Line({ ok, children, warn }: { ok: boolean; warn?: boolean; children: React.ReactNode }) {
   const t = useT();
   return (
@@ -81,11 +90,28 @@ export function FriendsPage({ serverId }: { serverId: string }) {
   const [note, setNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [needsRestart, setNeedsRestart] = useState(false);
+  const [lanChoice, setLanChoice] = useState("automatic");
+  const [customLan, setCustomLan] = useState("");
 
-  const refresh = useCallback(() => api.friendsStatus(serverId).then(setSt).catch((e) => setError(asUiError(e))), [serverId]);
+  const refresh = useCallback(() => api.friendsStatus(serverId).then((status) => {
+    setSt(status);
+  }).catch((e) => setError(asUiError(e))), [serverId]);
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let cancelled = false;
+    setSt(null);
+    setNet(null);
+    void api.friendsStatus(serverId).then((status) => {
+      if (cancelled) return;
+      const saved = status.settings.lan_address_override;
+      setCustomLan(saved ?? "");
+      setLanChoice(saved === null ? "automatic" : status.lan_addresses.some((a) => a.address === saved) ? saved : "custom");
+      setSt(status);
+    }).catch((e) => { if (!cancelled) setError(asUiError(e)); });
+    return () => { cancelled = true; };
+  }, [serverId]);
+
+  const lanOverride = lanChoice === "automatic" ? null : lanChoice === "custom" ? customLan.trim() : lanChoice;
+  const lanValid = lanOverride === null || validLanIpv4(lanOverride);
 
   async function run(label: string, fn: () => Promise<string | void>) {
     setBusy(label);
@@ -109,7 +135,12 @@ export function FriendsPage({ serverId }: { serverId: string }) {
 
   const enable = (mode: FriendsMode) =>
     run(`enable-${mode}`, async () => {
-      const r = await api.friendsEnable(serverId, mode, net?.public_ip ?? undefined, mode === "direct" && !!net?.router_found);
+      const r = await api.friendsEnable(
+        serverId, mode,
+        mode === "direct" ? net?.public_ip ?? undefined : undefined,
+        mode === "direct" && !!net?.router_found,
+        mode === "lan" ? lanOverride : null,
+      );
       setNeedsRestart(r.restart_required);
       return [r.restart_required ? t("fr.restartToApply") : null, r.note ? (r.note.startsWith("Your router was asked") ? t("fr.note.forwarded") : r.note.startsWith("Your router does not support") ? t("fr.note.manual") : r.note) : null].filter(Boolean).join(" ") || t("fr.ready");
     });
@@ -119,6 +150,8 @@ export function FriendsPage({ serverId }: { serverId: string }) {
   const cur = st.settings;
   const exposed = st.exposure.filter((e) => (e.what === "database" || e.what === "server console") && e.reachable_from_network);
   const connection = cur.mode === "local" ? null : `set realmlist ${cur.host}`;
+  const selectedLan = lanOverride ?? st.lan_ip;
+  const lanUnavailable = lanOverride !== null && lanValid && !st.lan_addresses.some((a) => a.address === lanOverride);
 
   return (
     <div className="max-w-3xl">
@@ -157,8 +190,28 @@ export function FriendsPage({ serverId }: { serverId: string }) {
 
                 {m.id === "lan" && (
                   <>
-                    <p className="mt-2 text-sm">{t("fr.yourLan")} <b className="selectable">{st.lan_ip ?? t("fr.unknown")}</b></p>
-                    {st.lan_ip && cur.mode !== m.id && <RealmlistLine host={st.lan_ip} />}
+                    <label htmlFor="lan-address" className="mt-3 block text-sm">{t("fr.lan.address")}</label>
+                    <select id="lan-address" value={lanChoice} disabled={!!busy}
+                      className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold"
+                      onChange={(e) => {
+                        if (e.target.value === "custom" && lanOverride) setCustomLan(lanOverride);
+                        setLanChoice(e.target.value);
+                      }}>
+                      <option value="automatic">{t("fr.lan.automatic")} — {st.lan_ip ?? t("fr.unknown")}</option>
+                      {st.lan_addresses.map((a) => <option key={a.address} value={a.address}>{a.interface} — {a.address}{a.is_default ? ` (${t("fr.lan.default")})` : ""}</option>)}
+                      {lanChoice !== "automatic" && lanChoice !== "custom" && !st.lan_addresses.some((a) => a.address === lanChoice) && <option value={lanChoice}>{lanChoice}</option>}
+                      <option value="custom">{t("fr.lan.custom")}</option>
+                    </select>
+                    {lanChoice === "custom" && <>
+                      <label htmlFor="lan-custom" className="mt-2 block text-sm">{t("fr.lan.customIpv4")}</label>
+                      <input id="lan-custom" value={customLan} disabled={!!busy} spellCheck={false} inputMode="decimal"
+                        aria-invalid={!lanValid} aria-describedby={!lanValid ? "lan-invalid" : undefined}
+                        className="mt-1 w-full rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold"
+                        onChange={(e) => setCustomLan(e.target.value)} />
+                    </>}
+                    {!lanValid && <p id="lan-invalid" className="mt-2 text-sm text-bad" role="alert">{t("fr.lan.invalid")}</p>}
+                    {lanUnavailable && <p className="mt-2 text-sm text-warn" role="status"><b>{t("fr.lan.unavailable")}</b> {t("fr.lan.unavailableText")}</p>}
+                    {selectedLan && lanValid && <RealmlistLine host={selectedLan} />}
                   </>
                 )}
 
@@ -221,7 +274,7 @@ export function FriendsPage({ serverId }: { serverId: string }) {
               <Button
                 size="sm"
                 variant={m.id === "private" && net?.reachability === "cgnat" ? "primary" : "secondary"}
-                disabled={!!busy || (m.id === "direct" && !net?.public_ip) || (m.id === "private" && !st.tailscale.connected)}
+                disabled={!!busy || (m.id === "lan" && (!lanValid || !selectedLan)) || (m.id === "direct" && !net?.public_ip) || (m.id === "private" && !st.tailscale.connected)}
                 onClick={() => void enable(m.id)}
                 title={m.id === "direct" && !net?.public_ip ? t("fr.checkFirst") : undefined}
               >

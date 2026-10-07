@@ -14,6 +14,7 @@ use crate::fsx;
 
 pub const META_SCHEMA: u32 = 1;
 pub const LAYOUT_REPACK_V1: &str = "repack-v1";
+pub const LAYOUT_DOCKER_V1: &str = "docker-v1";
 const META_SUBDIRS: [&str; 6] = ["manifests", "backups", "migrations", "logs", "cache", "staging"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

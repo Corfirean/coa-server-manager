@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from "@/lib/api";
+import { isUpdateCurrent } from "./serverUpdateStatus";
 
 /**
  * Server update status for the main screen and the navigation: checked when the app starts and every five minutes,
@@ -16,11 +17,13 @@ export interface ServerUpdateState {
   error: string | null;
   /** The full error of the last update attempt, for the Settings card. */
   uiError: UiError | null;
+  stateError: UiError | null;
+  stateRevision: number;
   /** How the last update ended; kept here so the Settings card can show it after the user left and came back. */
   result: { committed: string } | { pending: UpdateTxn } | null;
 }
 
-const EMPTY: ServerUpdateState = { preview: null, available: false, checking: false, applying: false, step: null, percent: 0, error: null, uiError: null, result: null };
+const EMPTY: ServerUpdateState = { preview: null, available: false, checking: false, applying: false, step: null, percent: 0, error: null, uiError: null, stateError: null, stateRevision: 0, result: null };
 const states = new Map<string, ServerUpdateState>();
 const listeners = new Set<() => void>();
 export const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -37,10 +40,10 @@ export async function checkServerUpdate(id: string): Promise<void> {
   set(id, { checking: true });
   try {
     const p = await api.checkUpdate(id);
-    set(id, { preview: p, available: p.to_version !== (p.from_version ?? ""), error: null });
+    set(id, { preview: p, available: !isUpdateCurrent(p), error: null });
   } catch (e) {
-    // offline or no package published: keep what we knew and stay quiet
-    set(id, { error: asUiError(e).human.code });
+    // A cached offer is no longer safe after an update or failed recheck.
+    set(id, { preview: null, available: false, error: asUiError(e).human.code });
   } finally {
     set(id, { checking: false });
   }
@@ -57,6 +60,20 @@ export function clearServerUpdateResult(id: string) {
   set(id, { result: null, uiError: null });
 }
 
+export async function refreshServerUpdateState(id: string): Promise<UpdateTxn | null> {
+  try {
+    const pending = await api.pendingUpdate(id);
+    const current = get(id).result;
+    set(id, { stateError: null, stateRevision: get(id).stateRevision + 1,
+      ...(pending ? { available: false, preview: null } : {}),
+      result: pending ? { pending } : current && "committed" in current ? current : null });
+    return pending;
+  } catch (e) {
+    set(id, { stateError: asUiError(e), stateRevision: get(id).stateRevision + 1, available: false, preview: null });
+    throw e;
+  }
+}
+
 /**
  * Apply an update. Without options this is the main-screen button: the pending update, only when no file needs a
  * decision. With options (the Settings card) the owner has already chosen what to do with each changed file and may
@@ -65,7 +82,8 @@ export function clearServerUpdateResult(id: string) {
  */
 export async function applyServerUpdate(id: string, opts?: { choices: Record<string, "keep" | "replace">; source?: string }): Promise<boolean> {
   const p = get(id).preview;
-  if (get(id).applying) return false;
+  const current = get(id);
+  if (current.applying || current.stateError || (current.result && "pending" in current.result)) return false;
   if (!opts && (!p || p.conflicts.length > 0)) return false;
   set(id, { applying: true, step: null, percent: 0, error: null, uiError: null, result: null });
   let un: (() => void) | undefined;
@@ -84,6 +102,9 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
     return false;
   } finally {
     un?.();
+    try {
+      await refreshServerUpdateState(id);
+    } catch { /* The state error remains visible and prevents another apply. */ }
     set(id, { applying: false });
     void checkServerUpdate(id);
   }

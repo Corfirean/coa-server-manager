@@ -181,7 +181,7 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
     if let Some(b) = p.bots {
         sql.extend(collect_bots_sql(b)?);
     }
-    let migrations: Vec<_> = sql.iter().map(|f| crate::manifest::Migration { id: f.id.clone(), db: f.db.clone(), sha256: f.sha256.clone(), destructive: false }).collect();
+    let migrations: Vec<_> = sql.iter().map(|f| crate::manifest::Migration { compatible_sha256: vec![], id: f.id.clone(), db: f.db.clone(), sha256: f.sha256.clone(), destructive: false }).collect();
     let staging = std::env::temp_dir().join("coa-cleanbase-sql");
     let _ = fs::remove_dir_all(&staging);
     for f in &sql {
