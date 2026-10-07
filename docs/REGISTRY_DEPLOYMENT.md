@@ -102,6 +102,9 @@ Run on 2026-10-07 against `http://<VPS_IP>` (Windows workstation → Internet �
 | 16 | PostgreSQL not reachable externally | pass (5432 closed from outside; the container has no published port; `ss` on the node shows no 5432 or 8080 listener) |
 | 17 | No credentials, snapshots or character records in the database | pass (two tables, `realms` and `schema_migrations`; no column or table named for players, characters, accounts, sessions, snapshots, credentials; 0 rows mention any forbidden word; the largest capabilities blob is under 1 KB) |
 
+Abuse controls on the node with the production defaults: 13 registrations from one address gave 10 × 200 and then 429 (`gate_registration_rate_limit`); per-realm heartbeat limits and forged-request costs are covered by `tests/api.rs`.
+The gate's test realms were deleted from the database afterwards (`DELETE FROM realms`; the table is empty until a real Host publishes).
+
 **Item 13 in detail.** The real Manager (debug build, merged branch) published the realm *PT Guest* of the owner's smoke setup (cap 60), a character was in a portable session on it (a bot standing in for the client),
 and the Registry was stopped for two minutes, then the Manager was pointed at an unroutable address (timeouts), then the Registry was restored without touching the Manager. Throughout: the worldserver answered RA
 (`server info`) every poll, the portable session stayed `playing` with one open session, canonical revisions kept advancing from the game (5 → 8, including a deliberate change), the portable runtime's tick
