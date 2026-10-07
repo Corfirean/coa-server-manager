@@ -246,3 +246,9 @@ tests above instead.
 
 Known limits: a bot session has no socket, so the gate's packet hold and kick are only exercised for real clients by a manual test; the
 core's job parser is exercised through the live importer test, not through its own unit tests.
+
+## 11. Phase 8: protocol version 2
+
+`PROTOCOL_VERSION` is 2. `PortableSessionStarted` carries `progression {pin, projection?}`, `PortableCheckpoint` and `OwnerAck` carry the `pin` (cap, policy, progression signature,
+content profile hash, projected or native). The Owner stores the pin at the start and refuses a checkpoint under any other pin; a realm whose progression moves under an open session ends
+it with a final checkpoint taken under the old pin and does not arm the next session until the working copy is projected again. See `PORTABLE_LEVEL_PROJECTION.md`.

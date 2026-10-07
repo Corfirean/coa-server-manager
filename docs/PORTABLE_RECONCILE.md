@@ -168,3 +168,8 @@ Findings:
 * **Setup facts** (for the next person): the client's saved `realmName` must equal the realm's name or it loops on
   `REALM_NOT_FOUND`; a race/class needs a `playercreateinfo` row to be imported (race 3 / class 23 has none on this data); stale
   `online` flags and a realm flag of 3 block imports and the authserver respectively.
+
+## Phase 8: projected characters
+
+Reconcile and update of a character that is projected on a realm (level above its cap) use the same `merge3`, with the level and xp of the working copy frozen (reconcile) or taken from
+the new view (update) and the stored build records merged by key. See `PORTABLE_LEVEL_PROJECTION.md`.

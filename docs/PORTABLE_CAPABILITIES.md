@@ -122,3 +122,9 @@ after every import, update and re-evaluation). When the realm's profile changes:
 * A held-back **selection** is restored by a re-evaluation (a profile change); a held-back **extension** is applied by it; nothing is re-applied when the profile did not change.
 * Whether the profile of a running realm still matches (a core upgraded in place) is noticed only when it is read again; there is no push.
 * The Host driver is still a library plus the harness; the profile is not yet fetched by the Manager application on its own.
+
+## 7. Phase 8: profile version 2 (progression)
+
+`profile_version` is 2: the profile gains `progression` (the running core's `MaxPlayerLevel`, projection protocol/policy, an opaque `progression_signature`, `scaling_enabled`), outside
+the content hash, and `Feature::LevelProjection`. A stored version 1 profile is migrated on read (content and hash unchanged, `progression = None`); with no progression every operation
+is `Blocking` until the realm is probed through its core. The core report is version 2 (version 1 cores are still read, without progression). See `PORTABLE_LEVEL_PROJECTION.md`.
