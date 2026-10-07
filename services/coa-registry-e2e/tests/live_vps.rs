@@ -237,3 +237,19 @@ fn gate_persist_probe_read() {
     assert_eq!(h.heartbeat(60, false).status, 200, "and it can still heartbeat with its own key");
     println!("PERSIST_OK {realm}");
 }
+
+/// Production defaults: ten registrations per hour from one address, then 429 (run once against a freshly started Registry).
+#[test]
+#[ignore]
+fn gate_registration_rate_limit() {
+    let Some(base) = base() else { return };
+    let mut codes = Vec::new();
+    for _ in 0..13 {
+        let mut h = Host::remote(&base);
+        codes.push(h.register("Limit probe", 60).status);
+    }
+    let ok = codes.iter().filter(|c| **c == 200).count();
+    let limited = codes.iter().filter(|c| **c == 429).count();
+    assert!(ok >= 1 && limited >= 1 && ok + limited == 13, "{codes:?}");
+    println!("GATE LIMIT PASS  registrations from one address: {ok} accepted, {limited} refused with 429 ({codes:?})");
+}
