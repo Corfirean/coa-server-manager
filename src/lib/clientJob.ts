@@ -1,3 +1,4 @@
+import { startAfterUpdate } from "./updatePrefs";
 import { useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, asUiError, type ClientPlan, type ClientStep, type UiError } from "@/lib/api";
@@ -85,6 +86,7 @@ export async function syncClient(id: string, keepModified: boolean): Promise<voi
   try {
     await api.clientSync(id, keepModified);
     set(id, { phase: "done", step: null });
+    if (startAfterUpdate("client", id)) void api.play(id).catch(() => undefined);
     void refresh(id);
     setTimeout(() => {
       if (get(id).phase === "done") set(id, { phase: "idle" });

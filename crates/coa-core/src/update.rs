@@ -197,8 +197,15 @@ pub struct PlanItem {
 /// What an update would do to this installation. Read-only.
 pub fn plan(root: &Path, meta: &InstallMeta, manifest: &Manifest, resolutions: &BTreeMap<String, Resolution>, staged: Option<&Path>) -> Result<Vec<PlanItem>> {
     let mut out = Vec::new();
+    // An update is decided by version. The same version has the same files, so a file the owner edited (or removed)
+    // is not an update: Repair lists such files and restores them on request.
+    let same_version = meta.core.version.as_deref().is_some_and(|installed| installed == manifest.version);
     for f in manifest.files.iter().filter(|f| !f.path.starts_with(STAGED_PREFIX)) {
         let target = fsx::ensure_within(root, &fsx::safe_join(root, &f.path)?)?;
+        if same_version {
+            out.push(PlanItem { path: f.path.clone(), action: Action::Skip, reason: Some("same version; Repair restores changed files".into()) });
+            continue;
+        }
         let cur = sha_if_exists(&target);
         let recorded = meta.original_hashes.get(&f.path);
         let (action, reason) = match (f.policy, &cur) {
@@ -259,10 +266,29 @@ pub struct Preview {
     pub migrations: usize,
     pub pending_migrations: usize,
     pub download_bytes: u64,
+    /// False when the pending SQL was not counted (database stopped during a background check, or an error).
+    pub database_checked: bool,
+    /// Why the database could not be inspected. The check still answers about the files; applying the update starts
+    /// the database itself and reports its own failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database_check_error: Option<String>,
+}
+
+/// Whether looking for an update may start the database to count pending SQL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseAccess {
+    /// An explicit check: start the database if it is stopped (and stop it again afterwards).
+    Start,
+    /// The background check that repeats every few minutes must not start and stop MySQL on a stopped server.
+    OnlyIfRunning,
 }
 
 /// Describe the update; a managed launcher may need a one-time authenticated payload check.
 pub fn preview(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &str, resolutions: &BTreeMap<String, Resolution>) -> Result<Preview> {
+    preview_with(root, meta, source, trusted_key, resolutions, DatabaseAccess::Start)
+}
+
+pub fn preview_with(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &str, resolutions: &BTreeMap<String, Resolution>, access: DatabaseAccess) -> Result<Preview> {
     let meta_dir = crate::registry::metadata_dir_for(root)?;
     let _lock = operation_lock(&meta_dir)?;
     ensure_recovered(&meta_dir)?;
@@ -277,7 +303,16 @@ pub fn preview(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &s
             item.reason = Some("already up to date with Manager integration".into());
         }
     }
-    let pending_migrations = (RepackEnv { root, meta_dir: &meta_dir }).pending_migrations(&m)?;
+    // Counting pending SQL needs the database. If it cannot be started the files can still be compared, so report
+    // that instead of failing the whole check.
+    let (pending_migrations, database_checked, database_check_error) = match (RepackEnv { root, meta_dir: &meta_dir }).pending_migrations_with(&m, access) {
+        Ok(Some(count)) => (count, true, None),
+        Ok(None) => (m.migrations.len(), false, None),
+        Err(error) => {
+            tracing::warn!(%error, "update check: the database could not be inspected");
+            (m.migrations.len(), false, Some(error.to_string()))
+        }
+    };
     Ok(Preview {
         from_version: meta.core.version.clone(),
         to_version: m.version.clone(),
@@ -286,6 +321,8 @@ pub fn preview(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &s
         migrations: m.migrations.len(),
         pending_migrations,
         download_bytes: m.archive.as_ref().map(|a| a.parts.iter().map(|p| p.size).sum()).unwrap_or(0),
+        database_checked,
+        database_check_error,
     })
 }
 
@@ -422,7 +459,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     p.env.ensure_stopped()?;
     step(report, "Saving a recovery point", 52);
     txn.recovery_point = Some(p.env.snapshot().map_err(|e| Error::Invalid(format!("The update was not applied because the safety backup failed: {e}")))?);
-    let point_meta = meta_dir.join("backups").join(txn.recovery_point.as_deref().unwrap()).join("backup.json");
+    let point_meta = crate::backup::point_json(meta_dir, txn.recovery_point.as_deref().unwrap())?;
     if point_meta.is_file() { txn.recovery_hashes.insert("@point".into(), fsx::sha256_file(&point_meta)?); }
 
     txn.ops = items
@@ -455,9 +492,13 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
             Ok(r) if r.failed.is_none() => migrated = Some(r),
             Ok(r) => {
                 let (mid, why) = r.failed.clone().unwrap();
+                step(report, "Undoing the update", 76);
                 return fail_after_apply(p, &mut txn, &before, &tree, format!("Database update {mid} failed: {why}"), Some(r));
             }
-            Err(e) => return fail_after_apply(p, &mut txn, &before, &tree, e.to_string(), None),
+            Err(e) => {
+                step(report, "Undoing the update", 76);
+                return fail_after_apply(p, &mut txn, &before, &tree, e.to_string(), None);
+            }
         }
     }
 
@@ -565,7 +606,7 @@ fn restore_transaction(root: &Path, meta: &Path, before: &Path, txn: &mut Txn, e
     for (rel, expected) in &txn.recovery_hashes {
         let saved = match rel.as_str() {
             "@install" => before.join("manager-install.json"),
-            "@point" => meta.join("backups").join(txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The recovery point identity is missing.".into()))?).join("backup.json"),
+            "@point" => crate::backup::point_json(meta, txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The recovery point identity is missing.".into()))?)?,
             _ => fsx::safe_join(before, rel)?,
         };
         if fsx::sha256_file(&saved)? != *expected { return Err(Error::Invalid(format!("Recovery copy {rel} is damaged; no restoration was started."))); }
@@ -735,8 +776,13 @@ pub struct RepackEnv<'a> {
 
 impl RepackEnv<'_> {
     pub fn pending_migrations(&self, manifest: &Manifest) -> Result<usize> {
-        if manifest.migrations.is_empty() { return Ok(0); }
-        crate::backup::with_database(self.root, |db| {
+        Ok(self.pending_migrations_with(manifest, DatabaseAccess::Start)?.unwrap_or(0))
+    }
+
+    /// `None` when the database is not running and `access` forbids starting it.
+    pub fn pending_migrations_with(&self, manifest: &Manifest, access: DatabaseAccess) -> Result<Option<usize>> {
+        if manifest.migrations.is_empty() { return Ok(Some(0)); }
+        let count = |db: &crate::db::Db| -> Result<usize> {
             let realms = crate::realms::state(self.root)?;
             let mut modes = vec![realms.active];
             if realms.wildcard_created { modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa }); }
@@ -746,7 +792,11 @@ impl RepackEnv<'_> {
                 count += crate::migrations::pending_count(&db.clone().for_realm(mode), &list)?;
             }
             Ok(count)
-        })
+        };
+        match access {
+            DatabaseAccess::Start => crate::backup::with_database(self.root, count).map(Some),
+            DatabaseAccess::OnlyIfRunning => crate::backup::with_running_database(self.root, count),
+        }
     }
     pub(crate) fn verify_recovery_point(&self, point: &crate::backup::RecoveryPoint) -> Result<()> {
         if point.kind != crate::backup::Kind::Full || !["characters", "auth", "world", "configs"].iter().all(|name| point.components.iter().any(|c| c.name == *name)) {
@@ -1131,6 +1181,11 @@ mod tests {
         changed.files.iter_mut().find(|file| file.path == "Scripts/manage.py").unwrap().sha256 = fsx::sha256_bytes(b"new launcher");
         assert!(launcher_already_integrated(&w.root, &w.meta, &meta, &changed, &Source::Dir(w.pkg.clone())).is_err());
         write(&w.root, "Scripts/manage.py", format!("{integrated}\n# user edit\n").as_bytes());
+        // Same version: the owner's edit is not an update (Repair lists and restores it).
+        let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
+        assert!(p.items.iter().all(|item| item.action == Action::Skip) && p.conflicts.is_empty());
+        // An older installed build with the same edit does need a decision.
+        meta.core.version = Some("1.0.0".into());
         let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
         assert_eq!(p.items.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Conflict);
         meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_file(&w.root.join("Scripts/manage.py")).unwrap());

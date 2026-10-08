@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Archive, Bot, Bug, Gauge, Globe, Puzzle, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
+import { Archive, BarChart3, Bot, Bug, Gauge, Globe, Puzzle, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
 import { api, type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
 import logo from "@/assets/logo.png";
@@ -14,15 +14,17 @@ import { FriendsPage } from "@/screens/FriendsPage";
 import { ReportPage } from "@/screens/ReportPage";
 import { ModulesPage } from "@/screens/ModulesPage";
 import { ConsolePage } from "@/screens/ConsolePage";
+import { DashboardPage } from "@/screens/DashboardPage";
 import { Button } from "@/components/ui/button";
 import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
 import { startClientPolling } from "@/lib/clientUpdate";
 
-type Page = "overview" | "bots" | "server" | "modules" | "players" | "friends" | "backups" | "console" | "report" | "settings";
+type Page = "overview" | "bots" | "dashboard" | "server" | "modules" | "players" | "friends" | "backups" | "console" | "report" | "settings";
 
 const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "overview", label: "nav.overview", icon: Gauge, question: "q.overview" },
   { id: "bots", label: "nav.bots", icon: Bot, question: "q.bots" },
+  { id: "dashboard", label: "nav.dashboard", icon: BarChart3, question: "q.dashboard" },
   { id: "server", label: "nav.server", icon: Server, question: "q.server" },
   { id: "modules", label: "nav.modules", icon: Puzzle, question: "q.modules" },
   { id: "players", label: "nav.players", icon: Users, question: "q.players" },
@@ -84,7 +86,7 @@ export function Shell(props: {
           {t("app.name")}
         </div>
         <ul className="flex flex-col gap-0.5">
-          {NAV.filter((n) => !hiddenPages.includes(n.id)).map(({ id, label, icon: Icon }) => (
+          {NAV.filter((n) => !hiddenPages.includes(n.id) && (n.id !== "dashboard" || botModule === "playerbots")).map(({ id, label, icon: Icon }) => (
             <li key={id}>
               <button
                 onClick={() => setPage(id)}
@@ -125,11 +127,13 @@ export function Shell(props: {
         </div>
       </nav>
 
-      <main className="h-full flex-1 overflow-y-auto px-10 py-8">
+      <main className="relative h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
           <Overview key={server.id} server={server} companions={botModule === "companions" && !hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} onRealmChanged={reloadModules} onReport={() => setPage("report")} />
         ) : page === "bots" || page === "server" ? (
           <SettingsPage key={`${server.id}-${page}-${botModule}`} serverId={server.id} scope={page} botModule={botModule} title={t(current.label)} question={t(current.question)} />
+        ) : page === "dashboard" ? (
+          <DashboardPage key={server.id} serverId={server.id} />
         ) : page === "console" ? (
           <ConsolePage key={server.id} serverId={server.id} />
         ) : page === "modules" ? (
@@ -139,7 +143,7 @@ export function Shell(props: {
         ) : page === "friends" ? (
           <FriendsPage key={server.id} serverId={server.id} />
         ) : page === "settings" ? (
-          <SettingsHome key={server.id} serverId={server.id} />
+          <SettingsHome key={server.id} serverId={server.id} path={server.path} onForget={() => props.onForget(server.id)} />
         ) : page === "players" ? (
           <PlayersPage key={server.id} serverId={server.id} />
         ) : page === "backups" ? (

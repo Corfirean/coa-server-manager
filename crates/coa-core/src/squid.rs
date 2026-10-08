@@ -44,6 +44,15 @@ pub struct Field {
     pub default_if_missing: Option<serde_json::Value>,
     pub min: Option<f64>,
     pub max: Option<f64>,
+    /// A fixed list of allowed values with their labels (SQUID 1.9+); the editor shows it as a drop-down.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<Choice>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct Choice {
+    pub value: serde_json::Value,
+    pub label: String,
 }
 
 #[derive(Deserialize)]
@@ -71,10 +80,18 @@ pub fn fields(root: &Path) -> crate::Result<std::collections::BTreeMap<String, F
             || field.min.zip(field.max).is_some_and(|(min,max)| min > max)
             || !default_type(&field.kind, &field.default)
             || field.default_if_missing.as_ref().is_some_and(|value| !default_type(&field.kind, value))
+            || !valid_choices(&field)
             || fields.contains_key(&field.key) { continue; }
         fields.insert(field.key.clone(), field);
     }
     Ok(fields)
+}
+
+/// A list of choices must be small, labelled, free of repeats and made of values of the field's own type.
+fn valid_choices(field: &Field) -> bool {
+    field.choices.len() <= 64
+        && field.choices.iter().all(|c| !c.label.trim().is_empty() && c.label.len() <= 80 && default_type(&field.kind, &c.value))
+        && field.choices.iter().enumerate().all(|(i, c)| field.choices[..i].iter().all(|earlier| scalar(&earlier.value) != scalar(&c.value)))
 }
 
 fn default_type(kind: &str, value: &serde_json::Value) -> bool {
@@ -104,13 +121,28 @@ pub fn validate(field: &Field, value: &str) -> crate::Result<()> {
             && field.min.is_none_or(|min| number >= min) && field.max.is_none_or(|max| number <= max)),
         "string" => true,
         _ => false,
-    };
+    } && (field.choices.is_empty() || field.choices.iter().any(|c| scalar(&c.value).as_deref() == Some(value)));
     if valid { Ok(()) } else { Err(crate::Error::Invalid(format!("{} must match its documented SquidBots type and range.", field.key))) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_setting_with_choices_only_accepts_one_of_them() {
+        let root = tempfile::tempdir().unwrap();
+        crate::fsx::atomic_write(&root.path().join("Core/configs/modules/playerbots.conf.settings.json"), br#"{"format":1,"settings":[
+            {"key":"AiPlayerbot.BotTextLocale","type":"int","group":"chat","title":"Language","description":"x","default":-1,"min":-1,"max":8,
+             "choices":[{"value":-1,"label":"Auto"},{"value":0,"label":"English"},{"value":8,"label":"Russian"}]},
+            {"key":"AiPlayerbot.Broken","type":"int","group":"chat","title":"b","description":"x","default":0,"choices":[{"value":"a","label":"wrong type"}]}]}"#).unwrap();
+        let fields = fields(root.path()).unwrap();
+        let locale = &fields["AiPlayerbot.BotTextLocale"];
+        assert_eq!(locale.choices.len(), 3);
+        for ok in ["-1", "0", "8"] { assert!(validate(locale, ok).is_ok(), "{ok}"); }
+        for bad in ["1", "7", "x"] { assert!(validate(locale, bad).is_err(), "{bad}"); }
+        assert!(!fields.contains_key("AiPlayerbot.Broken"), "a choice of the wrong type invalidates the setting");
+    }
+
     #[test]
     fn upstream_settings_preserve_types_ranges_and_distinct_defaults() {
         let root = tempfile::tempdir().unwrap();

@@ -158,9 +158,14 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
           <p className="font-medium text-bad">{error.human.code === "unknown" ? t("install.failedTitle") : human(error.human).title}</p>
           <p className="mt-1 text-sm text-muted">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>
           <p className="mt-1 text-sm text-muted">{t("install.nothingInstalled")}</p>
-          <button className="mt-2 cursor-pointer text-xs text-muted underline" onClick={() => setShowDetails((v) => !v)}>
-            {showDetails ? t("install.hideTech") : t("install.showTech")}
-          </button>
+          <div className="mt-2 flex items-center gap-4">
+            <button className="cursor-pointer text-xs text-muted underline" onClick={() => setShowDetails((v) => !v)}>
+              {showDetails ? t("install.hideTech") : t("install.showTech")}
+            </button>
+            <button className="cursor-pointer text-xs text-muted underline" onClick={() => void navigator.clipboard.writeText(error.technical)}>
+              {t("common.copyError")}
+            </button>
+          </div>
           {showDetails && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs">{error.technical}</pre>}
         </Card>
       )}

@@ -7,6 +7,7 @@ pub mod remote_client;
 pub mod clientdl;
 pub mod config;
 pub mod console;
+pub mod dashboard;
 pub mod db;
 pub mod diag;
 pub mod docker;

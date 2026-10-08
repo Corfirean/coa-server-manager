@@ -525,7 +525,7 @@
   },
   "AlwaysMaxSkillForLevel": {
    "t": "Habilidades siempre al máximo del nivel",
-   "d": "Las habilidades de armas y otras están siempre al máximo para el nivel del personaje, sin entrenar."
+   "d": "Las habilidades de armas y otras están siempre al máximo para el nivel del personaje, sin entrenar. El reino Wildcard lo activa siempre para sí mismo."
   },
   "ActivateWeather": {
    "t": "Clima",
