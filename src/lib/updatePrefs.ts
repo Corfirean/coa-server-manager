@@ -1,13 +1,13 @@
 import { useState } from "react";
 
 /**
- * What to do when an update has finished: leave the server running (the default, as the update proves the new build
- * starts) or stop it again, and whether to open the game after a client update (off by default).
+ * Whether a finished update starts things. Off by default for both: updating a stopped server leaves it stopped (a
+ * server that was running is started again, as the update had to stop it) and a client update does not open the game.
  */
 export type AfterUpdate = "server" | "client";
 
 const key = (kind: AfterUpdate, id: string) => `coa-start-after-${kind}-update:${id}`;
-const fallback = (kind: AfterUpdate) => kind === "server";
+const fallback = (_kind: AfterUpdate) => false;
 
 export function startAfterUpdate(kind: AfterUpdate, id: string): boolean {
   try {

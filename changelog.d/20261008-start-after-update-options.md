@@ -2,6 +2,6 @@
 area: manager
 type: added
 audience: admins
-title: Choose whether the server keeps running after an update and whether the game starts after a client update
+title: A stopped server stays stopped after an update, unless you ask it to start
 ---
-Settings has a switch for stopping the server again once its update has finished, and the client card has one for starting the game after the client has been updated.
+Updating no longer leaves a server running that was stopped before. Settings has a switch to start it afterwards, and the client card has one to open the game after a client update.

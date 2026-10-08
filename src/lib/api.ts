@@ -78,6 +78,16 @@ export interface DriverOutcome {
   output: string;
 }
 
+export interface DashboardStatus {
+  installed: boolean;
+  tag: string | null;
+  squid_tag: string | null;
+  matches: boolean;
+  running: boolean;
+  port: number;
+  url: string;
+}
+
 export interface BackupLocation {
   path: string;
   default_path: string;
@@ -431,6 +441,10 @@ export const api = {
   save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
   presets: (scope: Scope) => invoke<PresetInfo[]>("list_presets", { scope }),
   backups: (id: string) => invoke<RecoveryPoint[]>("list_backups", { id }),
+  dashboardStatus: (id: string) => invoke<DashboardStatus>("dashboard_status", { id }),
+  dashboardInstall: (id: string) => invoke<DashboardStatus>("dashboard_install", { id }),
+  dashboardStart: (id: string) => invoke<DashboardStatus>("dashboard_start", { id }),
+  dashboardStop: (id: string) => invoke<DashboardStatus>("dashboard_stop", { id }),
   backupLocation: (id: string) => invoke<BackupLocation>("backup_location", { id }),
   /** `null` goes back to the default folder next to the server. */
   setBackupLocation: (id: string, path: string | null) => invoke<BackupLocation>("set_backup_location", { id, path }),

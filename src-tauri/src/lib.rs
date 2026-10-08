@@ -366,6 +366,30 @@ async fn set_backup_location(state: State<'_, AppState>, id: String, path: Optio
 }
 
 #[tauri::command]
+async fn dashboard_status(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || Ok(coa_core::dashboard::status(&root))).await
+}
+
+#[tauri::command]
+async fn dashboard_install(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::dashboard::install(&root, &|step| { let _ = app.emit("dashboard-progress", step); })).await
+}
+
+#[tauri::command]
+async fn dashboard_start(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::dashboard::start(&root)).await
+}
+
+#[tauri::command]
+async fn dashboard_stop(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || { coa_core::dashboard::stop(&root)?; Ok(coa_core::dashboard::status(&root)) }).await
+}
+
+#[tauri::command]
 fn list_backups(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<RecoveryPoint>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(backup::list(&meta_dir(&root)?))
@@ -1571,6 +1595,10 @@ pub fn run() {
             list_config_snapshots,
             restore_config_snapshot,
             list_backups,
+            dashboard_status,
+            dashboard_install,
+            dashboard_start,
+            dashboard_stop,
             backup_location,
             set_backup_location,
             create_backup,

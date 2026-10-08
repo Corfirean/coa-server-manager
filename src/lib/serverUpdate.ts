@@ -86,6 +86,9 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
   const current = get(id);
   if (current.applying || current.stateError || (current.result && "pending" in current.result)) return false;
   if (!opts && (!p || p.conflicts.length > 0)) return false;
+  // The update stops a running server and proves the new build by starting it; a server that was stopped stays stopped
+  // unless the owner asked for it to start.
+  const wasRunning = await api.status(id).then((s) => [s.observed.mysql, s.observed.auth, s.observed.world].some((x) => x.state === "running" || x.state === "starting")).catch(() => true);
   set(id, { applying: true, step: null, percent: 0, error: null, uiError: null, result: null });
   let un: (() => void) | undefined;
   try {
@@ -96,8 +99,7 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
   try {
     const out = await api.applyUpdate(id, opts?.choices ?? {}, opts?.source);
     set(id, { result: out.txn.state === "committed" ? { committed: out.txn.to_version ?? "" } : { pending: out.txn } });
-    // The update proved the new build starts and left it running; the owner may prefer it stopped again.
-    if (out.txn.state === "committed" && !startAfterUpdate("server", id)) await api.stop(id).catch(() => undefined);
+    if (out.txn.state === "committed" && !wasRunning && !startAfterUpdate("server", id)) await api.stop(id).catch(() => undefined);
     return true;
   } catch (e) {
     const ui = asUiError(e);
