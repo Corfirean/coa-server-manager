@@ -197,8 +197,15 @@ pub struct PlanItem {
 /// What an update would do to this installation. Read-only.
 pub fn plan(root: &Path, meta: &InstallMeta, manifest: &Manifest, resolutions: &BTreeMap<String, Resolution>, staged: Option<&Path>) -> Result<Vec<PlanItem>> {
     let mut out = Vec::new();
+    // An update is decided by version. The same version has the same files, so a file the owner edited (or removed)
+    // is not an update: Repair lists such files and restores them on request.
+    let same_version = meta.core.version.as_deref().is_some_and(|installed| installed == manifest.version);
     for f in manifest.files.iter().filter(|f| !f.path.starts_with(STAGED_PREFIX)) {
         let target = fsx::ensure_within(root, &fsx::safe_join(root, &f.path)?)?;
+        if same_version {
+            out.push(PlanItem { path: f.path.clone(), action: Action::Skip, reason: Some("same version; Repair restores changed files".into()) });
+            continue;
+        }
         let cur = sha_if_exists(&target);
         let recorded = meta.original_hashes.get(&f.path);
         let (action, reason) = match (f.policy, &cur) {
@@ -1170,6 +1177,11 @@ mod tests {
         changed.files.iter_mut().find(|file| file.path == "Scripts/manage.py").unwrap().sha256 = fsx::sha256_bytes(b"new launcher");
         assert!(launcher_already_integrated(&w.root, &w.meta, &meta, &changed, &Source::Dir(w.pkg.clone())).is_err());
         write(&w.root, "Scripts/manage.py", format!("{integrated}\n# user edit\n").as_bytes());
+        // Same version: the owner's edit is not an update (Repair lists and restores it).
+        let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
+        assert!(p.items.iter().all(|item| item.action == Action::Skip) && p.conflicts.is_empty());
+        // An older installed build with the same edit does need a decision.
+        meta.core.version = Some("1.0.0".into());
         let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
         assert_eq!(p.items.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Conflict);
         meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_file(&w.root.join("Scripts/manage.py")).unwrap());

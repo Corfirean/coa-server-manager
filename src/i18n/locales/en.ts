@@ -32,6 +32,8 @@ const en = {
   "repair.result": "Restored files: {files}. Applied database updates: {sql}.",
   "repair.backup": "Backup: {id}",
   "repair.fileCount": "Files that differ or are missing: {n}",
+  "repair.fileMissing": "missing",
+  "repair.fileChanged": "changed",
   "repair.dbCount": "Schema/start-data problems: {columns}. Pending or failed SQL updates: {sql}.",
   "repair.limited": "This older package has no full schema contract. Only character-save columns and starting data are checked.",
   "repair.unresolved": "Database problems remain. Repair does not replay already applied SQL or invent column changes. Export diagnostics with the listed problems for a corrective server update.",

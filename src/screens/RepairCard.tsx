@@ -10,7 +10,7 @@ export function RepairCard({ serverId }: { serverId: string }) {
   const job = useRepair(serverId);
   const [checking, setChecking] = useState(false);
   const [database, setDatabase] = useState<DatabaseCheck[] | null>(null);
-  const [files, setFiles] = useState<{ path: string; kind: string }[] | null>(null);
+  const [files, setFiles] = useState<{ path: string; kind: "missing" | "changed" | string }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   async function check() {
     clearRepairResult(serverId);
@@ -36,6 +36,12 @@ export function RepairCard({ serverId }: { serverId: string }) {
       {job.result.error && <p className="mt-2 text-bad">{job.result.error}</p>}
     </div>}
     {files && !job.result && <p className="mt-3 text-sm">{t("repair.fileCount", { n: files.length })}</p>}
+    {files && !job.result && files.length > 0 && (
+      <ul className="selectable mt-2 max-h-52 overflow-auto text-sm text-muted">
+        {files.slice(0, 200).map((f) => <li key={f.path}><span className={f.kind === "missing" ? "text-bad" : "text-warn"}>{t(f.kind === "missing" ? "repair.fileMissing" : "repair.fileChanged")}</span> {f.path}</li>)}
+        {files.length > 200 && <li>…</li>}
+      </ul>
+    )}
     {checks?.map(c => {
       const pending = c.migrations.filter(m => m.status !== "applied");
       return <div key={c.realm} className="mt-4 border-t border-line pt-3 text-sm">
