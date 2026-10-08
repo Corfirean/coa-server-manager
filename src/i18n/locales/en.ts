@@ -848,6 +848,7 @@ const en = {
   "set.searchAll": "Search all settings by name or description…",
   "set.search": "Search settings…",
   "upd.current": "You are up to date (version {v}).",
+  "upd.dbUnchecked": "The database could not be checked, so pending database changes are unknown: {why}",
   "client.job.checking": "Checking the client…",
   "client.job.updating": "Updating the client",
   "fr.lan.address": "Network address",

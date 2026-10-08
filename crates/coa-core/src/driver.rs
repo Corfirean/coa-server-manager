@@ -136,6 +136,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
             }
         }
     }
+    discard_damaged_launcher_state(&root);
     let mut cmd = Command::new(&python);
     cmd.arg("-B").arg("-c").arg(LAUNCH_SCRIPT).arg(&script).arg(verb.arg())
         .current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -188,8 +189,32 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         }
     };
     tracing::info!(?verb, ok, ?code, "driver: launcher verb finished");
+    if !ok && !output.is_empty() {
+        let redacted = crate::diag::redact(&output);
+        let tail: Vec<_> = redacted.lines().rev().take(12).collect();
+        tracing::warn!(?verb, exit_code, output = %tail.into_iter().rev().collect::<Vec<_>>().join("\n"), "driver: launcher verb failed");
+    }
     if ok && verb == Verb::StartAll { crate::multiworld::start(&root)?; }
     Ok(DriverOutcome { ok, exit_code, code, human: code.map(ErrorCode::human), output })
+}
+
+/// The launcher keeps one JSON record per service in `.state`. A crash or power loss while it writes one can leave
+/// a file of the right length that holds only zero bytes (NTFS keeps the length but not the data), and the launcher
+/// then dies on every start with an unreadable record. Such a file carries no information, so remove it: the
+/// launcher treats a missing record as "not running". Only empty or all-zero `*.json` files are touched.
+pub(crate) fn discard_damaged_launcher_state(root: &Path) -> Vec<PathBuf> {
+    let mut removed = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root.join(".state")) else { return removed; };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| !e.eq_ignore_ascii_case("json")) || !path.is_file() { continue; }
+        let Ok(bytes) = std::fs::read(&path) else { continue; };
+        if bytes.iter().all(|b| *b == 0) && std::fs::remove_file(&path).is_ok() {
+            tracing::warn!(file = %path.display(), bytes = bytes.len(), "driver: removed a launcher state file damaged by an interrupted write");
+            removed.push(path);
+        }
+    }
+    removed
 }
 
 const LAUNCH_SCRIPT: &str = "import runpy,sys;from pathlib import Path;script=sys.argv[1];sys.path.insert(0,str(Path(script).resolve().parent));sys.argv=sys.argv[1:];runpy.run_path(script,run_name='__main__')";
@@ -249,6 +274,24 @@ mod tests {
         assert_eq!(Verb::StopAll.timeout(folder.path()), Duration::from_secs(240));
         std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
         assert_eq!(Verb::StartWorld.timeout(folder.path()), Duration::from_secs(420));
+    }
+
+    #[test]
+    fn zero_filled_launcher_state_is_discarded_and_valid_state_is_kept() {
+        let folder = tempfile::tempdir().unwrap();
+        let state = folder.path().join(".state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("mysql.json"), vec![0u8; 116]).unwrap();
+        std::fs::write(state.join("configuration.json"), Vec::<u8>::new()).unwrap();
+        std::fs::write(state.join("world.json"), "{\"pid\": 4}\n").unwrap();
+        std::fs::write(state.join("stop-relay"), Vec::<u8>::new()).unwrap();
+        std::fs::write(state.join("auth.json"), "{\"pid\": 0}").unwrap();
+        let mut removed: Vec<_> = discard_damaged_launcher_state(folder.path()).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        removed.sort();
+        assert_eq!(removed, ["configuration.json", "mysql.json"]);
+        assert!(state.join("world.json").exists() && state.join("auth.json").exists() && state.join("stop-relay").exists());
+        assert!(discard_damaged_launcher_state(folder.path()).is_empty());
+        assert!(discard_damaged_launcher_state(&folder.path().join("missing")).is_empty());
     }
 
     #[test]

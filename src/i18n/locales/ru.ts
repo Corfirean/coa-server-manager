@@ -846,6 +846,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "set.searchAll": "Поиск по всем настройкам: название или описание…",
   "set.search": "Поиск по настройкам…",
   "upd.current": "У вас последняя версия ({v}).",
+  "upd.dbUnchecked": "Не удалось проверить базу данных, поэтому неизвестно, нужны ли ей изменения: {why}",
   "client.job.checking": "Проверка клиента…",
   "client.job.updating": "Обновление клиента",
   "fr.lan.address": "Сетевой адрес",

@@ -285,6 +285,8 @@ export interface UpdatePreview {
   migrations: number;
   pending_migrations?: number;
   download_bytes: number;
+  /** Set when the database could not be inspected; the file comparison is still valid. */
+  database_check_error?: string;
 }
 
 export interface UpdateTxn {

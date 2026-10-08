@@ -163,7 +163,8 @@ pub fn with_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result
     if !mysql_was_up {
         let out = driver::run(root, Verb::StartMysql)?;
         if !out.ok {
-            return Err(Error::Invalid(out.human.map(|h| h.title.to_string()).unwrap_or_else(|| "The database could not be started.".into())));
+            // Keep the launcher's own last lines: the title alone ("Something went wrong") hides the cause.
+            return Err(Error::Invalid(format!("The database could not be started. {}", driver::startup_failure(root, &out))));
         }
     }
     let result = f(&db);

@@ -202,6 +202,10 @@ export function SettingsHome({ serverId }: { serverId: string }) {
           </p>
         )}
 
+        {preview?.database_check_error && (
+          <p className="selectable mt-4 break-words text-sm text-warn" role="status">{t("upd.dbUnchecked", { why: preview.database_check_error })}</p>
+        )}
+
         {preview && isUpdateCurrent(preview) && (
           <div className="mt-5 border-t border-line pt-4">
             <p className="font-medium text-ok" role="status">{t("upd.current", { v: preview.to_version })}</p>
@@ -214,7 +218,7 @@ export function SettingsHome({ serverId }: { serverId: string }) {
               {preview.from_version ? t("upd.availableFrom", { to: preview.to_version, from: preview.from_version }) : t("upd.available", { to: preview.to_version })}
             </p>
             <p className="mt-1 text-sm text-muted">
-              {(preview.pending_migrations ?? preview.migrations) > 0
+              {!preview.database_check_error && (preview.pending_migrations ?? preview.migrations) > 0
                 ? t("upd.summaryDb", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length, db: preview.pending_migrations ?? preview.migrations })
                 : t("upd.summary", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length })}
             </p>

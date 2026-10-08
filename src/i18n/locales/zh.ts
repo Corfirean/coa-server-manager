@@ -827,6 +827,7 @@ const zh = {
   "set.searchAll": "按名称或描述搜索全部设置…",
   "set.search": "搜索设置…",
   "upd.current": "当前已是最新版本 ({v})。",
+  "upd.dbUnchecked": "无法检查数据库，因此不清楚是否有待应用的数据库更改：{why}",
   "client.job.checking": "正在检查游戏客户端…",
   "client.job.updating": "正在更新游戏客户端",
   "err.docker_unavailable.title": "Docker 不可用",

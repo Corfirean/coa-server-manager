@@ -827,6 +827,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "set.searchAll": "Alle Einstellungen nach Name oder Beschreibung durchsuchen…",
   "set.search": "Einstellungen durchsuchen…",
   "upd.current": "Du bist auf dem neuesten Stand (Version {v}).",
+  "upd.dbUnchecked": "Die Datenbank konnte nicht geprüft werden, daher sind offene Datenbankänderungen unbekannt: {why}",
   "client.job.checking": "Client wird geprüft…",
   "client.job.updating": "Client wird aktualisiert",
   "fr.lan.address": "Netzwerkadresse",

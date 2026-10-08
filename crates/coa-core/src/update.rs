@@ -259,6 +259,10 @@ pub struct Preview {
     pub migrations: usize,
     pub pending_migrations: usize,
     pub download_bytes: u64,
+    /// Why the database could not be inspected. The check still answers about the files; applying the update starts
+    /// the database itself and reports its own failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database_check_error: Option<String>,
 }
 
 /// Describe the update; a managed launcher may need a one-time authenticated payload check.
@@ -277,7 +281,15 @@ pub fn preview(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &s
             item.reason = Some("already up to date with Manager integration".into());
         }
     }
-    let pending_migrations = (RepackEnv { root, meta_dir: &meta_dir }).pending_migrations(&m)?;
+    // Counting pending SQL needs the database. If it cannot be started the files can still be compared, so report
+    // that instead of failing the whole check.
+    let (pending_migrations, database_check_error) = match (RepackEnv { root, meta_dir: &meta_dir }).pending_migrations(&m) {
+        Ok(count) => (count, None),
+        Err(error) => {
+            tracing::warn!(%error, "update check: the database could not be inspected");
+            (m.migrations.len(), Some(error.to_string()))
+        }
+    };
     Ok(Preview {
         from_version: meta.core.version.clone(),
         to_version: m.version.clone(),
@@ -286,6 +298,7 @@ pub fn preview(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &s
         migrations: m.migrations.len(),
         pending_migrations,
         download_bytes: m.archive.as_ref().map(|a| a.parts.iter().map(|p| p.size).sum()).unwrap_or(0),
+        database_check_error,
     })
 }
 
