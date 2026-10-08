@@ -495,7 +495,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "ustep.Updating the database": "Mise à jour de la base de données",
   "ustep.Starting the updated server": "Démarrage du serveur mis à jour",
   "ustep.Finishing": "Finalisation",
-  "ustep.Undoing the update": "Annulation de la mise à jour",
+  "ustep.Undoing the update": "Annulation de la mise à jour (la restauration des bases de données peut prendre plusieurs minutes)",
   "ustep.Done": "Terminé",
 
   // Companion sizes

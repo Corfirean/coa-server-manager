@@ -530,7 +530,7 @@ const en = {
   "ustep.Updating the database": "Updating the database",
   "ustep.Starting the updated server": "Starting the updated server",
   "ustep.Finishing": "Finishing",
-  "ustep.Undoing the update": "Undoing the update",
+  "ustep.Undoing the update": "Undoing the update (restoring the databases can take several minutes)",
   "ustep.Done": "Done",
 
   // Companion sizes

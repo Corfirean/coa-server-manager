@@ -528,7 +528,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "ustep.Updating the database": "Обновление базы данных",
   "ustep.Starting the updated server": "Запуск обновлённого сервера",
   "ustep.Finishing": "Завершение",
-  "ustep.Undoing the update": "Откат обновления",
+  "ustep.Undoing the update": "Отмена обновления (восстановление баз данных может занять несколько минут)",
   "ustep.Done": "Готово",
 
   // Companion sizes

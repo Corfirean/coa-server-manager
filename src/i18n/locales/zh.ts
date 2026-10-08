@@ -507,7 +507,7 @@ const zh = {
   "ustep.Updating the database": "正在更新数据库结构",
   "ustep.Starting the updated server": "正在启动更新后的服务器",
   "ustep.Finishing": "正在收尾完成",
-  "ustep.Undoing the update": "正在撤销更新并回滚",
+  "ustep.Undoing the update": "正在撤销更新（恢复数据库可能需要几分钟）",
   "ustep.Done": "已完成",
 
   // Companion sizes

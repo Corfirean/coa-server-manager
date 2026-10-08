@@ -495,7 +495,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "ustep.Updating the database": "Datenbank wird aktualisiert",
   "ustep.Starting the updated server": "Aktualisierter Server wird gestartet",
   "ustep.Finishing": "Abschluss",
-  "ustep.Undoing the update": "Update wird rückgängig gemacht",
+  "ustep.Undoing the update": "Update wird rückgängig gemacht (das Wiederherstellen der Datenbanken kann mehrere Minuten dauern)",
   "ustep.Done": "Fertig",
 
   // Companion sizes

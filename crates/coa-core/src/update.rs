@@ -492,9 +492,13 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
             Ok(r) if r.failed.is_none() => migrated = Some(r),
             Ok(r) => {
                 let (mid, why) = r.failed.clone().unwrap();
+                step(report, "Undoing the update", 76);
                 return fail_after_apply(p, &mut txn, &before, &tree, format!("Database update {mid} failed: {why}"), Some(r));
             }
-            Err(e) => return fail_after_apply(p, &mut txn, &before, &tree, e.to_string(), None),
+            Err(e) => {
+                step(report, "Undoing the update", 76);
+                return fail_after_apply(p, &mut txn, &before, &tree, e.to_string(), None);
+            }
         }
     }
 
