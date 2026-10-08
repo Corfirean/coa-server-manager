@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
-import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, type LucideProps } from "lucide-react";
+import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
 import { api, asUiError, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ const TILES: Record<string, { icon: ComponentType<LucideProps>; from: string; to
   gavel: { icon: Gavel, from: "from-yellow-500", to: "to-amber-700" },
   sparkles: { icon: Sparkles, from: "from-fuchsia-500", to: "to-purple-700" },
   swords: { icon: Swords, from: "from-rose-500", to: "to-red-800" },
+  races: { icon: Users, from: "from-cyan-500", to: "to-blue-800" },
 };
 const DEFAULT_TILE = { icon: Puzzle, from: "from-slate-500", to: "to-slate-700" };
 

@@ -122,6 +122,24 @@
       "page": "bots"
     },
     {
+      "id": "custom-races",
+      "name": "Custom Races",
+      "description": {
+        "en": "Playable custom races (Esteria and additional races) with extended appearances.",
+        "ru": "Пользовательские расы (Esteria и дополнительные расы) с расширенной внешностью.",
+        "de": "Spielbare benutzerdefinierte Völker (Esteria und weitere Völker) mit erweitertem Aussehen.",
+        "fr": "Races personnalisées jouables (Esteria et autres) avec apparences étendues.",
+        "es": "Razas personalizadas jugables (Esteria y razas adicionales) con apariencias ampliadas."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
+      "conf": "coa_custom_races.conf",
+      "switchable": true,
+      "status": "beta",
+      "icon": "races",
+      "enable_key": "CoACustomRaces.Enable",
+      "default_on": false
+    },
+    {
       "id": "client-compat",
       "name": "Client compatibility",
       "description": {
