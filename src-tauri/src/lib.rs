@@ -354,6 +354,18 @@ impl Drop for BusyGuard<'_> {
 }
 
 #[tauri::command]
+fn backup_location(state: State<'_, AppState>, id: String) -> std::result::Result<backup::BackupLocation, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(backup::location(&meta_dir(&root)?))
+}
+
+#[tauri::command]
+async fn set_backup_location(state: State<'_, AppState>, id: String, path: Option<String>) -> std::result::Result<backup::BackupLocation, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || backup::set_location(&root, &meta_dir(&root)?, path.as_deref())).await
+}
+
+#[tauri::command]
 fn list_backups(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<RecoveryPoint>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(backup::list(&meta_dir(&root)?))
@@ -1559,6 +1571,8 @@ pub fn run() {
             list_config_snapshots,
             restore_config_snapshot,
             list_backups,
+            backup_location,
+            set_backup_location,
             create_backup,
             verify_backup,
             delete_backup,

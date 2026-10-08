@@ -69,8 +69,80 @@ pub struct RecoveryPoint {
     pub realm: crate::realms::Mode,
 }
 
-fn backups_dir(meta: &Path) -> PathBuf {
+const LOCATION_FILE: &str = "backup-location.json";
+
+#[derive(Serialize, Deserialize)]
+struct StoredLocation {
+    path: String,
+}
+
+fn default_dir(meta: &Path) -> PathBuf {
     meta.join("backups")
+}
+
+/// The folder the owner chose for backups (for example on another drive), if any.
+fn custom_dir(meta: &Path) -> Option<PathBuf> {
+    let stored: StoredLocation = fsx::read_json(&meta.join(LOCATION_FILE)).ok()?;
+    let path = PathBuf::from(stored.path.trim());
+    path.is_absolute().then_some(path)
+}
+
+/// Where new backups go.
+fn backups_dir(meta: &Path) -> PathBuf {
+    custom_dir(meta).unwrap_or_else(|| default_dir(meta))
+}
+
+/// Every folder that may hold backups: the chosen one first, then the default one, so backups made before the
+/// folder was changed stay visible and restorable.
+fn backup_roots(meta: &Path) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = custom_dir(meta).into_iter().collect();
+    let default = default_dir(meta);
+    if !roots.contains(&default) { roots.push(default); }
+    roots
+}
+
+#[derive(Debug, Serialize)]
+pub struct BackupLocation {
+    pub path: String,
+    pub default_path: String,
+    pub is_default: bool,
+}
+
+pub fn location(meta: &Path) -> BackupLocation {
+    let default = default_dir(meta);
+    let current = backups_dir(meta);
+    BackupLocation { is_default: current == default, path: current.to_string_lossy().into_owned(), default_path: default.to_string_lossy().into_owned() }
+}
+
+/// Choose where new backups are stored (`None` = the default folder next to the server). Existing backups stay where
+/// they are and remain listed.
+pub fn set_location(root: &Path, meta: &Path, path: Option<&str>) -> Result<BackupLocation> {
+    let _lock = crate::update::operation_lock(meta)?;
+    crate::update::ensure_recovered(meta)?;
+    match path.map(str::trim).filter(|p| !p.is_empty()) {
+        None => {
+            let file = meta.join(LOCATION_FILE);
+            if file.exists() { fs::remove_file(file)?; }
+        }
+        Some(chosen) => {
+            let dir = PathBuf::from(chosen);
+            if !dir.is_absolute() { return Err(Error::Invalid("Choose a full folder path, for example D:\\CoA backups.".into())); }
+            if fsx::ensure_within(root, &dir).is_ok() {
+                return Err(Error::Invalid("Backups cannot be stored inside the server folder: they would be part of what is being backed up.".into()));
+            }
+            fs::create_dir_all(&dir).map_err(|e| Error::Invalid(format!("The folder cannot be created: {e}")))?;
+            let probe = dir.join(format!(".coa-write-test-{}", uuid::Uuid::new_v4().simple()));
+            fs::write(&probe, b"x").map_err(|e| Error::Invalid(format!("The folder is not writable: {e}")))?;
+            let _ = fs::remove_file(&probe);
+            fsx::atomic_write_json(&meta.join(LOCATION_FILE), &StoredLocation { path: dir.to_string_lossy().into_owned() })?;
+        }
+    }
+    Ok(location(meta))
+}
+
+/// The `backup.json` of a recovery point, wherever its folder is.
+pub(crate) fn point_json(meta: &Path, id: &str) -> Result<PathBuf> {
+    Ok(point_dir(meta, id)?.join("backup.json"))
 }
 
 fn id_ok(id: &str) -> bool {
@@ -81,19 +153,32 @@ fn point_dir(meta: &Path, id: &str) -> Result<PathBuf> {
     if !id_ok(id) {
         return Err(Error::PathRejected(format!("bad backup id {id:?}")));
     }
+    if let Some(found) = backup_roots(meta).into_iter().map(|root| root.join(id)).find(|dir| dir.is_dir()) {
+        return Ok(found);
+    }
     Ok(backups_dir(meta).join(id))
 }
 
 pub fn list(meta: &Path) -> Vec<RecoveryPoint> {
-    let mut out: Vec<RecoveryPoint> = fs::read_dir(backups_dir(meta))
-        .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| fsx::read_json(&e.path().join("backup.json")).ok()).collect())
-        .unwrap_or_default();
+    let mut out: Vec<RecoveryPoint> = Vec::new();
+    for root in backup_roots(meta) {
+        let found: Vec<RecoveryPoint> = fs::read_dir(&root)
+            .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| fsx::read_json(&e.path().join("backup.json")).ok()).collect())
+            .unwrap_or_default();
+        for point in found {
+            if !out.iter().any(|p| p.id == point.id) { out.push(point); }
+        }
+    }
     out.sort_by(|a, b| b.id.cmp(&a.id));
     out
 }
 
 pub fn get(meta: &Path, id: &str) -> Result<RecoveryPoint> {
-    let point: RecoveryPoint = fsx::read_json(&fsx::ensure_within(meta, &point_dir(meta, id)?.join("backup.json"))?).map_err(|_| Error::Invalid(format!("backup {id} was not found or its metadata is damaged")))?;
+    let dir = point_dir(meta, id)?;
+    // The folder holding the backups may itself be a junction or symlink to another drive (the owner moved it there);
+    // what must hold is that the recovery point stays inside that folder.
+    let holder = dir.parent().ok_or_else(|| Error::PathRejected(format!("bad backup folder for {id}")))?;
+    let point: RecoveryPoint = fsx::read_json(&fsx::ensure_within(holder, &dir.join("backup.json"))?).map_err(|_| Error::Invalid(format!("backup {id} was not found or its metadata is damaged")))?;
     if point.id != id || point.schema != 1 { return Err(Error::Invalid(format!("Backup {id} has inconsistent identity or an unsupported schema."))); }
     Ok(point)
 }
@@ -497,6 +582,34 @@ mod tests {
         assert!(root.join("Core/configs/unrelated_new.conf").is_file(), "restore never deletes other files");
         assert_eq!(safety.trigger, Trigger::BeforeRestore);
         assert!(list(&meta).len() >= 2);
+    }
+
+    #[test]
+    fn backups_can_live_in_a_chosen_folder_and_old_ones_stay_visible() {
+        let (d, root, meta) = setup();
+        let before = create(&root, &meta, Kind::Config, Trigger::Manual, Some("default folder".into()), &|_| {}).unwrap();
+        assert!(location(&meta).is_default);
+
+        // inside the server folder is refused, a relative path is refused
+        assert!(set_location(&root, &meta, Some(root.join("backups").to_str().unwrap())).is_err());
+        assert!(set_location(&root, &meta, Some("backups")).is_err());
+
+        let elsewhere = d.path().join("other drive").join("CoA backups");
+        let loc = set_location(&root, &meta, Some(elsewhere.to_str().unwrap())).unwrap();
+        assert!(!loc.is_default && elsewhere.is_dir());
+        let after = create(&root, &meta, Kind::Config, Trigger::Manual, Some("chosen folder".into()), &|_| {}).unwrap();
+        assert!(elsewhere.join(&after.id).join("backup.json").is_file(), "new backups go to the chosen folder");
+        assert!(!default_dir(&meta).join(&after.id).exists());
+        let ids: Vec<_> = list(&meta).into_iter().map(|p| p.id).collect();
+        assert!(ids.contains(&before.id) && ids.contains(&after.id), "the old backup is still listed");
+        assert!(verify(&meta, &before.id).unwrap().ok && verify(&meta, &after.id).unwrap().ok);
+        assert_eq!(point_json(&meta, &after.id).unwrap(), elsewhere.join(&after.id).join("backup.json"));
+        restore_configs(&root, &meta, &after.id).unwrap();
+        delete(&meta, &after.id).unwrap();
+        assert!(!elsewhere.join(&after.id).exists());
+
+        assert!(set_location(&root, &meta, None).unwrap().is_default);
+        assert!(list(&meta).iter().any(|p| p.id == before.id));
     }
 
     #[test]

@@ -78,6 +78,12 @@ export interface DriverOutcome {
   output: string;
 }
 
+export interface BackupLocation {
+  path: string;
+  default_path: string;
+  is_default: boolean;
+}
+
 export interface ServerSummary {
   id: string;
   name: string;
@@ -217,7 +223,7 @@ export interface ModuleSetting {
   value: string;
   default: string | null;
   doc: string;
-  field?: { key: string; type: string; title: string; description: string; group: string; group_title?: string | null; min?: number | null; max?: number | null } | null;
+  field?: { key: string; type: string; title: string; description: string; group: string; group_title?: string | null; min?: number | null; max?: number | null; choices?: { value: string | number | boolean; label: string }[] | null } | null;
 }
 
 export interface AllSetting {
@@ -425,6 +431,9 @@ export const api = {
   save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
   presets: (scope: Scope) => invoke<PresetInfo[]>("list_presets", { scope }),
   backups: (id: string) => invoke<RecoveryPoint[]>("list_backups", { id }),
+  backupLocation: (id: string) => invoke<BackupLocation>("backup_location", { id }),
+  /** `null` goes back to the default folder next to the server. */
+  setBackupLocation: (id: string, path: string | null) => invoke<BackupLocation>("set_backup_location", { id, path }),
   createBackup: (id: string, kind: BackupKind, label?: string) => invoke<RecoveryPoint>("create_backup", { id, kind, label: label ?? null }),
   verifyBackup: (id: string, backupId: string) => invoke<{ ok: boolean; problems: string[] }>("verify_backup", { id, backupId }),
   deleteBackup: (id: string, backupId: string) => invoke<void>("delete_backup", { id, backupId }),

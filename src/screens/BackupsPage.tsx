@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Loader2, ShieldCheck } from "lucide-react";
-import { api, asUiError, type BackupKind, type RecoveryPoint, type UiError } from "@/lib/api";
+import { open } from "@tauri-apps/plugin-dialog";
+import { api, asUiError, type BackupKind, type BackupLocation, type RecoveryPoint, type UiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useI18n, type Key, type Locale } from "@/i18n";
@@ -45,9 +46,11 @@ export function BackupsPage({ serverId }: { serverId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<RecoveryPoint | null>(null);
   const [running, setRunning] = useState(false);
+  const [location, setLocation] = useState<BackupLocation | null>(null);
 
   const load = useCallback(async () => {
     setPoints(await api.backups(serverId));
+    setLocation(await api.backupLocation(serverId));
     const s = await api.status(serverId);
     setRunning(s.observed.world.state !== "stopped" || s.observed.auth.state !== "stopped");
   }, [serverId]);
@@ -112,6 +115,23 @@ export function BackupsPage({ serverId }: { serverId: string }) {
           {busy === "create" && <span className="text-sm text-muted" role="status">{step ?? t("bk.working")}</span>}
         </div>
       </Card>
+
+      {location && (
+        <Card className="mt-4 p-5">
+          <p className="font-medium">{t("bk.folder")}</p>
+          <p className="selectable mt-1 break-all text-sm text-muted">{location.path}{location.is_default ? ` (${t("bk.folderDefault")})` : ""}</p>
+          <p className="mt-1 text-xs text-muted">{t("bk.folderNote")}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" disabled={!!busy} onClick={() => void run("folder", async () => {
+              const dir = await open({ directory: true, multiple: false, title: t("bk.folder") });
+              if (typeof dir === "string") { await api.setBackupLocation(serverId, dir); return t("bk.folderChanged"); }
+            })}>{t("bk.folderChange")}</Button>
+            {!location.is_default && (
+              <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void run("folder", async () => { await api.setBackupLocation(serverId, null); return t("bk.folderChanged"); })}>{t("bk.folderReset")}</Button>
+            )}
+          </div>
+        </Card>
+      )}
 
       {notice && <p className="mt-3 text-sm text-ok" role="status">{notice}</p>}
       {error && (

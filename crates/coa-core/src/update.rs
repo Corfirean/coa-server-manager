@@ -452,7 +452,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     p.env.ensure_stopped()?;
     step(report, "Saving a recovery point", 52);
     txn.recovery_point = Some(p.env.snapshot().map_err(|e| Error::Invalid(format!("The update was not applied because the safety backup failed: {e}")))?);
-    let point_meta = meta_dir.join("backups").join(txn.recovery_point.as_deref().unwrap()).join("backup.json");
+    let point_meta = crate::backup::point_json(meta_dir, txn.recovery_point.as_deref().unwrap())?;
     if point_meta.is_file() { txn.recovery_hashes.insert("@point".into(), fsx::sha256_file(&point_meta)?); }
 
     txn.ops = items
@@ -595,7 +595,7 @@ fn restore_transaction(root: &Path, meta: &Path, before: &Path, txn: &mut Txn, e
     for (rel, expected) in &txn.recovery_hashes {
         let saved = match rel.as_str() {
             "@install" => before.join("manager-install.json"),
-            "@point" => meta.join("backups").join(txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The recovery point identity is missing.".into()))?).join("backup.json"),
+            "@point" => crate::backup::point_json(meta, txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The recovery point identity is missing.".into()))?)?,
             _ => fsx::safe_join(before, rel)?,
         };
         if fsx::sha256_file(&saved)? != *expected { return Err(Error::Invalid(format!("Recovery copy {rel} is damaged; no restoration was started."))); }
