@@ -27,7 +27,18 @@ const LIST_SQL: &str = "SELECT a.id, a.username, \
     a.online, IFNULL(a.last_login, ''), \
     (SELECT COUNT(*) FROM acore_characters.characters c WHERE c.account = a.id) \
     FROM acore_auth.account a \
-    WHERE a.username NOT LIKE 'COABOTHOST%' AND a.username <> 'COAMANAGER' ORDER BY a.id;";
+    WHERE a.username NOT LIKE 'COABOTHOST%' AND a.username <> 'COAMANAGER' AND a.username NOT LIKE '{SQUID}%' ORDER BY a.id;";
+
+/// The accounts of SQUID's random bots share a name prefix (`AiPlayerbot.RandomBotAccountPrefix`, default `rndbot`).
+/// They belong to the bot system like the companions' accounts and are never listed or touched here.
+pub fn squid_bot_prefix(root: &Path) -> String {
+    std::fs::read(root.join("Core/configs/modules/playerbots.conf"))
+        .ok()
+        .and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
+        .and_then(|conf| conf.get("AiPlayerbot.RandomBotAccountPrefix").map(|v| crate::config::parser::unquote(v).to_string()))
+        .filter(|prefix| !prefix.is_empty() && prefix.len() <= 32 && prefix.chars().all(|c| c.is_ascii_alphanumeric()))
+        .unwrap_or_else(|| "rndbot".into())
+}
 
 /// Rows of tab-separated columns as the `mysql` client prints them.
 pub fn parse_list(out: &str) -> Vec<AccountInfo> {
@@ -51,7 +62,7 @@ pub fn parse_list(out: &str) -> Vec<AccountInfo> {
 
 pub fn list(root: &Path) -> Result<Vec<AccountInfo>> {
     let db = Db::from_repack(root, Account::Admin)?;
-    Ok(parse_list(&db.query(LIST_SQL)?))
+    Ok(parse_list(&db.query(&LIST_SQL.replace("{SQUID}", &squid_bot_prefix(root).to_ascii_uppercase()))?))
 }
 
 fn upper(name: &str) -> Result<String> {
@@ -64,6 +75,9 @@ fn upper(name: &str) -> Result<String> {
 pub fn rename(root: &Path, ra: &mut Ra, old: &str, new: &str, password: &str) -> Result<()> {
     let (old, new) = (upper(old)?, upper(new)?);
     validate_account(&new, password)?;
+    if is_reserved(&old) || old.starts_with(&squid_bot_prefix(root).to_ascii_uppercase()) {
+        return Err(Error::Invalid("This account belongs to the Manager or the bots and cannot be renamed.".into()));
+    }
     if old == new {
         return Err(Error::Invalid("That is already the name of this account.".into()));
     }
@@ -93,8 +107,8 @@ fn is_reserved(upper_name: &str) -> bool {
 /// companions' own accounts, an account that is not there and one that is logged in right now.
 pub fn delete(root: &Path, ra: &mut Ra, name: &str) -> Result<()> {
     let name = upper(name)?;
-    if is_reserved(&name) {
-        return Err(Error::Invalid("This account belongs to the Manager or the companions and cannot be deleted.".into()));
+    if is_reserved(&name) || name.starts_with(&squid_bot_prefix(root).to_ascii_uppercase()) {
+        return Err(Error::Invalid("This account belongs to the Manager or the bots and cannot be deleted.".into()));
     }
     let db = Db::from_repack(root, Account::Admin)?;
     match db.query(&format!("SELECT online FROM acore_auth.account WHERE username = '{name}';"))?.trim() {
@@ -125,7 +139,19 @@ mod tests {
 
     #[test]
     fn the_internal_accounts_are_filtered_out_by_the_query() {
-        assert!(LIST_SQL.contains("COABOTHOST%") && LIST_SQL.contains("COAMANAGER"));
+        assert!(LIST_SQL.contains("COABOTHOST%") && LIST_SQL.contains("COAMANAGER") && LIST_SQL.contains("{SQUID}%"));
+    }
+
+    #[test]
+    fn the_squid_bot_prefix_comes_from_the_bot_settings_and_defaults_to_rndbot() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(squid_bot_prefix(root.path()), "rndbot");
+        let conf = root.path().join("Core/configs/modules/playerbots.conf");
+        std::fs::create_dir_all(conf.parent().unwrap()).unwrap();
+        std::fs::write(&conf, "AiPlayerbot.RandomBotAccountPrefix = \"MyBots\"\n").unwrap();
+        assert_eq!(squid_bot_prefix(root.path()), "MyBots");
+        std::fs::write(&conf, "AiPlayerbot.RandomBotAccountPrefix = \"x' OR 1=1 --\"\n").unwrap();
+        assert_eq!(squid_bot_prefix(root.path()), "rndbot", "an unsafe prefix is ignored");
     }
 
     #[test]
