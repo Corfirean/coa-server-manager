@@ -68,6 +68,19 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   const t = useT();
   const human = useHuman();
   const [status, setStatus] = useState<StatusView | null>(null);
+  // With both worlds started together, each realm gets its own card; the first realm owns the database and auth.
+  const [realms, setRealms] = useState<{ first: string; second: string } | null>(null);
+  const bothWorlds = !!status?.observed.secondary_world;
+  useEffect(() => {
+    if (!bothWorlds) { setRealms(null); return; }
+    let alive = true;
+    void api.realmProfiles(server.id).then((r) => {
+      if (!alive) return;
+      const name = (m: "coa" | "wildcard") => (m === "coa" ? "Conquest of Azeroth" : "Wildcard");
+      setRealms({ first: name(r.active), second: name(r.active === "coa" ? "wildcard" : "coa") });
+    }).catch(() => { if (alive) setRealms(null); });
+    return () => { alive = false; };
+  }, [bothWorlds, server.id]);
   const [action, setAction] = useState<Action>(null);
   const [realmBusy, setRealmBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -220,7 +233,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       <RealmPicker serverId={server.id} running={anyUp} disabled={transitioning || upd.applying} onBusy={setRealmBusy} onChanged={() => { onRealmChanged(); void poll(); }} />
 
       <Card className="mt-6 p-7">
-        <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{t("overview.server")}</div>
+        <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.first} · ${t("overview.server")}` : t("overview.server")}</div>
         <div className={cn("flex items-center gap-3 text-3xl font-semibold", tone)} role="status" aria-live="polite">
           <span
             aria-hidden
@@ -239,7 +252,6 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           <Row label={t("overview.database")} s={mysql} />
           <Row label={t("overview.auth")} s={auth} />
           <Row label={t("overview.world")} s={world} />
-          {secondary_world && <Row label={t("realm.secondWorld")} s={secondary_world} />}
         </div>
 
         <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
@@ -301,7 +313,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               {t("btn.stopSmall")}
             </Button>
           )}
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-3">
           {client && <RealmlistMenu serverId={server.id} />}
           {client && jobBusy ? (
             <div
@@ -401,6 +413,28 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           </div>
         )}
       </Card>
+
+      {secondary_world && (
+        <Card className="mt-4 p-7">
+          <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.second} · ${t("overview.server")}` : t("realm.secondWorld")}</div>
+          <div
+            className={cn("flex items-center gap-3 text-3xl font-semibold", secondary_world.state === "running" ? "text-ok" : secondary_world.state === "starting" || transitioning ? "text-warn" : "text-muted")}
+            role="status"
+            aria-live="polite"
+          >
+            <span aria-hidden className={cn("h-3 w-3 rounded-full", secondary_world.state === "running" ? "bg-ok" : secondary_world.state === "starting" || transitioning ? "bg-warn" : "bg-muted/50")} />
+            {secondary_world.state === "running" ? t("status.online") : secondary_world.state === "starting" ? t("status.starting") : t("status.offline")}
+          </div>
+          <div className="mt-5 divide-y divide-line border-y border-line">
+            <Row label={t("overview.world")} s={secondary_world} />
+          </div>
+          <dl className="mt-4 text-sm">
+            <dt className="text-muted">{t("overview.uptime")}</dt>
+            <dd className="mt-0.5 text-lg">{secondary_world.state === "running" ? formatUptime(secondary_world.uptime_secs) : "—"}</dd>
+          </dl>
+          <p className="mt-3 text-xs text-muted">{t("realm.bothRunning")}</p>
+        </Card>
+      )}
 
       {conflict && !anyUp && (
         <Card className="mt-4 border-warn/40 p-4" role="alert">
