@@ -443,6 +443,7 @@ export const api = {
   backups: (id: string) => invoke<RecoveryPoint[]>("list_backups", { id }),
   dashboardStatus: (id: string) => invoke<DashboardStatus>("dashboard_status", { id }),
   dashboardInstall: (id: string) => invoke<DashboardStatus>("dashboard_install", { id }),
+  dashboardOpen: (id: string) => invoke<void>("dashboard_open", { id }),
   dashboardStart: (id: string) => invoke<DashboardStatus>("dashboard_start", { id }),
   dashboardStop: (id: string) => invoke<DashboardStatus>("dashboard_stop", { id }),
   backupLocation: (id: string) => invoke<BackupLocation>("backup_location", { id }),

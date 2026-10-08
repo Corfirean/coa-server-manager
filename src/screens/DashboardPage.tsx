@@ -68,7 +68,7 @@ export function DashboardPage({ serverId }: { serverId: string }) {
                       {busy === "stop" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
                       {t("dash.stop")}
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void api.openLink(status.url)}>{t("dash.openBrowser")}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => void api.dashboardOpen(serverId).catch((e) => setError(asUiError(e)))}>{t("dash.openBrowser")}</Button>
                   </>
                 ) : (
                   <Button size="sm" variant="primary" disabled={!!busy} onClick={() => void run("start", () => api.dashboardStart(serverId))}>

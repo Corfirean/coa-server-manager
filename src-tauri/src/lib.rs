@@ -378,6 +378,15 @@ async fn dashboard_install(app: AppHandle, state: State<'_, AppState>, id: Strin
 }
 
 #[tauri::command]
+async fn dashboard_open(state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let status = blocking(move || Ok(coa_core::dashboard::status(&root))).await?;
+    if !status.running { return Err(Error::Invalid("The dashboard is not running.".into()).into()); }
+    tauri_plugin_opener::open_url(&status.url, None::<&str>).map_err(|e| Error::Invalid(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn dashboard_start(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::dashboard::start(&root)).await
@@ -1598,6 +1607,7 @@ pub fn run() {
             dashboard_status,
             dashboard_install,
             dashboard_start,
+            dashboard_open,
             dashboard_stop,
             backup_location,
             set_backup_location,

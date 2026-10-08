@@ -101,7 +101,7 @@ pub fn status(root: &Path) -> Status {
         squid_tag: squid,
         running,
         port,
-        url: format!("http://localhost:{port}"),
+        url: format!("http://127.0.0.1:{port}"),
     }
 }
 
@@ -174,6 +174,61 @@ fn free_port(preferred: u16) -> Result<u16> {
         .ok_or_else(|| Error::Invalid("No free port was found for the dashboard.".into()))
 }
 
+/// A crash or power loss while the dashboard saves its history can leave a file of the right length that holds only
+/// zero bytes, and the dashboard then fails to start on it. Those files carry nothing, and the dashboard recreates them,
+/// so they are removed. The files that come with the release are never touched here (reinstalling restores them).
+fn discard_damaged_data(folder: &Path) -> Vec<String> {
+    const SHIPPED: &[&str] = &["worldmap.json", "dashboard.example.json"];
+    let mut removed = Vec::new();
+    let Ok(entries) = std::fs::read_dir(folder) else { return removed; };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if !name.ends_with(".json") || name.starts_with('.') || SHIPPED.contains(&name.as_str()) || !path.is_file() { continue; }
+        let Ok(bytes) = std::fs::read(&path) else { continue; };
+        if !bytes.is_empty() && bytes.iter().all(|b| *b == 0) && std::fs::remove_file(&path).is_ok() {
+            tracing::warn!(file = %path.display(), "dashboard: removed a data file damaged by an interrupted write");
+            removed.push(name);
+        }
+    }
+    removed
+}
+
+/// The dashboard reads `coa-level-builds.json` (class and specialization names) from its own folder; the CoA Bots repack
+/// ships it, the GitHub release does not. The server's own reference file has the same content and shape.
+fn ensure_builds_file(root: &Path) {
+    let target = dir(root).join("coa-level-builds.json");
+    if target.is_file() { return; }
+    let reference = root.join("Core/reference/ascensionsidekick-level-builds.json");
+    let content = std::fs::read(&reference).ok().filter(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).is_ok_and(|v| v.is_object()));
+    let _ = fsx::atomic_write(&target, content.as_deref().unwrap_or(b"{}"));
+}
+
+/// Python's HTTP server closes each connection with `shutdown(SHUT_WR)` straight after the answer. On Windows that can
+/// throw away what is still queued: any answer above about 64 KB (the dashboard's statistics are 400 KB) arrives cut
+/// off, and the page fails to load. This small launcher waits for the client to finish reading and close instead, queues
+/// more waiting connections than Python's five, and then runs the dashboard unchanged.
+const LAUNCHER: &str = r#"import runpy, socketserver, sys, http.server
+
+http.server.ThreadingHTTPServer.request_queue_size = 256
+
+
+def shutdown_request(self, request):
+    try:
+        request.settimeout(5)
+        while request.recv(4096):
+            pass
+    except OSError:
+        pass
+    self.close_request(request)
+
+
+socketserver.TCPServer.shutdown_request = shutdown_request
+script = sys.argv[1]
+sys.argv = [script]
+runpy.run_path(script, run_name="__main__")
+"#;
+
 /// Start the dashboard with the repack's own Python. Returns when it answers on its port.
 pub fn start(root: &Path) -> Result<Status> {
     let current = status(root);
@@ -189,7 +244,12 @@ pub fn start(root: &Path) -> Result<Status> {
     let log_path = folder.join("dashboard.log");
     let log = std::fs::File::create(&log_path)?;
     let mut command = std::process::Command::new(&python);
-    command.arg("-B").arg("squidbots.py").current_dir(&folder).env("COA_DASHBOARD_PORT", marker.port.to_string())
+    ensure_builds_file(root);
+    discard_damaged_data(&folder);
+    let script = folder.join("squidbots.py");
+    let launcher = folder.join("manager_launch.py");
+    fsx::atomic_write(&launcher, LAUNCHER.as_bytes())?;
+    command.arg("-B").arg(&launcher).arg(&script).current_dir(&folder).env("COA_DASHBOARD_PORT", marker.port.to_string())
         .stdin(std::process::Stdio::null()).stdout(log.try_clone()?).stderr(log);
     #[cfg(windows)]
     {
@@ -257,6 +317,20 @@ mod tests {
     }
 
     #[test]
+    fn zero_filled_history_files_are_removed_but_shipped_and_valid_files_stay() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("history.json"), vec![0u8; 358]).unwrap();
+        std::fs::write(folder.path().join("levels.json"), vec![0u8; 100]).unwrap();
+        std::fs::write(folder.path().join("xp-history.json"), "[1, 2]").unwrap();
+        std::fs::write(folder.path().join("worldmap.json"), vec![0u8; 50]).unwrap();
+        std::fs::write(folder.path().join("empty.json"), "").unwrap();
+        let mut removed = discard_damaged_data(folder.path());
+        removed.sort();
+        assert_eq!(removed, ["history.json", "levels.json"]);
+        assert!(folder.path().join("xp-history.json").exists() && folder.path().join("worldmap.json").exists() && folder.path().join("empty.json").exists());
+    }
+
+    #[test]
     fn tags_are_checked_before_they_reach_a_url() {
         assert!(safe_tag("v1.9.1") && !safe_tag("v1.9/../x") && !safe_tag("") && !safe_tag("a b"));
     }
@@ -273,6 +347,28 @@ mod tests {
         assert_eq!(installed.tag.as_deref(), Some("v1.9"));
         assert!(root.path().join("Extras/SquidDashboard/squidbots.py").is_file());
         assert!(!installed.running);
+    }
+
+    /// Needs a real server folder (`COA_TEST_ROOT`) whose bots are installed and whose database runs:
+    /// `COA_TEST_ROOT=... cargo test -p coa-core dashboard -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn the_started_dashboard_delivers_its_large_statistics() {
+        let root = PathBuf::from(std::env::var("COA_TEST_ROOT").expect("COA_TEST_ROOT"));
+        let started = start(&root).unwrap();
+        assert!(started.running, "{started:?}");
+        let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(90)).build().unwrap();
+        let body = client.get(format!("{}/api/stats", started.url)).send().unwrap().bytes().unwrap();
+        println!("stats: {} bytes: {}", body.len(), String::from_utf8_lossy(&body[..body.len().min(300)]));
+        let live = client.get(format!("{}/api/live", started.url)).send().unwrap().bytes().unwrap();
+        stop(&root).unwrap();
+        assert!(!status(&root).running);
+        if String::from_utf8_lossy(&body).starts_with("{\"error\"") {
+            println!("the database of this server is not running, so the large answer could not be checked");
+        } else {
+            assert!(body.len() > 100_000, "the statistics must arrive whole, got {} bytes", body.len());
+        }
+        assert!(!live.is_empty());
     }
 
     #[test]
