@@ -223,7 +223,8 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         return Ok(());
     }
 
-    // Realm profiles (CoA / Wildcard): finish an interrupted switch, then make the realm list say what is selected. The repack's
+    // Realm profiles (CoA / Wildcard): the database is running and healthy here (started and waited for above), which the
+    // realm list update below needs. Finish an interrupted switch, then make the realm list say what is selected. The repack's
     // launcher did this when it started; here nothing else would.
     let realm = prepare_realm(root, log)?;
     ensure_image(d, log)?;

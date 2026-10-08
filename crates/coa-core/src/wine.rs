@@ -209,15 +209,28 @@ pub fn command_line_runs(cmdline: &str, client: &Path, exe: &str) -> bool {
     cmdline.replace('\0', " ").replace('\\', "/").to_lowercase().contains(&wanted)
 }
 
+/// The folder as it was given and as the system resolves it. On an immutable distribution (SteamOS, Bazzite) `/home` is a
+/// link to `/var/home`: Wine writes the path it was given, the resolved one differs, and either may be what the command
+/// line of the running client holds.
+fn spellings(client: &Path) -> Vec<PathBuf> {
+    let mut all = vec![client.to_path_buf()];
+    if let Ok(real) = fs::canonicalize(client) {
+        if real != client {
+            all.push(real);
+        }
+    }
+    all
+}
+
 pub fn is_running(client: &Path, exes: &[&str]) -> bool {
-    let client = fs::canonicalize(client).unwrap_or_else(|_| client.to_path_buf());
+    let folders = spellings(client);
     let Ok(rd) = fs::read_dir("/proc") else { return false };
     rd.filter_map(|e| e.ok())
         .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
         .filter_map(|e| fs::read(e.path().join("cmdline")).ok())
         .any(|raw| {
             let line = String::from_utf8_lossy(&raw);
-            exes.iter().any(|exe| command_line_runs(&line, &client, exe))
+            folders.iter().any(|folder| exes.iter().any(|exe| command_line_runs(&line, folder, exe)))
         })
 }
 
@@ -226,6 +239,23 @@ pub fn is_running(client: &Path, exes: &[&str]) -> bool {
 mod tests {
     use super::*;
     use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn a_client_folder_behind_a_link_is_looked_for_under_both_names() {
+        // SteamOS and Bazzite: /home is a link to /var/home.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("var/home/u/client")).unwrap();
+        std::os::unix::fs::symlink("var/home", dir.path().join("home")).unwrap();
+        let given = dir.path().join("home/u/client");
+        let both = spellings(&given);
+        assert_eq!(both.len(), 2);
+        assert_eq!(both[0], given);
+        assert!(both[1].starts_with(dir.path().canonicalize().unwrap().join("var/home")));
+        // Wine kept the name it was given, so the line holds the first one and not the resolved one.
+        let line = format!("Z:\\{}\\Ascension.exe", given.to_string_lossy().replace('/', "\\"));
+        assert!(!command_line_runs(&line, &both[1], "Ascension.exe"));
+        assert!(both.iter().any(|f| command_line_runs(&line, f, "Ascension.exe")));
+    }
 
     /// A computer described in a few lines: variables, programs on the path, folders with their entries, and `proton` scripts.
     struct Fake {
