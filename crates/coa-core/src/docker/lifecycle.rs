@@ -412,7 +412,7 @@ fn database_env(s: &Secrets, world: bool, realm: crate::realms::Mode) -> Vec<(St
 /// Every setting variable (`AC_...`) the containers get, for the check that the screens know which settings are fixed.
 #[cfg(test)]
 pub(crate) fn forced_variables() -> Vec<String> {
-    let cfg = Config { project: "t".into(), bind_address: "127.0.0.1".into(), mysql_image: "mysql:8.4".into(), data_dir: None };
+    let cfg = Config { project: "t".into(), bind_address: "127.0.0.1".into(), mysql_image: "mysql:8.4".into(), data_dir: None, mysql_data: None };
     let n = cfg.names();
     let mut found = Vec::new();
     for kind in [GameKind::World, GameKind::Auth] {
