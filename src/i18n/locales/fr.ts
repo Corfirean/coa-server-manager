@@ -827,6 +827,8 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "set.searchAll": "Rechercher dans tous les réglages par nom ou description…",
   "set.search": "Rechercher un réglage…",
   "upd.current": "Vous êtes à jour (version {v}).",
+  "upd.startAfter": "Démarrer le serveur après la mise à jour (désactivez pour qu’il soit arrêté à nouveau ensuite)",
+  "client.startAfter": "Lancer le jeu après la mise à jour du client",
   "bk.folder": "Dossier des sauvegardes",
   "bk.folderDefault": "par défaut",
   "bk.folderNote": "Les nouvelles sauvegardes sont enregistrées ici, par exemple sur un autre disque. Les précédentes restent où elles sont et figurent toujours dans la liste. Le dossier doit se trouver hors du dossier du serveur.",

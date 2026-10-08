@@ -10,6 +10,7 @@ import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
 import { RemoveServerCard } from "@/screens/RemoveServerCard";
+import { useStartAfterUpdate } from "@/lib/updatePrefs";
 import { hasKey, useHuman, useI18n, type Key } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { RealmStartupSettings } from "@/screens/RealmStartupSettings";
@@ -38,6 +39,7 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; p
   const [choices, setChoices] = useState<Record<string, "keep" | "replace">>({});
   const [advanced, setAdvanced] = useState(false);
   const [source, setSource] = useState("");
+  const [startAfter, setStartAfter] = useStartAfterUpdate("server", serverId);
 
   useEffect(() => {
     let active = true;
@@ -178,6 +180,10 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; p
       <Card className="mt-6 p-6">
         <h2 className="font-semibold">{t("upd.title")}</h2>
         <p className="mt-1 text-sm text-muted">{t("upd.text")}</p>
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" checked={startAfter} onChange={(e) => setStartAfter(e.target.checked)} className="h-4 w-4 accent-[#c9a24a]" />
+          <span>{t("upd.startAfter")}</span>
+        </label>
 
         <div className="mt-4 flex items-center gap-3">
           <Button variant="primary" disabled={!!busy} onClick={() => void check()}>

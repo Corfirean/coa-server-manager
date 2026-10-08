@@ -827,6 +827,8 @@ const zh = {
   "set.searchAll": "按名称或描述搜索全部设置…",
   "set.search": "搜索设置…",
   "upd.current": "当前已是最新版本 ({v})。",
+  "upd.startAfter": "更新后启动服务器（关闭则更新完成后再次停止）",
+  "client.startAfter": "更新客户端后启动游戏",
   "bk.folder": "备份文件夹",
   "bk.folderDefault": "默认",
   "bk.folderNote": "新备份将保存在这里，例如另一个驱动器上。之前的备份保留在原处，仍会列出。该文件夹必须位于服务器文件夹之外。",

@@ -6,6 +6,7 @@ import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useT } from "@/i18n";
+import { useStartAfterUpdate } from "@/lib/updatePrefs";
 
 export function ClientCard({ serverId, remote = false }: { serverId: string; remote?: boolean }) {
   const t = useT();
@@ -16,6 +17,7 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<ClientStatus | null>(null);
   const [dialog, setDialog] = useState<ClientDialogMode | null>(null);
+  const [playAfter, setPlayAfter] = useStartAfterUpdate("client", serverId);
 
   const refresh = () => {
     void api.clientStatus(serverId).then(setStatus).catch(() => setStatus(null));
@@ -86,6 +88,12 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
             <dt className="text-muted">{t("client.otherAddons")}</dt>
             <dd>{t("client.leftAsIs", { n: info.other_addons })}</dd>
           </dl>
+          {!remote && (
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm">
+              <input type="checkbox" checked={playAfter} onChange={(e) => setPlayAfter(e.target.checked)} className="h-4 w-4 accent-[#c9a24a]" />
+              <span>{t("client.startAfter")}</span>
+            </label>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             {!remote && !pointsLocal && (
               <Button size="sm" disabled={busy} onClick={() => void run(async () => { await api.setRealmlist(serverId, "127.0.0.1"); return t("client.pointedNote"); })}>

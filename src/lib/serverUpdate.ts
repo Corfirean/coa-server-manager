@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from "@/lib/api";
 import { isUpdateCurrent } from "./serverUpdateStatus";
+import { startAfterUpdate } from "./updatePrefs";
 
 /**
  * Server update status for the main screen and the navigation: checked when the app starts and every five minutes,
@@ -95,6 +96,8 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
   try {
     const out = await api.applyUpdate(id, opts?.choices ?? {}, opts?.source);
     set(id, { result: out.txn.state === "committed" ? { committed: out.txn.to_version ?? "" } : { pending: out.txn } });
+    // The update proved the new build starts and left it running; the owner may prefer it stopped again.
+    if (out.txn.state === "committed" && !startAfterUpdate("server", id)) await api.stop(id).catch(() => undefined);
     return true;
   } catch (e) {
     const ui = asUiError(e);

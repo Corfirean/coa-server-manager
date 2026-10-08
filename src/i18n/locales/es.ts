@@ -827,6 +827,8 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "set.searchAll": "Buscar en todos los ajustes por nombre o descripción…",
   "set.search": "Buscar ajustes…",
   "upd.current": "Estás al día (versión {v}).",
+  "upd.startAfter": "Iniciar el servidor tras actualizarlo (desactívalo para detenerlo de nuevo al terminar)",
+  "client.startAfter": "Iniciar el juego tras actualizar el cliente",
   "bk.folder": "Carpeta de copias de seguridad",
   "bk.folderDefault": "predeterminada",
   "bk.folderNote": "Las copias nuevas se guardan aquí, por ejemplo en otra unidad. Las anteriores se quedan donde están y siguen en la lista. La carpeta debe estar fuera de la carpeta del servidor.",

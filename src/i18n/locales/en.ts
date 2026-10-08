@@ -850,6 +850,8 @@ const en = {
   "set.searchAll": "Search all settings by name or description…",
   "set.search": "Search settings…",
   "upd.current": "You are up to date (version {v}).",
+  "upd.startAfter": "Start the server after updating it (turn off to stop it again once the update is done)",
+  "client.startAfter": "Start the game after the client has been updated",
   "bk.folder": "Backup folder",
   "bk.folderDefault": "default",
   "bk.folderNote": "New backups are saved here, for example on another drive. Backups made earlier stay where they are and are still listed. The folder must be outside the server folder.",

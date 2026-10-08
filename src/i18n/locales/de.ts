@@ -827,6 +827,8 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "set.searchAll": "Alle Einstellungen nach Name oder Beschreibung durchsuchen…",
   "set.search": "Einstellungen durchsuchen…",
   "upd.current": "Du bist auf dem neuesten Stand (Version {v}).",
+  "upd.startAfter": "Server nach dem Update starten (ausschalten, damit er nach dem Update wieder angehalten wird)",
+  "client.startAfter": "Spiel nach dem Client-Update starten",
   "bk.folder": "Sicherungsordner",
   "bk.folderDefault": "Standard",
   "bk.folderNote": "Neue Sicherungen werden hier gespeichert, zum Beispiel auf einem anderen Laufwerk. Frühere Sicherungen bleiben, wo sie sind, und werden weiter aufgelistet. Der Ordner muss außerhalb des Serverordners liegen.",

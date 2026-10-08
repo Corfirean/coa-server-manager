@@ -525,7 +525,7 @@
   },
   "AlwaysMaxSkillForLevel": {
    "t": "Compétences toujours au maximum du niveau",
-   "d": "Les compétences d'armes et autres sont toujours au maximum du niveau du personnage, sans entraînement."
+   "d": "Les compétences d'armes et autres sont toujours au maximum du niveau du personnage, sans entraînement. Le royaume Wildcard l’active toujours pour lui-même."
   },
   "ActivateWeather": {
    "t": "Météo",
