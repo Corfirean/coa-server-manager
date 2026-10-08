@@ -154,9 +154,26 @@ fn recorded<'a>(rows: &'a [LedgerRow], m: &Migration) -> Option<&'a LedgerRow> {
     rows.iter().rev().find(|r| r.db == m.db && r.id == m.id)
 }
 
+/// Migrations that were published with different bytes but have the same effect, so a server that applied either
+/// version accepts the other. The Wildcard table repair went out as `c1d8…` (0.261005.0, 0.261006.1) and as `9e4a…`
+/// (0.261005.22, 0.261007.24); the packages carry no list of compatible versions, so the Manager knows this pair.
+const SAME_EFFECT: &[(&str, &[&str])] = &[(
+    "manager_repair__20261005_missing_wildcard_tables",
+    &[
+        "c1d8dbf2271234283a48a39e4b4aea1106b83b70581f1e3c4aa9fff438e8e4d2",
+        "9e4a36245c3f83255415c122c01f08ceb3e3b83898d3d427ac4e2fbcf61e9638",
+    ],
+)];
+
+fn same_effect(id: &str, a: &str, b: &str) -> bool {
+    SAME_EFFECT.iter().any(|(known, hashes)| *known == id
+        && hashes.iter().any(|h| h.eq_ignore_ascii_case(a)) && hashes.iter().any(|h| h.eq_ignore_ascii_case(b)))
+}
+
 fn hash_changed(row: &LedgerRow, m: &Migration) -> bool {
     row.status == Status::Applied && row.sha256 != "0".repeat(64) && !row.sha256.eq_ignore_ascii_case(&m.sha256)
         && !m.compatible_sha256.iter().any(|hash| hash.eq_ignore_ascii_case(&row.sha256))
+        && !same_effect(&m.id, &row.sha256, &m.sha256)
 }
 
 /// Inspect recorded history without creating a ledger or executing migrations.
@@ -274,6 +291,18 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    #[test]
+    fn the_two_published_versions_of_the_wildcard_table_repair_are_interchangeable() {
+        let (old, new) = ("c1d8dbf2271234283a48a39e4b4aea1106b83b70581f1e3c4aa9fff438e8e4d2", "9e4a36245c3f83255415c122c01f08ceb3e3b83898d3d427ac4e2fbcf61e9638");
+        let id = "manager_repair__20261005_missing_wildcard_tables";
+        let row = |id: &str, sha: &str| LedgerRow { db: "characters".into(), id: id.into(), sha256: sha.into(), status: Status::Applied, error: None, baseline: false };
+        let migration = |id: &str, sha: &str| Migration { compatible_sha256: vec![], id: id.into(), db: "characters".into(), sha256: sha.into(), destructive: false };
+        assert!(!hash_changed(&row(id, old), &migration(id, new)), "applied as c1d8, offered as 9e4a");
+        assert!(!hash_changed(&row(id, new), &migration(id, old)), "applied as 9e4a, offered as c1d8");
+        assert!(hash_changed(&row(id, &"a".repeat(64)), &migration(id, new)), "an unknown version is still a change");
+        assert!(hash_changed(&row("other_migration", old), &migration("other_migration", new)), "only the known pair is exempt");
+    }
 
     #[derive(Default)]
     struct Mem {
