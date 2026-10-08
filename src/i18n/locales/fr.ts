@@ -867,6 +867,21 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "fr.lan.unavailable": "Adresse sélectionnée indisponible",
   "fr.lan.unavailableText": "Cette adresse n’est actuellement attribuée à aucune interface locale détectée. Choisissez une autre adresse ou le mode Automatique, ou conservez volontairement cette adresse.",
   "fr.lan.invalid": "Adresse IPv4 non valide",
+  "unsaved.title": "Modifications non enregistrées",
+  "unsaved.message": "Vous avez des modifications non enregistrées. Voulez-vous les enregistrer avant de quitter cette page ?",
+  "unsaved.saveFailed": "Échec de l’enregistrement. Veuillez vérifier les champs.",
+  "crash.autoRestart": "Redémarrage automatique en cas de plantage",
+  "crash.autoRestartDesc": "Redémarre automatiquement le serveur s’il plante ou s’arrête de manière inattendue.",
+  "crash.badge": "Plantages : {n}",
+  "crash.historyTitle": "Historique des plantages du serveur",
+  "crash.noCrashes": "Aucun rapport de plantage trouvé.",
+  "crash.restartNotice": "Le serveur a planté et a été redémarré automatiquement (Plantage #{n}).",
+  "crash.loopPaused": "Redémarrage automatique suspendu : le serveur a planté plusieurs fois successivement.",
+  "crash.details": "Détails du plantage",
+  "crash.viewRaw": "Afficher le rapport complet",
+  "crash.hideRaw": "Masquer le rapport complet",
+  "crash.copyReport": "Copier le rapport",
+  "crash.copied": "Copié !",
 };
 
 export default fr;

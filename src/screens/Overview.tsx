@@ -1,6 +1,6 @@
 import { dismissClientJob, startClientUpdate, stopClientJob, syncClient, useClientJob } from "@/lib/clientJob";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import { api, asUiError, type ClientInfo, type Human, type Performance, type Population, type ServerSummary, type ServiceStatus, type StatusView } from "@/lib/api";
 import { cn, formatBytes, formatUptime } from "@/lib/utils";
 import { useHuman, useT } from "@/i18n";
@@ -9,6 +9,8 @@ import { checkClient, useClientStatus } from "@/lib/clientUpdate";
 import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { RealmlistMenu } from "@/screens/RealmlistMenu";
 import { RealmPicker } from "@/screens/RealmPicker";
+import { CrashHistoryModal } from "@/screens/CrashHistoryModal";
+import { useAutoRestart } from "@/lib/autoRestartPrefs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -98,6 +100,35 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   const upd = useServerUpdate(server.id);
   const needsDecision = (upd.preview?.conflicts.length ?? 0) > 0;
   const [startBots, setStartBots] = useState<number | null | undefined>(undefined);
+  const [autoRestart, setAutoRestart] = useAutoRestart(server.id);
+  const autoRestartRef = useRef(autoRestart);
+  autoRestartRef.current = autoRestart;
+
+  const [crashCount, setCrashCount] = useState(0);
+  const crashCountRef = useRef(0);
+  const [showCrashModal, setShowCrashModal] = useState(false);
+  const [hasCrashHistory, setHasCrashHistory] = useState(false);
+  const [crashLoopPaused, setCrashLoopPaused] = useState(false);
+  const [crashRestartNotice, setCrashRestartNotice] = useState<string | null>(null);
+
+  const userStoppedRef = useRef(false);
+  const wasWorldRunningRef = useRef(false);
+  const actionRef = useRef<Action>(null);
+  const crashTimestampsRef = useRef<number[]>([]);
+  const pollRef = useRef<() => Promise<void>>(undefined);
+
+  useEffect(() => {
+    let active = true;
+    void api
+      .listCrashes(server.id, 1)
+      .then((items) => {
+        if (active && items.length > 0) setHasCrashHistory(true);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [server.id]);
 
   useEffect(() => {
     void api
@@ -115,18 +146,87 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
     if (job.phase === "done" || job.phase === "current") void api.clientInfo(server.id).then(setClient).catch(() => undefined);
   }, [job.phase, server.id]);
 
+  const run = useCallback(
+    async (kind: Exclude<Action, null>) => {
+      if (kind === "stopping") {
+        userStoppedRef.current = true;
+      } else {
+        userStoppedRef.current = false;
+        setCrashLoopPaused(false);
+        setCrashRestartNotice(null);
+      }
+      setFailure(null);
+      setShowDetails(false);
+      setAction(kind);
+      actionRef.current = kind;
+      try {
+        if (kind !== "starting") {
+          const out = await api.stop(server.id);
+          if (!out.ok) throw { human: out.human, technical: out.output };
+        }
+        if (kind !== "stopping") {
+          setAction("starting");
+          actionRef.current = "starting";
+          const out = await api.start(server.id);
+          if (!out.ok) throw { human: out.human, technical: out.output };
+        }
+      } catch (e) {
+        const ui = asUiError(e);
+        setFailure({ human: ui.human ?? asUiError(String(e)).human, technical: ui.technical });
+      } finally {
+        setAction(null);
+        actionRef.current = null;
+        void pollRef.current?.();
+      }
+    },
+    [server.id],
+  );
+
   const poll = useCallback(async () => {
     try {
       const s = await api.status(server.id);
       if (alive.current) setStatus(s);
-      if (s.observed.world.state === "running") {
+      const isWorldRunning = s.observed.world.state === "running";
+      if (isWorldRunning) {
+        wasWorldRunningRef.current = true;
+        userStoppedRef.current = false;
         const p = await api.population(server.id).catch(() => null);
         if (alive.current) setPop(p);
-      } else if (alive.current) setPop(null);
+      } else {
+        if (alive.current) setPop(null);
+        if (
+          wasWorldRunningRef.current &&
+          !userStoppedRef.current &&
+          actionRef.current === null
+        ) {
+          wasWorldRunningRef.current = false;
+          setHasCrashHistory(true);
+          const now = Date.now();
+          const recent = crashTimestampsRef.current.filter((ts) => now - ts < 180000);
+          recent.push(now);
+          crashTimestampsRef.current = recent;
+
+          crashCountRef.current += 1;
+          const currentCrashCount = crashCountRef.current;
+          setCrashCount(currentCrashCount);
+
+          if (recent.length >= 3) {
+            setCrashLoopPaused(true);
+            setCrashRestartNotice(null);
+          } else if (autoRestartRef.current) {
+            setCrashRestartNotice(t("crash.restartNotice", { n: currentCrashCount }));
+            void run("starting");
+          }
+        }
+      }
     } catch {
       /* transient; next poll retries */
     }
-  }, [server.id]);
+  }, [server.id, t, run]);
+
+  useEffect(() => {
+    pollRef.current = poll;
+  }, [poll]);
 
   // The tick rate comes from the server console (one short connection per reading), so it is read less often.
   const worldUp = status?.observed.world.state === "running";
@@ -155,29 +255,6 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       clearInterval(t);
     };
   }, [poll]);
-
-  async function run(kind: Exclude<Action, null>) {
-    setFailure(null);
-    setShowDetails(false);
-    setAction(kind);
-    try {
-      if (kind !== "starting") {
-        const out = await api.stop(server.id);
-        if (!out.ok) throw { human: out.human, technical: out.output };
-      }
-      if (kind !== "stopping") {
-        setAction("starting");
-        const out = await api.start(server.id);
-        if (!out.ok) throw { human: out.human, technical: out.output };
-      }
-    } catch (e) {
-      const ui = asUiError(e);
-      setFailure({ human: ui.human ?? asUiError(String(e)).human, technical: ui.technical });
-    } finally {
-      setAction(null);
-      void poll();
-    }
-  }
 
   async function play() {
     setFailure(null);
@@ -234,13 +311,56 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
       <Card className="mt-6 p-7">
         <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.first} · ${t("overview.server")}` : t("overview.server")}</div>
-        <div className={cn("flex items-center gap-3 text-3xl font-semibold", tone)} role="status" aria-live="polite">
-          <span
-            aria-hidden
-            className={cn("h-3 w-3 rounded-full", running && !transitioning ? "bg-ok" : transitioning || anyUp ? "bg-warn" : "bg-muted/50")}
-          />
-          {headline}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className={cn("flex items-center gap-3 text-3xl font-semibold", tone)} role="status" aria-live="polite">
+            <span
+              aria-hidden
+              className={cn("h-3 w-3 rounded-full", running && !transitioning ? "bg-ok" : transitioning || anyUp ? "bg-warn" : "bg-muted/50")}
+            />
+            {headline}
+          </div>
+          {(crashCount > 0 || hasCrashHistory) && (
+            <button
+              type="button"
+              onClick={() => setShowCrashModal(true)}
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                crashCount > 0
+                  ? "border border-bad/40 bg-bad/15 text-bad hover:bg-bad/25"
+                  : "border border-line bg-card-2 text-muted hover:text-ink hover:border-gold/40",
+              )}
+              title={t("crash.historyTitle")}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+              <span>{crashCount > 0 ? t("crash.badge", { n: crashCount }) : t("crash.historyTitle")}</span>
+            </button>
+          )}
         </div>
+        {crashRestartNotice && !crashLoopPaused && (
+          <div className="mt-3 flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+            <span>{crashRestartNotice}</span>
+            <button
+              type="button"
+              onClick={() => setCrashRestartNotice(null)}
+              className="cursor-pointer text-amber-300/70 hover:text-amber-300"
+              aria-label={t("btn.close")}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        {crashLoopPaused && (
+          <div className="mt-3 flex items-center justify-between rounded-md border border-bad/40 bg-bad/15 p-3 text-xs text-bad">
+            <span>{t("crash.loopPaused")}</span>
+            <button
+              type="button"
+              onClick={() => setShowCrashModal(true)}
+              className="cursor-pointer font-medium underline"
+            >
+              {t("crash.historyTitle")}
+            </button>
+          </div>
+        )}
         {!transitioning && !running && anyUp && (
           <p className="mt-2 text-sm text-muted">
             {t("overview.reportHint")}{" "}
@@ -363,6 +483,27 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           )}
           </div>
         </div>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-4 text-xs text-muted">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={autoRestart}
+              onChange={(e) => setAutoRestart(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[#c9a24a]"
+            />
+            <span className="font-medium text-ink/80">{t("crash.autoRestart")}</span>
+            <span className="hidden sm:inline text-muted">— {t("crash.autoRestartDesc")}</span>
+          </label>
+          {(crashCount > 0 || hasCrashHistory) && (
+            <button
+              type="button"
+              onClick={() => setShowCrashModal(true)}
+              className="cursor-pointer text-gold hover:underline"
+            >
+              {t("crash.historyTitle")}
+            </button>
+          )}
+        </div>
         {anyUp && !running && !transitioning && (
           <p className="mt-3 text-sm text-muted">{t("overview.partial")}</p>
         )}
@@ -475,6 +616,13 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
             void checkClient(server.id);
           }}
           onPlayAnyway={() => void play()}
+        />
+      )}
+
+      {showCrashModal && (
+        <CrashHistoryModal
+          serverId={server.id}
+          onClose={() => setShowCrashModal(false)}
         />
       )}
     </div>

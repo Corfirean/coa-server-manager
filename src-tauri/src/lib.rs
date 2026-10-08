@@ -1543,6 +1543,12 @@ async fn export_diagnostics(state: State<'_, AppState>, id: String) -> std::resu
     .await
 }
 
+#[tauri::command]
+async fn list_crashes(state: State<'_, AppState>, id: String, limit: Option<usize>) -> std::result::Result<Vec<coa_core::crashes::CrashItem>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::crashes::list(&root, limit.unwrap_or(10))).await
+}
+
 
 #[tauri::command]
 async fn console_tail(
@@ -1677,6 +1683,7 @@ pub fn run() {
             run_diagnostics,
             verify_files,
             export_diagnostics,
+            list_crashes,
             console_tail,
             console_risk,
             console_command

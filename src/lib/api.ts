@@ -421,6 +421,21 @@ export interface ConsoleLine {
   level: "info" | "warn" | "error";
 }
 
+export interface CrashItem {
+  id: string;
+  timestamp_ms: number;
+  date_str: string;
+  title: string;
+  explanation: string;
+  category: "assertion" | "access_violation" | "stack_overflow" | "out_of_memory" | "database" | "network" | "exception" | "generic";
+  exception_code?: string | null;
+  location?: string | null;
+  function?: string | null;
+  condition?: string | null;
+  preview: string;
+  full_log: string;
+}
+
 export const api = {
   remoteConnection: () => invoke<RemoteConnection>("remote_connection"),
   remoteConnect: (host: string) => invoke<RemoteConnection>("remote_connect", { host }),
@@ -512,6 +527,7 @@ export const api = {
   runDiagnostics: (id: string) => invoke<{ checks: DiagCheck[]; problems: number }>("run_diagnostics", { id }),
   verifyFiles: (id: string) => invoke<{ path: string; kind: "missing" | "changed" }[]>("verify_files", { id }),
   exportDiagnostics: (id: string) => invoke<string>("export_diagnostics", { id }),
+  listCrashes: (id: string, limit?: number) => invoke<CrashItem[]>("list_crashes", { id, limit: limit ?? null }),
   consoleTail: (id: string, source: ConsoleSource, filter?: string, lines = 300) =>
     invoke<ConsoleLine[]>("console_tail", { id, source, filter: filter ?? null, lines }),
   consoleRisk: (command: string) => invoke<"normal" | "dangerous">("console_risk", { command }),
