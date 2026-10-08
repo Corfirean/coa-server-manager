@@ -285,6 +285,8 @@ export interface UpdatePreview {
   migrations: number;
   pending_migrations?: number;
   download_bytes: number;
+  /** False when pending database changes were not counted (stopped server during a background check, or an error). */
+  database_checked?: boolean;
   /** Set when the database could not be inspected; the file comparison is still valid. */
   database_check_error?: string;
 }
@@ -451,7 +453,8 @@ export const api = {
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),
-  checkUpdate: (id: string, source?: string) => invoke<UpdatePreview>("check_update", { id, source: source ?? null }),
+  /** `background`: the repeating check, which must not start the database of a stopped server. */
+  checkUpdate: (id: string, source?: string, background?: boolean) => invoke<UpdatePreview>("check_update", { id, source: source ?? null, background: background ?? false }),
   pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
     invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),

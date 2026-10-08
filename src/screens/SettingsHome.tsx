@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
+import { RemoveServerCard } from "@/screens/RemoveServerCard";
 import { hasKey, useHuman, useI18n, type Key } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { RealmStartupSettings } from "@/screens/RealmStartupSettings";
@@ -18,7 +19,7 @@ function mb(bytes: number) {
   return bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-export function SettingsHome({ serverId }: { serverId: string }) {
+export function SettingsHome({ serverId, path, onForget }: { serverId: string; path: string; onForget: () => Promise<void> }) {
   const { t } = useI18n();
   const upd = useServerUpdate(serverId);
   const human = useHuman();
@@ -197,9 +198,14 @@ export function SettingsHome({ serverId }: { serverId: string }) {
 
         {done && pendingChecked && !pendingStateError && <p className="mt-4 text-sm text-ok" role="status">{done}</p>}
         {error && (
-          <p className="mt-4 text-sm text-bad" role="alert">
-            {error.human.code === "unknown" ? error.technical : human(error.human).message}
-          </p>
+          <div className="mt-4" role="alert">
+            <p className="selectable whitespace-pre-wrap break-words text-sm text-bad">
+              {error.human.code === "unknown" ? error.technical : human(error.human).message}
+            </p>
+            <button className="mt-1 cursor-pointer text-xs text-muted underline" onClick={() => void navigator.clipboard.writeText(error.technical)}>
+              {t("common.copyError")}
+            </button>
+          </div>
         )}
 
         {preview?.database_check_error && (
@@ -264,6 +270,8 @@ export function SettingsHome({ serverId }: { serverId: string }) {
           </div>
         )}
       </Card>
+
+      <RemoveServerCard serverId={serverId} path={path} onForget={onForget} />
     </div>
   );
 }

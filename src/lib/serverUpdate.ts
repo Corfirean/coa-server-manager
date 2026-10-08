@@ -34,12 +34,12 @@ function set(id: string, next: Partial<ServerUpdateState>) {
   listeners.forEach((l) => l());
 }
 
-export async function checkServerUpdate(id: string): Promise<void> {
+export async function checkServerUpdate(id: string, background = false): Promise<void> {
   const cur = get(id);
   if (cur.applying || cur.checking) return;
   set(id, { checking: true });
   try {
-    const p = await api.checkUpdate(id);
+    const p = await api.checkUpdate(id, undefined, background);
     set(id, { preview: p, available: !isUpdateCurrent(p), error: null });
   } catch (e) {
     // A cached offer is no longer safe after an update or failed recheck.
@@ -51,8 +51,8 @@ export async function checkServerUpdate(id: string): Promise<void> {
 
 /** Check now and then every five minutes. Returns the function that stops it. */
 export function startServerUpdatePolling(id: string): () => void {
-  void checkServerUpdate(id);
-  const t = setInterval(() => void checkServerUpdate(id), CHECK_EVERY_MS);
+  void checkServerUpdate(id, true);
+  const t = setInterval(() => void checkServerUpdate(id, true), CHECK_EVERY_MS);
   return () => clearInterval(t);
 }
 

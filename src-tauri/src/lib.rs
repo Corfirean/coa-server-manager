@@ -684,12 +684,14 @@ fn install_meta(root: &std::path::Path) -> Result<(PathBuf, InstallMeta)> {
 }
 
 #[tauri::command]
-async fn check_update(state: State<'_, AppState>, id: String, source: Option<String>) -> std::result::Result<update::Preview, UiError> {
+async fn check_update(state: State<'_, AppState>, id: String, source: Option<String>, background: Option<bool>) -> std::result::Result<update::Preview, UiError> {
     let root = path_of(&state, &id)?;
     let src = update_source(source);
+    // The check that repeats every few minutes must not start and stop the database of a stopped server.
+    let access = if background.unwrap_or(false) { update::DatabaseAccess::OnlyIfRunning } else { update::DatabaseAccess::Start };
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
-        update::preview(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default())
+        update::preview_with(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default(), access)
     })
     .await
 }

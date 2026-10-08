@@ -139,7 +139,7 @@ export function Shell(props: {
         ) : page === "friends" ? (
           <FriendsPage key={server.id} serverId={server.id} />
         ) : page === "settings" ? (
-          <SettingsHome key={server.id} serverId={server.id} />
+          <SettingsHome key={server.id} serverId={server.id} path={server.path} onForget={() => props.onForget(server.id)} />
         ) : page === "players" ? (
           <PlayersPage key={server.id} serverId={server.id} />
         ) : page === "backups" ? (

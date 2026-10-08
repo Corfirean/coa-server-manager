@@ -183,7 +183,7 @@ fn bootstrap_database_inner(root: &Path) -> Result<()> {
 
     let started = driver::run(root, Verb::StartMysql)?;
     if !started.ok {
-        return Err(Error::Invalid(started.human.map(|h| h.message.to_string()).unwrap_or_else(|| "The database could not be started.".into())));
+        return Err(Error::Invalid(format!("The database could not be started. {}", driver::startup_failure(root, &started))));
     }
     let result = (|| -> Result<()> {
         let db = Db::from_repack(root, Account::Admin)?;
@@ -210,8 +210,14 @@ fn bootstrap_database_inner(root: &Path) -> Result<()> {
         }
         Ok(())
     })();
-    let _ = driver::run(root, Verb::StopAll);
+    let stopped = driver::run(root, Verb::StopAll);
     result?;
+    // A database that keeps running locks its files, and the folder could not be moved into place afterwards.
+    match stopped {
+        Ok(out) if out.ok => {}
+        Ok(out) => return Err(Error::Invalid(format!("The database could not be stopped after preparing it. {}", driver::startup_failure(root, &out)))),
+        Err(e) => return Err(e),
+    }
     fs::remove_file(&boot)?;
     Ok(())
 }
@@ -250,7 +256,7 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
         if staging_root.join(MARKER).is_file() {
             fs::remove_dir_all(&staging_root)?; // leftover of an earlier failed attempt that we created
         } else {
-            return Err(Error::Invalid(format!("{} already exists and was not created by the Manager.", staging_root.display())));
+            return Err(Error::Invalid(format!("{} is left over from an earlier installation that did not finish, and the Manager cannot tell whether it may be deleted. Delete that folder yourself, then try again.", staging_root.display())));
         }
     }
     fs::create_dir_all(&staging_root)?;
@@ -268,9 +274,8 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
             }
             Ok(())
         })?;
-        fs::remove_file(staging_root.join(MARKER))?;
-
-        // 4. Commit: the only moment the destination changes.
+        // 4. Commit: the only moment the destination changes. The marker stays until everything is done, so an
+        // unfinished install can always be recognised as ours (and cleaned up), wherever it stopped.
         say("Finishing", 95, None);
         if dest.exists() {
             fs::remove_dir(&dest)?; // only succeeds for an empty folder (preflight verified)
@@ -288,15 +293,24 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
         }
         let md = MetaDir::create(&dest, &meta)?;
         fsx::atomic_write(&md.root.join("manifests").join("base.json"), &manifest_bytes)?;
+        // Complete from here on: the marker goes just before the server is listed.
+        fs::remove_file(dest.join(MARKER))?;
         p.registry.register(&meta.id, &dest)?;
         say("Ready", 100, None);
         Ok(Installed { id: meta.id, path: dest.to_string_lossy().into_owned(), version: m.version.clone() })
     })();
 
-    if result.is_err() && staging_root.join(MARKER).exists() {
-        // Unfinished work of ours; the destination was never touched.
-        let _ = driver::run(&staging_root, Verb::StopAll);
-        let _ = fs::remove_dir_all(&staging_root);
+    if result.is_err() {
+        if staging_root.join(MARKER).exists() {
+            // Unfinished work of ours; the destination was never touched.
+            let _ = driver::run(&staging_root, Verb::StopAll);
+            let _ = fs::remove_dir_all(&staging_root);
+        } else if dest.join(MARKER).is_file() {
+            // Failed after the folder was moved into place. The destination was empty or absent before (preflight),
+            // so what carries our marker is only our unfinished install.
+            let _ = driver::run(&dest, Verb::StopAll);
+            let _ = fs::remove_dir_all(&dest);
+        }
     }
     result
 }

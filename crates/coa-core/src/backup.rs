@@ -177,6 +177,14 @@ pub fn with_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result
     result
 }
 
+/// Run `f` only if the database is already up; `None` (and nothing started) otherwise.
+pub fn with_running_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result<Option<T>> {
+    let db = Db::from_repack(root, Account::Admin)?;
+    let observed = process::observe(root, &read_ports(root));
+    if observed.mysql.state != ServiceState::Running || !db.ping() { return Ok(None); }
+    f(&db).map(Some)
+}
+
 fn wanted_databases(kind: Kind) -> &'static [&'static str] {
     match kind {
         Kind::Quick | Kind::Database => &["characters", "auth"],
