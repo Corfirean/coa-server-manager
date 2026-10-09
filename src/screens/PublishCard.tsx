@@ -63,7 +63,7 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
 
       <label htmlFor="registry-url" className="mt-4 block text-sm font-medium">{t("registry.url")}</label>
       <div className="mt-1 flex gap-2">
-        <input id="registry-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://registry.example" className="min-w-0 flex-1 rounded-md border border-line bg-card px-3 py-2" />
+        <input id="registry-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://coa-manager.duckdns.org" className="min-w-0 flex-1 rounded-md border border-line bg-card px-3 py-2" />
         <Button size="sm" disabled={busy || url.trim() === (status?.url ?? "")} onClick={() => void run(() => realmRegistry.setUrl(url.trim() || null))}>{t("registry.urlSave")}</Button>
       </div>
 

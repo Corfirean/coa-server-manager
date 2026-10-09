@@ -12,12 +12,10 @@ This file never contains private keys, passwords, DB credentials, transfer PINs,
 Registry API   Relay   Coordinator   PostgreSQL   Caddy (ingress)   monitoring
 ```
 
-Phase -1 prepared the host. **Phase 10 deployed the Registry and PostgreSQL** (see [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md)); no Relay or Coordinator exists yet.
+Phase -1 prepared the host. **Phase 10 deployed the Registry and PostgreSQL** (see [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md)); **Phase 12 deployed the Coordinator**; and the **Phases 11-12 TLS gate** enabled production HTTPS/WSS ingress.
 The VPS is not the source of truth for any player data.
 
-No domain is registered. Until one exists, services are addressed by IP, and Caddy serves plain HTTP on :80.
-The design keeps client protocols independent of hostnames so the relay can later be moved to separate nodes and
-DNS names (`api.<domain>`, `relay.<domain>`) added without changing the client protocol.
+Public domain is `coa-manager.duckdns.org` pointing to `coa-infra-01`. Caddy automatically obtains and renews trusted Let's Encrypt TLS certificates via ACME. HTTP on port 80 redirects to HTTPS on port 443.
 
 ## Service architecture
 
@@ -25,13 +23,15 @@ DNS names (`api.<domain>`, `relay.<domain>`) added without changing the client p
 Internet
    |
  22/tcp -> sshd
- 80,443/tcp
+ 80,443/tcp (80 redirects to 443; ACME TLS via Let's Encrypt)
    v
  Caddy  (container, network coa-ingress)
    |
    +--> Registry API   (coa-registry:8080, networks coa-ingress + coa-db, no published port)
-            |
-            +--> PostgreSQL (coa-postgres:5432, network coa-db only, --internal, no published port)
+   |        |
+   |        +--> PostgreSQL (coa-postgres:5432, network coa-db only, --internal, no published port)
+   |
+   +--> Coordinator    (coa-coordinator:8081, networks coa-ingress + coa-db, no published port)
 ```
 
 Rules:
@@ -129,6 +129,9 @@ sudo docker compose logs --tail 50
 # PostgreSQL and the Registry (Phase 10): see REGISTRY_DEPLOYMENT.md
 cd /opt/coa/postgres && sudo docker compose up -d
 cd /opt/coa/registry && sudo docker compose up -d
+
+# Coordinator (Phase 12)
+cd /opt/coa/coordinator && sudo docker compose up -d
 ```
 
 ## Backups

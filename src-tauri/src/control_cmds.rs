@@ -28,7 +28,7 @@ fn from_control(e: ControlFail) -> ServiceError {
 
 fn registry_url() -> Result<String, ServiceError> {
     let settings = coa_core::realm_registry::settings::load(&data_dir().join("registry")).map_err(|e| fail("registry", e.to_string()))?;
-    std::env::var("COA_REGISTRY_URL").ok().filter(|u| !u.is_empty()).or(settings.url).ok_or_else(|| fail("registry", "Enter the Registry address first."))
+    Ok(std::env::var("COA_REGISTRY_URL").ok().filter(|u| !u.is_empty()).unwrap_or_else(|| settings.effective_url().to_string()))
 }
 
 fn player(state: &State<'_, AppState>) -> Result<Arc<PlayerControl>, ServiceError> {

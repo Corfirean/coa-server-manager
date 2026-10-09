@@ -257,11 +257,8 @@ There is no heartbeat history and no table about players, characters, accounts o
 *Servers* is the first page of Player Mode (and available to a Host): a table of the public list (Server, Modules, Cap, Rates, Mode CoA/Wildcard, Ping, Online "N players + M bots"), with search,
 filters (mode, level cap range, module, online players) and sortable columns (name, cap, online); the detail drawer shows the rates, the modules and whether the *selected portable character*
 can play there, using the existing Phase 7/8 compatibility logic against the capabilities in the record, and the join panel of `docs/CONTROL_PROTOCOL.md`. Module names and tooltips come from the
-**local** module catalog; an id the catalog does not know is shown as plain text. Ping shows "—" with an explanation until a real route exists. The Registry address is a setting (and
-`COA_REGISTRY_URL` for tests and deployments); nothing is hard-coded. The browse client sends nothing about the player.
+**local** module catalog; an id the catalog does not know is shown as plain text. Ping shows "—" with an explanation until a real route exists. The Registry address defaults to `https://coa-manager.duckdns.org` (configurable in settings, and overridable via `COA_REGISTRY_URL` for tests and fixtures); no IP address is hard-coded. The browse client sends nothing about the player.
 
 ## 11. Not in this document
 
-The control plane (accounts, character claiming, the Coordinator), Relay, direct-connect optimisation, portable-character transfer to another Manager. **HTTPS**: the staging node serves plain HTTP
-(no domain, so no certificate); requests are signed and carry no secret, and the public list is public. TLS is a hard requirement before the list is shown to players outside the test
-group, and is the one open item of Phase 11 (see `docs/REGISTRY_DEPLOYMENT.md`). No custom PKI is used or planned.
+The control plane (accounts, character claiming, the Coordinator), Relay, direct-connect optimisation, portable-character transfer to another Manager. **HTTPS**: the production node serves public HTTPS on `https://coa-manager.duckdns.org` with automatic Let's Encrypt certificates managed by Caddy; plain HTTP redirects to HTTPS.

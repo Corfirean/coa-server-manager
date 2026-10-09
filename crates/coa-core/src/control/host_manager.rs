@@ -100,7 +100,7 @@ type Wanted = BTreeMap<String, (RealmId, String, ed25519_dalek::SigningKey)>;
 fn wanted(dir: &std::path::Path, keys: &dyn KeyStore, url_override: Option<&str>) -> Wanted {
     let mut out = Wanted::new();
     let Ok(s) = settings::load(dir) else { return out };
-    let Some(base) = url_override.map(str::to_string).or(s.url) else { return out };
+    let base = url_override.map(str::to_string).unwrap_or_else(|| s.effective_url().to_string());
     let Some(url) = coordinator_url(&base, "/coord/v1/host") else { return out };
     for (local_id, cfg) in s.realms {
         let (true, Some(realm)) = (cfg.enabled, cfg.realm_id) else { continue };

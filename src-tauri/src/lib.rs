@@ -1808,7 +1808,7 @@ async fn portable_preflight_remote(state: State<'_, AppState>, character: String
 
 fn browse_client() -> std::result::Result<coa_core::realm_registry::BrowseClient, UiError> {
     let settings = coa_core::realm_registry::settings::load(&data_dir().join("registry"))?;
-    let url = std::env::var("COA_REGISTRY_URL").ok().filter(|u| !u.is_empty()).or(settings.url).ok_or_else(|| Error::Invalid("Enter the Registry address first.".into()))?;
+    let url = std::env::var("COA_REGISTRY_URL").ok().filter(|u| !u.is_empty()).unwrap_or_else(|| settings.effective_url().to_string());
     Ok(coa_core::realm_registry::BrowseClient::new(&url)?)
 }
 

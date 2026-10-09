@@ -213,7 +213,7 @@ for the in-world refusal) instead of logging in with the game: the Manager must 
 
 ## 13. What remains before Relay
 
-1. **TLS** on the node (needs a domain; no custom PKI). Until then the WebSocket is plain, which is safe for what it carries (everything private is inside the Noise channel) but exposes metadata to an on-path observer.
+1. **TLS completed**: Public domain `coa-manager.duckdns.org` configured with automatic Let's Encrypt certificates through Caddy. Coordinator connections use `wss://coa-manager.duckdns.org/coord/v1/...` and Registry uses `https://coa-manager.duckdns.org`. Port 80 redirects to 443. The TLS gate passed all 13 checks (see `docs/REGISTRY_DEPLOYMENT.md`).
 2. **A game route**: Relay or a direct route. Today only an owner-stated address makes `Join` start the game.
 3. **Moving a portable character onto a realm that is not its home** (import, update, session prepare over the channel): the Host side exists in the engine (Phases 7–9) but the messages to carry an offer and its answers between two Managers are not defined; `needs_transfer` says so.
 4. **Native login prefill**: the owner's audit run (section 10).

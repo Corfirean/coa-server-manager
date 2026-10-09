@@ -1,16 +1,16 @@
-# Registry and Coordinator deployment (Phases 10, 10.1, 11, 12)
+# Registry and Coordinator deployment (Phases 10, 10.1, 11, 12, TLS Gate)
 
 How the Registry and the Coordinator run on `coa-infra-01`, how to rebuild or restart them, and what the gates checked. Protocols: [REGISTRY_PROTOCOL.md](REGISTRY_PROTOCOL.md), [CONTROL_PROTOCOL.md](CONTROL_PROTOCOL.md).
-Node facts: [INFRASTRUCTURE.md](INFRASTRUCTURE.md), [VPS_BASELINE.md](VPS_BASELINE.md). `<VPS_IP>` is the node's public IPv4 (kept out of git); no secret is in this file.
+Node facts: [INFRASTRUCTURE.md](INFRASTRUCTURE.md), [VPS_BASELINE.md](VPS_BASELINE.md). `<VPS_IP>` is the node's public IPv4 (kept out of git); no secret is in this file. Production hostname: `coa-manager.duckdns.org`.
 
 ## Topology
 
 ```
 Internet
-  |  22/tcp (sshd)   80/tcp, 443/tcp (Caddy, the only container with published ports)
+  |  22/tcp (sshd)   80/tcp (redirect to 443), 443/tcp (Caddy, the only container with published ports)
   v
-Caddy  :80   /registry/*  ->  coa-registry:8080      network coa-ingress
-       :80   /coord/*     ->  coa-coordinator:8081   network coa-ingress   (WebSocket; Phase 12)
+Caddy  :443  /registry/*  ->  coa-registry:8080      network coa-ingress   (HTTPS; ACME Let's Encrypt)
+       :443  /coord/*     ->  coa-coordinator:8081   network coa-ingress   (WSS WebSocket; Phase 12)
                                    |
 Registry container  (coa-registry)  +--- network coa-db (internal) ---+
                                                                        v
@@ -20,8 +20,7 @@ Registry container  (coa-registry)  +--- network coa-db (internal) ---+
 * Registry and PostgreSQL publish **no host port**. `docker ps` shows `8080/tcp` and `5432/tcp` (exposed inside Docker networks only), and `ss -tulnH` lists only 22, 80, 443.
   Never add `5432:5432` or `8080:8080`.
 * The Registry joins `coa-ingress` (to be reached by Caddy) and `coa-db` (to reach PostgreSQL). PostgreSQL joins only `coa-db`, which is `--internal`.
-* Caddy serves plain HTTP on :80 (no domain yet: `auto_https off`, admin API off). Port 443 is allowed by UFW and published by Docker, but nothing listens on it until TLS exists.
-  **HTTPS is mandatory before the list and the control plane are shown to players outside the test group** (the one open item of Phase 11 and of Phase 12's transport); for these staging gates HTTP is acceptable because every Host request is signed, the public list is public, and everything private on the control plane is end-to-end encrypted inside the WebSocket (an on-path observer of plain HTTP learns that a connection to a realm exists and its size and timing, nothing else). No custom PKI is used or planned: TLS needs a domain name and a normal certificate (ACME through Caddy).
+* Caddy serves public HTTPS and WSS on `coa-manager.duckdns.org` with automatic Let's Encrypt ACME certificate management. Port 80 automatically redirects (308 Permanent Redirect) to HTTPS. Certificate state and ACME account metadata are stored in persistent Docker volumes `coa-caddy_caddy_data` and `coa-caddy_caddy_config`.
 
 ## Files (in git: `services/coa-registry/deploy/`)
 
@@ -75,8 +74,8 @@ Staging note: the gate ran with `REGISTRY_REGISTER_BURST=100`; the production de
 
 ```bash
 cd /opt/coa/registry && sudo docker compose ps && sudo docker compose logs --tail 50     # JSON lines
-curl -s http://<VPS_IP>/registry/v2/healthz                                              # {"status":"ok","protocol_version":2}
-curl -s http://<VPS_IP>/coord/v1/health                                                  # {"hosts":N,"protocol_version":1,"status":"ok"}
+curl -s https://coa-manager.duckdns.org/registry/v2/healthz                                 # {"status":"ok","protocol_version":2}
+curl -s https://coa-manager.duckdns.org/coord/v1/health                                     # {"hosts":N,"protocol_version":1,"status":"ok"}
 sudo sh /opt/coa/registry/src/services/coa-registry/deploy/audit-db.sh                   # contents audit
 ```
 
@@ -146,7 +145,27 @@ Run today with 5000 synthetic realms loaded by `deploy/synthetic.sh load 5000` (
 | Filters, bounds, ETag/cache, read-only | pass (`gate11_filters_etag_and_read_only`): search, mode, cap range, module, online players; limits above 100, a repeated or unknown parameter and a foreign cursor → 400; `If-None-Match` → 304; `POST`/`PUT`/`DELETE` on the public paths → 405 |
 | The Manager's *Servers* page | pass in the real window against the live Registry: the table, filters, sort headers, module chips and tooltips from the local catalog (an unknown id as plain text), the detail drawer with the compatibility verdict of the selected portable character, "—" for ping |
 | Configurable Registry address, none hard-coded | pass (setting + `COA_REGISTRY_URL`) |
-| **TLS** | **not done: the node has no domain.** This is the only gate item that cannot be passed without something the project does not have (a domain name). Nothing was invented instead (no self-signed or private CA) |
+| **TLS** | **pass**: public domain `coa-manager.duckdns.org` configured; Caddy automatically obtains and renews trusted public Let's Encrypt certificates; HTTP redirects to HTTPS; certificate state persisted across restarts |
+
+## The TLS Finishing Gate (Phases 11 and 12)
+
+Run from an external workstation against `https://coa-manager.duckdns.org` and `wss://coa-manager.duckdns.org`.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | `https://coa-manager.duckdns.org/registry/v2/healthz` returns Registry v2 health | pass (`{"status":"ok","protocol_version":2}`) |
+| 2 | HTTP request redirects to HTTPS | pass (`HTTP/1.1 308 Permanent Redirect` -> `https://coa-manager.duckdns.org/...`) |
+| 3 | Public realm browser works through HTTPS | pass (`gate11_filters_etag_and_read_only` over HTTPS) |
+| 4 | Host publication / register / heartbeat works through HTTPS | pass (`gate_1_to_12_against_the_node` over HTTPS) |
+| 5 | Coordinator Host connection works through WSS | pass (`HostLink` connected to `wss://coa-manager.duckdns.org/coord/v1/host`) |
+| 6 | Player → Coordinator → Host control channel works through WSS | pass (`PlayerControl::connect` establishes Noise session over WSS) |
+| 7 | Automatic account provisioning works | pass (`ensure_account` provisioned account over WSS) |
+| 8 | Existing-account linking works | pass (`link_existing` linked credentials over WSS) |
+| 9 | Character claim works | pass (`claim` and `acknowledge` over WSS) |
+| 10 | Caddy restart recovers without broken/new certificate | pass (`docker restart` serves cached cert from `/data/caddy/certificates`) |
+| 11 | Certificate inspected: hostname, chain, dates | pass (`CN=coa-manager.duckdns.org`, Issuer: Let's Encrypt, Valid until Jan 2027, Verify=True) |
+| 12 | External port scan exposes no internal ports | pass (22, 80, 443 open; 2019, 5432, 8080, 8081 closed) |
+| 13 | Registry/Coordinator/control-plane regression tests pass | pass (all suites pass cleanly) |
 
 ## The Coordinator (Phase 12)
 

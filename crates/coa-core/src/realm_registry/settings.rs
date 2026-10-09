@@ -59,6 +59,8 @@ impl PublishConfig {
     }
 }
 
+pub const DEFAULT_REGISTRY_URL: &str = "https://coa-manager.duckdns.org";
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistrySettings {
@@ -67,6 +69,13 @@ pub struct RegistrySettings {
     pub url: Option<String>,
     /// Keyed by the local realm id (`srv-<install id>` or a prepared realm's id).
     pub realms: BTreeMap<String, PublishConfig>,
+}
+
+impl RegistrySettings {
+    /// The configured Registry address, or the production default (`https://coa-manager.duckdns.org`).
+    pub fn effective_url(&self) -> &str {
+        self.url.as_deref().unwrap_or(DEFAULT_REGISTRY_URL)
+    }
 }
 
 impl Default for RegistrySettings {

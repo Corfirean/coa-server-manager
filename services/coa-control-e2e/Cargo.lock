@@ -307,6 +307,8 @@ dependencies = [
  "coa-core",
  "coa-registry-proto",
  "ed25519-dalek",
+ "reqwest",
+ "serde_json",
  "tempfile",
  "tokio",
  "tungstenite 0.26.2",

@@ -179,7 +179,7 @@ pub struct RegistryHost {
 impl RegistryHost {
     pub fn open(dir: &Path, keys: Arc<dyn KeyStore>, source: Arc<dyn AdvertSource>, clock: Clock, timing: Timing, now: Instant) -> Result<Self> {
         let settings = settings::load(dir)?;
-        let client = settings.url.as_deref().map(RegistryClient::new).transpose()?;
+        let client = Some(RegistryClient::new(settings.effective_url())?);
         let mut host = Self { dir: dir.to_path_buf(), settings, keys, source, clock, timing, client, publishers: BTreeMap::new() };
         for (local, cfg) in host.settings.realms.clone() {
             let mut p = Publisher::new(cfg.clone(), now);
@@ -192,7 +192,7 @@ impl RegistryHost {
     }
 
     pub fn url(&self) -> Option<&str> {
-        self.settings.url.as_deref()
+        Some(self.settings.effective_url())
     }
 
     /// The identity of an enabled realm: its id and key must both exist; a missing key is not replaced behind the owner's back.
@@ -231,7 +231,8 @@ impl RegistryHost {
         if url == self.settings.url {
             return Ok(());
         }
-        self.client = url.as_deref().map(RegistryClient::new).transpose()?;
+        let effective = url.as_deref().unwrap_or(settings::DEFAULT_REGISTRY_URL);
+        self.client = Some(RegistryClient::new(effective)?);
         self.settings.url = url;
         self.save()?;
         for p in self.publishers.values_mut().filter(|p| p.cfg.enabled && p.key.is_some()) {
@@ -356,7 +357,7 @@ impl RegistryHost {
                 retry_in_secs: p.due.map(|d| d.saturating_duration_since(now).as_secs()),
             })
             .collect();
-        RegistryStatus { url: self.settings.url.clone(), realms }
+        RegistryStatus { url: Some(self.settings.effective_url().to_string()), realms }
     }
 
     /// The public key a published realm is known by (never the private one).

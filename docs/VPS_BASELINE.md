@@ -42,8 +42,8 @@ Date configured: 2026-10-06 (UTC)
 | Port | Proto | Service |
 |---|---|---|
 | 22 | tcp | sshd (key only) |
-| 80 | tcp | Caddy (answers `/healthz` with `ok`, everything else 404) |
-| 443 | tcp | Caddy (published, no certificate/site yet) |
+| 80 | tcp | Caddy (redirects HTTP to HTTPS on 443) |
+| 443 | tcp | Caddy (Let's Encrypt TLS: `/registry/*` and `/coord/*`) |
 
 Everything else is closed, including 5432, 3306/3307, 2375/2376 (Docker API), 2019 (Caddy admin; admin API is disabled).
 
@@ -103,8 +103,12 @@ published as `127.0.0.1:<port>:<port>`.
 PostgreSQL 17 and the Registry now run (containers `coa-postgres-postgres-1`, `coa-registry-registry-1`); Caddy proxies `/registry/*` to the Registry. Public ports are unchanged (22, 80; 443 is
 allowed and published but has no listener until TLS). Details and the gate: [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md).
 
+## Phase 12 & TLS gate addendum
+
+The Coordinator (`coa-coordinator-coordinator-1`) runs behind Caddy on `coa-ingress` with no published port. Domain `coa-manager.duckdns.org` is pointed to the VPS, and Caddy manages automated Let's Encrypt TLS certificates on port 443 with persistent `/data` storage across container restarts. Port 80 automatically redirects to HTTPS. Public endpoints are `https://coa-manager.duckdns.org/registry/*` and `wss://coa-manager.duckdns.org/coord/*`. Verified by 13-item external verification gate (see [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md) and [CONTROL_PROTOCOL.md](CONTROL_PROTOCOL.md)).
+
 ## Open items
 
 - Fill in region, plan/service ID, network limit from the OVH Control Panel.
 - Find out what OVH backup/snapshot is actually enabled for this plan (see INFRASTRUCTURE.md, Backups).
-- Decide on the public hostname/TLS strategy (no domain yet; Caddy serves plain HTTP on :80).
+- [RESOLVED] Decide on the public hostname/TLS strategy: configured `coa-manager.duckdns.org` with Caddy automated Let's Encrypt TLS on 443.
