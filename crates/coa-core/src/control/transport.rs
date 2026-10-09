@@ -83,6 +83,11 @@ pub fn coordinator_url(registry_url: &str, path: &str) -> Option<String> {
     Some(format!("{rest}{path}"))
 }
 
+pub fn relay_url(registry_url: &str, path: &str) -> Option<String> {
+    coordinator_url(registry_url, path)
+}
+
+
 pub fn connect(url: &str, read_timeout: Duration) -> Result<Ws, LinkError> {
     let (mut ws, _) = tungstenite::connect(url).map_err(|e| LinkError::Io(clean(&e.to_string())))?;
     set_timeouts(&mut ws, read_timeout);

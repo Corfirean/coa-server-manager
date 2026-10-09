@@ -360,3 +360,47 @@ fn a_realms_key_is_pinned_at_the_first_visit() {
     // the right key still works
     pc.connect(&env.target()).unwrap().close();
 }
+
+#[test]
+fn remote_transfer_over_coordinator_channel_e2e() {
+    use std::collections::BTreeMap;
+    use sha2::{Digest, Sha256};
+    let env = Env::new(true);
+    let dir = tempfile::tempdir().unwrap();
+    let pc = player(dir.path(), Arc::new(MemoryStore::default()));
+    let mut ch = pc.connect(&env.target()).unwrap();
+    pc.ensure_account(&mut ch, &env.realm, Some("Varian")).unwrap();
+
+    let cid = Uuid::now_v7();
+    let payload = b"SECRET_PORTABLE_CHARACTER_PAYLOAD_FOR_VARIAN".to_vec();
+    let hash: [u8; 32] = Sha256::digest(&payload).into();
+    let collections = BTreeMap::from([("coa:appearance".to_string(), vec![42, 99])]);
+
+    // Perform transfer
+    let outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).unwrap();
+    assert!(outcome.local_guid > 0);
+    assert_ne!(outcome.session_id, Uuid::nil());
+
+    // Verify tap saw nothing sensitive
+    assert!(!env.wire_contains("SECRET_PORTABLE_CHARACTER_PAYLOAD"), "payload was encrypted");
+    assert!(!env.wire_contains("Varian"), "account name was encrypted");
+
+    // Idempotent retry with same payload discovers existing commit
+    let retry_outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).unwrap();
+    assert_eq!(outcome.local_guid, retry_outcome.local_guid);
+    assert_eq!(outcome.session_id, retry_outcome.session_id);
+
+    // Update with revision 2 updates working copy without duplicate
+    let payload2 = b"SECRET_PORTABLE_CHARACTER_PAYLOAD_VARIAN_REV2".to_vec();
+    let hash2: [u8; 32] = Sha256::digest(&payload2).into();
+    let update_outcome = pc.transfer_character(&mut ch, cid, 2, &payload2, hash2, collections).unwrap();
+    assert_eq!(outcome.local_guid, update_outcome.local_guid);
+
+    // Incompatible realm rejects
+    let incomp_id = Uuid::now_v7();
+    env.fake.incompatible.lock().unwrap().insert(incomp_id);
+    let err = pc.transfer_character(&mut ch, incomp_id, 1, b"any", [0u8; 32], BTreeMap::new()).unwrap_err();
+    assert_eq!(err.code(), "incompatible");
+}
+
+

@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use coa_control_proto::app;
 
-use super::service::{AccountRow, CharInfo, ClaimExport, Presence, RealmBackend, RealmInfo};
+use uuid::Uuid;
+
+use super::service::{AccountRow, CharInfo, ClaimExport, PreflightVerdict, Presence, RealmBackend, RealmInfo, RemoteImportOutcome, RemoteImportParams};
 use crate::portable::realm;
 use crate::portable::service::access::RealmAccess;
 use crate::portable::service::runtime::PortableRuntime;
@@ -142,5 +144,16 @@ impl RealmBackend for LocalBackend {
         let id = local_id.to_string();
         let bundle = self.portable.call(move |s| s.export_for_claim(&id, guid)).map_err(|e| unavailable("portable engine", e))?.map_err(|e| unavailable("export", e))?;
         Ok(ClaimExport { character_id: bundle.character_id.as_uuid(), payload: bundle.payload, sha256: bundle.content_hash, collections: bundle.collections })
+    }
+
+    fn check_transfer(&self, local_id: &str, character_id: Uuid, revision: u64) -> Result<PreflightVerdict> {
+        let id = local_id.to_string();
+        let cid = crate::portable::CharacterId::from_uuid(character_id).map_err(|e| unavailable("character id", e))?;
+        self.portable.call(move |s| s.check_remote_transfer(&id, cid, revision)).map_err(|e| unavailable("portable engine", e))?.map_err(|e| unavailable("check transfer", e))
+    }
+
+    fn import_remote(&self, local_id: &str, params: RemoteImportParams) -> Result<RemoteImportOutcome> {
+        let id = local_id.to_string();
+        self.portable.call(move |s| s.import_remote_character(&id, params)).map_err(|e| unavailable("portable engine", e))?.map_err(|e| unavailable("import remote", e))
     }
 }

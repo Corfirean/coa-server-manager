@@ -165,7 +165,6 @@ pub(crate) async fn join_realm(state: State<'_, AppState>, realm: String, charac
             return Ok(JoinOutcome::stop("needs_link", None));
         }
         let account = pc.ensure_account(&mut ch, &rid, prefer.as_deref()).map_err(from_control)?;
-        ch.close();
         let mut out = JoinOutcome { status: "ready".into(), username: Some(account.username), account_created: account.created, password_reset: account.password_reset, route: route.clone(), notes: vec![] };
         if let Some(character) = character_for_check {
             let portable = portable.ok_or_else(|| fail("stopped", "The portable play service could not start."))?;
@@ -174,20 +173,35 @@ pub(crate) async fn join_realm(state: State<'_, AppState>, realm: String, charac
             let pre = portable.call(move |s| s.preflight_advert(&id, &caps))?.map_err(|e| e)?;
             out.notes = pre.notes.clone();
             if pre.step == portable_service::Step::Blocked {
+                ch.close();
                 out.status = "incompatible".into();
                 return Ok(out);
             }
             let here = pc.claimed_here(&rid).map_err(from_control)?;
             if !here.iter().any(|(id, _)| id.to_string() == character) {
-                // the character is not from this server: putting it there needs the Host to receive it, which the control channel does not carry yet
-                out.status = "needs_transfer".into();
-                return Ok(out);
+                // Phase 12.1: Transfer canonical character to remote Host over the encrypted control channel
+                let char_id_str = character.clone();
+                let bundle = portable.call(move |s| s.export_for_remote_transfer(&char_id_str))?.map_err(|e| e)?;
+                let cuuid = bundle.character_id.as_uuid();
+                let _outcome = pc.transfer_character(&mut ch, cuuid, 1, &bundle.payload, bundle.content_hash, bundle.collections).map_err(from_control)?;
+                let _ = pc.acknowledge(&mut ch, cuuid, &rid, &character);
             }
         }
         if route.is_none() {
-            out.status = "needs_relay".into();
+            match pc.allocate_relay(&mut ch) {
+                Ok(relay_alloc) => {
+                    let r = format!("{}:{}", relay_alloc.relay_host, relay_alloc.auth_port);
+                    out.route = Some(r);
+                    out.status = "ready".into();
+                }
+                Err(_) => {
+                    out.status = "needs_relay".into();
+                }
+            }
         }
+        ch.close();
         Ok(out)
+
     })
     .await
     .map_err(|e| fail("other", e.to_string()))??;

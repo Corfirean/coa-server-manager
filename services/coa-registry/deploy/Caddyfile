@@ -5,4 +5,6 @@
 coa-manager.duckdns.org {
 	reverse_proxy /registry/* coa-registry:8080
 	reverse_proxy /coord/* coa-coordinator:8081
+	reverse_proxy /relay/* coa-relay:8082
 }
+

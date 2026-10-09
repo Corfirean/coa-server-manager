@@ -994,6 +994,125 @@ impl PortableService {
         self.state().characters.into_iter().find(|c| c.id == character_id.to_string()).ok_or_else(|| fail("other", "The character was not registered."))
     }
 
+    /// Export a canonical character and collections for transfer to a remote realm (Phase 12.1).
+    pub fn export_for_remote_transfer(&self, character: &str) -> Res<ClaimBundle> {
+        let cid = self.cid(character)?;
+        let model = self.owner.load_current(cid)?;
+        let encoded = super::super::snapshot::encode(&model)?;
+        let mut collections = BTreeMap::new();
+        for kind in ["coa:appearance", "coa:vanity"] {
+            if let Ok(Some((_, set))) = self.owner.collection(self.owner_profile, kind) {
+                collections.insert(kind.to_string(), set.ids().to_vec());
+            }
+        }
+        Ok(ClaimBundle {
+            character_id: cid,
+            payload: encoded.payload,
+            content_hash: encoded.content_hash,
+            collections,
+        })
+    }
+
+    /// Preflight check for remote transfer before receiving payload chunks (Phase 12.1).
+    pub fn check_remote_transfer(&mut self, realm_id: &str, character_id: CharacterId, _revision: u64) -> Res<crate::control::service::PreflightVerdict> {
+        let access = self.access(realm_id)?;
+        self.refresh_obs(realm_id, false);
+        let obs = self.obs.get(realm_id).map(|o| (o.db_ok, o.ra_ok)).unwrap_or((false, false));
+        if !obs.0 {
+            return Err(fail("realm_offline", "The realm's database cannot be reached."));
+        }
+        if let Ok(model) = self.host.load_current(character_id) {
+            let db = access.db()?;
+            let caps = match self.remembered(&access, &db) {
+                Some(c) => c,
+                None => return Ok(crate::control::service::PreflightVerdict::Compatible),
+            };
+            let opts = self.options(&access, &caps);
+            let ops = [Operation::OnlineImport, Operation::RuntimeSession];
+            let report = self.report(&model, &caps, &opts, &ops, obs.1);
+            match verdict_of(report.verdict()) {
+                Verdict::Incompatible => return Ok(crate::control::service::PreflightVerdict::Incompatible),
+                Verdict::Degraded => return Ok(crate::control::service::PreflightVerdict::Degraded),
+                Verdict::Compatible => return Ok(crate::control::service::PreflightVerdict::Compatible),
+            }
+        }
+        Ok(crate::control::service::PreflightVerdict::Compatible)
+    }
+
+    /// Import or update a transferred character into the remote realm and arm a session (Phase 12.1).
+    pub fn import_remote_character(&mut self, realm_id: &str, params: crate::control::service::RemoteImportParams) -> Res<crate::control::service::RemoteImportOutcome> {
+        let cid = CharacterId::from_uuid(params.character_id)?;
+        let model = super::super::snapshot::decode(&params.payload, Some(&params.content_hash))?;
+        if model.character_id != cid {
+            return Err(fail("other", "The character data does not belong to the character that was transferred."));
+        }
+
+        let access = self.access(realm_id)?;
+        let db = access.db()?;
+        let mut ra = access.ra().map_err(|e| fail("realm_offline", e.to_string()))?;
+        let caps = self.capabilities(&access, &db, &mut ra, true)?;
+        let opts = self.options(&access, &caps);
+
+        // Preflight compatibility check before ANY mutation
+        let ops = [Operation::OnlineImport, Operation::RuntimeSession];
+        let report = self.report(&model, &caps, &opts, &ops, true);
+        if verdict_of(report.verdict()) == Verdict::Incompatible {
+            return Err(fail("incompatible", "Character is incompatible with this realm; nothing was changed."));
+        }
+
+        // Install or advance copy in host store
+        self.host.host_install_copy(self.host_profile, &model, params.revision, "remote")?;
+
+        // Monotonic union of collections
+        for (kind, ids) in &params.collections {
+            if matches!(kind.as_str(), "coa:appearance" | "coa:vanity") {
+                if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
+                    let _ = self.host.merge_collection(self.host_profile, kind, &set);
+                }
+            }
+        }
+
+        let existing_mapping = self.host.server_mappings(cid)?.into_iter().find(|m| m.server_id == realm_id);
+
+        let session_id = SessionId::new();
+        let envelope = super::super::session::protocol::Envelope::from_encoded(&super::super::snapshot::encode(&model)?);
+        let offer = super::super::session::protocol::SessionOffer {
+            protocol_version: super::super::session::protocol::PROTOCOL_VERSION,
+            session_id,
+            character_id: cid,
+            server_id: realm_id.to_string(),
+            canonical_revision: params.revision,
+            snapshot: envelope,
+        };
+        HostService::new(&mut self.host, realm_id, self.host_config.clone()).accept_offer(self.host_profile, &offer)?;
+
+        let local_guid = if let Some(m) = existing_mapping {
+            // Already exists on realm: arm session on existing copy
+            let mut bridge = LiveBridge::new(&db, ra);
+            bridge.arm(m.local_guid, offer.session_id, cid, params.revision, 1)?;
+            HostService::new(&mut self.host, realm_id, self.host_config.clone()).bind(offer.session_id, m.local_guid)?;
+            m.local_guid
+        } else {
+            // Import online into running realm
+            let imported = import_character_online_on(Some(&db), &mut ra, &mut self.host, cid, realm_id, params.account_id, &opts, &access.job_dir, Some(offer.session_id))?;
+            HostService::new(&mut self.host, realm_id, self.host_config.clone()).bind(offer.session_id, imported.local_guid)?;
+            imported.local_guid
+        };
+
+        self.reproject.remove(&(cid, realm_id.to_string()));
+        self.publish();
+
+        let projected_level = caps.progression.as_ref().filter(|p| u32::from(model.progression.level) > p.max_player_level).map(|p| p.max_player_level);
+        let notes = notes_of(&report).into_iter().map(|n| n.detail).collect();
+
+        Ok(crate::control::service::RemoteImportOutcome {
+            local_guid,
+            session_id: session_id.as_uuid(),
+            projected_level,
+            notes,
+        })
+    }
+
     /// The two ways out of a divergence the Manager does not own.
     pub fn resolve(&mut self, character: &str, realm_id: &str, action: Resolve) -> Res<()> {
         let cid = self.cid(character)?;

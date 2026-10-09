@@ -98,9 +98,11 @@ Application messages: requests ≤ 4096 bytes, strict JSON with unknown fields r
 | `list_characters` | `characters{characters}` | the characters of the player's account (opaque per-connection handles; the realm's own numbers never leave the Host) |
 | `claim{token}` | `claimed{character_id, sha256, payload, collections}` | export one character (section 7) |
 | `claim_ack{character_id}` | `done` | the player stored it; the claim is final |
+| `transfer_character{character_id, revision, sha256, payload, collections}` | `transferred{character_id, local_guid, session_id}` | transactional remote character import/projection (Phase 12.1) |
+| `allocate_relay` | `relay_allocated{relay_host, auth_port, world_port, token, expires_at}` | dynamic game relay allocation for NAT traversal (Phase 13) |
 | `route` | `route_info{address}` | the address the game client can use right now, if the owner stated one |
 
-Errors (`error{code,message}`): `unsupported_version`, `invalid`, `provisioning_off`, `no_account`, `not_at_character_select`, `not_yours`, `already_claimed`, `not_eligible`, `wrong_credentials`, `account_taken`, `rate_limited`, `unavailable`.
+Errors (`error{code,message}`): `unsupported_version`, `invalid`, `provisioning_off`, `no_account`, `not_at_character_select`, `not_yours`, `already_claimed`, `not_eligible`, `wrong_credentials`, `account_taken`, `rate_limited`, `unavailable`, `incompatible`, `relay_unavailable`.
 Backend failures are logged on the Host and answered as `unavailable` without internals.
 
 ## 6. Accounts
@@ -137,6 +139,32 @@ Then the Host exports the character with the same code as *Make portable* (one c
 appearance and vanity collections, all inside the channel. The Player's Manager decodes it **with verification** (hash, format, that the character id is the one claimed), stores it as **canonical revision 1** with the collections merged into
 its profile, and only then sends `claim_ack`; the Host marks the binding `PortableCharacterId ↔ PlayerIdentity` as acknowledged. An unacknowledged claim can be repeated by the same player and returns the same character; nobody else can take it.
 
+## 7.1 Remote Portable Character Transfer (Phase 12.1)
+
+When a player selects a portable character that exists in their Player Manager but does not yet exist on the remote realm, the Player Manager performs an automated, transactional transfer over the encrypted Noise channel:
+
+1. **Preflight Compatibility Check**: The Player Manager checks the canonical character against the target realm's advertised capabilities (Phase 7/8). If incompatible, the transfer is refused immediately before any network mutation.
+2. **Payload Transfer**: Inside the end-to-end encrypted Noise channel, the Player Manager sends `transfer_character{character_id, revision, sha256, payload, collections}`. The Coordinator sees only opaque ciphertext.
+3. **Host Validation**: The Host validates:
+   - PlayerIdentity proof of ownership;
+   - `PortableCharacter` format version, schema integrity, and SHA-256 payload hash;
+   - Target realm account mapping for this player;
+   - Level projection policy (e.g. projecting level 80 down to realm cap 60 via Phase-8 oracle);
+   - Idempotency: if this exact canonical revision was already imported, the existing working copy GUID and armed session ID are returned immediately without duplicating the character;
+   - Revision update: if a newer canonical revision is transferred, the Host updates the existing working copy rather than creating a duplicate character.
+4. **Outcome & Session Arming**: On successful import/projection, the Host returns `transferred{character_id, local_guid, session_id}`. The session engine arms the session for game login.
+
+## 7.2 Game Relay Allocation (Phase 13)
+
+When a realm is hosted behind NAT or CGNAT without direct port exposure, the Player Manager requests dynamic relay routing over the encrypted Noise channel:
+
+1. The Player Manager sends `allocate_relay`.
+2. The Host asks its connected outbound tunnel to `coa-relay` (`wss://coa-manager.duckdns.org/relay/v1/host`) for an allocation.
+3. `coa-relay` binds a dedicated pair of TCP ports from the dynamic game port pool (40000–40050) for `Auth` and `World`, generates a single-use token, and responds to the Host.
+4. The Host returns `relay_allocated{relay_host, auth_port, world_port, token, expires_at}` to the Player inside the encrypted control channel.
+5. The Player Manager points the client's `realmlist.wtf` to `relay_host:auth_port`.
+6. When the client contacts `auth_port`, `coa-relay` dynamically rewrites the `address` field in the `CMD_REALM_LIST` response (opcode `0x10`) to `relay_host:world_port`, seamlessly directing the client to the allocated world tunnel without patching AzerothCore or modifying the database.
+
 ## 8. Secrets on the player's machine
 
 `SecretStore` (`control/secrets.rs`) keeps the identity key and the realm passwords; nothing secret is in JSON, SQLite, a log or a diagnostic (`control.sqlite` holds names only, checked by the gate).
@@ -149,11 +177,12 @@ its profile, and only then sends `claim_ack`; the Host marks the binding `Portab
 
 ## 9. JOIN
 
-*Join this server* (`join_realm`): connect and verify the Host → `welcome` → (existing-only realm and no credentials: ask for the one-time link) → get or reuse the account → if a character was chosen: the existing Phase 7/8
-compatibility check against the capabilities in the Registry record (nothing is written when it is incompatible) → the realm's route → client check → write the realmlist (the existing Phase 9 machinery with backups) and start the game.
-Outcomes that are **not failures but honest states**: `needs_link`, `needs_client` (no game client set up), `incompatible` (the verdict and its notes), `needs_transfer` (a character that did not come from this realm cannot be put on it
-yet), and **`needs_relay`: "This server requires Relay support, which is not available yet."** when the owner has not stated an address the game client can reach (*Settings → Public listing → Address players connect to*, a host and optional port; it is data the
-owner supplies, not discovery, NAT traversal or a relay). Connectivity is never faked.
+*Join this server* (`join_realm`): connect and verify the Host → `welcome` → (existing-only realm and no credentials: ask for the one-time link) → get or reuse the account → if a character was chosen:
+- if character does not exist on remote realm: initiate automated Remote Portable Character Transfer (Phase 12.1) over the encrypted channel;
+- if realm requires relay: automatically allocate dynamic relay routes (Phase 13) via `allocate_relay`;
+- write client `realmlist.wtf` (pointing to direct host:port or relay_host:auth_port) and launch the game.
+
+Outcomes: `ready` (route established, client configured, session armed), `needs_link` (existing-only realm credentials required), `needs_client` (no game client set up), `incompatible` (the verdict and notes if rejected). The previous `needs_transfer` and `needs_relay` blockers are now fully resolved by Phase 12.1 and Phase 13.
 
 The player is shown the account name and can **copy the name and the password** (the password is read from the protected store only when asked, shown only on request, never logged).
 

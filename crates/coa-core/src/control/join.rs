@@ -275,4 +275,97 @@ impl PlayerControl {
     pub fn claimed_here(&self, realm: &RealmId) -> R<Vec<(Uuid, String)>> {
         Ok(self.store()?.player_claims(&realm.to_string())?)
     }
+
+    /// Transfer a portable character to a remote realm over the verified control channel (Phase 12.1).
+    pub fn transfer_character(
+        &self,
+        ch: &mut PlayerChannel,
+        character_id: Uuid,
+        canonical_revision: u64,
+        payload: &[u8],
+        content_hash: [u8; 32],
+        collections: BTreeMap<String, Vec<u32>>,
+    ) -> R<RemoteTransferOutcome> {
+        let transfer_id = Uuid::now_v7();
+        let content_hash_str = hex::encode(content_hash);
+        let offer = Request::TransferOffer {
+            transfer_id,
+            character_id,
+            canonical_revision,
+            content_hash: content_hash_str.clone(),
+            total_size: payload.len(),
+            collections,
+        };
+        let r = ch.request(&offer)?;
+        let mut offset = match r {
+            Response::TransferReady { received_offset, .. } => received_offset,
+            Response::TransferCommitted { local_guid, session_id, projected_level, notes, .. } => {
+                let _ = ch.request(&Request::TransferAck { transfer_id, character_id });
+                return Ok(RemoteTransferOutcome { local_guid, session_id, projected_level, notes });
+            }
+            Response::Error { code, message } => return Err(ControlFail::App { code, message }),
+            _ => return Err(ControlFail::Link(LinkError::Protocol("unexpected response to transfer offer".into()))),
+        };
+
+        const CHUNK_SIZE: usize = 16 * 1024;
+        while offset < payload.len() {
+            let end = (offset + CHUNK_SIZE).min(payload.len());
+            let chunk_data = base64::engine::general_purpose::STANDARD.encode(&payload[offset..end]);
+            let chunk_req = Request::TransferChunk {
+                transfer_id,
+                offset,
+                data: chunk_data,
+            };
+            let cr = ch.request(&chunk_req)?;
+            match cr {
+                Response::TransferChunkAck { received_offset, .. } => {
+                    offset = received_offset;
+                }
+                Response::Error { code, message } => return Err(ControlFail::App { code, message }),
+                _ => return Err(ControlFail::Link(LinkError::Protocol("unexpected response to transfer chunk".into()))),
+            }
+        }
+
+        let commit_req = Request::TransferCommit { transfer_id };
+        let commit_resp = ch.request(&commit_req)?;
+        let outcome = expect(commit_resp, |r| match r {
+            Response::TransferCommitted { local_guid, session_id, projected_level, notes, .. } => {
+                Ok(RemoteTransferOutcome { local_guid, session_id, projected_level, notes })
+            }
+            other => Err(other),
+        })?;
+
+        let _ = ch.request(&Request::TransferAck { transfer_id, character_id });
+        Ok(outcome)
+    }
+
+    /// Request a short-lived Game Relay allocation for a relayed JOIN (Phase 13).
+    pub fn allocate_relay(
+        &self,
+        ch: &mut PlayerChannel,
+    ) -> R<crate::control::relay_link::RelayAllocationInfo> {
+        let req = Request::AllocateRelay { player_id: self.identity.player_id };
+        let resp = ch.request(&req)?;
+        expect(resp, |r| match r {
+            Response::RelayAllocated { relay_host, auth_port, world_port, token, expires_at } => {
+                Ok(crate::control::relay_link::RelayAllocationInfo {
+                    relay_host,
+                    auth_port,
+                    world_port,
+                    token,
+                    expires_at,
+                })
+            }
+            other => Err(other),
+        })
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteTransferOutcome {
+    pub local_guid: u32,
+    pub session_id: Uuid,
+    pub projected_level: Option<u32>,
+    pub notes: Vec<String>,
 }

@@ -1,0 +1,44 @@
+# /opt/coa/relay/compose.yaml (Phase 13).
+# The Game Relay publishes the dynamic game TCP port range (40000-40050/tcp) for relayed WoW client traffic.
+# The HTTP/WS control interface (8082) is internal only: Caddy reaches it as coa-relay:8082 on coa-ingress.
+# It reads realms' public keys from the Registry database using the read-only coa_coordinator role.
+name: coa-relay
+services:
+  relay:
+    image: coa-relay:${RELAY_TAG:-p13a}
+    user: "10002:10002"
+    restart: unless-stopped
+    environment:
+      RELAY_LISTEN: "0.0.0.0:8082"
+      RELAY_HOST: "coa-manager.duckdns.org"
+      RELAY_PORT_MIN: "40000"
+      RELAY_PORT_MAX: "40050"
+      RELAY_DB_HOST: coa-postgres
+      RELAY_DB_NAME: coa_registry
+      RELAY_DB_USER: coa_coordinator
+      RELAY_DB_PASSWORD_FILE: /run/secrets/coordinator_db_password
+      RUST_LOG: "info"
+    ports:
+      - "40000-40050:40000-40050/tcp"
+    secrets:
+      - coordinator_db_password
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    networks:
+      coa-ingress:
+        aliases:
+          - coa-relay
+      coa-db: {}
+secrets:
+  coordinator_db_password:
+    file: /opt/coa/secrets/coordinator_db_password
+networks:
+  coa-ingress:
+    external: true
+  coa-db:
+    external: true

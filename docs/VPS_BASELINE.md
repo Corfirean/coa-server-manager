@@ -43,9 +43,10 @@ Date configured: 2026-10-06 (UTC)
 |---|---|---|
 | 22 | tcp | sshd (key only) |
 | 80 | tcp | Caddy (redirects HTTP to HTTPS on 443) |
-| 443 | tcp | Caddy (Let's Encrypt TLS: `/registry/*` and `/coord/*`) |
+| 443 | tcp | Caddy (Let's Encrypt TLS: `/registry/*`, `/coord/*`, `/relay/*`) |
+| 40000-40050 | tcp | Game Relay WoW game traffic (Auth & World) |
 
-Everything else is closed, including 5432, 3306/3307, 2375/2376 (Docker API), 2019 (Caddy admin; admin API is disabled).
+Everything else is closed, including 5432 (Postgres), 8080 (Registry internal), 8081 (Coordinator internal), 8082 (Relay control internal), 3306/3307, 2375/2376 (Docker API), 2019 (Caddy admin; admin API is disabled).
 
 ## SSH
 

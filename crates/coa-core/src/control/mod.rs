@@ -7,7 +7,9 @@ pub mod host_manager;
 pub mod identity;
 pub mod join;
 pub mod player;
+pub mod relay_link;
 pub mod secrets;
 pub mod service;
 pub mod store;
 pub mod transport;
+

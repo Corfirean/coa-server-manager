@@ -12,7 +12,7 @@ This file never contains private keys, passwords, DB credentials, transfer PINs,
 Registry API   Relay   Coordinator   PostgreSQL   Caddy (ingress)   monitoring
 ```
 
-Phase -1 prepared the host. **Phase 10 deployed the Registry and PostgreSQL** (see [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md)); **Phase 12 deployed the Coordinator**; and the **Phases 11-12 TLS gate** enabled production HTTPS/WSS ingress.
+Phase -1 prepared the host. **Phase 10 deployed the Registry and PostgreSQL** (see [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md)); **Phase 12 deployed the Coordinator**; the **Phases 11-12 TLS gate** enabled production HTTPS/WSS ingress; and **Phase 13 deployed the Game Relay**.
 The VPS is not the source of truth for any player data.
 
 Public domain is `coa-manager.duckdns.org` pointing to `coa-infra-01`. Caddy automatically obtains and renews trusted Let's Encrypt TLS certificates via ACME. HTTP on port 80 redirects to HTTPS on port 443.
@@ -32,13 +32,15 @@ Internet
    |        +--> PostgreSQL (coa-postgres:5432, network coa-db only, --internal, no published port)
    |
    +--> Coordinator    (coa-coordinator:8081, networks coa-ingress + coa-db, no published port)
+   |
+   +--> Game Relay     (coa-relay:8082, networks coa-ingress + coa-db, published 40000-40050/tcp)
 ```
 
 Rules:
 
 - PostgreSQL must never be internet-exposed: no `ports:` entry, only on the `coa-db` internal network, no UFW rule for 5432.
-- Caddy is the only container allowed to publish ports (80, 443/tcp). A new inbound port needs a specific protocol and
-  a threat model first, then a UFW rule and a note here.
+- Registry (8080), Coordinator (8081), and Relay control HTTP/WS (8082) have no published host ports; they are reverse-proxied exclusively through Caddy.
+- Game Relay publishes the dedicated TCP port range `40000:40050/tcp` for relayed WoW client game streams (Auth & World).
 - No admin dashboards or the Docker API on public interfaces. Caddy's admin API is disabled.
 
 ## Public ports
@@ -46,8 +48,9 @@ Rules:
 | Port | Proto | Service |
 |---|---|---|
 | 22 | tcp | SSH, key only |
-| 80 | tcp | Caddy |
-| 443 | tcp | Caddy |
+| 80 | tcp | Caddy HTTP (redirects to HTTPS) |
+| 443 | tcp | Caddy HTTPS / WSS |
+| 40000-40050 | tcp | Game Relay WoW game traffic (Auth & World) |
 
 ## Filesystem layout
 
@@ -57,8 +60,8 @@ Rules:
 ├── caddy/        compose.yaml, Caddyfile
 ├── postgres/     compose.yaml (running since Phase 10)
 ├── registry/     compose.yaml, .env, src/ (the build context of the running image)
-├── relay/        (empty)
-├── coordinator/  (empty)
+├── coordinator/  compose.yaml, src/
+├── relay/        compose.yaml, src/ (coa-relay container)
 ├── monitoring/   (empty)
 ├── backups/      0700, logical dumps and config archives
 ├── logs/

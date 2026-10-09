@@ -36,7 +36,10 @@ struct Running {
     realm_id: RealmId,
     url: String,
     link: HostLink,
+    #[allow(dead_code)]
+    relay_link: Option<Arc<crate::control::relay_link::RelayLink>>,
 }
+
 
 impl HostControl {
     /// `url_override` replaces the Registry address from the settings (`COA_REGISTRY_URL` in tests and deployments).
@@ -54,14 +57,20 @@ impl HostControl {
                 let mut running: BTreeMap<String, Running> = BTreeMap::new();
                 while !s.load(Ordering::SeqCst) {
                     let wanted = wanted(&settings_dir, keys.as_ref(), url_override.as_deref());
-                    running.retain(|id, r| wanted.get(id).is_some_and(|(realm, url, _)| *realm == r.realm_id && *url == r.url));
-                    for (local_id, (realm_id, url, key)) in wanted {
+                    running.retain(|id, r| wanted.get(id).is_some_and(|(realm, url, _, _)| *realm == r.realm_id && *url == r.url));
+                    for (local_id, (realm_id, url, base, key)) in wanted {
                         if running.contains_key(&local_id) {
                             continue;
                         }
                         let service = Arc::new(HostService::new(&local_id, realm_id, store.clone(), backend.clone()));
+                        let relay_link = crate::control::transport::relay_url(&base, "/relay/v1/host")
+                            .map(|r_url| {
+                                let rl = crate::control::relay_link::RelayLink::start(r_url, realm_id, key.clone());
+                                service.set_relay(rl.clone());
+                                rl
+                            });
                         let link = HostLink::start(url.clone(), realm_id, key, service, clock.clone());
-                        running.insert(local_id, Running { realm_id, url, link });
+                        running.insert(local_id, Running { realm_id, url, link, relay_link });
                     }
                     if let Ok(mut st) = st.lock() {
                         *st = running.iter().map(|(id, r)| (id.clone(), HostControlRealm { local_id: id.clone(), realm_id: r.realm_id.to_string(), link: r.link.status() })).collect();
@@ -76,6 +85,7 @@ impl HostControl {
             .ok();
         HostControl { stop, status, join: Mutex::new(join) }
     }
+
 
     pub fn status(&self) -> Vec<HostControlRealm> {
         self.status.lock().map(|s| s.values().cloned().collect()).unwrap_or_default()
@@ -95,7 +105,7 @@ impl Drop for HostControl {
     }
 }
 
-type Wanted = BTreeMap<String, (RealmId, String, ed25519_dalek::SigningKey)>;
+type Wanted = BTreeMap<String, (RealmId, String, String, ed25519_dalek::SigningKey)>;
 
 fn wanted(dir: &std::path::Path, keys: &dyn KeyStore, url_override: Option<&str>) -> Wanted {
     let mut out = Wanted::new();
@@ -105,8 +115,9 @@ fn wanted(dir: &std::path::Path, keys: &dyn KeyStore, url_override: Option<&str>
     for (local_id, cfg) in s.realms {
         let (true, Some(realm)) = (cfg.enabled, cfg.realm_id) else { continue };
         if let Ok(Some(key)) = keys.load(&realm) {
-            out.insert(local_id, (realm, url.clone(), key));
+            out.insert(local_id, (realm, url.clone(), base.clone(), key));
         }
     }
     out
 }
+

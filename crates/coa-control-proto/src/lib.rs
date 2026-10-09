@@ -14,8 +14,10 @@
 pub mod app;
 pub mod coord;
 pub mod noise;
+pub mod relay;
 
 pub const CONTROL_PROTOCOL_VERSION: u32 = 1;
+
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ControlError {

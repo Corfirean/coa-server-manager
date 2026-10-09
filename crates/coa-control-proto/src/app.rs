@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{invalid, ControlError, Result};
 
-pub const MAX_REQUEST_BYTES: usize = 4096;
+pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 pub const MIN_USERNAME: usize = 3;
 pub const MAX_USERNAME: usize = 16;
 pub const MIN_PASSWORD: usize = 8;
@@ -69,7 +69,40 @@ pub enum Request {
     /// Link an account the realm already has (one time).
     Link { login: String, password: String },
     Route,
+    /// Phase 12.1: Start or resume a remote portable character transfer.
+    TransferOffer {
+        transfer_id: Uuid,
+        character_id: Uuid,
+        canonical_revision: u64,
+        content_hash: String,
+        total_size: usize,
+        collections: BTreeMap<String, Vec<u32>>,
+    },
+    /// A chunk of the encoded portable character snapshot payload.
+    TransferChunk {
+        transfer_id: Uuid,
+        offset: usize,
+        data: String,
+    },
+    /// Query status or resume progress of a transfer.
+    TransferStatus {
+        transfer_id: Uuid,
+    },
+    /// Commit the transferred payload into the realm and arm a session.
+    TransferCommit {
+        transfer_id: Uuid,
+    },
+    /// Acknowledge successful transfer and session arming.
+    TransferAck {
+        transfer_id: Uuid,
+        character_id: Uuid,
+    },
+    /// Phase 13: Request a short-lived relay allocation for a relayed JOIN.
+    AllocateRelay {
+        player_id: Uuid,
+    },
 }
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -86,6 +119,9 @@ pub enum AppError {
     AccountTaken,
     RateLimited,
     Unavailable,
+    Incompatible,
+    Conflict,
+    RelayUnavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,8 +151,30 @@ pub enum Response {
     Linked { username: String },
     Done,
     RouteInfo { address: Option<String> },
+    /// The Host is ready to receive transfer chunks (or indicates an offset to resume from).
+    TransferReady { transfer_id: Uuid, received_offset: usize },
+    /// Acknowledgement of a transfer chunk.
+    TransferChunkAck { transfer_id: Uuid, received_offset: usize },
+    /// Successful commit and session arm.
+    TransferCommitted {
+        transfer_id: Uuid,
+        character_id: Uuid,
+        local_guid: u32,
+        session_id: Uuid,
+        projected_level: Option<u32>,
+        notes: Vec<String>,
+    },
+    /// Phase 13: Relay allocation details returned to the player.
+    RelayAllocated {
+        relay_host: String,
+        auth_port: u16,
+        world_port: u16,
+        token: String,
+        expires_at: i64,
+    },
     Error { code: AppError, message: String },
 }
+
 
 pub fn encode_request(r: &Request) -> Vec<u8> {
     serde_json::to_vec(r).expect("a request serialises")
@@ -139,6 +197,19 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request> {
             }
         }
         Request::Hello { client, .. } if client.len() > 64 => return invalid("the client name is too long"),
+        Request::TransferOffer { content_hash, total_size, .. } => {
+            if content_hash.len() != 64 || !content_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return invalid("transfer content hash must be 64 hex characters");
+            }
+            if *total_size > crate::noise::MAX_MESSAGE_BYTES {
+                return Err(ControlError::Limit("transfer total size is too large".into()));
+            }
+        }
+        Request::TransferChunk { data, .. } => {
+            if data.len() > MAX_REQUEST_BYTES {
+                return Err(ControlError::Limit("transfer chunk is too large".into()));
+            }
+        }
         _ => {}
     }
     Ok(r)
@@ -209,5 +280,51 @@ mod tests {
         assert!(decode_request(&vec![b' '; MAX_REQUEST_BYTES + 1]).is_err());
         assert!(decode_request(br#"{"op":"list_characters"}"#).is_ok());
         assert!(valid_password_for_link("pa55-w0rd") && !valid_password_for_link("has\"quote") && !valid_password_for_link("short"));
+    }
+
+    #[test]
+    fn transfer_messages_roundtrip_and_validate() {
+        let tid = Uuid::new_v4();
+        let cid = Uuid::new_v4();
+        let hash = "a".repeat(64);
+        let offer = Request::TransferOffer {
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 5,
+            content_hash: hash.clone(),
+            total_size: 1024,
+            collections: BTreeMap::new(),
+        };
+        let encoded = encode_request(&offer);
+        let decoded = decode_request(&encoded).unwrap();
+        assert_eq!(offer, decoded);
+
+        let bad_hash = Request::TransferOffer {
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 5,
+            content_hash: "too_short".into(),
+            total_size: 1024,
+            collections: BTreeMap::new(),
+        };
+        assert!(decode_request(&encode_request(&bad_hash)).is_err());
+
+        let chunk = Request::TransferChunk {
+            transfer_id: tid,
+            offset: 0,
+            data: "aGVsbG8=".into(),
+        };
+        assert_eq!(chunk, decode_request(&encode_request(&chunk)).unwrap());
+
+        let resp = Response::TransferCommitted {
+            transfer_id: tid,
+            character_id: cid,
+            local_guid: 42,
+            session_id: Uuid::new_v4(),
+            projected_level: Some(60),
+            notes: vec!["Projected".into()],
+        };
+        let resp_dec = decode_response(&encode_response(&resp)).unwrap();
+        assert_eq!(resp, resp_dec);
     }
 }

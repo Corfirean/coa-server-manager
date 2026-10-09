@@ -17,7 +17,7 @@ use coa_control_proto::app::{self, AppError, CharacterEntry, Request, Response};
 use coa_registry_proto::RealmId;
 use uuid::Uuid;
 
-use super::store::{AccountKind, ClaimState, ControlStore};
+use super::store::{AccountKind, ClaimState, ControlStore, HostTransfer, TransferState};
 use crate::{Error, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +60,31 @@ pub struct ClaimExport {
     pub collections: BTreeMap<String, Vec<u32>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RemoteImportParams {
+    pub character_id: Uuid,
+    pub revision: u64,
+    pub payload: Vec<u8>,
+    pub content_hash: [u8; 32],
+    pub collections: BTreeMap<String, Vec<u32>>,
+    pub account_id: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteImportOutcome {
+    pub local_guid: u32,
+    pub session_id: Uuid,
+    pub projected_level: Option<u32>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreflightVerdict {
+    Compatible,
+    Degraded,
+    Incompatible,
+}
+
 /// The realm itself: its login database, its console and the portable engine.
 pub trait RealmBackend: Send + Sync {
     fn info(&self, local_id: &str) -> Result<RealmInfo>;
@@ -75,6 +100,10 @@ pub trait RealmBackend: Send + Sync {
     fn characters(&self, local_id: &str, account_id: u32) -> Result<Vec<CharInfo>>;
     /// Read the character (offline, eligible, belonging to the account) and register it with the Host's portable store; the same character again returns the same id.
     fn export(&self, local_id: &str, account_id: u32, guid: u32) -> Result<ClaimExport>;
+    /// Compatibility preflight check before receiving payload chunks.
+    fn check_transfer(&self, local_id: &str, character_id: Uuid, revision: u64) -> Result<PreflightVerdict>;
+    /// Import or update a transferred character into the realm and arm a session.
+    fn import_remote(&self, local_id: &str, params: RemoteImportParams) -> Result<RemoteImportOutcome>;
 }
 
 /// State of one channel.
@@ -89,11 +118,17 @@ const MAX_REQUESTS_PER_SESSION: u32 = 60;
 const LINK_FAILURES: usize = 5;
 const LINK_WINDOW: Duration = Duration::from_secs(600);
 
+pub trait RelayProvider: Send + Sync {
+    fn allocate(&self, player_id: &Uuid) -> crate::error::Result<crate::control::relay_link::RelayAllocationInfo>;
+}
+
+
 pub struct HostService {
     local_id: String,
     realm_id: RealmId,
     store: Arc<Mutex<ControlStore>>,
     backend: Arc<dyn RealmBackend>,
+    relay: Mutex<Option<Arc<dyn RelayProvider>>>,
     /// Serialises everything that changes accounts and claims on this realm.
     write: Mutex<()>,
     link_failures: Mutex<HashMap<Option<Uuid>, Vec<Instant>>>,
@@ -110,8 +145,13 @@ fn unavailable(what: &str, e: &Error) -> Response {
 
 impl HostService {
     pub fn new(local_id: &str, realm_id: RealmId, store: Arc<Mutex<ControlStore>>, backend: Arc<dyn RealmBackend>) -> Self {
-        Self { local_id: local_id.to_string(), realm_id, store, backend, write: Mutex::new(()), link_failures: Mutex::new(HashMap::new()) }
+        Self { local_id: local_id.to_string(), realm_id, store, backend, relay: Mutex::new(None), write: Mutex::new(()), link_failures: Mutex::new(HashMap::new()) }
     }
+
+    pub fn set_relay(&self, provider: Arc<dyn RelayProvider>) {
+        *self.relay.lock().unwrap() = Some(provider);
+    }
+
 
     pub fn realm_id(&self) -> RealmId {
         self.realm_id
@@ -152,10 +192,45 @@ impl HostService {
                 Ok(info) => Response::RouteInfo { address: info.route },
                 Err(e) => unavailable("route", &e),
             },
+            Request::TransferOffer { transfer_id, character_id, canonical_revision, content_hash, total_size, collections } => {
+                self.transfer_offer(player, transfer_id, character_id, canonical_revision, content_hash, total_size, collections)
+            }
+            Request::TransferChunk { transfer_id, offset, data } => self.transfer_chunk(player, transfer_id, offset, data),
+            Request::TransferStatus { transfer_id } => self.transfer_status(player, transfer_id),
+            Request::TransferCommit { transfer_id } => self.transfer_commit(player, transfer_id),
+            Request::TransferAck { transfer_id, character_id } => self.transfer_ack(player, transfer_id, character_id),
+            Request::AllocateRelay { player_id } => self.allocate_relay(player, &player_id),
+
+        }
+    }
+
+    fn allocate_relay(&self, player: &Uuid, requested_player: &Uuid) -> Response {
+        if player != requested_player {
+            return err(AppError::Invalid, "Cannot request relay for another player identity.");
+        }
+        if self.mapping(player).is_none() {
+            return err(AppError::NoAccount, "Player has no account on this realm.");
+        }
+        let guard = self.relay.lock().unwrap();
+        if let Some(r) = guard.as_ref() {
+            match r.allocate(player) {
+                Ok(alloc) => Response::RelayAllocated {
+                    relay_host: alloc.relay_host,
+                    auth_port: alloc.auth_port,
+                    world_port: alloc.world_port,
+                    token: alloc.token,
+                    expires_at: alloc.expires_at,
+                },
+                Err(e) => err(AppError::RelayUnavailable, &e.to_string()),
+            }
+
+        } else {
+            err(AppError::RelayUnavailable, "Relay is not configured on this host.")
         }
     }
 
     fn mapping(&self, player: &Uuid) -> Option<super::store::HostPlayer> {
+
         self.store.lock().ok().and_then(|s| s.host_player(&self.local_id, player).ok().flatten())
     }
 
@@ -331,6 +406,266 @@ impl HostService {
             Err(e) => unavailable("recording the acknowledgement", &e),
         }
     }
+
+    fn transfer_path(&self, transfer_id: &Uuid) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("coa-transfers").join(&self.local_id);
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(format!("{transfer_id}.part"))
+    }
+
+    fn transfer_offer(&self, player: &Uuid, transfer_id: Uuid, character_id: Uuid, canonical_revision: u64, content_hash: String, total_size: usize, collections: BTreeMap<String, Vec<u32>>) -> Response {
+        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+        let Some(m) = self.mapping(player) else { return err(AppError::NoAccount, "This player has no account on this realm yet.") };
+
+        // 1. Ownership check: another player cannot overwrite a character claimed here
+        if let Ok(Some(claim)) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_claim_of_character(&self.local_id, &character_id)) {
+            if claim.player_id != *player {
+                return err(AppError::AlreadyClaimed, "That character was already claimed by another player.");
+            }
+        }
+
+        // 2. Active session conflict: if account is online with active characters
+        match self.backend.presence(&self.local_id, m.account_id) {
+            Ok(p) if p.account_online && p.online_characters > 0 => {
+                return err(AppError::Conflict, "The character is currently playing in a live session.");
+            }
+            Err(e) => return unavailable("presence check", &e),
+            _ => {}
+        }
+
+        // 3. Compatibility check before accepting payload
+        match self.backend.check_transfer(&self.local_id, character_id, canonical_revision) {
+            Ok(PreflightVerdict::Incompatible) => return err(AppError::Incompatible, "This character is incompatible with this realm."),
+            Err(e) => return unavailable("compatibility check", &e),
+            _ => {}
+        }
+
+        // 4. Idempotency / already committed check
+        if let Ok(Some(existing)) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_transfer_latest(&self.local_id, &character_id)) {
+            if existing.state != TransferState::Receiving && existing.revision == canonical_revision && existing.content_hash == content_hash {
+                if let (Some(guid), Some(sid)) = (existing.local_guid, existing.session_id) {
+                    return Response::TransferCommitted {
+                        transfer_id,
+                        character_id,
+                        local_guid: guid,
+                        session_id: sid,
+                        projected_level: existing.projected_level,
+                        notes: existing.notes,
+                    };
+                }
+            }
+        }
+
+        // 5. Resume check for this specific transfer_id
+        if let Ok(Some(cur)) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_transfer(&self.local_id, &transfer_id)) {
+            if cur.player_id == *player && cur.state == TransferState::Receiving && cur.content_hash == content_hash {
+                let path = self.transfer_path(&transfer_id);
+                let on_disk = std::fs::metadata(&path).map(|meta| meta.len() as usize).unwrap_or(0);
+                return Response::TransferReady { transfer_id, received_offset: on_disk.min(cur.received_size) };
+            }
+        }
+
+        // 6. Record new transfer
+        let transfer = HostTransfer {
+            realm_local_id: self.local_id.clone(),
+            transfer_id,
+            character_id,
+            player_id: *player,
+            revision: canonical_revision,
+            content_hash,
+            total_size,
+            received_size: 0,
+            state: TransferState::Receiving,
+            local_guid: None,
+            session_id: None,
+            projected_level: None,
+            notes: vec![],
+            collections,
+        };
+        if let Err(e) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_transfer_save(&transfer)) {
+            return unavailable("saving transfer", &e);
+        }
+        let path = self.transfer_path(&transfer_id);
+        let _ = std::fs::remove_file(&path);
+
+        Response::TransferReady { transfer_id, received_offset: 0 }
+    }
+
+    fn transfer_chunk(&self, player: &Uuid, transfer_id: Uuid, offset: usize, data: String) -> Response {
+        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+        let store = match self.store.lock() {
+            Ok(s) => s,
+            Err(_) => return err(AppError::Unavailable, "Busy."),
+        };
+        let t = match store.host_transfer(&self.local_id, &transfer_id) {
+            Ok(Some(t)) => t,
+            Ok(None) => return err(AppError::Invalid, "Unknown transfer id."),
+            Err(e) => return unavailable("reading transfer", &e),
+        };
+        drop(store);
+
+        if t.player_id != *player {
+            return err(AppError::NotYours, "Transfer does not belong to this player.");
+        }
+        if t.state != TransferState::Receiving {
+            return err(AppError::Invalid, "Transfer is not receiving chunks.");
+        }
+
+        use base64::Engine;
+        let bytes = match base64::engine::general_purpose::STANDARD.decode(&data) {
+            Ok(b) => b,
+            Err(_) => return err(AppError::Invalid, "Invalid base64 in chunk data."),
+        };
+
+        if offset != t.received_size {
+            return Response::TransferChunkAck { transfer_id, received_offset: t.received_size };
+        }
+
+        use std::io::Write;
+        let path = self.transfer_path(&transfer_id);
+        let mut file = match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(f) => f,
+            Err(e) => return unavailable("opening transfer file", &Error::Invalid(e.to_string())),
+        };
+        if let Err(e) = file.write_all(&bytes) {
+            return unavailable("writing chunk to disk", &Error::Invalid(e.to_string()));
+        }
+
+        let new_received = t.received_size + bytes.len();
+        if let Ok(s) = self.store.lock() {
+            let _ = s.host_transfer_update_progress(&transfer_id, new_received);
+        }
+
+        Response::TransferChunkAck { transfer_id, received_offset: new_received }
+    }
+
+    fn transfer_status(&self, player: &Uuid, transfer_id: Uuid) -> Response {
+        let store = match self.store.lock() {
+            Ok(s) => s,
+            Err(_) => return err(AppError::Unavailable, "Busy."),
+        };
+        let t = match store.host_transfer(&self.local_id, &transfer_id) {
+            Ok(Some(t)) => t,
+            Ok(None) => return err(AppError::Invalid, "Unknown transfer id."),
+            Err(e) => return unavailable("reading transfer", &e),
+        };
+        if t.player_id != *player {
+            return err(AppError::NotYours, "Transfer does not belong to this player.");
+        }
+        match t.state {
+            TransferState::Receiving => Response::TransferReady { transfer_id, received_offset: t.received_size },
+            TransferState::Committed | TransferState::Acknowledged => {
+                Response::TransferCommitted {
+                    transfer_id,
+                    character_id: t.character_id,
+                    local_guid: t.local_guid.unwrap_or_default(),
+                    session_id: t.session_id.unwrap_or_default(),
+                    projected_level: t.projected_level,
+                    notes: t.notes,
+                }
+            }
+        }
+    }
+
+    fn transfer_commit(&self, player: &Uuid, transfer_id: Uuid) -> Response {
+        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+        let store = match self.store.lock() {
+            Ok(s) => s,
+            Err(_) => return err(AppError::Unavailable, "Busy."),
+        };
+        let t = match store.host_transfer(&self.local_id, &transfer_id) {
+            Ok(Some(t)) => t,
+            Ok(None) => return err(AppError::Invalid, "Unknown transfer id."),
+            Err(e) => return unavailable("reading transfer", &e),
+        };
+        drop(store);
+
+        if t.player_id != *player {
+            return err(AppError::NotYours, "Transfer does not belong to this player.");
+        }
+        if t.state != TransferState::Receiving {
+            if let (Some(guid), Some(sid)) = (t.local_guid, t.session_id) {
+                return Response::TransferCommitted {
+                    transfer_id,
+                    character_id: t.character_id,
+                    local_guid: guid,
+                    session_id: sid,
+                    projected_level: t.projected_level,
+                    notes: t.notes,
+                };
+            }
+        }
+
+        if t.received_size != t.total_size {
+            return err(AppError::Invalid, "Transfer incomplete.");
+        }
+
+        let path = self.transfer_path(&transfer_id);
+        let payload = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => return unavailable("reading transfer file", &Error::Invalid(e.to_string())),
+        };
+
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(Sha256::digest(&payload));
+        if hash != t.content_hash {
+            let _ = std::fs::remove_file(&path);
+            return err(AppError::Invalid, "Content hash mismatch.");
+        }
+
+        let mut hash_bytes = [0u8; 32];
+        if hex::decode_to_slice(&t.content_hash, &mut hash_bytes).is_err() {
+            return err(AppError::Invalid, "Invalid content hash format.");
+        }
+
+        let Some(m) = self.mapping(player) else { return err(AppError::NoAccount, "Player has no account on this realm.") };
+
+        let params = RemoteImportParams {
+            character_id: t.character_id,
+            revision: t.revision,
+            payload,
+            content_hash: hash_bytes,
+            collections: t.collections,
+            account_id: m.account_id,
+        };
+
+        let outcome = match self.backend.import_remote(&self.local_id, params) {
+            Ok(o) => o,
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                return unavailable("importing character", &e);
+            }
+        };
+
+        let _ = std::fs::remove_file(&path);
+
+        if let Ok(s) = self.store.lock() {
+            let _ = s.host_transfer_commit(&transfer_id, outcome.local_guid, &outcome.session_id, outcome.projected_level, &outcome.notes);
+            let _ = s.host_claim_set(&self.local_id, outcome.local_guid, &t.character_id, player);
+            let _ = s.host_claim_acknowledge(&self.local_id, &t.character_id, player);
+        }
+
+        Response::TransferCommitted {
+            transfer_id,
+            character_id: t.character_id,
+            local_guid: outcome.local_guid,
+            session_id: outcome.session_id,
+            projected_level: outcome.projected_level,
+            notes: outcome.notes,
+        }
+    }
+
+    fn transfer_ack(&self, player: &Uuid, transfer_id: Uuid, _character_id: Uuid) -> Response {
+        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+        if let Ok(s) = self.store.lock() {
+            if let Ok(Some(t)) = s.host_transfer(&self.local_id, &transfer_id) {
+                if t.player_id == *player {
+                    let _ = s.host_transfer_ack(&transfer_id);
+                }
+            }
+        }
+        Response::Done
+    }
 }
 
 #[cfg(any(test, feature = "testkit"))]
@@ -346,6 +681,8 @@ pub mod fake {
         pub online: Mutex<HashMap<u32, Presence>>,
         pub exports: Mutex<HashMap<u32, Uuid>>,
         pub seen_passwords: Mutex<Vec<String>>,
+        pub imported: Mutex<HashMap<Uuid, (u32, Uuid)>>,
+        pub incompatible: Mutex<std::collections::HashSet<Uuid>>,
     }
 
     impl FakeRealm {
@@ -410,6 +747,22 @@ pub mod fake {
         fn export(&self, _: &str, _: u32, guid: u32) -> Result<ClaimExport> {
             let id = *self.exports.lock().unwrap().entry(guid).or_insert_with(Uuid::now_v7);
             Ok(ClaimExport { character_id: id, payload: format!("payload-{guid}").into_bytes(), sha256: [7; 32], collections: BTreeMap::from([("coa:appearance".to_string(), vec![1, 2, 3])]) })
+        }
+        fn check_transfer(&self, _: &str, character_id: Uuid, _: u64) -> Result<PreflightVerdict> {
+            if self.incompatible.lock().unwrap().contains(&character_id) {
+                Ok(PreflightVerdict::Incompatible)
+            } else {
+                Ok(PreflightVerdict::Compatible)
+            }
+        }
+        fn import_remote(&self, _: &str, params: RemoteImportParams) -> Result<RemoteImportOutcome> {
+            if self.incompatible.lock().unwrap().contains(&params.character_id) {
+                return Err(Error::Invalid("Character is incompatible with this realm.".into()));
+            }
+            let mut map = self.imported.lock().unwrap();
+            let len = map.len() as u32 + 100;
+            let (guid, sid) = *map.entry(params.character_id).or_insert((len, Uuid::now_v7()));
+            Ok(RemoteImportOutcome { local_guid: guid, session_id: sid, projected_level: None, notes: vec![] })
         }
     }
 }
@@ -608,5 +961,269 @@ mod tests {
         assert_eq!(s.handle(&mut Session::default(), &p, "K", Request::Route), Response::RouteInfo { address: None });
         *realm.route.lock().unwrap() = Some("203.0.113.5:3724".into());
         assert_eq!(s.handle(&mut Session::default(), &p, "K", Request::Route), Response::RouteInfo { address: Some("203.0.113.5:3724".into()) });
+    }
+
+    #[test]
+    fn remote_transfer_lifecycle_empty_realm_import_and_ack() {
+        let (realm, s, p, _acc) = claimed_setup();
+        let mut session = Session::default();
+        let cid = Uuid::now_v7();
+        let tid = Uuid::now_v7();
+
+        let payload = b"portable_character_snapshot_payload_test_data".to_vec();
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(Sha256::digest(&payload));
+
+        // 1. Offer
+        let offer = Request::TransferOffer {
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash.clone(),
+            total_size: payload.len(),
+            collections: BTreeMap::from([("coa:appearance".into(), vec![1, 2, 3])]),
+        };
+        let r = s.handle(&mut session, &p, "K", offer);
+        assert_eq!(r, Response::TransferReady { transfer_id: tid, received_offset: 0 });
+
+        // 2. Chunk
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(&payload);
+        let chunk = Request::TransferChunk { transfer_id: tid, offset: 0, data };
+        let r = s.handle(&mut session, &p, "K", chunk);
+        assert_eq!(r, Response::TransferChunkAck { transfer_id: tid, received_offset: payload.len() });
+
+        // 3. Commit
+        let commit = Request::TransferCommit { transfer_id: tid };
+        let r = s.handle(&mut session, &p, "K", commit);
+        let Response::TransferCommitted { transfer_id, character_id, local_guid, session_id, .. } = r else { panic!("{r:?}") };
+        assert_eq!(transfer_id, tid);
+        assert_eq!(character_id, cid);
+        assert!(local_guid >= 100);
+        assert_ne!(session_id, Uuid::nil());
+
+        // 4. Ack
+        let ack = Request::TransferAck { transfer_id: tid, character_id: cid };
+        assert_eq!(s.handle(&mut session, &p, "K", ack), Response::Done);
+
+        // Verify imported in realm
+        assert!(realm.imported.lock().unwrap().contains_key(&cid));
+    }
+
+    #[test]
+    fn remote_transfer_incompatible_rejected_writes_nothing() {
+        let (realm, s, p, _acc) = claimed_setup();
+        let mut session = Session::default();
+        let cid = Uuid::now_v7();
+        let tid = Uuid::now_v7();
+
+        // Mark incompatible in realm
+        realm.incompatible.lock().unwrap().insert(cid);
+
+        let offer = Request::TransferOffer {
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: "a".repeat(64),
+            total_size: 100,
+            collections: BTreeMap::new(),
+        };
+        let r = s.handle(&mut session, &p, "K", offer);
+        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }), "{r:?}");
+
+        // Nothing written
+        assert!(realm.imported.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn remote_transfer_interrupted_resumes_safely() {
+        let (_realm, s, p, _acc) = claimed_setup();
+        let mut session = Session::default();
+        let cid = Uuid::now_v7();
+        let tid = Uuid::now_v7();
+
+        let chunk1 = b"first_chunk_of_payload_";
+        let chunk2 = b"second_chunk_of_payload";
+        let mut full = chunk1.to_vec();
+        full.extend_from_slice(chunk2);
+
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(Sha256::digest(&full));
+
+        let offer = Request::TransferOffer {
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash.clone(),
+            total_size: full.len(),
+            collections: BTreeMap::new(),
+        };
+        let r = s.handle(&mut session, &p, "K", offer);
+        assert_eq!(r, Response::TransferReady { transfer_id: tid, received_offset: 0 });
+
+        // Send chunk 1
+        use base64::Engine;
+        let c1_b64 = base64::engine::general_purpose::STANDARD.encode(chunk1);
+        let r = s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid, offset: 0, data: c1_b64 });
+        assert_eq!(r, Response::TransferChunkAck { transfer_id: tid, received_offset: chunk1.len() });
+
+        // Query status (resuming after interruption)
+        let r = s.handle(&mut session, &p, "K", Request::TransferStatus { transfer_id: tid });
+        assert_eq!(r, Response::TransferReady { transfer_id: tid, received_offset: chunk1.len() });
+
+        // Send chunk 2
+        let c2_b64 = base64::engine::general_purpose::STANDARD.encode(chunk2);
+        let r = s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid, offset: chunk1.len(), data: c2_b64 });
+        assert_eq!(r, Response::TransferChunkAck { transfer_id: tid, received_offset: full.len() });
+
+        // Commit succeeds
+        let r = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid });
+        assert!(matches!(r, Response::TransferCommitted { .. }));
+    }
+
+    #[test]
+    fn remote_transfer_lost_reply_idempotency_does_not_duplicate() {
+        let (realm, s, p, _acc) = claimed_setup();
+        let mut session = Session::default();
+        let cid = Uuid::now_v7();
+        let tid = Uuid::now_v7();
+
+        let payload = b"idempotency_test_payload".to_vec();
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(Sha256::digest(&payload));
+
+        let offer = Request::TransferOffer {
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash.clone(),
+            total_size: payload.len(),
+            collections: BTreeMap::new(),
+        };
+        s.handle(&mut session, &p, "K", offer);
+
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(&payload);
+        s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid, offset: 0, data });
+
+        let Response::TransferCommitted { local_guid: guid1, session_id: sid1, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid }) else { panic!() };
+        assert_eq!(realm.imported.lock().unwrap().len(), 1);
+
+        // Client retries commit (lost reply):
+        let Response::TransferCommitted { local_guid: guid2, session_id: sid2, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid }) else { panic!() };
+        assert_eq!(guid1, guid2);
+        assert_eq!(sid1, sid2);
+        assert_eq!(realm.imported.lock().unwrap().len(), 1, "does not duplicate character");
+
+        // Client starts a new transfer for the exact same committed revision: discovers committed state
+        let tid2 = Uuid::now_v7();
+        let offer2 = Request::TransferOffer {
+            transfer_id: tid2,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash,
+            total_size: payload.len(),
+            collections: BTreeMap::new(),
+        };
+        let r = s.handle(&mut session, &p, "K", offer2);
+        let Response::TransferCommitted { local_guid: guid3, session_id: sid3, .. } = r else { panic!("{r:?}") };
+        assert_eq!(guid1, guid3);
+        assert_eq!(sid1, sid3);
+        assert_eq!(realm.imported.lock().unwrap().len(), 1, "does not duplicate character");
+    }
+
+    #[test]
+    fn wrong_player_identity_cannot_overwrite_another_players_realm_copy() {
+        let (_realm, s, p, _acc) = claimed_setup();
+        let cid = Uuid::now_v7();
+        let tid = Uuid::now_v7();
+
+        let payload = b"player_1_character_data".to_vec();
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(Sha256::digest(&payload));
+
+        let offer = Request::TransferOffer {
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash.clone(),
+            total_size: payload.len(),
+            collections: BTreeMap::new(),
+        };
+        assert!(matches!(s.handle(&mut Session::default(), &p, "K", offer), Response::TransferReady { .. }));
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(&payload);
+        s.handle(&mut Session::default(), &p, "K", Request::TransferChunk { transfer_id: tid, offset: 0, data });
+        assert!(matches!(s.handle(&mut Session::default(), &p, "K", Request::TransferCommit { transfer_id: tid }), Response::TransferCommitted { .. }));
+        assert_eq!(s.handle(&mut Session::default(), &p, "K", Request::TransferAck { transfer_id: tid, character_id: cid }), Response::Done);
+
+        // Player 2 attempts to transfer with the same character_id
+        let q = Uuid::now_v7();
+        let srv = &s;
+        // Provision account for player 2
+        let pw = app::generate_password();
+        assert!(matches!(srv.handle(&mut Session::default(), &q, "KQ", Request::Provision { desired: Some("PLAYER2".into()), password: pw, have_credentials: false }), Response::Provisioned { .. }));
+
+        let tid_impostor = Uuid::now_v7();
+        let impostor_offer = Request::TransferOffer {
+            transfer_id: tid_impostor,
+            character_id: cid,
+            canonical_revision: 2,
+            content_hash: "b".repeat(64),
+            total_size: 100,
+            collections: BTreeMap::new(),
+        };
+        let r = srv.handle(&mut Session::default(), &q, "KQ", impostor_offer);
+        assert!(matches!(r, Response::Error { code: AppError::AlreadyClaimed, .. }), "{r:?}");
+    }
+
+    #[test]
+    fn same_character_transferred_again_as_newer_revision_performs_update() {
+        let (realm, s, p, _acc) = claimed_setup();
+        let mut session = Session::default();
+        let cid = Uuid::now_v7();
+        let tid1 = Uuid::now_v7();
+
+        let payload1 = b"character_revision_1_data".to_vec();
+        use sha2::{Digest, Sha256};
+        let hash1 = hex::encode(Sha256::digest(&payload1));
+
+        // Rev 1
+        s.handle(&mut session, &p, "K", Request::TransferOffer {
+            transfer_id: tid1,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash1,
+            total_size: payload1.len(),
+            collections: BTreeMap::new(),
+        });
+        use base64::Engine;
+        let d1 = base64::engine::general_purpose::STANDARD.encode(&payload1);
+        s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid1, offset: 0, data: d1 });
+        let Response::TransferCommitted { local_guid: guid1, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid1 }) else { panic!() };
+        s.handle(&mut session, &p, "K", Request::TransferAck { transfer_id: tid1, character_id: cid });
+        assert_eq!(realm.imported.lock().unwrap().len(), 1);
+
+        // Rev 2
+        let tid2 = Uuid::now_v7();
+        let payload2 = b"character_revision_2_newer_data".to_vec();
+        let hash2 = hex::encode(Sha256::digest(&payload2));
+        let r = s.handle(&mut session, &p, "K", Request::TransferOffer {
+            transfer_id: tid2,
+            character_id: cid,
+            canonical_revision: 2,
+            content_hash: hash2,
+            total_size: payload2.len(),
+            collections: BTreeMap::new(),
+        });
+        assert!(matches!(r, Response::TransferReady { .. }));
+        let d2 = base64::engine::general_purpose::STANDARD.encode(&payload2);
+        s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid2, offset: 0, data: d2 });
+        let Response::TransferCommitted { local_guid: guid2, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid2 }) else { panic!() };
+        s.handle(&mut session, &p, "K", Request::TransferAck { transfer_id: tid2, character_id: cid });
+
+        // Same local guid, updated, not duplicate
+        assert_eq!(guid1, guid2);
+        assert_eq!(realm.imported.lock().unwrap().len(), 1, "update, not duplicate import");
     }
 }
