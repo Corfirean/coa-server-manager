@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use coa_core::control::direct_ingress::DirectIngress;
 use coa_core::control::host_link::HostLink;
 use coa_core::control::join::{PlayerControl, RealmTarget};
 use coa_core::control::relay_link::RelayLink;
@@ -472,3 +473,155 @@ fn gate_phase13_1_simulated_load_test() {
 
     println!("\n=== All Load Test Concurrency Levels (50, 100, 250, 500) Passed 100% ===\n");
 }
+
+#[test]
+#[ignore]
+fn gate_phase14_1_live_vps_direct_and_relay_session() {
+    let base = base_url();
+    println!("\n=== Starting Phase 14.1 Real Server Direct & Relay Live Session Test ===");
+
+    let realm = RealmId::new();
+    let host_key = random_key();
+    let host_vkey = host_key.verifying_key();
+
+    let client = RegistryClient::new(&base).expect("registry client");
+    register_realm(&client, &realm, &host_key).expect("register realm over HTTPS");
+    println!("[1/7] Realm registered in production Registry: {realm}");
+
+    // Clear overrides so real local auth (3724) and world (8085) are used
+    std::env::remove_var("COA_OVERRIDE_LOCAL_AUTH_PORT");
+    std::env::remove_var("COA_OVERRIDE_LOCAL_WORLD_PORT");
+
+    // Start Direct Ingress Proxy
+    let mut ingress = DirectIngress::start(
+        0,
+        0,
+        "127.0.0.1".into(),
+        8085,
+        3724,
+        8085,
+    ).expect("start direct ingress");
+    let d_auth = ingress.auth_port();
+    let d_world = ingress.world_port();
+    ingress.update_external_world_endpoint("127.0.0.1", d_world);
+    println!("[2/7] Direct Ingress Proxy started: Auth={d_auth}, World={d_world}");
+
+    let fake = FakeRealm::new(true);
+    let store = Arc::new(Mutex::new(ControlStore::open_in_memory().unwrap()));
+    let service = Arc::new(HostService::new("srv-phase-14-1", realm, store, fake));
+    service.set_direct_route(Some(format!("127.0.0.1:{d_auth}")));
+
+    let host_ws_url = coordinator_url(&base, "/coord/v1/host").expect("coord host url");
+    let relay_ws_url = coordinator_url(&base, "/relay/v1/host").expect("relay host url");
+
+    let relay_link = RelayLink::start(relay_ws_url.clone(), realm, host_key.clone());
+    service.set_relay(relay_link.clone());
+    let mut host_link = HostLink::start(host_ws_url.clone(), realm, host_key.clone(), service.clone(), Arc::new(now));
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline && (!host_link.status().connected || !relay_link.status().connected) {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(host_link.status().connected, "Host failed to connect to Coordinator");
+    assert!(relay_link.status().connected, "Host failed to connect to Game Relay");
+    println!("[3/7] Host outbound tunnels connected to Coordinator and Relay via WSS");
+
+    // --- PLAYER 1: DIRECT ROUTE ---
+    let player1_dir = tempfile::tempdir().unwrap();
+    let pc1 = PlayerControl::open(player1_dir.path(), Arc::new(MemoryStore::default())).unwrap();
+    let target = RealmTarget {
+        realm_id: realm,
+        key: host_vkey,
+        coordinator: coordinator_url(&base, "/coord/v1/player").expect("coord player url"),
+    };
+    let mut ch1 = pc1.connect(&target).expect("Player 1 connect");
+    let (_auto1, _exist1, direct_route) = pc1.welcome(&mut ch1).expect("Player 1 welcome");
+    assert_eq!(direct_route, Some(format!("127.0.0.1:{d_auth}")));
+    println!("[4/7] Player 1 received verified DIRECT route: {:?}", direct_route);
+
+    // Direct Auth Connect & Challenge
+    let start_d_auth = Instant::now();
+    let mut d_auth_stream = TcpStream::connect(format!("127.0.0.1:{d_auth}")).expect("connect to direct auth");
+    let direct_auth_rtt = start_d_auth.elapsed();
+    d_auth_stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    d_auth_stream.set_nodelay(true).unwrap();
+
+    let logon_pkt = build_auth_logon_challenge_pkt("LOCAL");
+    d_auth_stream.write_all(&logon_pkt).unwrap();
+    let mut d_auth_resp = vec![0u8; 1024];
+    let n = d_auth_stream.read(&mut d_auth_resp).unwrap();
+    assert!(n >= 34);
+    assert_eq!(d_auth_resp[0], 0x00);
+    drop(d_auth_stream);
+
+    // Direct World Connect
+    let start_d_world = Instant::now();
+    let mut d_world_stream = TcpStream::connect(format!("127.0.0.1:{d_world}")).expect("connect to direct world");
+    let direct_world_rtt = start_d_world.elapsed();
+    d_world_stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    d_world_stream.set_nodelay(true).unwrap();
+
+    let mut d_challenge_buf = [0u8; 44];
+    d_world_stream.read_exact(&mut d_challenge_buf).unwrap();
+    assert_eq!(d_challenge_buf[2], 0xEC);
+    assert_eq!(d_challenge_buf[3], 0x01);
+    drop(d_world_stream);
+    println!("[5/7] Player 1 verified DIRECT real server session: Auth RTT={:?}, World RTT={:?}", direct_auth_rtt, direct_world_rtt);
+
+    // --- SIMULATE DIRECT ROUTE FAILURE & RELAY FALLBACK ---
+    // Deliberately break direct route on Host
+    service.set_direct_route(None);
+    println!("[6/7] Deliberately broke direct route on Host (service.set_direct_route(None))");
+
+    // PLAYER 2: Automatic Relay Fallback
+    let player2_dir = tempfile::tempdir().unwrap();
+    let pc2 = PlayerControl::open(player2_dir.path(), Arc::new(MemoryStore::default())).unwrap();
+    let mut ch2 = pc2.connect(&target).expect("Player 2 connect");
+    let (_auto2, _exist2, route2) = pc2.welcome(&mut ch2).expect("Player 2 welcome");
+    assert_eq!(route2, None, "Direct route must be None after failure");
+
+    let _acc2 = pc2.ensure_account(&mut ch2, &realm, Some("Thrall2")).expect("ensure account");
+    let relay_alloc = pc2.allocate_relay(&mut ch2).expect("allocate relay");
+    println!("      Player 2 transparently fell back to VPS Game Relay: {}:{}", relay_alloc.relay_host, relay_alloc.auth_port);
+
+    // Relay Auth Connect & Challenge
+    let start_r_auth = Instant::now();
+    let mut r_auth_stream = TcpStream::connect((relay_alloc.relay_host.as_str(), relay_alloc.auth_port)).expect("connect to relay auth");
+    let relay_auth_rtt = start_r_auth.elapsed();
+    r_auth_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    r_auth_stream.set_nodelay(true).unwrap();
+
+    r_auth_stream.write_all(&logon_pkt).unwrap();
+    let mut r_auth_resp = vec![0u8; 1024];
+    let rn = r_auth_stream.read(&mut r_auth_resp).unwrap();
+    assert!(rn >= 34);
+    assert_eq!(r_auth_resp[0], 0x00);
+    drop(r_auth_stream);
+
+    // Relay World Connect
+    let start_r_world = Instant::now();
+    let mut r_world_stream = TcpStream::connect((relay_alloc.relay_host.as_str(), relay_alloc.world_port)).expect("connect to relay world");
+    let relay_world_rtt = start_r_world.elapsed();
+    r_world_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    r_world_stream.set_nodelay(true).unwrap();
+
+    let mut r_challenge_buf = [0u8; 44];
+    r_world_stream.read_exact(&mut r_challenge_buf).unwrap();
+    assert_eq!(r_challenge_buf[2], 0xEC);
+    assert_eq!(r_challenge_buf[3], 0x01);
+    drop(r_world_stream);
+    println!("[7/7] Player 2 verified RELAY real server session: Auth RTT={:?}, World RTT={:?}", relay_auth_rtt, relay_world_rtt);
+
+    ingress.stop();
+    host_link.stop();
+    relay_link.stop();
+    let _ = client.unpublish(&host_key, &realm, now());
+
+    println!("\n=== Measured RTT Comparison (Direct vs VPS Relay) ===");
+    println!("  Direct Route Auth RTT:  {:.2} ms", direct_auth_rtt.as_secs_f64() * 1000.0);
+    println!("  Direct Route World RTT: {:.2} ms", direct_world_rtt.as_secs_f64() * 1000.0);
+    println!("  Relay Route Auth RTT:   {:.2} ms", relay_auth_rtt.as_secs_f64() * 1000.0);
+    println!("  Relay Route World RTT:  {:.2} ms", relay_world_rtt.as_secs_f64() * 1000.0);
+    println!("=== Phase 14.1 Live VPS Gate Passed Successfully ===\n");
+}
+

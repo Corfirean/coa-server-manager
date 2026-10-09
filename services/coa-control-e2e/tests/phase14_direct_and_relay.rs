@@ -375,11 +375,17 @@ fn test_phase14_security_direct_ingress_strictly_forbids_mysql_and_ra() {
 
     // Spawn mock auth responder
     let t_auth = std::thread::spawn(move || {
-        let (mut stream, _) = mock_auth.accept().unwrap();
-        let mut buf = [0u8; 16];
-        let n = stream.read(&mut buf).unwrap();
-        assert_eq!(&buf[..n], b"TEST_AUTH");
-        stream.write_all(b"AUTH_OK").unwrap();
+        while let Ok((mut stream, _)) = mock_auth.accept() {
+            let mut buf = [0u8; 16];
+            match stream.read(&mut buf) {
+                Ok(0) | Err(_) => continue,
+                Ok(n) => {
+                    assert_eq!(&buf[..n], b"TEST_AUTH");
+                    let _ = stream.write_all(b"AUTH_OK");
+                    break;
+                }
+            }
+        }
     });
 
     // Test that client talking to direct auth reaches AUTH, not MySQL/RA
