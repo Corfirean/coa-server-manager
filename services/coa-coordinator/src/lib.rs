@@ -21,7 +21,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use coa_control_proto::coord::{self, limits as lim, ErrorCode, Frame};
+use coa_control_proto::coord::{self, limits as lim, ErrorCode, Frame, ProbePayload, ProbeResponse};
 use coa_registry_proto::RealmId;
 use ed25519_dalek::VerifyingKey;
 use serde::Deserialize;
@@ -215,8 +215,64 @@ pub fn router<K: KeyLookup>(hub: Arc<Hub<K>>) -> Router {
         .route("/coord/v1/health", get(health::<K>))
         .route("/coord/v1/host", get(host_ws::<K>))
         .route("/coord/v1/player", get(player_ws::<K>))
+        .route("/coord/v1/probe", axum::routing::post(probe_post::<K>).get(probe_get::<K>))
         .fallback(|| async { (StatusCode::NOT_FOUND, "not found") })
         .with_state(hub)
+}
+
+#[derive(Deserialize)]
+struct ProbeQuery {
+    ports: String,
+}
+
+async fn probe_post<K: KeyLookup>(
+    State(hub): State<Arc<Hub<K>>>,
+    ConnectInfo(Peer(peer)): ConnectInfo<Peer>,
+    headers: HeaderMap,
+    Json(payload): Json<ProbePayload>,
+) -> Response {
+    let ip = client_ip(&headers, peer, hub.cfg.trust_proxy);
+    perform_probe(ip, payload.ports).await
+}
+
+async fn probe_get<K: KeyLookup>(
+    State(hub): State<Arc<Hub<K>>>,
+    ConnectInfo(Peer(peer)): ConnectInfo<Peer>,
+    headers: HeaderMap,
+    Query(q): Query<ProbeQuery>,
+) -> Response {
+    let ip = client_ip(&headers, peer, hub.cfg.trust_proxy);
+    let ports: Vec<u16> = q.ports.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    perform_probe(ip, ports).await
+}
+
+async fn perform_probe(ip: IpAddr, ports: Vec<u16>) -> Response {
+    if ports.is_empty() || ports.len() > 4 {
+        return (StatusCode::BAD_REQUEST, "invalid ports count").into_response();
+    }
+    for &p in &ports {
+        if p == 0 || p == 22 || p == 80 || p == 443 || p == 5432 || p == 8080 || p == 8081 || p == 8082 {
+            return (StatusCode::FORBIDDEN, "forbidden port").into_response();
+        }
+    }
+    let mut results = HashMap::new();
+    let mut all_reachable = true;
+    for port in ports {
+        let addr = SocketAddr::new(ip, port);
+        let reachable = match tokio::time::timeout(Duration::from_millis(1500), tokio::net::TcpStream::connect(addr)).await {
+            Ok(Ok(_stream)) => true,
+            _ => false,
+        };
+        if !reachable {
+            all_reachable = false;
+        }
+        results.insert(port, reachable);
+    }
+    Json(ProbeResponse {
+        client_ip: ip.to_string(),
+        results,
+        all_reachable,
+    }).into_response()
 }
 
 async fn health<K: KeyLookup>(State(hub): State<Arc<Hub<K>>>) -> Response {

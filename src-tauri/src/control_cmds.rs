@@ -187,7 +187,21 @@ pub(crate) async fn join_realm(state: State<'_, AppState>, realm: String, charac
                 let _ = pc.acknowledge(&mut ch, cuuid, &rid, &character);
             }
         }
-        if route.is_none() {
+        // Phase 14: Try direct route if provided, with quick TCP probe. If direct fails or unavailable, fall back to Relay.
+        let mut direct_worked = false;
+        if let Some(ref direct_addr) = route {
+            use std::net::ToSocketAddrs;
+            if let Ok(mut addrs) = direct_addr.to_socket_addrs() {
+                if let Some(sa) = addrs.next() {
+                    if std::net::TcpStream::connect_timeout(&sa, std::time::Duration::from_millis(2000)).is_ok() {
+                        out.route = Some(direct_addr.clone());
+                        out.status = "ready".into();
+                        direct_worked = true;
+                    }
+                }
+            }
+        }
+        if !direct_worked {
             match pc.allocate_relay(&mut ch) {
                 Ok(relay_alloc) => {
                     let r = format!("{}:{}", relay_alloc.relay_host, relay_alloc.auth_port);

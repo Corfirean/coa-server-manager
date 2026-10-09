@@ -74,6 +74,18 @@ pub enum ErrorCode {
     Internal,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbePayload {
+    pub ports: Vec<u16>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeResponse {
+    pub client_ip: String,
+    pub results: std::collections::HashMap<u16, bool>,
+    pub all_reachable: bool,
+}
+
 pub fn challenge_nonce() -> String {
     let mut n = [0u8; 32];
     n[..16].copy_from_slice(Uuid::new_v4().as_bytes());

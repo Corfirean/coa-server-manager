@@ -38,6 +38,8 @@ struct Running {
     link: HostLink,
     #[allow(dead_code)]
     relay_link: Option<Arc<crate::control::relay_link::RelayLink>>,
+    #[allow(dead_code)]
+    direct_route: Option<crate::control::direct_route::DirectRouteManager>,
 }
 
 
@@ -69,8 +71,9 @@ impl HostControl {
                                 service.set_relay(rl.clone());
                                 rl
                             });
+                        let direct_route = Some(crate::control::direct_route::DirectRouteManager::start(Some(base.clone()), service.clone()));
                         let link = HostLink::start(url.clone(), realm_id, key, service, clock.clone());
-                        running.insert(local_id, Running { realm_id, url, link, relay_link });
+                        running.insert(local_id, Running { realm_id, url, link, relay_link, direct_route });
                     }
                     if let Ok(mut st) = st.lock() {
                         *st = running.iter().map(|(id, r)| (id.clone(), HostControlRealm { local_id: id.clone(), realm_id: r.realm_id.to_string(), link: r.link.status() })).collect();

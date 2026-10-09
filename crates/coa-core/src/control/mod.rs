@@ -2,10 +2,13 @@
 //! here carries game traffic. See `docs/CONTROL_PROTOCOL.md`.
 
 pub mod backend;
+pub mod direct_ingress;
+pub mod direct_route;
 pub mod host_link;
 pub mod host_manager;
 pub mod identity;
 pub mod join;
+pub mod nat_pmp;
 pub mod player;
 pub mod relay_link;
 pub mod secrets;

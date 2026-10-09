@@ -379,3 +379,33 @@ fn the_health_endpoint_answers_and_unknown_paths_do_not() {
     let out = read_response(&mut t);
     assert!(out.starts_with("HTTP/1.1 404"), "{out}");
 }
+
+#[test]
+fn probe_endpoint_verifies_reachable_and_unreachable_ports() {
+    let s = start(quick());
+    let l1 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let p1 = l1.local_addr().unwrap().port();
+    let p2 = 45999; // assumed free port
+
+    use std::io::Write;
+    let mut t = TcpStream::connect(s.addr).unwrap();
+    let req = format!("GET /coord/v1/probe?ports={p1},{p2} HTTP/1.1\r\nHost: x\r\n\r\n");
+    t.write_all(req.as_bytes()).unwrap();
+    let out = read_response(&mut t);
+    assert!(out.starts_with("HTTP/1.1 200"), "{out}");
+    assert!(out.contains(&format!("\"{p1}\":true")), "{out}");
+    assert!(out.contains(&format!("\"{p2}\":false")), "{out}");
+    assert!(out.contains("\"all_reachable\":false"), "{out}");
+
+    // Now test with both listening
+    let l2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let p2_live = l2.local_addr().unwrap().port();
+    let mut t2 = TcpStream::connect(s.addr).unwrap();
+    let req2 = format!("GET /coord/v1/probe?ports={p1},{p2_live} HTTP/1.1\r\nHost: x\r\n\r\n");
+    t2.write_all(req2.as_bytes()).unwrap();
+    let out2 = read_response(&mut t2);
+    assert!(out2.starts_with("HTTP/1.1 200"), "{out2}");
+    assert!(out2.contains(&format!("\"{p1}\":true")), "{out2}");
+    assert!(out2.contains(&format!("\"{p2_live}\":true")), "{out2}");
+    assert!(out2.contains("\"all_reachable\":true"), "{out2}");
+}

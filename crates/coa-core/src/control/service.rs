@@ -145,6 +145,7 @@ pub struct HostService {
     store: Arc<Mutex<ControlStore>>,
     backend: Arc<dyn RealmBackend>,
     relay: Mutex<Option<Arc<dyn RelayProvider>>>,
+    direct_route: Mutex<Option<String>>,
     /// Serialises everything that changes accounts and claims on this realm.
     write: Mutex<()>,
     link_failures: Mutex<HashMap<Option<Uuid>, Vec<Instant>>>,
@@ -161,11 +162,28 @@ fn unavailable(what: &str, e: &Error) -> Response {
 
 impl HostService {
     pub fn new(local_id: &str, realm_id: RealmId, store: Arc<Mutex<ControlStore>>, backend: Arc<dyn RealmBackend>) -> Self {
-        Self { local_id: local_id.to_string(), realm_id, store, backend, relay: Mutex::new(None), write: Mutex::new(()), link_failures: Mutex::new(HashMap::new()) }
+        Self {
+            local_id: local_id.to_string(),
+            realm_id,
+            store,
+            backend,
+            relay: Mutex::new(None),
+            direct_route: Mutex::new(None),
+            write: Mutex::new(()),
+            link_failures: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn set_relay(&self, provider: Arc<dyn RelayProvider>) {
         *self.relay.lock().unwrap() = Some(provider);
+    }
+
+    pub fn set_direct_route(&self, route: Option<String>) {
+        *self.direct_route.lock().unwrap() = route;
+    }
+
+    pub fn direct_route(&self) -> Option<String> {
+        self.direct_route.lock().unwrap().clone()
     }
 
 
@@ -202,7 +220,10 @@ impl HostService {
                     return err(AppError::UnsupportedVersion, "This protocol version is not supported.");
                 }
                 match self.backend.info(&self.local_id) {
-                    Ok(info) => Response::Welcome { realm_id: self.realm_id, automatic: info.automatic, existing_only: !info.automatic, route: info.route },
+                    Ok(info) => {
+                        let active_route = self.direct_route().or(info.route);
+                        Response::Welcome { realm_id: self.realm_id, automatic: info.automatic, existing_only: !info.automatic, route: active_route }
+                    }
                     Err(e) => unavailable("realm info", &e),
                 }
             }
@@ -212,7 +233,10 @@ impl HostService {
             Request::Claim { token } => self.claim(session, player, token),
             Request::ClaimAck { character_id } => self.ack(player, character_id),
             Request::Route => match self.backend.info(&self.local_id) {
-                Ok(info) => Response::RouteInfo { address: info.route },
+                Ok(info) => {
+                    let active_route = self.direct_route().or(info.route);
+                    Response::RouteInfo { address: active_route }
+                }
                 Err(e) => unavailable("route", &e),
             },
             Request::TransferOffer { transfer_id, character_id, canonical_revision, content_hash, total_size, collections } => {
