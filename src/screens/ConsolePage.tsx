@@ -103,7 +103,7 @@ export function ConsolePage({ serverId }: { serverId: string }) {
         </Button>
       </div>
 
-      <div ref={box} className="selectable mt-3 min-h-64 flex-1 overflow-auto rounded-card border border-line bg-black/40 p-3 font-mono text-xs leading-5" role="log" aria-live="off">
+      <div ref={box} className="selectable relative mt-3 min-h-64 flex-1 overflow-auto rounded-card border border-line bg-black/40 p-3 font-mono text-xs leading-5" role="log" aria-live="off">
         {missing ? <p className="text-muted">{missing}</p> : lines.length === 0 ? <p className="text-muted">{t("con.empty")}</p> : lines.map((l, i) => (
           <div key={i} className={cn("whitespace-pre-wrap break-all", TONE[l.level])}>
             {l.level !== "info" && <span className="sr-only">{l.level}: </span>}

@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
+import { RemoveServerCard } from "@/screens/RemoveServerCard";
+import { useStartAfterUpdate } from "@/lib/updatePrefs";
 import { hasKey, useHuman, useI18n, type Key } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { RealmStartupSettings } from "@/screens/RealmStartupSettings";
@@ -19,7 +21,7 @@ function mb(bytes: number) {
   return bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-export function SettingsHome({ serverId, serverName }: { serverId: string; serverName: string }) {
+export function SettingsHome({ serverId, serverName = "", path, onForget }: { serverId: string; serverName?: string; path: string; onForget: () => Promise<void> }) {
   const { t } = useI18n();
   const upd = useServerUpdate(serverId);
   const human = useHuman();
@@ -38,6 +40,7 @@ export function SettingsHome({ serverId, serverName }: { serverId: string; serve
   const [choices, setChoices] = useState<Record<string, "keep" | "replace">>({});
   const [advanced, setAdvanced] = useState(false);
   const [source, setSource] = useState("");
+  const [startAfter, setStartAfter] = useStartAfterUpdate("server", serverId);
 
   useEffect(() => {
     let active = true;
@@ -179,6 +182,10 @@ export function SettingsHome({ serverId, serverName }: { serverId: string; serve
       <Card className="mt-6 p-6">
         <h2 className="font-semibold">{t("upd.title")}</h2>
         <p className="mt-1 text-sm text-muted">{t("upd.text")}</p>
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm">
+          <input type="checkbox" checked={startAfter} onChange={(e) => setStartAfter(e.target.checked)} className="h-4 w-4 accent-[#c9a24a]" />
+          <span>{t("upd.startAfter")}</span>
+        </label>
 
         <div className="mt-4 flex items-center gap-3">
           <Button variant="primary" disabled={!!busy} onClick={() => void check()}>
@@ -199,9 +206,18 @@ export function SettingsHome({ serverId, serverName }: { serverId: string; serve
 
         {done && pendingChecked && !pendingStateError && <p className="mt-4 text-sm text-ok" role="status">{done}</p>}
         {error && (
-          <p className="mt-4 text-sm text-bad" role="alert">
-            {error.human.code === "unknown" ? error.technical : human(error.human).message}
-          </p>
+          <div className="mt-4" role="alert">
+            <p className="selectable whitespace-pre-wrap break-words text-sm text-bad">
+              {error.human.code === "unknown" ? error.technical : human(error.human).message}
+            </p>
+            <button className="mt-1 cursor-pointer text-xs text-muted underline" onClick={() => void navigator.clipboard.writeText(error.technical)}>
+              {t("common.copyError")}
+            </button>
+          </div>
+        )}
+
+        {preview?.database_check_error && (
+          <p className="selectable mt-4 break-words text-sm text-warn" role="status">{t("upd.dbUnchecked", { why: preview.database_check_error })}</p>
         )}
 
         {preview && isUpdateCurrent(preview) && (
@@ -216,7 +232,7 @@ export function SettingsHome({ serverId, serverName }: { serverId: string; serve
               {preview.from_version ? t("upd.availableFrom", { to: preview.to_version, from: preview.from_version }) : t("upd.available", { to: preview.to_version })}
             </p>
             <p className="mt-1 text-sm text-muted">
-              {(preview.pending_migrations ?? preview.migrations) > 0
+              {!preview.database_check_error && (preview.pending_migrations ?? preview.migrations) > 0
                 ? t("upd.summaryDb", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length, db: preview.pending_migrations ?? preview.migrations })
                 : t("upd.summary", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length })}
             </p>
@@ -262,6 +278,8 @@ export function SettingsHome({ serverId, serverName }: { serverId: string; serve
           </div>
         )}
       </Card>
+
+      <RemoveServerCard serverId={serverId} path={path} onForget={onForget} />
     </div>
   );
 }

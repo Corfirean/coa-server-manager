@@ -8,6 +8,7 @@ pub mod clientdl;
 pub mod config;
 pub mod control;
 pub mod console;
+pub mod dashboard;
 pub mod db;
 pub mod diag;
 pub mod docker;

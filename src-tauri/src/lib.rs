@@ -472,6 +472,51 @@ impl Drop for BusyGuard<'_> {
 }
 
 #[tauri::command]
+fn backup_location(state: State<'_, AppState>, id: String) -> std::result::Result<backup::BackupLocation, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(backup::location(&meta_dir(&root)?))
+}
+
+#[tauri::command]
+async fn set_backup_location(state: State<'_, AppState>, id: String, path: Option<String>) -> std::result::Result<backup::BackupLocation, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || backup::set_location(&root, &meta_dir(&root)?, path.as_deref())).await
+}
+
+#[tauri::command]
+async fn dashboard_status(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || Ok(coa_core::dashboard::status(&root))).await
+}
+
+#[tauri::command]
+async fn dashboard_install(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::dashboard::install(&root, &|step| { let _ = app.emit("dashboard-progress", step); })).await
+}
+
+#[tauri::command]
+async fn dashboard_open(state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let status = blocking(move || Ok(coa_core::dashboard::status(&root))).await?;
+    if !status.running { return Err(Error::Invalid("The dashboard is not running.".into()).into()); }
+    tauri_plugin_opener::open_url(&status.url, None::<&str>).map_err(|e| Error::Invalid(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn dashboard_start(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::dashboard::start(&root)).await
+}
+
+#[tauri::command]
+async fn dashboard_stop(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || { coa_core::dashboard::stop(&root)?; Ok(coa_core::dashboard::status(&root)) }).await
+}
+
+#[tauri::command]
 fn list_backups(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<RecoveryPoint>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(backup::list(&meta_dir(&root)?))
@@ -802,12 +847,14 @@ fn install_meta(root: &std::path::Path) -> Result<(PathBuf, InstallMeta)> {
 }
 
 #[tauri::command]
-async fn check_update(state: State<'_, AppState>, id: String, source: Option<String>) -> std::result::Result<update::Preview, UiError> {
+async fn check_update(state: State<'_, AppState>, id: String, source: Option<String>, background: Option<bool>) -> std::result::Result<update::Preview, UiError> {
     let root = path_of(&state, &id)?;
     let src = update_source(source);
+    // The check that repeats every few minutes must not start and stop the database of a stopped server.
+    let access = if background.unwrap_or(false) { update::DatabaseAccess::OnlyIfRunning } else { update::DatabaseAccess::Start };
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
-        update::preview(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default())
+        update::preview_with(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default(), access)
     })
     .await
 }
@@ -1677,6 +1724,13 @@ pub fn run() {
             list_config_snapshots,
             restore_config_snapshot,
             list_backups,
+            dashboard_status,
+            dashboard_install,
+            dashboard_start,
+            dashboard_open,
+            dashboard_stop,
+            backup_location,
+            set_backup_location,
             create_backup,
             verify_backup,
             delete_backup,

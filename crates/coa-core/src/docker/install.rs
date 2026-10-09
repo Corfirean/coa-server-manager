@@ -146,7 +146,7 @@ fn write_settings(root: &Path, data_dir: &Path) -> Result<Settings> {
     let (auth, world, ra) = (pick_port(DEFAULT_PORTS.0)?, pick_port(DEFAULT_PORTS.1)?, pick_port(DEFAULT_PORTS.2)?);
     let (root_password, app_password) = (random_hex(48), random_hex(48));
     fs::create_dir_all(root.join("Settings"))?;
-    let docker = Config { project, bind_address: "127.0.0.1".into(), mysql_image: super::MYSQL_IMAGE.into(), data_dir: Some(data_dir.to_string_lossy().into_owned()) };
+    let docker = Config { project, bind_address: "127.0.0.1".into(), mysql_image: super::MYSQL_IMAGE.into(), data_dir: Some(data_dir.to_string_lossy().into_owned()), mysql_data: None };
     fsx::atomic_write_json(&root.join(MARKER), &docker)?;
     // Same file and keys as a repack, so the console, the ports and the settings screens work unchanged. The database is
     // not published on the host; its port is only there to fill the key.

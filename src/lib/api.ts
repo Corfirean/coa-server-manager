@@ -78,6 +78,22 @@ export interface DriverOutcome {
   output: string;
 }
 
+export interface DashboardStatus {
+  installed: boolean;
+  tag: string | null;
+  squid_tag: string | null;
+  matches: boolean;
+  running: boolean;
+  port: number;
+  url: string;
+}
+
+export interface BackupLocation {
+  path: string;
+  default_path: string;
+  is_default: boolean;
+}
+
 export interface ServerSummary {
   id: string;
   name: string;
@@ -217,7 +233,7 @@ export interface ModuleSetting {
   value: string;
   default: string | null;
   doc: string;
-  field?: { key: string; type: string; title: string; description: string; group: string; group_title?: string | null; min?: number | null; max?: number | null } | null;
+  field?: { key: string; type: string; title: string; description: string; group: string; group_title?: string | null; min?: number | null; max?: number | null; choices?: { value: string | number | boolean; label: string }[] | null } | null;
 }
 
 export interface AllSetting {
@@ -285,6 +301,10 @@ export interface UpdatePreview {
   migrations: number;
   pending_migrations?: number;
   download_bytes: number;
+  /** False when pending database changes were not counted (stopped server during a background check, or an error). */
+  database_checked?: boolean;
+  /** Set when the database could not be inspected; the file comparison is still valid. */
+  database_check_error?: string;
 }
 
 export interface UpdateTxn {
@@ -421,6 +441,14 @@ export const api = {
   save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
   presets: (scope: Scope) => invoke<PresetInfo[]>("list_presets", { scope }),
   backups: (id: string) => invoke<RecoveryPoint[]>("list_backups", { id }),
+  dashboardStatus: (id: string) => invoke<DashboardStatus>("dashboard_status", { id }),
+  dashboardInstall: (id: string) => invoke<DashboardStatus>("dashboard_install", { id }),
+  dashboardOpen: (id: string) => invoke<void>("dashboard_open", { id }),
+  dashboardStart: (id: string) => invoke<DashboardStatus>("dashboard_start", { id }),
+  dashboardStop: (id: string) => invoke<DashboardStatus>("dashboard_stop", { id }),
+  backupLocation: (id: string) => invoke<BackupLocation>("backup_location", { id }),
+  /** `null` goes back to the default folder next to the server. */
+  setBackupLocation: (id: string, path: string | null) => invoke<BackupLocation>("set_backup_location", { id, path }),
   createBackup: (id: string, kind: BackupKind, label?: string) => invoke<RecoveryPoint>("create_backup", { id, kind, label: label ?? null }),
   verifyBackup: (id: string, backupId: string) => invoke<{ ok: boolean; problems: string[] }>("verify_backup", { id, backupId }),
   deleteBackup: (id: string, backupId: string) => invoke<void>("delete_backup", { id, backupId }),
@@ -449,7 +477,8 @@ export const api = {
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),
-  checkUpdate: (id: string, source?: string) => invoke<UpdatePreview>("check_update", { id, source: source ?? null }),
+  /** `background`: the repeating check, which must not start the database of a stopped server. */
+  checkUpdate: (id: string, source?: string, background?: boolean) => invoke<UpdatePreview>("check_update", { id, source: source ?? null, background: background ?? false }),
   pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
     invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),

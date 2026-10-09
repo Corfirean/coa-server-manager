@@ -770,7 +770,7 @@
       "type": "bool",
       "category": "gameplay",
       "title": "Skills always at maximum for level",
-      "description": "Weapon and other skills are always at their maximum for the character's level, no training needed.",
+      "description": "Weapon and other skills are always at their maximum for the character's level, no training needed. The Wildcard realm always turns this on for itself.",
       "default": false,
       "advanced": false,
       "restartRequired": "world",

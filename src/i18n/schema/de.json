@@ -525,7 +525,7 @@
   },
   "AlwaysMaxSkillForLevel": {
    "t": "Fertigkeiten immer auf Maximum der Stufe",
-   "d": "Waffen- und andere Fertigkeiten sind immer auf dem Maximum der Charakterstufe, Training ist nicht nötig."
+   "d": "Waffen- und andere Fertigkeiten sind immer auf dem Maximum der Charakterstufe, Training ist nicht nötig. Der Wildcard-Realm schaltet dies für sich immer ein."
   },
   "ActivateWeather": {
    "t": "Wetter",

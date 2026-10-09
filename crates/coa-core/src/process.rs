@@ -278,12 +278,24 @@ fn uptime_secs(p: &ProcessIdentity) -> Option<u64> {
     (now >= p.created).then(|| (now - p.created) / 10_000_000)
 }
 
+/// The world server of the `coa-bots` repack folder lives inside the server folder and is started by its own
+/// launcher (`coa-bots\Core\worldserver.exe`). It serves the same realm, so it counts as this server's world.
+fn world_alternatives(root: &Path) -> Vec<PathBuf> {
+    vec![root.join("coa-bots").join("Core").join("worldserver.exe")]
+}
+
 fn service(root: &Path, name: &'static str, exe: PathBuf, port: u16, listen: &[(u16, u32)]) -> ServiceStatus {
+    service_with(root, name, exe, &[], port, listen)
+}
+
+fn service_with(root: &Path, name: &'static str, exe: PathBuf, alternatives: &[PathBuf], port: u16, listen: &[(u16, u32)]) -> ServiceStatus {
     // Prefer the repack's own record when it still matches a live process; otherwise discover by exact exe path.
+    let norm = |p: &Path| p.to_string_lossy().replace('/', "\\");
+    let expected: Vec<String> = std::iter::once(&exe).chain(alternatives).map(|p| norm(p)).collect();
     let proc = read_state_record(root, name)
         .filter(is_alive)
-        .filter(|r| r.exe.eq_ignore_ascii_case(&exe.to_string_lossy().replace('/', "\\")))
-        .or_else(|| find_by_exe(&exe).into_iter().next());
+        .filter(|r| expected.iter().any(|e| r.exe.eq_ignore_ascii_case(e)))
+        .or_else(|| std::iter::once(&exe).chain(alternatives).find_map(|p| find_by_exe(p).into_iter().next()));
 
     let owner = listen.iter().find(|(p, _)| *p == port).map(|(_, pid)| *pid);
     let (state, port_ready, conflict) = match (&proc, owner) {
@@ -319,7 +331,7 @@ pub fn observe(root: &Path, ports: &Ports) -> Observed {
     Observed {
         mysql: service(root, "mysql", mysql, ports.mysql, &listen),
         auth: service(root, "auth", auth, ports.auth, &listen),
-        world: service(root, "world", world, ports.world, &listen),
+        world: service_with(root, "world", world, &world_alternatives(root), ports.world, &listen),
         secondary_world,
     }
 }

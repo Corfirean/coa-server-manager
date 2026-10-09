@@ -392,6 +392,15 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   so replaying the SQL files from the base scripts fails, in any order. `coa-release export-baseline --server DIR --out DIR`
   produces the dumps from a prepared server (repack or Docker). The game data stays where the person has it
   (`dataDir` in `docker.json`, mounted read-only). A failure removes the containers, the volume and the staging folder.
+* **Validating a release on Linux** (`docker/fixture.rs`, used by `coa-release extract-schema-base` and `schema-contract` where
+  there is no Windows database program): the signed base package carries the MySQL data directory of a Windows repack, and a
+  MySQL 8.4 container opens it as it is (`--lower-case-table-names=1`, the repack's setting). The fixture is a Docker server
+  folder (`docker.json` with `mysqlData`: the database container uses that directory in place of a volume; an installation
+  never sets it), plus a `root` account for TCP, which the repack only has for its socket. The release SQL is then applied and the
+  schema contract captured by the same code as on Windows, and `export-baseline` dumps the result: that is how a Linux build
+  produces `Database/baseline` without anyone's live database. The migration checksums recorded in the base are those of
+  files checked out on Windows (CRLF line endings, `core.autocrlf`): the SQL of the core, the modules and SQUID must be
+  checked out the same way for the checksums to match, or every applied migration looks edited.
 * **Not done yet**: wiring the installer into the screens, downloading the game data, updates, port conflict detection,
   the firewall and exposure checks, the Wildcard realm profiles, and the client under Wine/Proton.
 

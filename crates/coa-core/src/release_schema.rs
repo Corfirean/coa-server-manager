@@ -38,7 +38,12 @@ pub fn extract_base(source: &Path, fixture: &Path, trusted_key: &str) -> Result<
         ["mysql/", "settings/", "runtime/", "scripts/", "core/", "bugreport/"].iter().any(|prefix| path.starts_with(prefix))
     }, &|_, _| {})?;
     fsx::atomic_write(&fixture.join(MARKER), b"disposable release-schema fixture")?;
-    install::bootstrap_database(fixture)
+    // A Linux computer has no Windows database program: the fixture is a Docker server over the package's data directory.
+    if cfg!(windows) {
+        install::bootstrap_database(fixture)
+    } else {
+        crate::docker::fixture::prepare(fixture)
+    }
 }
 
 pub fn capture_release(fixture: &Path, tree: &Path, sql: &[SqlFile]) -> Result<()> {
