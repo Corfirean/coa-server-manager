@@ -112,14 +112,30 @@ pub struct Session {
     tokens: HashMap<u32, u32>,
     next: u32,
     requests: u32,
+    transfer_chunks: u32,
+    pub client_ip: Option<String>,
+}
+
+impl Session {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_client_ip(client_ip: Option<String>) -> Self {
+        Self {
+            client_ip,
+            ..Self::default()
+        }
+    }
 }
 
 const MAX_REQUESTS_PER_SESSION: u32 = 60;
+const MAX_TRANSFER_CHUNKS_PER_SESSION: u32 = 128;
 const LINK_FAILURES: usize = 5;
 const LINK_WINDOW: Duration = Duration::from_secs(600);
 
 pub trait RelayProvider: Send + Sync {
-    fn allocate(&self, player_id: &Uuid) -> crate::error::Result<crate::control::relay_link::RelayAllocationInfo>;
+    fn allocate(&self, player_id: &Uuid, client_ip: Option<&str>) -> crate::error::Result<crate::control::relay_link::RelayAllocationInfo>;
 }
 
 
@@ -166,9 +182,16 @@ impl HostService {
     }
 
     pub fn handle(&self, session: &mut Session, player: &Uuid, public_key: &str, request: Request) -> Response {
-        session.requests += 1;
-        if session.requests > MAX_REQUESTS_PER_SESSION {
-            return err(AppError::RateLimited, "Too many requests on this connection.");
+        if matches!(request, Request::TransferChunk { .. }) {
+            session.transfer_chunks += 1;
+            if session.transfer_chunks > MAX_TRANSFER_CHUNKS_PER_SESSION {
+                return err(AppError::RateLimited, "Too many transfer chunks on this connection.");
+            }
+        } else {
+            session.requests += 1;
+            if session.requests > MAX_REQUESTS_PER_SESSION {
+                return err(AppError::RateLimited, "Too many requests on this connection.");
+            }
         }
         if !self.key_matches(player, public_key) {
             return err(AppError::Invalid, "This player id belongs to another key on this realm.");
@@ -199,12 +222,12 @@ impl HostService {
             Request::TransferStatus { transfer_id } => self.transfer_status(player, transfer_id),
             Request::TransferCommit { transfer_id } => self.transfer_commit(player, transfer_id),
             Request::TransferAck { transfer_id, character_id } => self.transfer_ack(player, transfer_id, character_id),
-            Request::AllocateRelay { player_id } => self.allocate_relay(player, &player_id),
+            Request::AllocateRelay { player_id } => self.allocate_relay(session, player, &player_id),
 
         }
     }
 
-    fn allocate_relay(&self, player: &Uuid, requested_player: &Uuid) -> Response {
+    fn allocate_relay(&self, session: &Session, player: &Uuid, requested_player: &Uuid) -> Response {
         if player != requested_player {
             return err(AppError::Invalid, "Cannot request relay for another player identity.");
         }
@@ -213,7 +236,7 @@ impl HostService {
         }
         let guard = self.relay.lock().unwrap();
         if let Some(r) = guard.as_ref() {
-            match r.allocate(player) {
+            match r.allocate(player, session.client_ip.as_deref()) {
                 Ok(alloc) => Response::RelayAllocated {
                     relay_host: alloc.relay_host,
                     auth_port: alloc.auth_port,

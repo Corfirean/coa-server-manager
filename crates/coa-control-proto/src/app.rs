@@ -7,7 +7,9 @@ use uuid::Uuid;
 
 use crate::{invalid, ControlError, Result};
 
-pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
+pub const MAX_CONTROL_REQUEST_BYTES: usize = 4096;
+pub const MAX_TRANSFER_REQUEST_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
+pub const MAX_REQUEST_BYTES: usize = MAX_TRANSFER_REQUEST_BYTES;
 pub const MIN_USERNAME: usize = 3;
 pub const MAX_USERNAME: usize = 16;
 pub const MIN_PASSWORD: usize = 8;
@@ -181,10 +183,13 @@ pub fn encode_request(r: &Request) -> Vec<u8> {
 }
 
 pub fn decode_request(bytes: &[u8]) -> Result<Request> {
-    if bytes.len() > MAX_REQUEST_BYTES {
+    if bytes.len() > MAX_TRANSFER_REQUEST_BYTES {
         return Err(ControlError::Limit("a request is too long".into()));
     }
     let r: Request = serde_json::from_slice(bytes).map_err(|_| ControlError::Invalid("a request is not valid".into()))?;
+    if !matches!(&r, Request::TransferOffer { .. } | Request::TransferChunk { .. }) && bytes.len() > MAX_CONTROL_REQUEST_BYTES {
+        return Err(ControlError::Limit("a standard control request exceeds 4096 bytes".into()));
+    }
     match &r {
         Request::Provision { desired, password, .. } => {
             if !valid_password(password) || desired.as_deref().is_some_and(|d| d.len() > 64 || d.chars().any(char::is_control)) {
@@ -197,16 +202,20 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request> {
             }
         }
         Request::Hello { client, .. } if client.len() > 64 => return invalid("the client name is too long"),
-        Request::TransferOffer { content_hash, total_size, .. } => {
+        Request::TransferOffer { content_hash, total_size, collections, .. } => {
             if content_hash.len() != 64 || !content_hash.chars().all(|c| c.is_ascii_hexdigit()) {
                 return invalid("transfer content hash must be 64 hex characters");
             }
             if *total_size > crate::noise::MAX_MESSAGE_BYTES {
                 return Err(ControlError::Limit("transfer total size is too large".into()));
             }
+            let total_items: usize = collections.values().map(|v| v.len()).sum();
+            if total_items > 100_000 {
+                return Err(ControlError::Limit("collection mapping exceeds 100,000 entries".into()));
+            }
         }
         Request::TransferChunk { data, .. } => {
-            if data.len() > MAX_REQUEST_BYTES {
+            if data.len() > MAX_TRANSFER_REQUEST_BYTES {
                 return Err(ControlError::Limit("transfer chunk is too large".into()));
             }
         }

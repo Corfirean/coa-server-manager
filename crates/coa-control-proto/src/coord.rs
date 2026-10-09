@@ -49,7 +49,11 @@ pub enum Frame {
     /// Coordinator -> Host: the Host is registered and these are the limits.
     HostReady { max_connections: u32, max_frame: u32 },
     /// Coordinator -> Host: a Player wants to talk; its frames will carry this number.
-    Open { conn: u32 },
+    Open {
+        conn: u32,
+        #[serde(default)]
+        client_ip: Option<String>,
+    },
     /// Either side of a connection ends it.
     Close { conn: u32, reason: Option<String> },
     /// Coordinator -> Player: the Host accepted the connection; binary frames flow now.

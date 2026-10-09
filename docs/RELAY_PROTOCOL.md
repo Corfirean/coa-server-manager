@@ -27,11 +27,20 @@ WoW Client (3.3.5)
 3. **No General Bearer Tokens**: Relay allocations are requested by the Host on behalf of a specific authenticated PlayerIdentity/session via the control plane. Allocations are bound to `RealmId`, `PlayerId`, have short lifetimes (default 120s before connection), and cannot be used for administrative or control plane operations.
 4. **Dumb Byte Tunnel**: The Relay never terminates WoW encryption or parses character data. The only packet inspection performed is rewriting the `address` field in the plaintext `CMD_REALM_LIST` response (opcode `0x10`) so the client seamlessly connects to the allocated WORLD port without patching AzerothCore or mutating MySQL `realmlist`.
 5. **Zero Plaintext Logging**: Relay logs contain only connection identifiers, timestamps, stream IDs, and byte counts. Zero credentials, account names, session keys, or packet contents are logged.
-6. **Resource Limits & Backpressure**:
-   - Connection limits: max 16 concurrent hosts, max 256 allocations total, max 2 active allocations per player.
-   - Timeouts: 10s challenge timeout, 60s idle timeout, 30s ping/pong keepalive.
-   - Bounded streaming chunks: 16 KiB chunks with backpressure.
-   - Dynamic port pool: 40000–40050/tcp. Unused or closed ports are immediately reclaimed.
+6. **Capacity Model & Resource Limits (Phase 13.1 Hardened)**:
+   - **Port Pool Range**: `40000–43999/tcp` (4,000 dynamic TCP ports).
+   - **Allocation Complexity**: O(1) acquisition via randomized Fisher-Yates swap/pop and O(1) release with index tracking.
+   - **Capacity Model**: 4,000 available ports support up to 2,000 concurrent player sessions (2 ports per allocation: Auth + World).
+   - **Source IP Binding**: Each allocation binds `expected_client_ip`. Unsolicited connections from unexpected IPs are immediately dropped and ports released.
+   - **Strict Allocation Lifecycle**:
+     - Auth port is released immediately as soon as authentication finishes or fails.
+     - World port is released immediately upon client disconnect or session termination.
+     - All ports belonging to a Host are reclaimed immediately upon Host tunnel drop.
+     - An active 5s background reaper reclaims expired unconsumed allocations (120s timeout).
+   - **Database Access Role**: Relay connects to PostgreSQL using the dedicated least-privilege role `coa_relay` (`USAGE` on public schema, `SELECT` restricted strictly to `(realm_id, public_key, published, advert_version)` on `realms`).
+   - **Framing Limits**: Standard control messages capped at 4 KiB; remote character transfer offers and chunks permitted up to 4 MiB.
+   - **Timeouts & Keepalive**: 10s challenge timeout, 60s idle timeout, 30s ping/pong keepalive.
+   - **Bounded Streaming Chunks**: 16 KiB chunks with backpressure.
 
 ---
 

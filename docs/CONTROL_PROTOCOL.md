@@ -160,7 +160,7 @@ When a realm is hosted behind NAT or CGNAT without direct port exposure, the Pla
 
 1. The Player Manager sends `allocate_relay`.
 2. The Host asks its connected outbound tunnel to `coa-relay` (`wss://coa-manager.duckdns.org/relay/v1/host`) for an allocation.
-3. `coa-relay` binds a dedicated pair of TCP ports from the dynamic game port pool (40000–40050) for `Auth` and `World`, generates a single-use token, and responds to the Host.
+3. `coa-relay` binds a dedicated pair of TCP ports from the dynamic game port pool (40000–43999) for `Auth` and `World`, binds to the player's source IP, generates a single-use token, and responds to the Host.
 4. The Host returns `relay_allocated{relay_host, auth_port, world_port, token, expires_at}` to the Player inside the encrypted control channel.
 5. The Player Manager points the client's `realmlist.wtf` to `relay_host:auth_port`.
 6. When the client contacts `auth_port`, `coa-relay` dynamically rewrites the `address` field in the `CMD_REALM_LIST` response (opcode `0x10`) to `relay_host:world_port`, seamlessly directing the client to the allocated world tunnel without patching AzerothCore or modifying the database.
@@ -240,11 +240,14 @@ for the in-world refusal) instead of logging in with the game: the Manager must 
 | A flood | per-address and per-realm channel limits, a byte budget, lifetimes, frame and request size limits, strict JSON; the Host handles requests one at a time and caps a channel at 60 requests |
 | Local theft of the player's files | the identity key and passwords are DPAPI-protected on Windows; on other systems only file permissions (stated) |
 
-## 13. What remains before Relay
+## 13. Status: Remote Transfer & Game Relay Hardened (Phases 12.1 & 13.1)
 
-1. **TLS completed**: Public domain `coa-manager.duckdns.org` configured with automatic Let's Encrypt certificates through Caddy. Coordinator connections use `wss://coa-manager.duckdns.org/coord/v1/...` and Registry uses `https://coa-manager.duckdns.org`. Port 80 redirects to 443. The TLS gate passed all 13 checks (see `docs/REGISTRY_DEPLOYMENT.md`).
-2. **A game route**: Relay or a direct route. Today only an owner-stated address makes `Join` start the game.
-3. **Moving a portable character onto a realm that is not its home** (import, update, session prepare over the channel): the Host side exists in the engine (Phases 7–9) but the messages to carry an offer and its answers between two Managers are not defined; `needs_transfer` says so.
-4. **Native login prefill**: the owner's audit run (section 10).
-5. The Host's realm key into the `SecretStore` (section 8), and a keyring store on Linux/macOS.
-6. A real login at the character-select screen is not driven by the Manager (by design); the gate set `account.online` the way the worldserver does (see the results).
+1. **TLS completed**: Public domain `coa-manager.duckdns.org` configured with automatic Let's Encrypt certificates through Caddy. Coordinator connections use `wss://coa-manager.duckdns.org/coord/v1/...`, Registry uses `https://coa-manager.duckdns.org`, and Relay uses `wss://coa-manager.duckdns.org/relay/v1/...`. Port 80 redirects to 443. All 13 TLS gate checks passed.
+2. **Phase 12.1 Remote Portable Character Transfer**: Completed and verified. Eliminates `needs_transfer`. Supports transactional offer, chunking, schema/hash validation, level projection, and idempotent session arming over the end-to-end encrypted Noise channel. Verified with large bounded payloads up to 4 MiB.
+3. **Phase 13 / 13.1 Game Relay Hardening**: Completed and deployed.
+   - Dynamic port pool expanded to 4,000 ports (`40000–43999/tcp`), scaling capacity to 2,000 concurrent player sessions.
+   - O(1) Fisher-Yates shuffle acquisition and O(1) release.
+   - Expected source-IP binding on allocations to block port scanning / hijacks.
+   - Dedicated least-privilege PostgreSQL role `coa_relay` with strictly scoped permissions.
+   - Strict allocation lifecycle: immediate Auth reclamation, immediate World disconnect reclamation, active background reapers, and zero port leaks.
+4. **Native login prefill**: Documented audit in section 10; passwords copied/shown safely via DPAPI without intrusive process injection.

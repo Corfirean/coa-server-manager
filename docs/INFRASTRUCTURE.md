@@ -33,14 +33,14 @@ Internet
    |
    +--> Coordinator    (coa-coordinator:8081, networks coa-ingress + coa-db, no published port)
    |
-   +--> Game Relay     (coa-relay:8082, networks coa-ingress + coa-db, published 40000-40050/tcp)
+   +--> Game Relay     (coa-relay:8082, networks coa-ingress + coa-db, published 40000-43999/tcp)
 ```
 
 Rules:
 
 - PostgreSQL must never be internet-exposed: no `ports:` entry, only on the `coa-db` internal network, no UFW rule for 5432.
 - Registry (8080), Coordinator (8081), and Relay control HTTP/WS (8082) have no published host ports; they are reverse-proxied exclusively through Caddy.
-- Game Relay publishes the dedicated TCP port range `40000:40050/tcp` for relayed WoW client game streams (Auth & World).
+- Game Relay publishes the dedicated TCP port range `40000:43999/tcp` for relayed WoW client game streams (Auth & World).
 - No admin dashboards or the Docker API on public interfaces. Caddy's admin API is disabled.
 
 ## Public ports
@@ -50,7 +50,7 @@ Rules:
 | 22 | tcp | SSH, key only |
 | 80 | tcp | Caddy HTTP (redirects to HTTPS) |
 | 443 | tcp | Caddy HTTPS / WSS |
-| 40000-40050 | tcp | Game Relay WoW game traffic (Auth & World) |
+| 40000-43999 | tcp | Game Relay WoW game traffic (Auth & World) |
 
 ## Filesystem layout
 

@@ -7,8 +7,8 @@ use std::time::Duration;
 use axum::extract::ws::{Message, WebSocket};
 use base64::Engine;
 use coa_control_proto::relay::*;
+use futures_util::SinkExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -41,12 +41,14 @@ pub async fn handle_host_websocket<K: KeyLookup>(mut ws: WebSocket, hub: Arc<Hub
     let Some(key) = hub.keys.host_key(&hello.realm_id).await else {
         tracing::warn!(realm_id = %hello.realm_id, "unknown or unpublished realm");
         let _ = ws.send(Message::Text(serde_json::to_string(&RelayWelcome { ok: false, message: "unauthorized".into() }).unwrap().into())).await;
+        let _ = ws.close().await;
         return;
     };
 
     if !verify_relay_challenge(&key, &hello.realm_id, &nonce, &hello.signature) {
         tracing::warn!(realm_id = %hello.realm_id, "invalid challenge signature");
         let _ = ws.send(Message::Text(serde_json::to_string(&RelayWelcome { ok: false, message: "invalid signature".into() }).unwrap().into())).await;
+        let _ = ws.close().await;
         return;
     }
 
@@ -57,7 +59,7 @@ pub async fn handle_host_websocket<K: KeyLookup>(mut ws: WebSocket, hub: Arc<Hub
     }
 
     let realm_id = hello.realm_id;
-    let (tx_to_host, mut rx_to_host) = mpsc::channel::<TunnelMsg>(STREAM_CHANNEL_CAPACITY * 2);
+    let (tx_to_host, mut rx_to_host) = mpsc::channel::<TunnelMsg>(MAX_STREAMS_PER_REALM * 4);
     hub.register_host(realm_id, tx_to_host.clone());
 
     // 5. Multiplex loop: handle messages between Host WS and Relay tasks
@@ -81,8 +83,8 @@ pub async fn handle_host_websocket<K: KeyLookup>(mut ws: WebSocket, hub: Arc<Hub
         let Ok(tunnel_msg) = serde_json::from_str::<TunnelMsg>(&text) else { continue };
 
         match tunnel_msg {
-            TunnelMsg::Allocate { request_id, player_id } => {
-                match hub.allocate(realm_id, player_id) {
+            TunnelMsg::Allocate { request_id, player_id, expected_client_ip } => {
+                match hub.allocate(realm_id, player_id, expected_client_ip) {
                     Ok(alloc) => {
                         let token = alloc.token.clone();
                         let auth_port = alloc.auth_port;
@@ -166,26 +168,78 @@ async fn listen_game_port<K: KeyLookup>(hub: Arc<Hub<K>>, alloc: crate::hub::All
         RelayTarget::World => alloc.world_port,
     };
 
-    let bind_addr = format!("0.0.0.0:{port}");
-    let Ok(listener) = TcpListener::bind(&bind_addr).await else {
+    let Ok(socket) = tokio::net::TcpSocket::new_v4() else {
+        tracing::error!(port, ?target, "failed to create tcp socket");
+        hub.release_port(port);
+        return;
+    };
+    let _ = socket.set_reuseaddr(true);
+    let Ok(_) = socket.bind(std::net::SocketAddr::from(([0, 0, 0, 0], port))) else {
         tracing::error!(port, ?target, "failed to bind relay game port");
+        hub.release_port(port);
+        return;
+    };
+    let Ok(listener) = socket.listen(1024) else {
+        tracing::error!(port, ?target, "failed to listen on relay game port");
+        hub.release_port(port);
         return;
     };
 
     tracing::info!(port, ?target, "relay game listener active");
 
     // Accept incoming connection within allocation window
-    let timeout = Duration::from_secs((alloc.expires_at.saturating_sub((hub.clock)())).max(1) as u64);
-    let accept_res = tokio::time::timeout(timeout, listener.accept()).await;
+    let mut accept_stream = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs((alloc.expires_at.saturating_sub((hub.clock)())).max(1) as u64);
+    while tokio::time::Instant::now() < deadline {
+        // If host disconnected, terminate listener immediately
+        if hub.host_tx(&alloc.realm_id).is_none() {
+            hub.release_port(port);
+            return;
+        }
+        match tokio::time::timeout(Duration::from_millis(500), listener.accept()).await {
+            Ok(Ok((stream, peer))) => {
+                accept_stream = Some((stream, peer));
+                break;
+            }
+            Ok(Err(e)) => {
+                tracing::debug!(port, ?target, error = %e, "accept failed");
+                hub.release_port(port);
+                return;
+            }
+            Err(_) => {
+                // Timeout on 500ms tick, loop and check host liveness
+            }
+        }
+    }
 
-    let Ok(Ok((stream, _peer))) = accept_res else {
+    let Some((stream, peer)) = accept_stream else {
         tracing::debug!(port, ?target, "relay listener timed out or accept failed");
+        hub.release_port(port);
         return;
     };
 
+    // If an expected client IP was specified, verify source IP matches
+    if let Some(expected_ip_str) = &alloc.expected_client_ip {
+        if let Ok(expected_ip) = expected_ip_str.parse::<std::net::IpAddr>() {
+            let peer_ip = peer.ip();
+            let matches = match (expected_ip, peer_ip) {
+                (std::net::IpAddr::V4(a), std::net::IpAddr::V4(b)) => a == b,
+                (std::net::IpAddr::V6(a), std::net::IpAddr::V6(b)) => a == b,
+                (std::net::IpAddr::V4(a), std::net::IpAddr::V6(b)) => b.to_ipv4_mapped() == Some(a),
+                (std::net::IpAddr::V6(a), std::net::IpAddr::V4(b)) => a.to_ipv4_mapped() == Some(b),
+            };
+            if !matches {
+                tracing::warn!(port, ?target, peer = %peer_ip, expected = %expected_ip, "rejected connection from unexpected client IP");
+                drop(stream);
+                hub.release_port(port);
+                return;
+            }
+        }
+    }
 
     let Some(host_tx) = hub.host_tx(&alloc.realm_id) else {
         tracing::warn!(realm_id = %alloc.realm_id, "host disconnected before game stream opened");
+        hub.release_port(port);
         return;
     };
 
@@ -201,6 +255,7 @@ async fn listen_game_port<K: KeyLookup>(hub: Arc<Hub<K>>, alloc: crate::hub::All
     };
     if host_tx.send(connect_req).await.is_err() {
         hub.unregister_stream(stream_id);
+        hub.release_port(port);
         return;
     }
 
@@ -213,6 +268,7 @@ async fn listen_game_port<K: KeyLookup>(hub: Arc<Hub<K>>, alloc: crate::hub::All
         _ => {
             tracing::warn!(stream_id, port, ?target, "connect to host target failed or timed out");
             hub.unregister_stream(stream_id);
+            hub.release_port(port);
             return;
         }
     }
@@ -280,5 +336,6 @@ async fn listen_game_port<K: KeyLookup>(hub: Arc<Hub<K>>, alloc: crate::hub::All
 
     let _ = tokio::join!(read_task, write_task);
     hub.unregister_stream(stream_id);
-    tracing::info!(stream_id, port, ?target, "relay stream finished");
+    hub.release_port(port);
+    tracing::info!(stream_id, port, ?target, "relay stream finished and port released");
 }

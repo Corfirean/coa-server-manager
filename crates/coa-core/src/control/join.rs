@@ -307,7 +307,7 @@ impl PlayerControl {
             _ => return Err(ControlFail::Link(LinkError::Protocol("unexpected response to transfer offer".into()))),
         };
 
-        const CHUNK_SIZE: usize = 16 * 1024;
+        const CHUNK_SIZE: usize = 128 * 1024;
         while offset < payload.len() {
             let end = (offset + CHUNK_SIZE).min(payload.len());
             let chunk_data = base64::engine::general_purpose::STANDARD.encode(&payload[offset..end]);

@@ -67,6 +67,8 @@ pub enum TunnelMsg {
     Allocate {
         request_id: u64,
         player_id: Uuid,
+        #[serde(default)]
+        expected_client_ip: Option<String>,
     },
     /// Relay responds to Host with allocation details.
     AllocateOk {

@@ -403,4 +403,42 @@ fn remote_transfer_over_coordinator_channel_e2e() {
     assert_eq!(err.code(), "incompatible");
 }
 
+#[test]
+fn remote_transfer_worst_case_large_payload_near_limit() {
+    use std::collections::BTreeMap;
+    use sha2::{Digest, Sha256};
+    let env = Env::new(true);
+    let dir = tempfile::tempdir().unwrap();
+    let pc = player(dir.path(), Arc::new(MemoryStore::default()));
+    let mut ch = pc.connect(&env.target()).unwrap();
+    pc.ensure_account(&mut ch, &env.realm, Some("ThrallLarge")).unwrap();
+
+    // 1. Build a worst-case payload: 2.5 MiB of character state + 25,000 collection item IDs
+    let mut large_payload = vec![0x42u8; 2_500_000];
+    // Fill with pseudo-random printable bytes to prevent trivial compression artifacts
+    for (i, b) in large_payload.iter_mut().enumerate() {
+        *b = (32 + (i % 95)) as u8;
+    }
+    let large_hash: [u8; 32] = Sha256::digest(&large_payload).into();
+
+    let mut massive_collections = BTreeMap::new();
+    let ids: Vec<u32> = (1..=25_000).collect();
+    massive_collections.insert("coa:appearance".to_string(), ids);
+
+    let cid = Uuid::now_v7();
+    let outcome = pc.transfer_character(&mut ch, cid, 1, &large_payload, large_hash, massive_collections).unwrap();
+    assert!(outcome.local_guid > 0);
+    assert_ne!(outcome.session_id, Uuid::nil());
+
+    // 2. Standard request exceeding 4096 bytes is rejected
+    let bloated_hello = coa_control_proto::app::Request::Hello {
+        protocol: 1,
+        client: "A".repeat(5000),
+    };
+    let encoded = serde_json::to_vec(&bloated_hello).unwrap();
+    let err = coa_control_proto::app::decode_request(&encoded).unwrap_err();
+    assert!(matches!(err, coa_control_proto::ControlError::Limit(_)));
+}
+
+
 

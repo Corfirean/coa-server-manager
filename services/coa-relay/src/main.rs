@@ -23,7 +23,7 @@ fn pool() -> Result<Pool, String> {
     pg.host(&var("RELAY_DB_HOST", &var("COORD_DB_HOST", "coa-postgres")))
         .port(var("RELAY_DB_PORT", &var("COORD_DB_PORT", "5432")).parse().map_err(|_| "RELAY_DB_PORT")?)
         .dbname(&var("RELAY_DB_NAME", &var("COORD_DB_NAME", "coa_registry")))
-        .user(&var("RELAY_DB_USER", &var("COORD_DB_USER", "coa_coordinator")))
+        .user(&var("RELAY_DB_USER", "coa_relay"))
         .password(&password);
     pg.connect_timeout(Duration::from_secs(5))
         .application_name("coa-relay")
@@ -53,13 +53,28 @@ async fn shutdown() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     {
-        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("a SIGTERM handler");
-        tokio::select! { _ = ctrl_c => {}, _ = term.recv() => {} }
+        let mut term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "could not register SIGTERM handler");
+                let _ = ctrl_c.await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = ctrl_c => {
+                tracing::info!("shutdown: ctrl_c triggered");
+            }
+            Some(()) = term.recv() => {
+                tracing::info!("shutdown: SIGTERM received");
+            }
+        }
     }
     #[cfg(not(unix))]
     {
         let _ = ctrl_c.await;
     }
+    tracing::info!("shutdown handler finished");
 }
 
 #[tokio::main]
@@ -84,10 +99,19 @@ async fn main() {
 
     let relay_host = var("RELAY_HOST", "coa-manager.duckdns.org");
     let min_port: u16 = var("RELAY_PORT_MIN", "40000").parse().expect("valid RELAY_PORT_MIN");
-    let max_port: u16 = var("RELAY_PORT_MAX", "40050").parse().expect("valid RELAY_PORT_MAX");
+    let max_port: u16 = var("RELAY_PORT_MAX", "43999").parse().expect("valid RELAY_PORT_MAX");
 
     let clock = Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0));
     let hub = Arc::new(Hub::new(relay_host, min_port, max_port, PgKeys::new(pool), clock));
+
+    let hub_reaper = hub.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            hub_reaper.reap_expired();
+        }
+    });
 
     let app = router(hub).layer(ConcurrencyLimitLayer::new(512));
     let listen = var("RELAY_LISTEN", "0.0.0.0:8082");

@@ -358,8 +358,8 @@ fn gate_phase13_live_vps_relay() {
     let alloc = pc.allocate_relay(&mut ch).expect("allocate_relay");
     println!("GATE 13 PASS  allocated relay: host={}, auth_port={}, world_port={}, token={}", alloc.relay_host, alloc.auth_port, alloc.world_port, alloc.token);
     assert_eq!(alloc.relay_host, "coa-manager.duckdns.org");
-    assert!(alloc.auth_port >= 40000 && alloc.auth_port <= 40050);
-    assert!(alloc.world_port >= 40000 && alloc.world_port <= 40050);
+    assert!(alloc.auth_port >= 40000 && alloc.auth_port <= 43999);
+    assert!(alloc.world_port >= 40000 && alloc.world_port <= 43999);
     assert_ne!(alloc.auth_port, alloc.world_port);
 
     // Test AUTH traffic through VPS Relay: verify REALM_LIST address rewrite

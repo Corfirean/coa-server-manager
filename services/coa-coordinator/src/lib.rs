@@ -406,7 +406,7 @@ async fn run_player<K: KeyLookup>(hub: Arc<Hub<K>>, mut sock: WebSocket, ip: IpA
     let link = Arc::new(Link { tx: ptx, started: Instant::now(), last: Mutex::new(Instant::now()), bytes: AtomicUsize::new(0), answered: AtomicBool::new(false) });
     let slot = take_slot(&hub, &entry, &link);
     let Some(conn) = slot else { return refuse(&mut sock, ErrorCode::HostBusy, "the realm's Manager is busy").await };
-    if entry.tx.send(HostMsg::Text(coord::to_text(&Frame::Open { conn }))).await.is_err() {
+    if entry.tx.send(HostMsg::Text(coord::to_text(&Frame::Open { conn, client_ip: Some(ip.to_string()) }))).await.is_err() {
         if let Ok(mut l) = entry.links.lock() {
             l.remove(&conn);
         }

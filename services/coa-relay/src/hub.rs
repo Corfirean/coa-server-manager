@@ -71,6 +71,7 @@ pub struct Allocation {
     pub token: String,
     pub realm_id: RealmId,
     pub player_id: Uuid,
+    pub expected_client_ip: Option<String>,
     pub auth_port: u16,
     pub world_port: u16,
     pub created_at: i64,
@@ -127,41 +128,83 @@ impl<K: KeyLookup> Hub<K> {
     pub fn unregister_host(&self, realm_id: &RealmId) {
         let mut hosts = self.hosts.lock().unwrap();
         hosts.remove(realm_id);
-        tracing::info!(%realm_id, "host tunnel unregistered");
+        let mut allocs = self.allocations.lock().unwrap();
+        let mut port_map = self.port_allocations.lock().unwrap();
+        allocs.retain(|_, a| {
+            if &a.realm_id == realm_id {
+                if port_map.remove(&a.auth_port).is_some() {
+                    self.pool.release(a.auth_port);
+                }
+                if port_map.remove(&a.world_port).is_some() {
+                    self.pool.release(a.world_port);
+                }
+                false
+            } else {
+                true
+            }
+        });
+        tracing::info!(%realm_id, "host tunnel unregistered, allocations and ports reclaimed");
     }
 
     pub fn host_tx(&self, realm_id: &RealmId) -> Option<mpsc::Sender<TunnelMsg>> {
         self.hosts.lock().unwrap().get(realm_id).map(|h| h.tx.clone())
     }
 
+    pub fn reap_expired(&self) {
+        let now = (self.clock)();
+        let mut allocs = self.allocations.lock().unwrap();
+        let mut port_map = self.port_allocations.lock().unwrap();
+        allocs.retain(|_, a| {
+            if a.expires_at <= now {
+                if port_map.remove(&a.auth_port).is_some() {
+                    self.pool.release(a.auth_port);
+                }
+                if port_map.remove(&a.world_port).is_some() {
+                    self.pool.release(a.world_port);
+                }
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    pub fn release_port(&self, port: u16) {
+        let mut port_map = self.port_allocations.lock().unwrap();
+        if let Some((token, target)) = port_map.remove(&port) {
+            self.pool.release(port);
+            let mut allocs = self.allocations.lock().unwrap();
+            if let Some(alloc) = allocs.get_mut(&token) {
+                match target {
+                    RelayTarget::Auth => alloc.consumed_auth = true,
+                    RelayTarget::World => alloc.consumed_world = true,
+                }
+                let has_ports = port_map.values().any(|(t, _)| t == &token);
+                if !has_ports {
+                    allocs.remove(&token);
+                }
+            }
+        }
+    }
+
     pub fn allocate(
         &self,
         realm_id: RealmId,
         player_id: Uuid,
+        expected_client_ip: Option<String>,
     ) -> Result<Allocation, String> {
         let now = (self.clock)();
 
         // Clean up expired allocations
-        {
-            let mut allocs = self.allocations.lock().unwrap();
-            let mut port_map = self.port_allocations.lock().unwrap();
-            allocs.retain(|_, a| {
-                if a.expires_at <= now {
-                    self.pool.release(a.auth_port);
-                    self.pool.release(a.world_port);
-                    port_map.remove(&a.auth_port);
-                    port_map.remove(&a.world_port);
-                    false
-                } else {
-                    true
-                }
-            });
-        }
+        self.reap_expired();
 
         // Check if player already has an active, unexpired allocation on this realm
         {
-            let allocs = self.allocations.lock().unwrap();
-            if let Some(existing) = allocs.values().find(|a| a.realm_id == realm_id && a.player_id == player_id && a.expires_at > now) {
+            let mut allocs = self.allocations.lock().unwrap();
+            if let Some(existing) = allocs.values_mut().find(|a| a.realm_id == realm_id && a.player_id == player_id && a.expires_at > now) {
+                if existing.expected_client_ip.is_none() && expected_client_ip.is_some() {
+                    existing.expected_client_ip = expected_client_ip;
+                }
                 return Ok(existing.clone());
             }
 
@@ -178,6 +221,7 @@ impl<K: KeyLookup> Hub<K> {
             token: token.clone(),
             realm_id,
             player_id,
+            expected_client_ip,
             auth_port,
             world_port,
             created_at: now,

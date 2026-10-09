@@ -39,6 +39,7 @@ struct Conn {
     stage: Option<Stage>,
     opened: Instant,
     last: Instant,
+    client_ip: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -138,11 +139,11 @@ fn session(url: &str, realm: RealmId, key: &SigningKey, service: &HostService, c
         match transport::poll(&mut ws)? {
             None => {}
             Some(Message::Text(t)) => match coord::parse_text(t.as_str()).map_err(LinkError::from)? {
-                Frame::Open { conn } => {
+                Frame::Open { conn, client_ip } => {
                     if conns.len() >= MAX_CHANNELS || conns.contains_key(&conn) {
                         transport::send_text(&mut ws, &Frame::Close { conn, reason: Some("busy".into()) })?;
                     } else {
-                        conns.insert(conn, Conn { stage: Some(Stage::AwaitFirst), opened: Instant::now(), last: Instant::now() });
+                        conns.insert(conn, Conn { stage: Some(Stage::AwaitFirst), opened: Instant::now(), last: Instant::now(), client_ip });
                     }
                 }
                 Frame::Close { conn, .. } => {
@@ -217,7 +218,7 @@ fn step(c: &mut Conn, frame: &[u8], realm: RealmId, key: &SigningKey, service: &
             if !service.key_matches(&proof.player_id, &proof.public_key) {
                 return Err("the player id belongs to another key".into());
             }
-            c.stage = Some(Stage::Ready { channel, player: proof.player_id, public_key: proof.public_key, session: Session::default() });
+            c.stage = Some(Stage::Ready { channel, player: proof.player_id, public_key: proof.public_key, session: Session::with_client_ip(c.client_ip.clone()) });
             Ok(vec![])
         }
         Stage::Ready { mut channel, player, public_key, mut session } => {

@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::service::RelayProvider;
 use super::transport::{self, LinkError};
 
-const POLL: Duration = Duration::from_millis(200);
+const POLL: Duration = Duration::from_millis(2);
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct RelayStatus {
@@ -34,7 +34,7 @@ pub struct RelayStatus {
 pub struct RelayLink {
     stop: Arc<AtomicBool>,
     status: Arc<Mutex<RelayStatus>>,
-    alloc_tx: Sender<(Uuid, Sender<Result<RelayAllocationInfo, LinkError>>)>,
+    alloc_tx: Sender<(Uuid, Option<String>, Sender<Result<RelayAllocationInfo, LinkError>>)>,
     join: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -48,10 +48,10 @@ pub struct RelayAllocationInfo {
 }
 
 impl RelayProvider for RelayLink {
-    fn allocate(&self, player_id: &Uuid) -> crate::error::Result<RelayAllocationInfo> {
+    fn allocate(&self, player_id: &Uuid, client_ip: Option<&str>) -> crate::error::Result<RelayAllocationInfo> {
         let (tx, rx) = channel();
         self.alloc_tx
-            .send((*player_id, tx))
+            .send((*player_id, client_ip.map(|s| s.to_string()), tx))
             .map_err(|_| crate::error::Error::Invalid("relay link worker thread not running".to_string()))?;
         rx.recv_timeout(Duration::from_secs(10))
             .map_err(|_| crate::error::Error::Invalid("relay allocation timed out".to_string()))?
@@ -115,7 +115,7 @@ fn run(
     url: &str,
     realm: RealmId,
     key: &SigningKey,
-    alloc_rx: Receiver<(Uuid, Sender<Result<RelayAllocationInfo, LinkError>>)>,
+    alloc_rx: Receiver<(Uuid, Option<String>, Sender<Result<RelayAllocationInfo, LinkError>>)>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
 ) {
@@ -160,7 +160,7 @@ fn session(
     url: &str,
     realm: RealmId,
     key: &SigningKey,
-    alloc_rx: &Receiver<(Uuid, Sender<Result<RelayAllocationInfo, LinkError>>)>,
+    alloc_rx: &Receiver<(Uuid, Option<String>, Sender<Result<RelayAllocationInfo, LinkError>>)>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
 ) -> Result<(), LinkError> {
@@ -232,12 +232,13 @@ fn session(
 
     while !stop.load(Ordering::SeqCst) {
         // Drain pending allocation requests
-        while let Ok((player_id, reply_tx)) = alloc_rx.try_recv() {
+        while let Ok((player_id, expected_client_ip, reply_tx)) = alloc_rx.try_recv() {
             let rid = req_counter.fetch_add(1, Ordering::Relaxed);
             pending_allocs.insert(rid, reply_tx);
             let msg = TunnelMsg::Allocate {
                 request_id: rid,
                 player_id,
+                expected_client_ip,
             };
             let _ = ws.send(Message::Text(serde_json::to_string(&msg).unwrap().into()));
         }
@@ -253,84 +254,86 @@ fn session(
             last_ping = Instant::now();
         }
 
-        // Poll WS incoming
-        match transport::poll(&mut ws)? {
-            None => {}
-            Some(Message::Text(text)) => {
-                let Ok(msg) = serde_json::from_str::<TunnelMsg>(&text) else { continue };
-                match msg {
-                    TunnelMsg::AllocateOk {
-                        request_id,
-                        token,
-                        relay_host,
-                        auth_port,
-                        world_port,
-                        expires_at,
-                    } => {
-                        if let Some(tx) = pending_allocs.remove(&request_id) {
-                            let _ = tx.send(Ok(RelayAllocationInfo {
-                                relay_host,
-                                auth_port,
-                                world_port,
-                                token,
-                                expires_at,
-                            }));
-                        }
-                    }
-                    TunnelMsg::AllocateErr { request_id, error } => {
-                        if let Some(tx) = pending_allocs.remove(&request_id) {
-                            let _ = tx.send(Err(LinkError::Protocol(error)));
-                        }
-                    }
-                    TunnelMsg::Connect { stream_id, target, .. } => {
-                        // Strictly predefined local targets: Auth (3724) or World (8085)
-                        let local_port = target.local_port();
-                        match TcpStream::connect(("127.0.0.1", local_port)) {
-                            Ok(tcp) => {
-                                let (stream_tx, stream_rx) = channel::<TunnelMsg>();
-                                let ws_tx = ws_out_tx.clone();
-
-                                // Spawn worker for this stream
-                                spawn_local_tcp_bridge(stream_id, tcp, stream_rx, ws_tx);
-                                streams.insert(stream_id, StreamWorker { tx: stream_tx });
-
-                                // Reply ConnectOk
-                                let ok_msg = TunnelMsg::ConnectOk { stream_id };
-                                let _ = ws.send(Message::Text(serde_json::to_string(&ok_msg).unwrap().into()));
-                            }
-                            Err(e) => {
-                                let err_msg = TunnelMsg::ConnectErr {
-                                    stream_id,
-                                    error: e.to_string(),
-                                };
-                                let _ = ws.send(Message::Text(serde_json::to_string(&err_msg).unwrap().into()));
+        // Poll WS incoming (drain available frames)
+        for _ in 0..128 {
+            match transport::poll(&mut ws)? {
+                None => break,
+                Some(Message::Text(text)) => {
+                    let Ok(msg) = serde_json::from_str::<TunnelMsg>(&text) else { continue };
+                    match msg {
+                        TunnelMsg::AllocateOk {
+                            request_id,
+                            token,
+                            relay_host,
+                            auth_port,
+                            world_port,
+                            expires_at,
+                        } => {
+                            if let Some(tx) = pending_allocs.remove(&request_id) {
+                                let _ = tx.send(Ok(RelayAllocationInfo {
+                                    relay_host,
+                                    auth_port,
+                                    world_port,
+                                    token,
+                                    expires_at,
+                                }));
                             }
                         }
-                        set_status(status, |s| s.active_streams = streams.len());
-                    }
-                    TunnelMsg::Data { stream_id, chunk } => {
-                        if let Some(w) = streams.get(&stream_id) {
-                            let _ = w.tx.send(TunnelMsg::Data { stream_id, chunk });
+                        TunnelMsg::AllocateErr { request_id, error } => {
+                            if let Some(tx) = pending_allocs.remove(&request_id) {
+                                let _ = tx.send(Err(LinkError::Protocol(error)));
+                            }
                         }
-                    }
-                    TunnelMsg::Close { stream_id } => {
-                        if let Some(w) = streams.remove(&stream_id) {
-                            let _ = w.tx.send(TunnelMsg::Close { stream_id });
+                        TunnelMsg::Connect { stream_id, target, .. } => {
+                            // Strictly predefined local targets: Auth (3724) or World (8085)
+                            let local_port = target.local_port();
+                            match TcpStream::connect(("127.0.0.1", local_port)) {
+                                Ok(tcp) => {
+                                    let (stream_tx, stream_rx) = channel::<TunnelMsg>();
+                                    let ws_tx = ws_out_tx.clone();
+
+                                    // Spawn worker for this stream
+                                    spawn_local_tcp_bridge(stream_id, tcp, stream_rx, ws_tx);
+                                    streams.insert(stream_id, StreamWorker { tx: stream_tx });
+
+                                    // Reply ConnectOk
+                                    let ok_msg = TunnelMsg::ConnectOk { stream_id };
+                                    let _ = ws.send(Message::Text(serde_json::to_string(&ok_msg).unwrap().into()));
+                                }
+                                Err(e) => {
+                                    let err_msg = TunnelMsg::ConnectErr {
+                                        stream_id,
+                                        error: e.to_string(),
+                                    };
+                                    let _ = ws.send(Message::Text(serde_json::to_string(&err_msg).unwrap().into()));
+                                }
+                            }
+                            set_status(status, |s| s.active_streams = streams.len());
                         }
-                        set_status(status, |s| s.active_streams = streams.len());
-                    }
-                    TunnelMsg::Reset { stream_id } => {
-                        if let Some(w) = streams.remove(&stream_id) {
-                            let _ = w.tx.send(TunnelMsg::Reset { stream_id });
+                        TunnelMsg::Data { stream_id, chunk } => {
+                            if let Some(w) = streams.get(&stream_id) {
+                                let _ = w.tx.send(TunnelMsg::Data { stream_id, chunk });
+                            }
                         }
-                        set_status(status, |s| s.active_streams = streams.len());
+                        TunnelMsg::Close { stream_id } => {
+                            if let Some(w) = streams.remove(&stream_id) {
+                                let _ = w.tx.send(TunnelMsg::Close { stream_id });
+                            }
+                            set_status(status, |s| s.active_streams = streams.len());
+                        }
+                        TunnelMsg::Reset { stream_id } => {
+                            if let Some(w) = streams.remove(&stream_id) {
+                                let _ = w.tx.send(TunnelMsg::Reset { stream_id });
+                            }
+                            set_status(status, |s| s.active_streams = streams.len());
+                        }
+                        TunnelMsg::Pong => {}
+                        _ => {}
                     }
-                    TunnelMsg::Pong => {}
-                    _ => {}
                 }
+                Some(Message::Close(_)) => return Err(LinkError::Io("relay closed connection".into())),
+                _ => {}
             }
-            Some(Message::Close(_)) => return Err(LinkError::Io("relay closed connection".into())),
-            _ => {}
         }
     }
 
