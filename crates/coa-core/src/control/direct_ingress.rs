@@ -212,7 +212,7 @@ fn handle_auth_client(
     }
     done.store(true, Ordering::Relaxed);
     if let Some(c) = client_shutdown {
-        let _ = c.shutdown(std::net::Shutdown::Both);
+        let _ = c.shutdown(std::net::Shutdown::Write);
     }
 
     let _ = t_c2s.join();
@@ -352,6 +352,7 @@ mod tests {
             fake_realm_list[1..3].copy_from_slice(&body_len.to_le_bytes());
 
             stream.write_all(&fake_realm_list).unwrap();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
         });
 
         let mut client_auth = TcpStream::connect(format!("127.0.0.1:{ingress_auth}")).unwrap();
@@ -422,6 +423,7 @@ mod tests {
             fake_realm_list[1..3].copy_from_slice(&body_len.to_le_bytes());
 
             stream.write_all(&fake_realm_list).unwrap();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
         });
 
         let mut client_auth = TcpStream::connect(format!("127.0.0.1:{}", ingress.auth_port())).unwrap();
@@ -444,6 +446,7 @@ mod tests {
             "Must NOT contain actual internal ingress port"
         );
 
+        drop(client_auth);
         t_auth.join().unwrap();
     }
 }

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n, type Key } from "@/i18n";
 import { asUiError } from "@/lib/api";
-import { realmRegistry, useRegistryStatus } from "@/lib/registry";
+import { useRegistryStatus } from "@/lib/registry";
 import { asPortableError, portable, usePortable, type PreflightView } from "@/lib/portable";
 import { Notes, Projection } from "@/screens/PortablePage";
 import { JoinPanel } from "@/screens/JoinPanel";
@@ -22,9 +22,10 @@ function ModuleChip({ m, catalog }: { m: ModuleEntry; catalog: Catalog }) {
   const known = catalog[m.id];
   const name = known?.name ?? m.id;
   const description = known ? known.description[locale] ?? known.description.en ?? "" : "";
-  return <span className="group relative inline-block" tabIndex={0}>
+  const titleText = description ? `${name} — ${description}` : name;
+  return <span className="group relative inline-block" tabIndex={0} title={titleText}>
     <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs", m.enabled ? "border-line bg-white/5 text-ink" : "border-line/60 text-muted line-through")}>{name}</span>
-    <span role="tooltip" className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-64 rounded-md border border-line bg-card p-3 text-left text-xs shadow-lg group-hover:block group-focus:block">
+    <span role="tooltip" className="pointer-events-none absolute left-0 bottom-full z-50 mb-1.5 hidden w-64 rounded-md border border-line bg-card p-3 text-left text-xs shadow-xl group-hover:block group-focus:block">
       <span className="block text-sm font-semibold text-ink">{name}</span>
       {description && <span className="mt-1 block text-muted">{description}</span>}
       {m.version && <span className="mt-1 block text-muted">{m.version}</span>}
@@ -66,7 +67,7 @@ function SortHeader({ id, sort, order, onSort, children, className }: { id: Sort
 }
 
 function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog: Catalog; onClose: () => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { state, refresh: refreshPortable } = usePortable();
   const [detail, setDetail] = useState<RealmDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,8 +118,20 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
       </section>
       <section>
         <h3 className="mb-1 font-medium">{t("browse.modules")}</h3>
-        {summary.modules.length === 0 ? <p className="text-muted">—</p> : <ul className="space-y-1.5">
-          {summary.modules.map((m) => <li key={m.id} className="flex items-baseline justify-between gap-3"><span className={cn(!m.enabled && "text-muted line-through")}>{catalog[m.id]?.name ?? m.id}</span><span className="text-xs text-muted">{m.version ?? ""}{!m.enabled && ` ${t("browse.moduleOff")}`}</span></li>)}
+        {summary.modules.length === 0 ? <p className="text-muted">—</p> : <ul className="space-y-2">
+          {summary.modules.map((m) => {
+            const known = catalog[m.id];
+            const desc = known ? (known.description[locale] ?? known.description.en ?? "") : "";
+            return (
+              <li key={m.id} className="rounded-md border border-line/40 bg-white/[0.02] p-2.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className={cn("font-medium", !m.enabled && "text-muted line-through")}>{known?.name ?? m.id}</span>
+                  <span className="text-xs text-muted">{m.version ?? ""}{!m.enabled && ` ${t("browse.moduleOff")}`}</span>
+                </div>
+                {desc && <p className="mt-1 text-xs text-muted">{desc}</p>}
+              </li>
+            );
+          })}
         </ul>}
       </section>
       <section>
@@ -151,8 +164,7 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
 
 export function BrowsePage() {
   const { t } = useI18n();
-  const { status, refresh } = useRegistryStatus(5000);
-  const [url, setUrl] = useState("");
+  const { status } = useRegistryStatus(5000);
   const [q, setQ] = useState("");
   const [ruleset, setRuleset] = useState<"" | "coa" | "wildcard">("");
   const [capMin, setCapMin] = useState("");
@@ -174,7 +186,6 @@ export function BrowsePage() {
 
   useEffect(() => { void control.status().then((c) => { setPreferred(c.preferred_username); setPreferredSaved(c.preferred_username); }).catch(() => {}); }, []);
   useEffect(() => { void browse.modules().then((m) => setCatalog(Object.fromEntries(m.map((x) => [x.id, x])))).catch(() => {}); }, []);
-  useEffect(() => { if (status?.url && url === "") setUrl(status.url); }, [status?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const params = useMemo<BrowseParams>(() => ({
     q: q.trim() || undefined,
@@ -225,11 +236,7 @@ export function BrowsePage() {
       <Button size="sm" onClick={() => void load()} disabled={loading || noUrl}>{loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}{t("browse.refresh")}</Button>
     </div>
 
-    <div className="mt-4 flex gap-2">
-      <input aria-label={t("registry.url")} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://coa-manager.duckdns.org" className="min-w-0 flex-1 rounded-md border border-line bg-card px-3 py-2 text-sm" />
-      <Button size="sm" disabled={url.trim() === (status?.url ?? "")} onClick={() => void realmRegistry.setUrl(url.trim() || null).then(refresh).catch((e) => setError(asUiError(e).technical))}>{t("registry.urlSave")}</Button>
-    </div>
-    {noUrl && <p className="mt-2 text-sm text-muted">{t("browse.noUrl")}</p>}
+    {noUrl && <p className="mt-2 text-sm text-warn">{t("browse.noUrl")}</p>}
     <div className="mt-2 flex items-center gap-2 text-sm">
       <label htmlFor="preferred-name" className="shrink-0 text-muted">{t("join.preferred")}</label>
       <input id="preferred-name" value={preferred} maxLength={16} placeholder="PLAYER" onChange={(e) => { setPreferred(e.target.value); setPreferredNote(null); }} className="w-44 rounded-md border border-line bg-card px-3 py-1.5" data-testid="preferred-name" />

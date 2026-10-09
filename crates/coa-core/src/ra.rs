@@ -401,10 +401,12 @@ AC>";
     #[test]
     fn a_failed_account_command_is_reported_and_bad_names_never_reach_the_console() {
         let _lock = serial();
-        let (port, _h) = fake_ra("Account not found.");
+        let (port, h) = fake_ra("Account not found.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         assert!(ra.set_account_password("x", "newpass9").is_err(), "the name is validated before anything is sent");
         assert!(ra.set_account_password("Nobody", "newpass9").unwrap_err().to_string().contains("not found"));
+        drop(ra);
+        let _ = h.join();
     }
 
     #[test]
@@ -421,9 +423,11 @@ AC>";
     #[test]
     fn duplicate_account_and_input_validation() {
         let _lock = serial();
-        let (port, _h) = fake_ra("Account already exist.");
+        let (port, h) = fake_ra("Account already exist.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         assert!(ra.create_account("Player1", "hunter22").unwrap_err().to_string().contains("already taken"));
+        drop(ra);
+        let _ = h.join();
         for (n, p) in [("ab", "hunter22"), ("bad name", "hunter22"), ("Player1", "short"), ("Player1", "has space1"), ("Player1", "quote\"pw1"), ("Pl\r\nayer", "hunter22"), ("x".repeat(18).as_str(), "hunter22")] {
             assert!(validate_account(n, p).is_err(), "{n:?} {p:?}");
         }

@@ -10,7 +10,7 @@ import { SettingsPage } from "@/screens/SettingsPage";
 import { BackupsPage } from "@/screens/BackupsPage";
 import { PlayersPage } from "@/screens/PlayersPage";
 import { SettingsHome } from "@/screens/SettingsHome";
-import { FriendsPage } from "@/screens/FriendsPage";
+import { PlayWithFriends } from "@/screens/PlayWithFriends";
 import { ReportPage } from "@/screens/ReportPage";
 import { ModulesPage } from "@/screens/ModulesPage";
 import { ConsolePage } from "@/screens/ConsolePage";
@@ -143,7 +143,7 @@ export function Shell(props: {
         ) : page === "report" ? (
           <ReportPage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (
-          <FriendsPage key={server.id} serverId={server.id} />
+          <PlayWithFriends key={server.id} serverId={server.id} path={server.path} />
         ) : page === "settings" ? (
           <SettingsHome key={server.id} serverId={server.id} serverName={server.name} path={server.path} onForget={() => props.onForget(server.id)} />
         ) : page === "characters" ? (

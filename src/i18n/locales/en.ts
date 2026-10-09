@@ -52,9 +52,11 @@ const en = {
 
   "nav.overview": "Overview",
   "nav.bots": "Bots",
-  "nav.server": "Server",
+  "nav.server": "Server Configuration",
   "nav.players": "Accounts",
   "nav.friends": "Play with Friends",
+  "fr.tab.servers": "Public Servers",
+  "fr.tab.lan": "LAN & Direct Connection",
   "nav.backups": "Backups",
   "nav.console": "Console",
   "nav.settings": "Settings",

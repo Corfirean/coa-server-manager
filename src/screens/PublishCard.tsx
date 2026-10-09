@@ -17,7 +17,6 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
   const { status, refresh } = useRegistryStatus();
   const mine = status?.realms.find((r) => r.local_id === localId);
   const published = !!mine?.enabled;
-  const [url, setUrl] = useState("");
   const [name, setName] = useState(serverName);
   const [description, setDescription] = useState("");
   const [language, setLanguage] = useState("en");
@@ -43,7 +42,6 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
     try { await control.setAccess(localId, existingOnly, route.trim() === "" ? null : route.trim()); await refresh(); setAccessSaved(true); } catch (e) { setError(asControlError(e).message); } finally { setBusy(false); }
   }
 
-  useEffect(() => { if (status && status.url !== null) setUrl((u) => (u === "" ? status.url ?? "" : u)); }, [status?.url]);
   useEffect(() => {
     if (mine && mine.display_name) { setName(mine.display_name); setDescription(mine.description); setLanguage(mine.language || "en"); setRegion(mine.region ?? ""); }
   }, [mine?.display_name, mine?.description, mine?.language]);
@@ -61,11 +59,6 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
       <h2 className="font-semibold">{t("registry.title")}</h2>
       <p className="mt-1 text-sm text-muted">{t("registry.text")}</p>
 
-      <label htmlFor="registry-url" className="mt-4 block text-sm font-medium">{t("registry.url")}</label>
-      <div className="mt-1 flex gap-2">
-        <input id="registry-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://coa-manager.duckdns.org" className="min-w-0 flex-1 rounded-md border border-line bg-card px-3 py-2" />
-        <Button size="sm" disabled={busy || url.trim() === (status?.url ?? "")} onClick={() => void run(() => realmRegistry.setUrl(url.trim() || null))}>{t("registry.urlSave")}</Button>
-      </div>
 
       {!published && <>
         <label htmlFor="registry-name" className="mt-4 block text-sm font-medium">{t("registry.name")}</label>
