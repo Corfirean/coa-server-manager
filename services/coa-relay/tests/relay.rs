@@ -179,12 +179,12 @@ async fn test_relay_host_auth_and_allocation_and_game_traffic() {
         resp
     });
 
-    // Host receives Connect for WORLD (skipping any Close from stream 1)
+    // Host receives Connect for WORLD (skipping any Close/Reset from stream 1)
     let (world_sid, world_target) = loop {
         let msg = ws_src.next().await.unwrap().unwrap();
         match serde_json::from_str::<TunnelMsg>(msg.to_text().unwrap()).unwrap() {
             TunnelMsg::Connect { stream_id, target, .. } => break (stream_id, target),
-            TunnelMsg::Close { .. } => continue,
+            TunnelMsg::Close { .. } | TunnelMsg::Reset { .. } => continue,
             other => panic!("unexpected msg awaiting Connect: {other:?}"),
         }
     };
@@ -193,12 +193,12 @@ async fn test_relay_host_auth_and_allocation_and_game_traffic() {
     // Host acknowledges
     ws_sink.send(Message::Text(serde_json::to_string(&TunnelMsg::ConnectOk { stream_id: world_sid }).unwrap().into())).await.unwrap();
 
-    // Host receives world data (skipping any Close from stream 1)
+    // Host receives world data (skipping any Close/Reset from stream 1)
     let world_chunk = loop {
         let msg = ws_src.next().await.unwrap().unwrap();
         match serde_json::from_str::<TunnelMsg>(msg.to_text().unwrap()).unwrap() {
             TunnelMsg::Data { stream_id, chunk } if stream_id == world_sid => break chunk,
-            TunnelMsg::Close { .. } => continue,
+            TunnelMsg::Close { .. } | TunnelMsg::Reset { .. } => continue,
             other => panic!("unexpected msg awaiting Data: {other:?}"),
         }
     };

@@ -86,7 +86,7 @@ Player <-> Host   requests and responses (JSON), one at a time, in order
 
 A Coordinator that tries to sit in the middle would have to run two handshakes, each with its own `h`; the Host's signature covers only the Host's `h`, so the Player rejects it. The proofs of one channel are useless on another.
 Messages are split into frames of ≤ 16 KiB of plaintext (+ a flag byte + the 16-byte tag, so ≤ 20 KiB with the connection number), reassembled up to 8 MiB; a frame that does not authenticate ends the channel.
-Application messages: requests ≤ 4096 bytes, strict JSON with unknown fields refused, at most 60 requests per channel, 300 s per channel at the Host (idle 45 s).
+Application messages: standard control requests ≤ 4096 bytes (4 KiB, `MAX_CONTROL_REQUEST_BYTES`), while bulk transfer requests (`transfer_offer` and `transfer_chunk`) support bounded payloads up to 4 MiB (`MAX_TRANSFER_REQUEST_BYTES`). Strict JSON with unknown fields refused, at most 60 requests per channel, 300 s per channel at the Host (idle 45 s).
 
 ## 5. Application messages
 
@@ -98,8 +98,12 @@ Application messages: requests ≤ 4096 bytes, strict JSON with unknown fields r
 | `list_characters` | `characters{characters}` | the characters of the player's account (opaque per-connection handles; the realm's own numbers never leave the Host) |
 | `claim{token}` | `claimed{character_id, sha256, payload, collections}` | export one character (section 7) |
 | `claim_ack{character_id}` | `done` | the player stored it; the claim is final |
-| `transfer_character{character_id, revision, sha256, payload, collections}` | `transferred{character_id, local_guid, session_id}` | transactional remote character import/projection (Phase 12.1) |
-| `allocate_relay` | `relay_allocated{relay_host, auth_port, world_port, token, expires_at}` | dynamic game relay allocation for NAT traversal (Phase 13) |
+| `transfer_offer{transfer_id, character_id, canonical_revision, content_hash, total_size, collections}` | `transfer_ready{transfer_id, accepted_offset}` | initiate or resume remote character transfer (Phase 12.1) |
+| `transfer_chunk{transfer_id, offset, data}` | `transfer_progress{transfer_id, received_bytes, total_bytes}` | transmit chunk of encoded payload (≤ 4 MiB) |
+| `transfer_status{transfer_id}` | `transfer_progress{transfer_id, received_bytes, total_bytes}` | check upload progress / resume offset |
+| `transfer_commit{transfer_id}` | `transferred{character_id, local_guid, session_id}` | validate, import/project into realm, arm session |
+| `transfer_ack{transfer_id, character_id}` | `done` | acknowledge successful transfer and arming |
+| `allocate_relay{player_id}` | `relay_allocated{relay_host, auth_port, world_port, token, expires_at}` | dynamic game relay allocation for NAT traversal (Phase 13) |
 | `route` | `route_info{address}` | the address the game client can use right now, if the owner stated one |
 
 Errors (`error{code,message}`): `unsupported_version`, `invalid`, `provisioning_off`, `no_account`, `not_at_character_select`, `not_yours`, `already_claimed`, `not_eligible`, `wrong_credentials`, `account_taken`, `rate_limited`, `unavailable`, `incompatible`, `relay_unavailable`.
@@ -144,15 +148,23 @@ its profile, and only then sends `claim_ack`; the Host marks the binding `Portab
 When a player selects a portable character that exists in their Player Manager but does not yet exist on the remote realm, the Player Manager performs an automated, transactional transfer over the encrypted Noise channel:
 
 1. **Preflight Compatibility Check**: The Player Manager checks the canonical character against the target realm's advertised capabilities (Phase 7/8). If incompatible, the transfer is refused immediately before any network mutation.
-2. **Payload Transfer**: Inside the end-to-end encrypted Noise channel, the Player Manager sends `transfer_character{character_id, revision, sha256, payload, collections}`. The Coordinator sees only opaque ciphertext.
-3. **Host Validation**: The Host validates:
-   - PlayerIdentity proof of ownership;
-   - `PortableCharacter` format version, schema integrity, and SHA-256 payload hash;
-   - Target realm account mapping for this player;
-   - Level projection policy (e.g. projecting level 80 down to realm cap 60 via Phase-8 oracle);
-   - Idempotency: if this exact canonical revision was already imported, the existing working copy GUID and armed session ID are returned immediately without duplicating the character;
-   - Revision update: if a newer canonical revision is transferred, the Host updates the existing working copy rather than creating a duplicate character.
-4. **Outcome & Session Arming**: On successful import/projection, the Host returns `transferred{character_id, local_guid, session_id}`. The session engine arms the session for game login.
+2. **Transfer Offer (`TransferOffer`)**: Inside the end-to-end encrypted Noise channel, the Player Manager sends `transfer_offer{transfer_id, character_id, canonical_revision, content_hash, total_size, collections}`.
+   - The Host validates the PlayerIdentity, character ownership, format revision, hash format, size limit (≤ 4 MiB, `MAX_TRANSFER_REQUEST_BYTES`), and collection counts (≤ 100,000 items).
+   - If the exact revision was already committed or an active transfer session exists, the Host responds with `transfer_ready{transfer_id, accepted_offset}`.
+3. **Payload Transfer & Chunking (`TransferChunk` / `TransferStatus`)**:
+   - The Player sends the payload in bounded chunks via `transfer_chunk{transfer_id, offset, data}`.
+   - The Host records incoming chunks, tracks received bytes, and replies with `transfer_progress{transfer_id, received_bytes, total_bytes}`.
+   - If a connection is interrupted, the Player can query progress via `transfer_status{transfer_id}` and resume from `accepted_offset`.
+4. **Validation & Atomic Commit (`TransferCommit`)**:
+   - Once all chunks arrive, the Player sends `transfer_commit{transfer_id}`.
+   - The Host verifies the SHA-256 content hash of the assembled payload against the offer.
+   - The Host runs the level projection engine (e.g. projecting level 80 down to realm cap 60 via Phase-8 oracle).
+   - The Host imports the character into the realm's characters database, updates/creates the working copy mapping, and arms the session.
+   - The Host returns `transferred{character_id, local_guid, session_id}`.
+5. **Acknowledgement (`TransferAck`)**:
+   - The Player Manager receives `transferred`, verifies local session arming, and returns `transfer_ack{transfer_id, character_id}`.
+   - The Host finalizes the transfer transaction and responds with `done`.
+   - The session engine is now fully armed for game login.
 
 ## 7.2 Game Relay Allocation (Phase 13)
 

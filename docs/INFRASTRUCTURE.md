@@ -84,14 +84,14 @@ ssh ubuntu@<VPS_IP>
 
 ## Firewall policy
 
-UFW, default deny incoming. Currently allowed: OpenSSH, 80/tcp, 443/tcp.
+UFW, default deny incoming. Currently allowed: OpenSSH (22/tcp), 80/tcp, 443/tcp, and the Game Relay port pool 40000-43999/tcp.
 
 ```bash
 sudo ufw status verbose
 ```
 
 Docker-published ports bypass UFW (see VPS_BASELINE.md). Check `sudo docker ps` and `sudo ss -tulnH` after every
-deployment; the only public listeners must be 22, 80, 443.
+deployment; the only public listeners must be 22, 80, 443, and Game Relay listeners in 40000–43999/tcp.
 
 fail2ban protects SSH (default `sshd` jail):
 

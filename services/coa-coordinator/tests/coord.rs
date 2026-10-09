@@ -108,8 +108,8 @@ fn routes_both_ways_by_connection_number_and_never_interprets() {
     let mut h = host(&s, realm, &hk);
     let mut p1 = player(&s, realm, &key(10));
     let mut p2 = player(&s, realm, &key(11));
-    let Frame::Open { conn: c1 } = text(&mut h) else { panic!("open 1") };
-    let Frame::Open { conn: c2 } = text(&mut h) else { panic!("open 2") };
+    let Frame::Open { conn: c1, .. } = text(&mut h) else { panic!("open 1") };
+    let Frame::Open { conn: c2, .. } = text(&mut h) else { panic!("open 2") };
     assert_ne!(c1, c2);
     assert!(matches!(text(&mut p1), Frame::PlayerReady { conn, .. } if conn == c1));
     assert!(matches!(text(&mut p2), Frame::PlayerReady { conn, .. } if conn == c2));

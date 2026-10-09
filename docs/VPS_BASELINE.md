@@ -29,12 +29,10 @@ Date configured: 2026-10-06 (UTC)
 - Base packages: curl, wget, git, ca-certificates, gnupg, jq, unzip, htop, ufw, fail2ban, unattended-upgrades.
 - Hostname `coa-infra-01`, timezone UTC.
 - SSH: key-only, no root login (details below).
-- UFW: default deny incoming, allow outgoing; only 22/tcp, 80/tcp, 443/tcp allowed.
+- UFW: default deny incoming, allow outgoing; 22/tcp, 80/tcp, 443/tcp, and the Game Relay dynamic pool 40000-43999/tcp allowed.
 - fail2ban: default `sshd` jail only.
-- unattended-upgrades: enabled for the `-security` pockets (Ubuntu, ESM apps, ESM infra); no automatic reboot,
-  no release upgrades.
-- Docker Engine from the official Docker apt repository (docker-ce, docker-ce-cli, containerd.io,
-  docker-buildx-plugin, docker-compose-plugin).
+- unattended-upgrades: enabled for the `-security` pockets (Ubuntu, ESM apps, ESM infra); no automatic reboot, no release upgrades.
+- Docker Engine from the official Docker apt repository (docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin).
 - `/opt/coa` layout, Caddy running as the future ingress, PostgreSQL definition prepared but not started.
 
 ## Public ports (verified from an external machine)
@@ -73,14 +71,15 @@ Everything else is closed, including 5432 (Postgres), 8080 (Registry internal), 
 
 ```
 Default: deny (incoming), allow (outgoing)
-22/tcp   OpenSSH   ALLOW IN (v4+v6)
-80/tcp             ALLOW IN (v4+v6)
-443/tcp            ALLOW IN (v4+v6)
+22/tcp          OpenSSH   ALLOW IN (v4+v6)
+80/tcp                    ALLOW IN (v4+v6)
+443/tcp                   ALLOW IN (v4+v6)
+40000:43999/tcp           ALLOW IN (v4+v6)
 ```
 
 **Docker caveat:** ports published by Docker (`ports:` in a compose file) are inserted into iptables ahead of UFW and
 are reachable from the internet even if UFW has no rule for them. Rule for this host: never publish a port other than
-Caddy's 80/443; services talk to each other over Docker networks, and anything that must be reachable only locally is
+Caddy's 80/443 and the dedicated Game Relay pool `40000:43999/tcp`; services talk to each other over Docker networks, and anything that must be reachable only locally is
 published as `127.0.0.1:<port>:<port>`.
 
 ## Docker
