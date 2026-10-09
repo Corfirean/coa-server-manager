@@ -396,7 +396,133 @@ fn test_phase14_security_direct_ingress_strictly_forbids_mysql_and_ra() {
     mock_ra.set_nonblocking(true).unwrap();
     assert!(mock_ra.accept().is_err(), "RA listener must receive 0 connections via direct ingress");
 
+    drop(client);
     t_auth.join().unwrap();
     ingress.stop();
 }
+
+#[test]
+fn test_phase14_direct_mapped_world_port_distinct_from_desired_and_bound() {
+    let desired_world_port = 8085;
+    let mock_auth = TcpListener::bind("127.0.0.1:0").unwrap();
+    let local_auth_port = mock_auth.local_addr().unwrap().port();
+
+    let mock_world = TcpListener::bind("127.0.0.1:0").unwrap();
+    let local_world_port = mock_world.local_addr().unwrap().port();
+
+    // Actual ingress binds to ephemeral port != desired_world_port
+    let mut ingress = DirectIngress::start(
+        0,
+        0,
+        "198.51.100.1".into(),
+        desired_world_port,
+        local_auth_port,
+        local_world_port,
+    ).unwrap();
+
+    let actual_ingress_world = ingress.world_port();
+    assert_ne!(actual_ingress_world, desired_world_port);
+
+    // Mapped external port differs from both desired (8085) and actual ingress port
+    let external_mapped_world_port = 48085;
+    assert_ne!(external_mapped_world_port, desired_world_port);
+    assert_ne!(external_mapped_world_port, actual_ingress_world);
+
+    // Update with final verified mapped external endpoint
+    ingress.update_external_world_endpoint("198.51.100.1", external_mapped_world_port);
+
+    let fake_pkt = build_fake_realm_list("127.0.0.1:8085");
+    let t_auth = std::thread::spawn(move || {
+        let (mut stream, _) = mock_auth.accept().unwrap();
+        let mut buf = [0u8; 16];
+        let _ = stream.read(&mut buf).unwrap();
+        stream.write_all(&fake_pkt).unwrap();
+    });
+
+    let mut client = TcpStream::connect(format!("127.0.0.1:{}", ingress.auth_port())).unwrap();
+    client.write_all(b"PING").unwrap();
+    let mut resp = [0u8; 512];
+    let n = client.read(&mut resp).unwrap();
+    let s = String::from_utf8_lossy(&resp[..n]);
+
+    // Assert the rewritten REALM_LIST contains exactly the mapped external port
+    assert!(
+        s.contains("198.51.100.1:48085"),
+        "Must contain mapped external port 48085, got: {s}"
+    );
+    assert!(
+        !s.contains("198.51.100.1:8085"),
+        "Must NOT contain desired world port 8085"
+    );
+    assert!(
+        !s.contains(&format!("198.51.100.1:{actual_ingress_world}")),
+        "Must NOT contain internal ingress port"
+    );
+
+    drop(client);
+    t_auth.join().unwrap();
+    ingress.stop();
+}
+
+#[test]
+fn test_phase14_route_health_break_falls_back_to_relay() {
+    let coord = start_test_coordinator();
+    let realm_id = RealmId::new();
+    let realm_key = random_key();
+    coord.keys.set(realm_id, &realm_key.verifying_key());
+
+    // Host Service setup
+    let fake_realm = FakeRealm::new(true);
+    let store = Arc::new(std::sync::Mutex::new(ControlStore::open_in_memory().unwrap()));
+    let service = Arc::new(HostService::new("local-1", realm_id, store, fake_realm));
+
+    // Initially direct route is active
+    service.set_direct_route(Some("127.0.0.1:39999".into()));
+
+    struct MockRelay;
+    impl coa_core::control::service::RelayProvider for MockRelay {
+        fn allocate(&self, _player: &Uuid, _ip: Option<&str>) -> coa_core::Result<coa_core::control::relay_link::RelayAllocationInfo> {
+            Ok(coa_core::control::relay_link::RelayAllocationInfo {
+                relay_host: "relay.fallback".into(),
+                auth_port: 43000,
+                world_port: 43001,
+                token: "tok-fallback".into(),
+                expires_at: now() + 60,
+            })
+        }
+    }
+    service.set_relay(Arc::new(MockRelay));
+
+    // Host connects to Coordinator
+    let host_link = HostLink::start(format!("ws://{}/coord/v1/host", coord.addr), realm_id, realm_key.clone(), service.clone(), Arc::new(now));
+    let end = std::time::Instant::now() + Duration::from_secs(5);
+    while !host_link.status().connected {
+        assert!(std::time::Instant::now() < end);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // Now deliberately break the direct route / health check
+    service.set_direct_route(None);
+
+    // Player connects to join
+    let target = RealmTarget {
+        realm_id,
+        key: realm_key.verifying_key(),
+        coordinator: format!("ws://{}/coord/v1/player", coord.addr),
+    };
+    let p_dir = tempdir().unwrap();
+    let pc = PlayerControl::open(p_dir.path(), Arc::new(MemoryStore::default())).unwrap();
+    let mut ch = pc.connect(&target).unwrap();
+    let (_auto, _exist, route) = pc.welcome(&mut ch).unwrap();
+
+    // Direct route is None
+    assert_eq!(route, None);
+
+    // Join automatically uses Relay fallback
+    let _acc = pc.ensure_account(&mut ch, &realm_id, Some("PLAYER_FB")).unwrap();
+    let relay_alloc = pc.allocate_relay(&mut ch).unwrap();
+    assert_eq!(relay_alloc.relay_host, "relay.fallback");
+    assert_eq!(relay_alloc.auth_port, 43000);
+}
+
 

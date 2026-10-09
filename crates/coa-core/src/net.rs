@@ -19,6 +19,44 @@ pub fn lan_ip() -> Option<Ipv4Addr> {
     }
 }
 
+/// Resolve the actual default IPv4 gateway using the operating system routing table / API.
+pub fn default_gateway() -> Option<Ipv4Addr> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::NetworkManagement::IpHelper::{GetBestRoute, MIB_IPFORWARDROW};
+        unsafe {
+            let mut row: MIB_IPFORWARDROW = std::mem::zeroed();
+            // Destination 1.1.1.1 in network byte order
+            let dest = u32::from_ne_bytes([1, 1, 1, 1]);
+            if GetBestRoute(dest, 0, &mut row) == 0 {
+                let bytes = row.dwForwardNextHop.to_ne_bytes();
+                let gw = Ipv4Addr::from(bytes);
+                if !gw.is_unspecified() && !gw.is_loopback() {
+                    return Some(gw);
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) = std::fs::read_to_string("/proc/net/route") {
+            for line in content.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 && parts[1] == "00000000" {
+                    if let Ok(gw_hex) = u32::from_str_radix(parts[2], 16) {
+                        let bytes = gw_hex.to_ne_bytes();
+                        let gw = Ipv4Addr::from(bytes);
+                        if !gw.is_unspecified() {
+                            return Some(gw);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LanAddress {
     pub interface: String,
@@ -233,6 +271,13 @@ mod tests {
     fn lan_ip_is_a_private_address_when_present() {
         if let Some(a) = lan_ip() {
             assert!(!a.is_loopback() && !a.is_unspecified());
+        }
+    }
+
+    #[test]
+    fn default_gateway_resolution() {
+        if let Some(gw) = default_gateway() {
+            assert!(!gw.is_unspecified() && !gw.is_loopback());
         }
     }
 

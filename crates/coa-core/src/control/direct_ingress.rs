@@ -18,6 +18,7 @@ use crate::error::{Error, Result};
 pub struct DirectIngress {
     auth_port: u16,
     world_port: u16,
+    world_target: Arc<std::sync::RwLock<String>>,
     stop: Arc<AtomicBool>,
     #[allow(dead_code)]
     threads: Vec<JoinHandle<()>>,
@@ -46,11 +47,11 @@ impl DirectIngress {
         let mut threads = Vec::new();
 
         let effective_world_port = if ext_world_port == 0 { world_actual_port } else { ext_world_port };
-        let world_target_str = format!("{public_ip}:{effective_world_port}");
+        let world_target = Arc::new(std::sync::RwLock::new(format!("{public_ip}:{effective_world_port}")));
 
         // Spawn Auth listener thread
         let stop_auth = stop.clone();
-        let target_str_clone = world_target_str.clone();
+        let target_clone = world_target.clone();
         let auth_handle = std::thread::Builder::new()
             .name("direct-ingress-auth".into())
             .spawn(move || {
@@ -58,11 +59,11 @@ impl DirectIngress {
                     match auth_listener.accept() {
                         Ok((client_stream, _)) => {
                             let _ = client_stream.set_nonblocking(false);
-                            let target = target_str_clone.clone();
+                            let target = target_clone.clone();
                             std::thread::Builder::new()
                                 .name("direct-auth-worker".into())
                                 .spawn(move || {
-                                    let _ = handle_auth_client(client_stream, local_auth_port, &target);
+                                    let _ = handle_auth_client(client_stream, local_auth_port, target);
                                 })
                                 .ok();
                         }
@@ -105,6 +106,7 @@ impl DirectIngress {
         Ok(Self {
             auth_port: auth_actual_port,
             world_port: world_actual_port,
+            world_target,
             stop,
             threads,
         })
@@ -116,6 +118,16 @@ impl DirectIngress {
 
     pub fn world_port(&self) -> u16 {
         self.world_port
+    }
+
+    pub fn update_external_world_endpoint(&self, public_ip: &str, mapped_world_port: u16) {
+        if let Ok(mut g) = self.world_target.write() {
+            *g = format!("{public_ip}:{mapped_world_port}");
+        }
+    }
+
+    pub fn world_target(&self) -> String {
+        self.world_target.read().map(|s| s.clone()).unwrap_or_default()
     }
 
     pub fn stop(&mut self) {
@@ -132,7 +144,7 @@ impl Drop for DirectIngress {
 fn handle_auth_client(
     mut client: TcpStream,
     local_auth_port: u16,
-    world_target_str: &str,
+    world_target: Arc<std::sync::RwLock<String>>,
 ) -> Result<()> {
     let mut server = TcpStream::connect(format!("127.0.0.1:{local_auth_port}"))
         .map_err(|e| Error::Invalid(format!("Cannot connect to local authserver: {e}")))?;
@@ -171,7 +183,6 @@ fn handle_auth_client(
     });
 
     // Forward Auth Server -> Client with narrow CMD_REALM_LIST rewrite
-    let w_target = world_target_str.to_string();
     let client_shutdown = client.try_clone().ok();
     let mut buf = [0u8; 8192];
     while !done.load(Ordering::Relaxed) {
@@ -179,7 +190,8 @@ fn handle_auth_client(
             Ok(0) => break,
             Ok(n) => {
                 let chunk = &buf[..n];
-                match coa_control_proto::relay::rewrite_realm_list_address(chunk, &w_target) {
+                let current_target = world_target.read().map(|s| s.clone()).unwrap_or_else(|_| "127.0.0.1:8085".to_string());
+                match coa_control_proto::relay::rewrite_realm_list_address(chunk, &current_target) {
                     Ok(Some(rewritten)) => {
                         if client.write_all(&rewritten).is_err() {
                             break;
@@ -352,5 +364,86 @@ mod tests {
         t_auth.join().unwrap();
 
         ingress.stop();
+    }
+
+    #[test]
+    fn test_direct_ingress_uses_final_mapped_world_port_not_desired_or_bound() {
+        let desired_world_port = 8085;
+        let mock_auth = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mock_auth_port = mock_auth.local_addr().unwrap().port();
+
+        let mock_world = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mock_world_port = mock_world.local_addr().unwrap().port();
+
+        // DirectIngress binds to ephemeral ports (0, 0), so actual ingress port != 8085
+        let ingress = DirectIngress::start(
+            0,
+            0,
+            "198.51.100.1".to_string(),
+            desired_world_port,
+            mock_auth_port,
+            mock_world_port,
+        ).unwrap();
+
+        let actual_ingress_world = ingress.world_port();
+        assert_ne!(actual_ingress_world, desired_world_port, "Actual ingress port must not be 8085");
+
+        // The router / NAT-PMP assigns an external mapped world port != 8085 and != actual ingress port
+        let external_mapped_world_port = 48085;
+        assert_ne!(external_mapped_world_port, desired_world_port);
+        assert_ne!(external_mapped_world_port, actual_ingress_world);
+
+        // Update with final verified mapped external endpoint: public_ip:mapped_world_port
+        ingress.update_external_world_endpoint("198.51.100.1", external_mapped_world_port);
+
+        let t_auth = std::thread::spawn(move || {
+            let (mut stream, _) = mock_auth.accept().unwrap();
+            let mut buf = [0u8; 16];
+            let _ = stream.read(&mut buf).unwrap();
+
+            let mut fake_realm_list = vec![
+                0x10, // Opcode CMD_REALM_LIST
+                0x00, 0x00, // Size placeholder
+                0x00, 0x00, 0x00, 0x00, // Unused
+                0x01, 0x00, // Realm count: 1
+                0x01, 0x00, 0x00, 0x00, // Icon
+                0x00, // Lock
+                0x00, // Flags
+            ];
+            fake_realm_list.extend_from_slice(b"RealmOne\0");
+            fake_realm_list.extend_from_slice(b"127.0.0.1:8085\0");
+            fake_realm_list.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+            fake_realm_list.extend_from_slice(&[0x01]);
+            fake_realm_list.extend_from_slice(&[0x01]);
+            fake_realm_list.extend_from_slice(&[0x00]);
+            fake_realm_list.extend_from_slice(&[0x02, 0x00]);
+
+            let body_len = (fake_realm_list.len() - 3) as u16;
+            fake_realm_list[1..3].copy_from_slice(&body_len.to_le_bytes());
+
+            stream.write_all(&fake_realm_list).unwrap();
+        });
+
+        let mut client_auth = TcpStream::connect(format!("127.0.0.1:{}", ingress.auth_port())).unwrap();
+        client_auth.write_all(b"AUTH_HELLO").unwrap();
+        let mut auth_buf = [0u8; 512];
+        let an = client_auth.read(&mut auth_buf).unwrap();
+        let payload = String::from_utf8_lossy(&auth_buf[..an]);
+
+        // Assert that the rewritten REALM_LIST contains EXACTLY the mapped external port
+        assert!(
+            payload.contains("198.51.100.1:48085"),
+            "Expected rewritten realm list to contain mapped external port 48085, got: {payload}"
+        );
+        assert!(
+            !payload.contains("198.51.100.1:8085"),
+            "Must NOT contain desired world port 8085"
+        );
+        assert!(
+            !payload.contains(&format!("198.51.100.1:{actual_ingress_world}")),
+            "Must NOT contain actual internal ingress port"
+        );
+
+        t_auth.join().unwrap();
     }
 }
