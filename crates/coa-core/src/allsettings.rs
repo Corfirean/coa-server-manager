@@ -38,7 +38,21 @@ fn hidden(key: &str) -> bool {
         || k.starts_with("logindatabase.")
         || k.starts_with("worlddatabase.")
         || k.starts_with("characterdatabase.")
-        || ["bindip", "realmid", "datadir", "logsdir", "tempdir", "sourcedirectory", "mysqlexecutable", "cmakecommand", "builddirectory", "pidfile", "vmapdir", "mmapdir"].contains(&k.as_str())
+        || [
+            "bindip",
+            "realmid",
+            "datadir",
+            "logsdir",
+            "tempdir",
+            "sourcedirectory",
+            "mysqlexecutable",
+            "cmakecommand",
+            "builddirectory",
+            "pidfile",
+            "vmapdir",
+            "mmapdir",
+        ]
+        .contains(&k.as_str())
 }
 
 fn doc_of(block: &[String]) -> String {
@@ -49,7 +63,11 @@ fn doc_of(block: &[String]) -> String {
             continue;
         }
         // the lines that only name the settings the block describes
-        let named = l.starts_with("#    ") && !l.starts_with("#     ") && body.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+        let named = l.starts_with("#    ")
+            && !l.starts_with("#     ")
+            && body
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
         if named {
             continue;
         }
@@ -87,7 +105,10 @@ fn parse_dist(text: &str) -> Vec<(String, String, String)> {
         }
         if let Some((k, v)) = t.split_once('=') {
             let k = k.trim();
-            if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+            if !k.is_empty()
+                && k.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            {
                 out.push((k.to_string(), v.trim().to_string(), doc.clone()));
             }
         }
@@ -100,16 +121,30 @@ fn dist_path(root: &Path) -> std::path::PathBuf {
 }
 
 pub fn list(root: &Path) -> Result<Vec<Item>> {
-    let dist = fs::read_to_string(dist_path(root)).map_err(|_| Error::Invalid("The documented settings file (worldserver.conf.dist) was not found on this server.".into()))?;
+    let dist = fs::read_to_string(dist_path(root)).map_err(|_| {
+        Error::Invalid(
+            "The documented settings file (worldserver.conf.dist) was not found on this server."
+                .into(),
+        )
+    })?;
     let t = targets(root, Scope::Server)?;
     let active = ConfFile::parse_bytes(&fs::read(&t.read)?)?;
     Ok(parse_dist(&dist)
         .into_iter()
         .filter(|(k, _, _)| !hidden(k))
         .map(|(key, default, doc)| {
-            let value = active.get(&key).map(|v| v.trim().to_string()).unwrap_or_else(|| default.clone());
+            let value = active
+                .get(&key)
+                .map(|v| v.trim().to_string())
+                .unwrap_or_else(|| default.clone());
             let changed = value != default;
-            Item { key, value, default, doc, changed }
+            Item {
+                key,
+                value,
+                default,
+                doc,
+                changed,
+            }
         })
         .collect())
 }
@@ -117,7 +152,10 @@ pub fn list(root: &Path) -> Result<Vec<Item>> {
 /// Change settings that exist in the documented file. A value is one line of at most 500 characters. Returns the keys
 /// that actually changed; the previous files are snapshotted first (and can be restored from Settings).
 pub fn save(root: &Path, meta: &Path, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
-    let known: BTreeMap<String, String> = parse_dist(&fs::read_to_string(dist_path(root)).map_err(|_| Error::Invalid("worldserver.conf.dist was not found on this server.".into()))?)
+    let known: BTreeMap<String, String> =
+        parse_dist(&fs::read_to_string(dist_path(root)).map_err(|_| {
+            Error::Invalid("worldserver.conf.dist was not found on this server.".into())
+        })?)
         .into_iter()
         .map(|(k, d, _)| (k, d))
         .collect();
@@ -133,10 +171,14 @@ pub fn save(root: &Path, meta: &Path, changes: &BTreeMap<String, String>) -> Res
     for (key, value) in changes {
         let value = value.trim();
         if hidden(key) || !known.contains_key(key) {
-            return Err(Error::Invalid(format!("{key} is not a setting that can be changed here.")));
+            return Err(Error::Invalid(format!(
+                "{key} is not a setting that can be changed here."
+            )));
         }
         if value.is_empty() || value.len() > 500 || value.chars().any(char::is_control) {
-            return Err(Error::Invalid(format!("The value of {key} must be one line of text.")));
+            return Err(Error::Invalid(format!(
+                "The value of {key} must be one line of text."
+            )));
         }
         let same = confs.iter().all(|c| match c.get(key) {
             Some(v) => v.trim() == value,
@@ -163,7 +205,15 @@ pub fn save(root: &Path, meta: &Path, changes: &BTreeMap<String, String>) -> Res
             }
         }
     }
-    take_snapshot(meta, Scope::Server, &format!("before changing {} setting(s) in the full list", changed.len()), &originals)?;
+    take_snapshot(
+        meta,
+        Scope::Server,
+        &format!(
+            "before changing {} setting(s) in the full list",
+            changed.len()
+        ),
+        &originals,
+    )?;
     let mut written = 0;
     for (i, (path, _)) in originals.iter().enumerate() {
         if let Err(e) = fsx::atomic_write(path, texts[i].as_bytes()) {
@@ -201,11 +251,28 @@ mod tests {
         let (root, _) = server(d.path());
         let items = list(&root).unwrap();
         let keys: Vec<&str> = items.iter().map(|i| i.key.as_str()).collect();
-        assert_eq!(keys, ["Rate.Drop.Item.Rare", "Rate.Drop.Item.Epic", "Instance.ResetTimeHour"], "the database connection is hidden");
-        assert_eq!(items[0].doc, "Description: Drop rates by quality. Default: 1");
+        assert_eq!(
+            keys,
+            [
+                "Rate.Drop.Item.Rare",
+                "Rate.Drop.Item.Epic",
+                "Instance.ResetTimeHour"
+            ],
+            "the database connection is hidden"
+        );
+        assert_eq!(
+            items[0].doc,
+            "Description: Drop rates by quality. Default: 1"
+        );
         assert_eq!(items[0].doc, items[1].doc);
-        assert_eq!(items[2].doc, "Description: Hour of the reset. Important: Use 0-23. Default: 4");
-        assert!(!items[0].changed && items[0].value == "1", "absent from the file: documented default");
+        assert_eq!(
+            items[2].doc,
+            "Description: Hour of the reset. Important: Use 0-23. Default: 4"
+        );
+        assert!(
+            !items[0].changed && items[0].value == "1",
+            "absent from the file: documented default"
+        );
         assert!(items[1].changed && items[1].value == "3");
     }
 
@@ -215,24 +282,69 @@ mod tests {
         let (root, meta) = server(d.path());
         let ok = BTreeMap::from([("Instance.ResetTimeHour".to_string(), "6".to_string())]);
         assert_eq!(save(&root, &meta, &ok).unwrap(), ["Instance.ResetTimeHour"]);
-        for f in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+        for f in [
+            "Settings/worldserver.conf.template",
+            "Core/configs/worldserver.conf",
+        ] {
             let t = fs::read_to_string(root.join(f)).unwrap();
-            assert!(t.contains("Instance.ResetTimeHour = 6") && t.contains("Rate.Drop.Item.Epic = 3"), "{f}: {t}");
+            assert!(
+                t.contains("Instance.ResetTimeHour = 6") && t.contains("Rate.Drop.Item.Epic = 3"),
+                "{f}: {t}"
+            );
         }
-        assert!(save(&root, &meta, &ok).unwrap().is_empty(), "same value: nothing to do");
-        let same_as_default = BTreeMap::from([("Rate.Drop.Item.Rare".to_string(), "1".to_string())]);
-        assert!(save(&root, &meta, &same_as_default).unwrap().is_empty(), "the default is already in effect");
-        for bad in [("LoginDatabaseInfo", "\"evil\""), ("Nope.Key", "1"), ("Rate.Drop.Item.Rare", ""), ("Rate.Drop.Item.Rare", "1\n2")] {
-            assert!(save(&root, &meta, &BTreeMap::from([(bad.0.to_string(), bad.1.to_string())])).is_err(), "{bad:?}");
+        assert!(
+            save(&root, &meta, &ok).unwrap().is_empty(),
+            "same value: nothing to do"
+        );
+        let same_as_default =
+            BTreeMap::from([("Rate.Drop.Item.Rare".to_string(), "1".to_string())]);
+        assert!(
+            save(&root, &meta, &same_as_default).unwrap().is_empty(),
+            "the default is already in effect"
+        );
+        for bad in [
+            ("LoginDatabaseInfo", "\"evil\""),
+            ("Nope.Key", "1"),
+            ("Rate.Drop.Item.Rare", ""),
+            ("Rate.Drop.Item.Rare", "1\n2"),
+        ] {
+            assert!(
+                save(
+                    &root,
+                    &meta,
+                    &BTreeMap::from([(bad.0.to_string(), bad.1.to_string())])
+                )
+                .is_err(),
+                "{bad:?}"
+            );
         }
     }
 
     #[test]
     fn what_belongs_to_the_manager_is_hidden() {
-        for k in ["LoginDatabaseInfo", "WorldServerPort", "BindIP", "Ra.Enable", "Ra.Password", "Logger.root", "Appender.Console", "DataDir", "Updates.EnableDatabases", "LoginDatabase.WorkerThreads", "InstanceServerPort"] {
+        for k in [
+            "LoginDatabaseInfo",
+            "WorldServerPort",
+            "BindIP",
+            "Ra.Enable",
+            "Ra.Password",
+            "Logger.root",
+            "Appender.Console",
+            "DataDir",
+            "Updates.EnableDatabases",
+            "LoginDatabase.WorkerThreads",
+            "InstanceServerPort",
+        ] {
             assert!(hidden(k), "{k}");
         }
-        for k in ["Rate.XP.Kill", "PlayerLimit", "SupportEnabled", "Instance.ResetTimeHour", "Warden.Enabled", "CharacterCreating.Disabled"] {
+        for k in [
+            "Rate.XP.Kill",
+            "PlayerLimit",
+            "SupportEnabled",
+            "Instance.ResetTimeHour",
+            "Warden.Enabled",
+            "CharacterCreating.Disabled",
+        ] {
             assert!(!hidden(k), "{k}");
         }
     }

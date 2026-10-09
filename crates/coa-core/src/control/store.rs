@@ -195,7 +195,8 @@ impl ControlStore {
     }
 
     fn init(conn: Connection) -> Result<Self> {
-        conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(db)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(db)?;
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
         conn.execute_batch(SCHEMA).map_err(db)?;
         Ok(Self { conn })
@@ -211,7 +212,11 @@ impl ControlStore {
             .transpose()
     }
 
-    pub fn host_player_of_account(&self, realm: &str, account_id: u32) -> Result<Option<HostPlayer>> {
+    pub fn host_player_of_account(
+        &self,
+        realm: &str,
+        account_id: u32,
+    ) -> Result<Option<HostPlayer>> {
         self.conn
             .query_row("SELECT player_id, public_key, account_id, username, kind FROM host_player WHERE realm_local_id = ?1 AND account_id = ?2", params![realm, account_id], row_player)
             .optional()
@@ -219,7 +224,15 @@ impl ControlStore {
             .transpose()
     }
 
-    pub fn host_bind_player(&self, realm: &str, player: &Uuid, public_key: &str, account_id: u32, username: &str, kind: AccountKind) -> Result<()> {
+    pub fn host_bind_player(
+        &self,
+        realm: &str,
+        player: &Uuid,
+        public_key: &str,
+        account_id: u32,
+        username: &str,
+        kind: AccountKind,
+    ) -> Result<()> {
         self.conn
             .execute("INSERT INTO host_player(realm_local_id, player_id, public_key, account_id, username, kind, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![realm, player.to_string(), public_key, account_id, username, kind.as_str(), now()])
             .map_err(db)?;
@@ -227,7 +240,12 @@ impl ControlStore {
     }
 
     pub fn host_forget_player(&self, realm: &str, player: &Uuid) -> Result<()> {
-        self.conn.execute("DELETE FROM host_player WHERE realm_local_id = ?1 AND player_id = ?2", params![realm, player.to_string()]).map_err(db)?;
+        self.conn
+            .execute(
+                "DELETE FROM host_player WHERE realm_local_id = ?1 AND player_id = ?2",
+                params![realm, player.to_string()],
+            )
+            .map_err(db)?;
         Ok(())
     }
 
@@ -241,11 +259,19 @@ impl ControlStore {
 
     pub fn host_claims_of(&self, realm: &str, player: &Uuid) -> Result<Vec<HostClaim>> {
         let mut stmt = self.conn.prepare("SELECT local_guid, character_id, player_id, state FROM host_claim WHERE realm_local_id = ?1 AND player_id = ?2 ORDER BY local_guid").map_err(db)?;
-        let rows = stmt.query_map(params![realm, player.to_string()], row_claim).map_err(db)?;
+        let rows = stmt
+            .query_map(params![realm, player.to_string()], row_claim)
+            .map_err(db)?;
         rows.map(|r| r.map_err(db)?).collect()
     }
 
-    pub fn host_claim_set(&self, realm: &str, local_guid: u32, character: &Uuid, player: &Uuid) -> Result<()> {
+    pub fn host_claim_set(
+        &self,
+        realm: &str,
+        local_guid: u32,
+        character: &Uuid,
+        player: &Uuid,
+    ) -> Result<()> {
         self.conn
             .execute(
                 "INSERT INTO host_claim(realm_local_id, local_guid, character_id, player_id, state, claimed_at) VALUES (?1, ?2, ?3, ?4, 'exported', ?5)
@@ -256,12 +282,21 @@ impl ControlStore {
         Ok(())
     }
 
-    pub fn host_claim_acknowledge(&self, realm: &str, character: &Uuid, player: &Uuid) -> Result<bool> {
+    pub fn host_claim_acknowledge(
+        &self,
+        realm: &str,
+        character: &Uuid,
+        player: &Uuid,
+    ) -> Result<bool> {
         let n = self.conn.execute("UPDATE host_claim SET state = 'acknowledged' WHERE realm_local_id = ?1 AND character_id = ?2 AND player_id = ?3", params![realm, character.to_string(), player.to_string()]).map_err(db)?;
         Ok(n == 1)
     }
 
-    pub fn host_claim_of_character(&self, realm: &str, character: &Uuid) -> Result<Option<HostClaim>> {
+    pub fn host_claim_of_character(
+        &self,
+        realm: &str,
+        character: &Uuid,
+    ) -> Result<Option<HostClaim>> {
         self.conn
             .query_row("SELECT local_guid, character_id, player_id, state FROM host_claim WHERE realm_local_id = ?1 AND character_id = ?2 LIMIT 1", params![realm, character.to_string()], row_claim)
             .optional()
@@ -281,7 +316,11 @@ impl ControlStore {
             .transpose()
     }
 
-    pub fn host_transfer_latest(&self, realm: &str, character_id: &Uuid) -> Result<Option<HostTransfer>> {
+    pub fn host_transfer_latest(
+        &self,
+        realm: &str,
+        character_id: &Uuid,
+    ) -> Result<Option<HostTransfer>> {
         self.conn
             .query_row(
                 "SELECT realm_local_id, transfer_id, character_id, player_id, revision, content_hash, total_size, received_size, state, local_guid, session_id, projected_level, notes, collections FROM host_transfer WHERE realm_local_id = ?1 AND character_id = ?2 ORDER BY updated_at DESC LIMIT 1",
@@ -339,7 +378,14 @@ impl ControlStore {
         Ok(())
     }
 
-    pub fn host_transfer_commit(&self, transfer_id: &Uuid, local_guid: u32, session_id: &Uuid, projected_level: Option<u32>, notes: &[String]) -> Result<()> {
+    pub fn host_transfer_commit(
+        &self,
+        transfer_id: &Uuid,
+        local_guid: u32,
+        session_id: &Uuid,
+        projected_level: Option<u32>,
+        notes: &[String],
+    ) -> Result<()> {
         let notes_json = serde_json::to_string(notes).unwrap_or_default();
         self.conn
             .execute(
@@ -356,7 +402,12 @@ impl ControlStore {
     }
 
     pub fn host_transfer_delete(&self, transfer_id: &Uuid) -> Result<()> {
-        self.conn.execute("DELETE FROM host_transfer WHERE transfer_id = ?1", params![transfer_id.to_string()]).map_err(db)?;
+        self.conn
+            .execute(
+                "DELETE FROM host_transfer WHERE transfer_id = ?1",
+                params![transfer_id.to_string()],
+            )
+            .map_err(db)?;
         Ok(())
     }
 
@@ -364,12 +415,27 @@ impl ControlStore {
 
     pub fn player_realm(&self, realm_id: &str) -> Result<Option<PlayerRealm>> {
         self.conn
-            .query_row("SELECT realm_id, username, kind FROM player_realm WHERE realm_id = ?1", [realm_id], |r| Ok(PlayerRealm { realm_id: r.get(0)?, username: r.get(1)?, kind: AccountKind::parse(&r.get::<_, String>(2)?) }))
+            .query_row(
+                "SELECT realm_id, username, kind FROM player_realm WHERE realm_id = ?1",
+                [realm_id],
+                |r| {
+                    Ok(PlayerRealm {
+                        realm_id: r.get(0)?,
+                        username: r.get(1)?,
+                        kind: AccountKind::parse(&r.get::<_, String>(2)?),
+                    })
+                },
+            )
             .optional()
             .map_err(db)
     }
 
-    pub fn player_realm_set(&self, realm_id: &str, username: &str, kind: AccountKind) -> Result<()> {
+    pub fn player_realm_set(
+        &self,
+        realm_id: &str,
+        username: &str,
+        kind: AccountKind,
+    ) -> Result<()> {
         self.conn
             .execute(
                 "INSERT INTO player_realm(realm_id, username, kind, created_at) VALUES (?1, ?2, ?3, ?4)
@@ -381,13 +447,22 @@ impl ControlStore {
     }
 
     pub fn player_realm_remove(&self, realm_id: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM player_realm WHERE realm_id = ?1", [realm_id]).map_err(db)?;
+        self.conn
+            .execute("DELETE FROM player_realm WHERE realm_id = ?1", [realm_id])
+            .map_err(db)?;
         Ok(())
     }
 
     /// The public key a realm had when this player first reached it. A realm id never changes its key (a new key is a new realm), so a different one is refused.
     pub fn realm_pin(&self, realm_id: &str) -> Result<Option<String>> {
-        self.conn.query_row("SELECT public_key FROM realm_pin WHERE realm_id = ?1", [realm_id], |r| r.get(0)).optional().map_err(db)
+        self.conn
+            .query_row(
+                "SELECT public_key FROM realm_pin WHERE realm_id = ?1",
+                [realm_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db)
     }
 
     pub fn realm_pin_set(&self, realm_id: &str, public_key: &str) -> Result<()> {
@@ -402,7 +477,11 @@ impl ControlStore {
 
     pub fn player_claims(&self, realm_id: &str) -> Result<Vec<(Uuid, String)>> {
         let mut stmt = self.conn.prepare("SELECT character_id, name FROM player_claim WHERE realm_id = ?1 ORDER BY claimed_at").map_err(db)?;
-        let rows = stmt.query_map([realm_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).map_err(db)?;
+        let rows = stmt
+            .query_map([realm_id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })
+            .map_err(db)?;
         rows.map(|r| {
             let (id, name) = r.map_err(db)?;
             Ok((uuid(id)?, name))
@@ -412,13 +491,32 @@ impl ControlStore {
 }
 
 fn row_player(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<HostPlayer>> {
-    let (id, key, account, username, kind): (String, String, u32, String, String) = (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?);
-    Ok(uuid(id).map(|player_id| HostPlayer { player_id, public_key: key, account_id: account, username, kind: AccountKind::parse(&kind) }))
+    let (id, key, account, username, kind): (String, String, u32, String, String) =
+        (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?);
+    Ok(uuid(id).map(|player_id| HostPlayer {
+        player_id,
+        public_key: key,
+        account_id: account,
+        username,
+        kind: AccountKind::parse(&kind),
+    }))
 }
 
 fn row_claim(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<HostClaim>> {
-    let (guid, cid, pid, state): (u32, String, String, String) = (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?);
-    Ok((|| Ok(HostClaim { local_guid: guid, character_id: uuid(cid)?, player_id: uuid(pid)?, state: if state == "acknowledged" { ClaimState::Acknowledged } else { ClaimState::Exported } }))())
+    let (guid, cid, pid, state): (u32, String, String, String) =
+        (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?);
+    Ok((|| {
+        Ok(HostClaim {
+            local_guid: guid,
+            character_id: uuid(cid)?,
+            player_id: uuid(pid)?,
+            state: if state == "acknowledged" {
+                ClaimState::Acknowledged
+            } else {
+                ClaimState::Exported
+            },
+        })
+    })())
 }
 
 fn row_transfer(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<HostTransfer>> {
@@ -435,9 +533,13 @@ fn row_transfer(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<HostTransfer>>
     let session_str: Option<String> = r.get(10)?;
     let projected_level: Option<u32> = r.get(11)?;
     let notes_str: Option<String> = r.get(12)?;
-    let notes = notes_str.and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()).unwrap_or_default();
+    let notes = notes_str
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default();
     let coll_str: Option<String> = r.get(13)?;
-    let collections = coll_str.and_then(|s| serde_json::from_str::<BTreeMap<String, Vec<u32>>>(&s).ok()).unwrap_or_default();
+    let collections = coll_str
+        .and_then(|s| serde_json::from_str::<BTreeMap<String, Vec<u32>>>(&s).ok())
+        .unwrap_or_default();
     Ok((|| {
         Ok(HostTransfer {
             realm_local_id,
@@ -466,16 +568,43 @@ mod tests {
     fn a_player_owns_one_account_per_realm_and_an_account_one_player() {
         let s = ControlStore::open_in_memory().unwrap();
         let (a, b) = (Uuid::now_v7(), Uuid::now_v7());
-        s.host_bind_player("srv-1", &a, "KEY-A", 7, "DMITRY", AccountKind::Generated).unwrap();
-        assert!(s.host_bind_player("srv-1", &a, "KEY-A", 8, "OTHER", AccountKind::Generated).is_err(), "one account per player and realm");
-        assert!(s.host_bind_player("srv-1", &b, "KEY-B", 7, "DMITRY", AccountKind::Linked).is_err(), "one player per account");
-        s.host_bind_player("srv-2", &a, "KEY-A", 7, "DMITRY", AccountKind::Generated).unwrap();
+        s.host_bind_player("srv-1", &a, "KEY-A", 7, "DMITRY", AccountKind::Generated)
+            .unwrap();
+        assert!(
+            s.host_bind_player("srv-1", &a, "KEY-A", 8, "OTHER", AccountKind::Generated)
+                .is_err(),
+            "one account per player and realm"
+        );
+        assert!(
+            s.host_bind_player("srv-1", &b, "KEY-B", 7, "DMITRY", AccountKind::Linked)
+                .is_err(),
+            "one player per account"
+        );
+        s.host_bind_player("srv-2", &a, "KEY-A", 7, "DMITRY", AccountKind::Generated)
+            .unwrap();
         let p = s.host_player("srv-1", &a).unwrap().unwrap();
-        assert_eq!((p.account_id, p.username.as_str(), p.public_key.as_str(), p.kind), (7, "DMITRY", "KEY-A", AccountKind::Generated));
-        assert_eq!(s.host_player_of_account("srv-1", 7).unwrap().unwrap().player_id, a);
+        assert_eq!(
+            (
+                p.account_id,
+                p.username.as_str(),
+                p.public_key.as_str(),
+                p.kind
+            ),
+            (7, "DMITRY", "KEY-A", AccountKind::Generated)
+        );
+        assert_eq!(
+            s.host_player_of_account("srv-1", 7)
+                .unwrap()
+                .unwrap()
+                .player_id,
+            a
+        );
         assert!(s.host_player("srv-1", &b).unwrap().is_none());
         s.host_forget_player("srv-1", &a).unwrap();
-        assert!(s.host_player("srv-1", &a).unwrap().is_none() && s.host_player("srv-2", &a).unwrap().is_some());
+        assert!(
+            s.host_player("srv-1", &a).unwrap().is_none()
+                && s.host_player("srv-2", &a).unwrap().is_some()
+        );
     }
 
     #[test]
@@ -483,14 +612,27 @@ mod tests {
         let s = ControlStore::open_in_memory().unwrap();
         let (p, q, c) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
         s.host_claim_set("srv-1", 50, &c, &p).unwrap();
-        assert_eq!(s.host_claim("srv-1", 50).unwrap().unwrap().state, ClaimState::Exported);
+        assert_eq!(
+            s.host_claim("srv-1", 50).unwrap().unwrap().state,
+            ClaimState::Exported
+        );
         s.host_claim_set("srv-1", 50, &c, &p).unwrap();
         s.host_claim_set("srv-1", 50, &Uuid::now_v7(), &q).unwrap();
         let held = s.host_claim("srv-1", 50).unwrap().unwrap();
-        assert_eq!((held.player_id, held.character_id), (p, c), "another player cannot take over a claim");
-        assert!(!s.host_claim_acknowledge("srv-1", &c, &q).unwrap(), "only the claiming player acknowledges");
+        assert_eq!(
+            (held.player_id, held.character_id),
+            (p, c),
+            "another player cannot take over a claim"
+        );
+        assert!(
+            !s.host_claim_acknowledge("srv-1", &c, &q).unwrap(),
+            "only the claiming player acknowledges"
+        );
         assert!(s.host_claim_acknowledge("srv-1", &c, &p).unwrap());
-        assert_eq!(s.host_claim("srv-1", 50).unwrap().unwrap().state, ClaimState::Acknowledged);
+        assert_eq!(
+            s.host_claim("srv-1", 50).unwrap().unwrap().state,
+            ClaimState::Acknowledged
+        );
         assert_eq!(s.host_claims_of("srv-1", &p).unwrap().len(), 1);
         assert!(s.host_claims_of("srv-1", &q).unwrap().is_empty());
     }
@@ -500,22 +642,37 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         {
             let s = ControlStore::open(dir.path()).unwrap();
-            s.player_realm_set("realm-1", "DMITRY_7K4M", AccountKind::Generated).unwrap();
-            s.player_claim_add("realm-1", &Uuid::now_v7(), "Thrall").unwrap();
+            s.player_realm_set("realm-1", "DMITRY_7K4M", AccountKind::Generated)
+                .unwrap();
+            s.player_claim_add("realm-1", &Uuid::now_v7(), "Thrall")
+                .unwrap();
         }
         let s = ControlStore::open(dir.path()).unwrap();
-        assert_eq!(s.player_realm("realm-1").unwrap().unwrap().username, "DMITRY_7K4M");
+        assert_eq!(
+            s.player_realm("realm-1").unwrap().unwrap().username,
+            "DMITRY_7K4M"
+        );
         assert_eq!(s.player_claims("realm-1").unwrap().len(), 1);
         s.player_realm_remove("realm-1").unwrap();
         assert!(s.player_realm("realm-1").unwrap().is_none());
         let raw = std::fs::read(dir.path().join("control.sqlite")).unwrap();
-        assert!(!String::from_utf8_lossy(&raw).to_lowercase().contains("password"), "the schema has no password column");
+        assert!(
+            !String::from_utf8_lossy(&raw)
+                .to_lowercase()
+                .contains("password"),
+            "the schema has no password column"
+        );
     }
 
     #[test]
     fn host_transfer_roundtrip_and_lifecycle() {
         let s = ControlStore::open_in_memory().unwrap();
-        let (p, c, t, sid) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let (p, c, t, sid) = (
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+        );
         let transfer = HostTransfer {
             realm_local_id: "live".into(),
             transfer_id: t,
@@ -541,7 +698,8 @@ mod tests {
         let got = s.host_transfer("live", &t).unwrap().unwrap();
         assert_eq!(got.received_size, 2048);
 
-        s.host_transfer_commit(&t, 101, &sid, Some(60), &["projected 60".into()]).unwrap();
+        s.host_transfer_commit(&t, 101, &sid, Some(60), &["projected 60".into()])
+            .unwrap();
         let got = s.host_transfer("live", &t).unwrap().unwrap();
         assert_eq!(got.state, TransferState::Committed);
         assert_eq!(got.local_guid, Some(101));

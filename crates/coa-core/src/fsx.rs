@@ -29,7 +29,11 @@ fn key(path: &Path) -> Vec<String> {
     path.components()
         .map(|c| {
             let c = c.as_os_str().to_string_lossy();
-            if cfg!(windows) { c.to_lowercase() } else { c.into_owned() }
+            if cfg!(windows) {
+                c.to_lowercase()
+            } else {
+                c.into_owned()
+            }
         })
         .collect()
 }
@@ -59,7 +63,12 @@ pub fn canonicalize_lenient(path: &Path) -> Result<PathBuf> {
                     tail.push(name.to_os_string());
                     cursor = parent;
                 }
-                _ => return Err(Error::PathRejected(format!("cannot resolve {}", path.display()))),
+                _ => {
+                    return Err(Error::PathRejected(format!(
+                        "cannot resolve {}",
+                        path.display()
+                    )))
+                }
             },
         }
     }
@@ -69,12 +78,20 @@ pub fn canonicalize_lenient(path: &Path) -> Result<PathBuf> {
 /// following existing symlinks/junctions. Returns the resolved path.
 pub fn ensure_within(root: &Path, candidate: &Path) -> Result<PathBuf> {
     let root = canonicalize_lenient(root)?;
-    let joined = if candidate.is_absolute() { candidate.to_path_buf() } else { root.join(candidate) };
+    let joined = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        root.join(candidate)
+    };
     let resolved = canonicalize_lenient(&joined)?;
     if starts_with_ci(&resolved, &root) {
         Ok(resolved)
     } else {
-        Err(Error::PathRejected(format!("{} is outside {}", resolved.display(), root.display())))
+        Err(Error::PathRejected(format!(
+            "{} is outside {}",
+            resolved.display(),
+            root.display()
+        )))
     }
 }
 
@@ -103,8 +120,9 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf> {
                 }
                 let stem = p.split('.').next().unwrap_or("").to_ascii_uppercase();
                 const RESERVED: [&str; 22] = [
-                    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-                    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+                    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
+                    "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7",
+                    "LPT8", "LPT9",
                 ];
                 if RESERVED.contains(&stem.as_str()) {
                     return Err(bad("reserved device name"));
@@ -118,11 +136,15 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf> {
 
 /// Write `bytes` to `path` so readers see either the old or the new content, never a partial file.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    let parent = path.parent().ok_or_else(|| Error::PathRejected("no parent directory".into()))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::PathRejected("no parent directory".into()))?;
     fs::create_dir_all(parent)?;
     let tmp = parent.join(format!(
         ".{}.{}.tmp",
-        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
         uuid::Uuid::new_v4().simple()
     ));
     let write = || -> std::io::Result<()> {
@@ -147,18 +169,34 @@ pub(crate) fn durable_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
+        use windows_sys::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
         fn wide(path: &Path) -> std::io::Result<Vec<u16>> {
             let absolute = std::path::absolute(path)?;
             let text = absolute.as_os_str().to_string_lossy().replace('/', "\\");
-            let extended = if text.starts_with("\\\\?\\") { text }
-                else if let Some(unc) = text.strip_prefix("\\\\") { format!("\\\\?\\UNC\\{unc}") }
-                else { format!("\\\\?\\{text}") };
-            Ok(std::ffi::OsStr::new(&extended).encode_wide().chain(Some(0)).collect())
+            let extended = if text.starts_with("\\\\?\\") {
+                text
+            } else if let Some(unc) = text.strip_prefix("\\\\") {
+                format!("\\\\?\\UNC\\{unc}")
+            } else {
+                format!("\\\\?\\{text}")
+            };
+            Ok(std::ffi::OsStr::new(&extended)
+                .encode_wide()
+                .chain(Some(0))
+                .collect())
         }
         let src = wide(from)?;
         let dst = wide(to)?;
-        if unsafe { MoveFileExW(src.as_ptr(), dst.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } == 0 {
+        if unsafe {
+            MoveFileExW(
+                src.as_ptr(),
+                dst.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        } == 0
+        {
             return Err(std::io::Error::last_os_error());
         }
         Ok(())
@@ -178,7 +216,9 @@ pub fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<
 
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let bytes = fs::read(path)?;
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(&bytes);
+    let bytes = bytes
+        .strip_prefix(&[0xEF, 0xBB, 0xBF][..])
+        .unwrap_or(&bytes);
     Ok(serde_json::from_slice(bytes)?)
 }
 
@@ -210,7 +250,10 @@ pub fn free_space(path: &Path) -> Result<u64> {
         }
         cursor = p.parent();
     }
-    Err(Error::PathRejected(format!("no existing ancestor for {}", path.display())))
+    Err(Error::PathRejected(format!(
+        "no existing ancestor for {}",
+        path.display()
+    )))
 }
 
 /// Fail before writing if the volume cannot hold `needed` bytes plus a safety margin.
@@ -218,7 +261,10 @@ pub fn require_space(path: &Path, needed: u64) -> Result<()> {
     const MARGIN: u64 = 256 * 1024 * 1024;
     let available = free_space(path)?;
     if available < needed.saturating_add(MARGIN) {
-        return Err(Error::InsufficientSpace { needed: needed.saturating_add(MARGIN), available });
+        return Err(Error::InsufficientSpace {
+            needed: needed.saturating_add(MARGIN),
+            available,
+        });
     }
     Ok(())
 }
@@ -242,7 +288,20 @@ mod tests {
         let root = Path::new("C:/srv");
         assert!(safe_join(root, "Core/worldserver.exe").is_ok());
         assert!(safe_join(root, "Core\\configs\\a.conf").is_ok());
-        for bad in ["", "../x", "a/../../x", "/abs", "C:/x", "a/./b", "a//b", "a/CON", "a/nul.txt", "x.exe:zone", "a/b.", "a/b "] {
+        for bad in [
+            "",
+            "../x",
+            "a/../../x",
+            "/abs",
+            "C:/x",
+            "a/./b",
+            "a//b",
+            "a/CON",
+            "a/nul.txt",
+            "x.exe:zone",
+            "a/b.",
+            "a/b ",
+        ] {
             assert!(safe_join(root, bad).is_err(), "should reject {bad:?}");
         }
     }
@@ -299,7 +358,10 @@ mod tests {
 
     #[test]
     fn sha256_matches_known_vector() {
-        assert_eq!(sha256_bytes(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            sha256_bytes(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("f");
         fs::write(&p, b"abc").unwrap();
@@ -318,7 +380,10 @@ mod tests {
     #[test]
     fn require_space_rejects_absurd_request() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(matches!(require_space(dir.path(), u64::MAX / 2), Err(Error::InsufficientSpace { .. })));
+        assert!(matches!(
+            require_space(dir.path(), u64::MAX / 2),
+            Err(Error::InsufficientSpace { .. })
+        ));
     }
 
     #[test]

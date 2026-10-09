@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use crate::db::Db;
 use crate::ra::Ra;
 
+use super::super::collection::IdSet;
 use super::super::error::{PortableError, Result};
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, SessionId};
-use super::super::collection::IdSet;
 use super::super::realm::collections::{self, Applied};
 use super::super::realm::knowledge::RealmKnowledge;
 use super::super::realm::{probe, read_session_character};
@@ -22,11 +22,21 @@ pub struct LiveBridge<'a> {
 
 impl<'a> LiveBridge<'a> {
     pub fn new(db: &'a Db, ra: Ra) -> Self {
-        Self { db, ra: Some(ra), knowledge: None, extensions: None }
+        Self {
+            db,
+            ra: Some(ra),
+            knowledge: None,
+            extensions: None,
+        }
     }
 
     pub fn without_console(db: &'a Db) -> Self {
-        Self { db, ra: None, knowledge: None, extensions: None }
+        Self {
+            db,
+            ra: None,
+            knowledge: None,
+            extensions: None,
+        }
     }
 
     /// What the realm's client data knows: without it no account collection is ever written to the realm.
@@ -36,13 +46,18 @@ impl<'a> LiveBridge<'a> {
     }
 
     /// The extension adapters that read their module's data of a character into every baseline and checkpoint.
-    pub fn with_extensions(mut self, extensions: Option<std::sync::Arc<super::super::extension::ExtensionRegistry>>) -> Self {
+    pub fn with_extensions(
+        mut self,
+        extensions: Option<std::sync::Arc<super::super::extension::ExtensionRegistry>>,
+    ) -> Self {
         self.extensions = extensions;
         self
     }
 
     fn console(&mut self) -> Result<&mut Ra> {
-        self.ra.as_mut().ok_or_else(|| PortableError::RealmRead("the realm's console is not connected".into()))
+        self.ra
+            .as_mut()
+            .ok_or_else(|| PortableError::RealmRead("the realm's console is not connected".into()))
     }
 }
 
@@ -56,23 +71,39 @@ pub fn read_session_row(db: &Db, local_guid: u32) -> Result<Option<SessionRow>> 
         "SELECT guid, CONCAT('x', HEX(session_id)), CONCAT('x', HEX(character_id)), imported_revision, baseline_generation, state, checkpoint_seq, save_seq FROM acore_characters.coa_portable_session WHERE guid = {local_guid}"
     );
     let out = db.query(&sql).map_err(realm_error)?;
-    let Some(line) = out.lines().find(|l| !l.trim().is_empty()) else { return Ok(None) };
+    let Some(line) = out.lines().find(|l| !l.trim().is_empty()) else {
+        return Ok(None);
+    };
     let cells: Vec<&str> = line.trim_end().split('\t').collect();
     if cells.len() != 8 {
-        return Err(PortableError::CorruptSnapshot("the portable session row has an unexpected shape".into()));
+        return Err(PortableError::CorruptSnapshot(
+            "the portable session row has an unexpected shape".into(),
+        ));
     }
     let text = |cell: &str| -> Result<String> {
-        let hex = cell.strip_prefix('x').ok_or_else(|| PortableError::CorruptSnapshot("a session cell is not hex".into()))?;
-        String::from_utf8(hex::decode(hex).map_err(|_| PortableError::CorruptSnapshot("a session cell is not hex".into()))?).map_err(|_| PortableError::CorruptSnapshot("a session cell is not UTF-8".into()))
+        let hex = cell
+            .strip_prefix('x')
+            .ok_or_else(|| PortableError::CorruptSnapshot("a session cell is not hex".into()))?;
+        String::from_utf8(
+            hex::decode(hex)
+                .map_err(|_| PortableError::CorruptSnapshot("a session cell is not hex".into()))?,
+        )
+        .map_err(|_| PortableError::CorruptSnapshot("a session cell is not UTF-8".into()))
     };
-    let num = |i: usize| -> Result<u64> { cells[i].trim().parse().map_err(|_| PortableError::CorruptSnapshot(format!("{:?} is not a number", cells[i]))) };
+    let num = |i: usize| -> Result<u64> {
+        cells[i]
+            .trim()
+            .parse()
+            .map_err(|_| PortableError::CorruptSnapshot(format!("{:?} is not a number", cells[i])))
+    };
     Ok(Some(SessionRow {
         guid: num(0)? as u32,
         session_id: text(cells[1])?.parse()?,
         character_id: text(cells[2])?.parse()?,
         imported_revision: num(3)?,
         generation: num(4)? as u32,
-        state: RowState::from_code(num(5)?).ok_or_else(|| PortableError::CorruptSnapshot("unknown session state".into()))?,
+        state: RowState::from_code(num(5)?)
+            .ok_or_else(|| PortableError::CorruptSnapshot("unknown session state".into()))?,
         checkpoint_seq: num(6)?,
         save_seq: num(7)?,
     }))
@@ -83,27 +114,63 @@ impl RealmBridge for LiveBridge<'_> {
         read_session_row(self.db, local_guid)
     }
 
-    fn read(&mut self, local_guid: u32, prior_items: &HashMap<u32, (PortableItemId, String)>, prior_pets: &HashMap<u32, (PortablePetId, String)>) -> Result<RealmRead> {
+    fn read(
+        &mut self,
+        local_guid: u32,
+        prior_items: &HashMap<u32, (PortableItemId, String)>,
+        prior_pets: &HashMap<u32, (PortablePetId, String)>,
+    ) -> Result<RealmRead> {
         let row = self.session_row(local_guid)?;
-        let character = row.as_ref().map(|r| r.character_id).ok_or_else(|| PortableError::Invalid("the character has no portable session row".into()))?;
+        let character = row.as_ref().map(|r| r.character_id).ok_or_else(|| {
+            PortableError::Invalid("the character has no portable session row".into())
+        })?;
         let schema = probe(self.db)?;
-        let mut exported = read_session_character(self.db, local_guid, character, prior_items, prior_pets)?;
+        let mut exported =
+            read_session_character(self.db, local_guid, character, prior_items, prior_pets)?;
         if let Some(registry) = &self.extensions {
-            exported.warnings.extend(super::super::realm::profile::export_extensions(self.db, &schema, local_guid, registry, &mut exported.model));
+            exported
+                .warnings
+                .extend(super::super::realm::profile::export_extensions(
+                    self.db,
+                    &schema,
+                    local_guid,
+                    registry,
+                    &mut exported.model,
+                ));
         }
         let session = exported.session.clone();
-        Ok(RealmRead { exported, session, online: true })
+        Ok(RealmRead {
+            exported,
+            session,
+            online: true,
+        })
     }
 
-    fn request_checkpoint(&mut self, local_guid: u32, session: SessionId, sequence: u64) -> Result<CheckpointReply> {
-        self.console()?.portable_checkpoint(local_guid, session, sequence).map_err(|e| PortableError::RealmRead(e.to_string()))
+    fn request_checkpoint(
+        &mut self,
+        local_guid: u32,
+        session: SessionId,
+        sequence: u64,
+    ) -> Result<CheckpointReply> {
+        self.console()?
+            .portable_checkpoint(local_guid, session, sequence)
+            .map_err(|e| PortableError::RealmRead(e.to_string()))
     }
 
     fn release(&mut self, session: SessionId) -> Result<()> {
-        self.console()?.portable_release(session).map_err(|e| PortableError::RealmRead(e.to_string()))
+        self.console()?
+            .portable_release(session)
+            .map_err(|e| PortableError::RealmRead(e.to_string()))
     }
 
-    fn arm(&mut self, local_guid: u32, session: SessionId, character: CharacterId, revision: u64, generation: u32) -> Result<()> {
+    fn arm(
+        &mut self,
+        local_guid: u32,
+        session: SessionId,
+        character: CharacterId,
+        revision: u64,
+        generation: u32,
+    ) -> Result<()> {
         let sql = format!(
             "START TRANSACTION;
 DO IF((SELECT COUNT(*) FROM acore_characters.characters WHERE guid = {local_guid} AND online = 0) = 1, 1, (SELECT 1 UNION ALL SELECT 2));
@@ -129,7 +196,11 @@ COMMIT;"
     }
 
     fn apply_collection(&mut self, account: u32, kind: &str, canonical: &IdSet) -> Result<Applied> {
-        let knowledge = self.knowledge.clone().ok_or_else(|| PortableError::Invalid("the realm's client data is not known: no collection can be written".into()))?;
+        let knowledge = self.knowledge.clone().ok_or_else(|| {
+            PortableError::Invalid(
+                "the realm's client data is not known: no collection can be written".into(),
+            )
+        })?;
         collections::apply_set(self.db, account, kind, canonical, &knowledge)
     }
 }

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use super::super::collection::IdSet;
 use super::super::error::Result;
-use super::super::realm::collections::Applied;
 use super::super::ids::{CharacterId, PortableItemId, PortablePetId, SessionId};
+use super::super::realm::collections::Applied;
 use super::super::realm::Exported;
 
 /// The core's `coa_portable_session.state`.
@@ -70,13 +70,30 @@ pub trait RealmBridge {
     /// Cheap poll of one character's session row.
     fn session_row(&mut self, local_guid: u32) -> Result<Option<SessionRow>>;
     /// Read-only export of the committed character. Allowed while the character is online **if** it has a session row.
-    fn read(&mut self, local_guid: u32, prior_items: &HashMap<u32, (PortableItemId, String)>, prior_pets: &HashMap<u32, (PortablePetId, String)>) -> Result<RealmRead>;
+    fn read(
+        &mut self,
+        local_guid: u32,
+        prior_items: &HashMap<u32, (PortableItemId, String)>,
+        prior_pets: &HashMap<u32, (PortablePetId, String)>,
+    ) -> Result<RealmRead>;
     /// `portable checkpoint <local_guid> <session_id> <sequence>`
-    fn request_checkpoint(&mut self, local_guid: u32, session: SessionId, sequence: u64) -> Result<CheckpointReply>;
+    fn request_checkpoint(
+        &mut self,
+        local_guid: u32,
+        session: SessionId,
+        sequence: u64,
+    ) -> Result<CheckpointReply>;
     /// `portable release <session_id>`
     fn release(&mut self, session: SessionId) -> Result<()>;
     /// Put the character's marker back to "waiting for baseline" with a new session (the character is offline).
-    fn arm(&mut self, local_guid: u32, session: SessionId, character: CharacterId, revision: u64, generation: u32) -> Result<()>;
+    fn arm(
+        &mut self,
+        local_guid: u32,
+        session: SessionId,
+        character: CharacterId,
+        revision: u64,
+        generation: u32,
+    ) -> Result<()>;
 
     // ---- account collections (Phase 6) --------------------------------------------------------------------------------------
 

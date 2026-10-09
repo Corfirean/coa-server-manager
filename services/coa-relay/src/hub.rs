@@ -238,7 +238,7 @@ impl<K: KeyLookup> Hub<K> {
             port_map.insert(world_port, (token.clone(), RelayTarget::World));
         }
 
-        tracing::info!(%realm_id, %player_id, auth_port, world_port, %token, "relay allocation created");
+        tracing::info!(%realm_id, %player_id, auth_port, world_port, "relay allocation created");
         Ok(alloc)
     }
 

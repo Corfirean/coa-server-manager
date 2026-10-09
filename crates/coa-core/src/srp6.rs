@@ -18,7 +18,8 @@ fn le32(v: &BigUint) -> [u8; 32] {
 
 /// Verifier for `username`/`password` under `salt` (both names are case-folded, as the server does).
 pub fn verifier(username: &str, password: &str, salt: &[u8; 32]) -> [u8; 32] {
-    let h1 = Sha1::digest(format!("{}:{}", username.to_uppercase(), password.to_uppercase()).as_bytes());
+    let h1 =
+        Sha1::digest(format!("{}:{}", username.to_uppercase(), password.to_uppercase()).as_bytes());
     let mut h2 = Sha1::new();
     h2.update(salt);
     h2.update(h1);
@@ -49,7 +50,11 @@ mod tests {
         let salt = hex32("54A0DE1E331BB7D2E3964389DB5A443115ED3619BED86B501157DA93C4FC2CF6");
         let expected = hex32("7C39E59C220E8D62CE4CAAB110D4BE8C2381B62E95825B0DC1A4640E57233A46");
         assert_eq!(verifier("ManagerTest1", "hunter22", &salt), expected);
-        assert_eq!(verifier("MANAGERTEST1", "HUNTER22", &salt), expected, "case-insensitive like the server");
+        assert_eq!(
+            verifier("MANAGERTEST1", "HUNTER22", &salt),
+            expected,
+            "case-insensitive like the server"
+        );
         assert_ne!(verifier("ManagerTest1", "hunter23", &salt), expected);
     }
 

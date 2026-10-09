@@ -68,13 +68,22 @@ pub struct Insert {
 
 impl Insert {
     pub fn new(table: &'static str, columns: &'static [&'static str]) -> Self {
-        Self { table, columns, rows: Vec::new() }
+        Self {
+            table,
+            columns,
+            rows: Vec::new(),
+        }
     }
 
     /// A row must have exactly one value per column.
     pub fn row(&mut self, values: Vec<Val>) -> Result<()> {
         if values.len() != self.columns.len() {
-            return Err(PortableError::Invalid(format!("internal: {} values for {} columns of {}", values.len(), self.columns.len(), self.table)));
+            return Err(PortableError::Invalid(format!(
+                "internal: {} values for {} columns of {}",
+                values.len(),
+                self.columns.len(),
+                self.table
+            )));
         }
         self.rows.push(values);
         Ok(())
@@ -95,14 +104,36 @@ impl Insert {
         if self.rows.is_empty() {
             return None;
         }
-        let columns = self.columns.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ");
-        let rows = self.rows.iter().map(|r| format!("({})", r.iter().map(Val::sql).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join(",\n  ");
-        Some(format!("INSERT INTO acore_characters.`{}` ({columns}) VALUES\n  {rows};", self.table))
+        let columns = self
+            .columns
+            .iter()
+            .map(|c| format!("`{c}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let rows = self
+            .rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "({})",
+                    r.iter().map(Val::sql).collect::<Vec<_>>().join(", ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",\n  ");
+        Some(format!(
+            "INSERT INTO acore_characters.`{}` ({columns}) VALUES\n  {rows};",
+            self.table
+        ))
     }
 }
 
 fn condition(filter: &[(&'static str, Val)]) -> String {
-    filter.iter().map(|(c, v)| format!("`{c}` = {}", v.sql())).collect::<Vec<_>>().join(" AND ")
+    filter
+        .iter()
+        .map(|(c, v)| format!("`{c}` = {}", v.sql()))
+        .collect::<Vec<_>>()
+        .join(" AND ")
 }
 
 /// One `UPDATE` with a fixed table, fixed columns and a fixed key condition (`column = value AND ...`).
@@ -115,7 +146,11 @@ pub struct Update {
 
 impl Update {
     pub fn new(table: &'static str, filter: Vec<(&'static str, Val)>) -> Self {
-        Self { table, filter, sets: Vec::new() }
+        Self {
+            table,
+            filter,
+            sets: Vec::new(),
+        }
     }
     pub fn set(&mut self, column: &'static str, value: Val) {
         self.sets.push((column, value));
@@ -131,8 +166,17 @@ impl Update {
         if self.sets.is_empty() {
             return None;
         }
-        let sets = self.sets.iter().map(|(c, v)| format!("`{c}` = {}", v.sql())).collect::<Vec<_>>().join(", ");
-        Some(format!("UPDATE acore_characters.`{}` SET {sets} WHERE {};", self.table, condition(&self.filter)))
+        let sets = self
+            .sets
+            .iter()
+            .map(|(c, v)| format!("`{c}` = {}", v.sql()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Some(format!(
+            "UPDATE acore_characters.`{}` SET {sets} WHERE {};",
+            self.table,
+            condition(&self.filter)
+        ))
     }
 }
 
@@ -146,10 +190,23 @@ pub struct Delete {
 
 impl Delete {
     pub fn new(table: &'static str, filter: Vec<(&'static str, Val)>) -> Self {
-        Self { table, filter, any_of: None }
+        Self {
+            table,
+            filter,
+            any_of: None,
+        }
     }
-    pub fn any_of(table: &'static str, filter: Vec<(&'static str, Val)>, column: &'static str, values: Vec<Val>) -> Self {
-        Self { table, filter, any_of: Some((column, values)) }
+    pub fn any_of(
+        table: &'static str,
+        filter: Vec<(&'static str, Val)>,
+        column: &'static str,
+        values: Vec<Val>,
+    ) -> Self {
+        Self {
+            table,
+            filter,
+            any_of: Some((column, values)),
+        }
     }
     pub fn sql(&self) -> Option<String> {
         let mut parts = vec![condition(&self.filter)];
@@ -157,11 +214,18 @@ impl Delete {
             if values.is_empty() {
                 return None;
             }
-            parts.push(format!("`{column}` IN ({})", values.iter().map(Val::sql).collect::<Vec<_>>().join(", ")));
+            parts.push(format!(
+                "`{column}` IN ({})",
+                values.iter().map(Val::sql).collect::<Vec<_>>().join(", ")
+            ));
         }
         parts.retain(|p| !p.is_empty());
         assert!(!parts.is_empty(), "internal: a DELETE without a condition");
-        Some(format!("DELETE FROM acore_characters.`{}` WHERE {};", self.table, parts.join(" AND ")))
+        Some(format!(
+            "DELETE FROM acore_characters.`{}` WHERE {};",
+            self.table,
+            parts.join(" AND ")
+        ))
     }
 }
 
@@ -179,14 +243,31 @@ mod tests {
         assert!(sql.starts_with("UPDATE acore_characters.`characters` SET `name` = _utf8mb4 0x"));
         assert!(sql.ends_with("WHERE `guid` = @char;"));
         assert_eq!(sql.matches('\'').count(), 0, "{sql}");
-        let d = Delete::any_of("character_spell", vec![("guid", Val::Expr("@char"))], "spell", vec![Val::u(1u32), Val::u(2u32)]);
+        let d = Delete::any_of(
+            "character_spell",
+            vec![("guid", Val::Expr("@char"))],
+            "spell",
+            vec![Val::u(1u32), Val::u(2u32)],
+        );
         assert_eq!(d.sql().unwrap(), "DELETE FROM acore_characters.`character_spell` WHERE `guid` = @char AND `spell` IN (1, 2);");
-        assert!(Delete::any_of("t", vec![("guid", Val::Expr("@char"))], "x", vec![]).sql().is_none(), "an empty list deletes nothing");
-        assert_eq!(Delete::new("t", vec![("a", Val::u(1u8)), ("b", Val::u(2u8))]).sql().unwrap(), "DELETE FROM acore_characters.`t` WHERE `a` = 1 AND `b` = 2;");
+        assert!(
+            Delete::any_of("t", vec![("guid", Val::Expr("@char"))], "x", vec![])
+                .sql()
+                .is_none(),
+            "an empty list deletes nothing"
+        );
+        assert_eq!(
+            Delete::new("t", vec![("a", Val::u(1u8)), ("b", Val::u(2u8))])
+                .sql()
+                .unwrap(),
+            "DELETE FROM acore_characters.`t` WHERE `a` = 1 AND `b` = 2;"
+        );
     }
 
     /// Characters that must never appear in generated SQL because of untrusted data.
-    const HOSTILE: &[char] = &['\'', '"', '\\', '\0', '\n', '\r', '\t', ';', '`', '-', '#', '/', '*', '%', ' '];
+    const HOSTILE: &[char] = &[
+        '\'', '"', '\\', '\0', '\n', '\r', '\t', ';', '`', '-', '#', '/', '*', '%', ' ',
+    ];
 
     #[test]
     fn text_is_a_hex_literal_whatever_it_contains() {
@@ -210,9 +291,19 @@ mod tests {
                 continue;
             }
             let hex = literal.strip_prefix("0x").expect("a hex literal");
-            assert!(hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')), "{sql}");
-            assert_eq!(hex::decode(hex).unwrap(), s.as_bytes(), "the hex decodes to exactly the input");
-            assert!(!literal.contains(HOSTILE), "no hostile character may reach the SQL for {s:?}: {sql}");
+            assert!(
+                hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+                "{sql}"
+            );
+            assert_eq!(
+                hex::decode(hex).unwrap(),
+                s.as_bytes(),
+                "the hex decodes to exactly the input"
+            );
+            assert!(
+                !literal.contains(HOSTILE),
+                "no hostile character may reach the SQL for {s:?}: {sql}"
+            );
         }
     }
 
@@ -243,12 +334,24 @@ mod tests {
     fn an_insert_is_fixed_columns_plus_encoded_values() {
         let mut insert = Insert::new("character_settings", &["guid", "source", "data"]);
         assert!(insert.sql().is_none(), "no rows, no statement");
-        insert.row(vec![Val::Expr("@char"), Val::text("it's \"a\" source"), Val::text("1 2 3 ")]).unwrap();
-        insert.row(vec![Val::Expr("@char"), Val::text("x"), Val::Null]).unwrap();
+        insert
+            .row(vec![
+                Val::Expr("@char"),
+                Val::text("it's \"a\" source"),
+                Val::text("1 2 3 "),
+            ])
+            .unwrap();
+        insert
+            .row(vec![Val::Expr("@char"), Val::text("x"), Val::Null])
+            .unwrap();
         let sql = insert.sql().unwrap();
         assert!(sql.starts_with("INSERT INTO acore_characters.`character_settings` (`guid`, `source`, `data`) VALUES\n  (@char, _utf8mb4 0x"));
         assert!(!sql.contains("it's") && !sql.contains("\"a\""), "{sql}");
-        assert_eq!(sql.matches('\'').count(), 0, "the generated INSERT contains no quote at all");
+        assert_eq!(
+            sql.matches('\'').count(),
+            0,
+            "the generated INSERT contains no quote at all"
+        );
         assert!(sql.ends_with(';'));
         assert!(insert.row(vec![Val::Null]).is_err(), "arity is checked");
     }
@@ -257,7 +360,9 @@ mod tests {
     fn the_whole_alphabet_of_a_generated_insert_is_small() {
         // a hostile value produces nothing but hex digits, hex-literal syntax and the fixed scaffold
         let mut insert = Insert::new("characters", &["name"]);
-        insert.row(vec![Val::text("Robert'); DROP TABLE characters;--\\\0\n")]).unwrap();
+        insert
+            .row(vec![Val::text("Robert'); DROP TABLE characters;--\\\0\n")])
+            .unwrap();
         let sql = insert.sql().unwrap();
         let allowed = |c: char| c.is_ascii_alphanumeric() || " _`(),.\n;".contains(c);
         assert!(sql.chars().all(allowed), "{sql}");

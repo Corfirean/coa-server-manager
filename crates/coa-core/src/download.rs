@@ -101,7 +101,11 @@ impl Transport for HttpTransport {
         let resp = req.send().map_err(|e| e.to_string())?;
         Ok(Reply {
             status: resp.status().as_u16(),
-            content_range: resp.headers().get("content-range").and_then(|v| v.to_str().ok()).map(str::to_string),
+            content_range: resp
+                .headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string),
             body: Box::new(resp),
         })
     }
@@ -132,9 +136,19 @@ enum Attempt {
     Retry(String),
 }
 
-fn attempt(client: &dyn Transport, job: &Job, part: &Path, cancel: &Cancel, on_progress: &dyn Fn(Progress)) -> Result<Attempt> {
+fn attempt(
+    client: &dyn Transport,
+    job: &Job,
+    part: &Path,
+    cancel: &Cancel,
+    on_progress: &dyn Fn(Progress),
+) -> Result<Attempt> {
     let mut hasher = Sha256::new();
-    let mut have = if part.exists() { hash_prefix(part, &mut hasher)? } else { 0 };
+    let mut have = if part.exists() {
+        hash_prefix(part, &mut hasher)?
+    } else {
+        0
+    };
     if have > job.size {
         fs::remove_file(part)?;
         hasher = Sha256::new();
@@ -156,13 +170,22 @@ fn attempt(client: &dyn Transport, job: &Job, part: &Path, cancel: &Cancel, on_p
         // Server ignored the Range header: start over rather than corrupt the file.
         drop(resp);
         fs::remove_file(part)?;
-        return Ok(Attempt::Retry("server does not support resuming; restarting".into()));
+        return Ok(Attempt::Retry(
+            "server does not support resuming; restarting".into(),
+        ));
     }
     if !(resp.status == 200 || resp.status == 206) {
-        return Err(Error::Invalid(format!("The download server answered {}.", resp.status)));
+        return Err(Error::Invalid(format!(
+            "The download server answered {}.",
+            resp.status
+        )));
     }
     if resp.status == 206 {
-        let ok = resp.content_range.as_deref().map(|v| v.starts_with(&format!("bytes {have}-"))).unwrap_or(false);
+        let ok = resp
+            .content_range
+            .as_deref()
+            .map(|v| v.starts_with(&format!("bytes {have}-")))
+            .unwrap_or(false);
         if !ok {
             fs::remove_file(part)?;
             return Ok(Attempt::Retry("unexpected byte range; restarting".into()));
@@ -197,16 +220,27 @@ fn attempt(client: &dyn Transport, job: &Job, part: &Path, cancel: &Cancel, on_p
         have += n as u64;
         if last_report.elapsed() >= Duration::from_millis(250) {
             let secs = started.elapsed().as_secs_f64().max(0.001);
-            on_progress(Progress { downloaded: have, total: job.size, bytes_per_sec: ((have - base) as f64 / secs) as u64 });
+            on_progress(Progress {
+                downloaded: have,
+                total: job.size,
+                bytes_per_sec: ((have - base) as f64 / secs) as u64,
+            });
             last_report = Instant::now();
         }
     }
     file.flush()?;
     drop(file);
     if have < job.size {
-        return Ok(Attempt::Retry(format!("connection ended after {have} of {} bytes", job.size)));
+        return Ok(Attempt::Retry(format!(
+            "connection ended after {have} of {} bytes",
+            job.size
+        )));
     }
-    on_progress(Progress { downloaded: have, total: job.size, bytes_per_sec: 0 });
+    on_progress(Progress {
+        downloaded: have,
+        total: job.size,
+        bytes_per_sec: 0,
+    });
     finish(job, part, hasher)
 }
 
@@ -214,7 +248,11 @@ fn finish(job: &Job, part: &Path, hasher: Sha256) -> Result<Attempt> {
     let actual = hex::encode(hasher.finalize());
     if !actual.eq_ignore_ascii_case(&job.sha256) {
         let _ = fs::remove_file(part);
-        return Err(Error::HashMismatch { path: job.dest.display().to_string(), expected: job.sha256.clone(), actual });
+        return Err(Error::HashMismatch {
+            path: job.dest.display().to_string(),
+            expected: job.sha256.clone(),
+            actual,
+        });
     }
     fs::rename(part, &job.dest)?;
     Ok(Attempt::Done)
@@ -226,16 +264,33 @@ pub fn fetch(job: &Job, cancel: &Cancel, on_progress: &dyn Fn(Progress)) -> Resu
     fetch_with(&HttpTransport::new()?, job, cancel, on_progress)
 }
 
-pub fn fetch_with(client: &dyn Transport, job: &Job, cancel: &Cancel, on_progress: &dyn Fn(Progress)) -> Result<()> {
+pub fn fetch_with(
+    client: &dyn Transport,
+    job: &Job,
+    cancel: &Cancel,
+    on_progress: &dyn Fn(Progress),
+) -> Result<()> {
     if let Some(parent) = job.dest.parent() {
         fs::create_dir_all(parent)?;
     }
-    if job.dest.is_file() && fsx::sha256_file(&job.dest).map(|h| h.eq_ignore_ascii_case(&job.sha256)).unwrap_or(false) {
-        on_progress(Progress { downloaded: job.size, total: job.size, bytes_per_sec: 0 });
+    if job.dest.is_file()
+        && fsx::sha256_file(&job.dest)
+            .map(|h| h.eq_ignore_ascii_case(&job.sha256))
+            .unwrap_or(false)
+    {
+        on_progress(Progress {
+            downloaded: job.size,
+            total: job.size,
+            bytes_per_sec: 0,
+        });
         return Ok(());
     }
     let part = part_path(&job.dest);
-    fsx::require_space(&job.dest, job.size.saturating_sub(part.metadata().map(|m| m.len()).unwrap_or(0)))?;
+    fsx::require_space(
+        &job.dest,
+        job.size
+            .saturating_sub(part.metadata().map(|m| m.len()).unwrap_or(0)),
+    )?;
     let mut last_err = String::new();
     for n in 0..6u32 {
         if cancel.is_set() {
@@ -246,7 +301,11 @@ pub fn fetch_with(client: &dyn Transport, job: &Job, cancel: &Cancel, on_progres
             Attempt::Retry(why) => {
                 tracing::warn!(url = %job.url, attempt = n + 1, %why, "download interrupted; will resume");
                 last_err = why;
-                std::thread::sleep(Duration::from_millis(if cfg!(test) { 1 } else { 300 * 2u64.pow(n.min(4)) }));
+                std::thread::sleep(Duration::from_millis(if cfg!(test) {
+                    1
+                } else {
+                    300 * 2u64.pow(n.min(4))
+                }));
             }
         }
     }
@@ -273,7 +332,10 @@ mod tests {
     impl Read for Cut {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             if self.0.position() as usize >= self.1 {
-                return Err(std::io::Error::new(std::io::ErrorKind::ConnectionReset, "connection lost"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "connection lost",
+                ));
             }
             let lim = (self.1 - self.0.position() as usize).min(buf.len());
             self.0.read(&mut buf[..lim])
@@ -282,7 +344,13 @@ mod tests {
 
     impl Mock {
         fn new(body: Vec<u8>, cut_first: usize, support_range: bool) -> Self {
-            Mock { body, cut_first, support_range, calls: AtomicUsize::new(0), ranges: Default::default() }
+            Mock {
+                body,
+                cut_first,
+                support_range,
+                calls: AtomicUsize::new(0),
+                ranges: Default::default(),
+            }
         }
     }
 
@@ -291,22 +359,45 @@ mod tests {
             let n = self.calls.fetch_add(1, Ordering::SeqCst);
             self.ranges.lock().unwrap().push(from);
             let (status, start, cr) = if from > 0 && self.support_range {
-                (206, from as usize, Some(format!("bytes {from}-{}/{}", self.body.len() - 1, self.body.len())))
+                (
+                    206,
+                    from as usize,
+                    Some(format!(
+                        "bytes {from}-{}/{}",
+                        self.body.len() - 1,
+                        self.body.len()
+                    )),
+                )
             } else {
                 (200, 0, None)
             };
             let slice = self.body[start..].to_vec();
-            let cut = if n < self.cut_first { slice.len() / 2 } else { slice.len() };
-            Ok(Reply { status, content_range: cr, body: Box::new(Cut(Cursor::new(slice), cut)) })
+            let cut = if n < self.cut_first {
+                slice.len() / 2
+            } else {
+                slice.len()
+            };
+            Ok(Reply {
+                status,
+                content_range: cr,
+                body: Box::new(Cut(Cursor::new(slice), cut)),
+            })
         }
     }
 
     fn body() -> Vec<u8> {
-        (0..600_000u32).map(|i| (i.wrapping_mul(31) % 251) as u8).collect()
+        (0..600_000u32)
+            .map(|i| (i.wrapping_mul(31) % 251) as u8)
+            .collect()
     }
 
     fn job(dir: &Path, body: &[u8]) -> Job {
-        Job { url: "https://example.invalid/pkg".into(), dest: dir.join("pkg.bin"), sha256: fsx::sha256_bytes(body), size: body.len() as u64 }
+        Job {
+            url: "https://example.invalid/pkg".into(),
+            dest: dir.join("pkg.bin"),
+            sha256: fsx::sha256_bytes(body),
+            size: body.len() as u64,
+        }
     }
 
     #[test]
@@ -317,7 +408,11 @@ mod tests {
         let j = job(dir.path(), &body);
         fetch_with(&m, &j, &Cancel::default(), &|_| {}).unwrap();
         assert_eq!(fs::read(&j.dest).unwrap(), body);
-        assert_eq!(m.ranges.lock().unwrap().clone(), vec![0, 300_000], "second request resumed exactly where the first stopped");
+        assert_eq!(
+            m.ranges.lock().unwrap().clone(),
+            vec![0, 300_000],
+            "second request resumed exactly where the first stopped"
+        );
         assert!(!part_path(&j.dest).exists());
     }
 
@@ -350,7 +445,10 @@ mod tests {
         let j = job(dir.path(), &body);
         fs::write(part_path(&j.dest), vec![7u8; 1000]).unwrap();
         let m = Mock::new(body.clone(), 0, true);
-        assert!(matches!(fetch_with(&m, &j, &Cancel::default(), &|_| {}), Err(Error::HashMismatch { .. })));
+        assert!(matches!(
+            fetch_with(&m, &j, &Cancel::default(), &|_| {}),
+            Err(Error::HashMismatch { .. })
+        ));
         assert!(!j.dest.exists() && !part_path(&j.dest).exists());
     }
 
@@ -360,11 +458,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut j = job(dir.path(), &body);
         j.sha256 = "0".repeat(64);
-        assert!(matches!(fetch_with(&Mock::new(body.clone(), 0, true), &j, &Cancel::default(), &|_| {}), Err(Error::HashMismatch { .. })));
+        assert!(matches!(
+            fetch_with(
+                &Mock::new(body.clone(), 0, true),
+                &j,
+                &Cancel::default(),
+                &|_| {}
+            ),
+            Err(Error::HashMismatch { .. })
+        ));
         assert!(!j.dest.exists());
         let mut small = job(dir.path(), &body);
         small.size = 1000;
-        assert!(fetch_with(&Mock::new(body.clone(), 0, true), &small, &Cancel::default(), &|_| {}).is_err());
+        assert!(fetch_with(
+            &Mock::new(body.clone(), 0, true),
+            &small,
+            &Cancel::default(),
+            &|_| {}
+        )
+        .is_err());
     }
 
     #[test]
@@ -375,7 +487,11 @@ mod tests {
         fs::write(&j.dest, &body).unwrap();
         let m = Mock::new(body.clone(), 0, true);
         fetch_with(&m, &j, &Cancel::default(), &|_| {}).unwrap();
-        assert_eq!(m.calls.load(Ordering::SeqCst), 0, "no network use when the file is already verified");
+        assert_eq!(
+            m.calls.load(Ordering::SeqCst),
+            0,
+            "no network use when the file is already verified"
+        );
         fs::remove_file(&j.dest).unwrap();
         let c = Cancel::default();
         c.cancel();
@@ -390,7 +506,10 @@ mod tests {
         let m = Mock::new(body.clone(), usize::MAX, true);
         let e = fetch_with(&m, &j, &Cancel::default(), &|_| {}).unwrap_err();
         assert!(e.to_string().contains("progress is kept"));
-        assert!(part_path(&j.dest).exists(), "partial data is kept for the next try");
+        assert!(
+            part_path(&j.dest).exists(),
+            "partial data is kept for the next try"
+        );
     }
 
     #[test]

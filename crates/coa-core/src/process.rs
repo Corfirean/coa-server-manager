@@ -19,7 +19,9 @@ pub struct ProcessIdentity {
 
 impl ProcessIdentity {
     pub fn same_as(&self, other: &ProcessIdentity) -> bool {
-        self.pid == other.pid && self.created == other.created && self.exe.eq_ignore_ascii_case(&other.exe)
+        self.pid == other.pid
+            && self.created == other.created
+            && self.exe.eq_ignore_ascii_case(&other.exe)
     }
 }
 
@@ -74,7 +76,8 @@ mod sys {
     use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::NetworkManagement::IpHelper::GetExtendedTcpTable;
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
     use windows_sys::Win32::System::Threading::{
@@ -94,13 +97,22 @@ mod sys {
             let mut buf = vec![0u16; 32768];
             let mut size = buf.len() as u32;
             let ok_name = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut size);
-            let (mut c, mut e, mut k, mut u) = (std::mem::zeroed(), std::mem::zeroed(), std::mem::zeroed(), std::mem::zeroed());
+            let (mut c, mut e, mut k, mut u) = (
+                std::mem::zeroed(),
+                std::mem::zeroed(),
+                std::mem::zeroed(),
+                std::mem::zeroed(),
+            );
             let ok_time = GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u);
             CloseHandle(h);
             if ok_name == 0 || ok_time == 0 || ft(e) != 0 {
                 return None;
             }
-            Some(ProcessIdentity { pid, exe: String::from_utf16_lossy(&buf[..size as usize]), created: ft(c) })
+            Some(ProcessIdentity {
+                pid,
+                exe: String::from_utf16_lossy(&buf[..size as usize]),
+                created: ft(c),
+            })
         }
     }
 
@@ -138,7 +150,11 @@ mod sys {
         for _ in 0..4 {
             let code = unsafe {
                 GetExtendedTcpTable(
-                    if buf.is_empty() { std::ptr::null_mut() } else { buf.as_mut_ptr().cast() },
+                    if buf.is_empty() {
+                        std::ptr::null_mut()
+                    } else {
+                        buf.as_mut_ptr().cast()
+                    },
                     &mut size,
                     0,
                     af,
@@ -167,7 +183,11 @@ mod sys {
                     break;
                 }
                 let addr = u32_at(&v4, o + 4).to_le_bytes(); // network order bytes
-                out.push(super::Listener { port: u16::from_be((u32_at(&v4, o + 8) & 0xFFFF) as u16), pid: u32_at(&v4, o + 20), loopback_only: addr[0] == 127 });
+                out.push(super::Listener {
+                    port: u16::from_be((u32_at(&v4, o + 8) & 0xFFFF) as u16),
+                    pid: u32_at(&v4, o + 20),
+                    loopback_only: addr[0] == 127,
+                });
             }
         }
         let v6 = table(23);
@@ -179,7 +199,11 @@ mod sys {
                 }
                 let a = &v6[o..o + 16];
                 let loopback = a[..15].iter().all(|b| *b == 0) && a[15] == 1;
-                out.push(super::Listener { port: u16::from_be((u32_at(&v6, o + 20) & 0xFFFF) as u16), pid: u32_at(&v6, o + 52), loopback_only: loopback });
+                out.push(super::Listener {
+                    port: u16::from_be((u32_at(&v6, o + 20) & 0xFFFF) as u16),
+                    pid: u32_at(&v6, o + 52),
+                    loopback_only: loopback,
+                });
             }
         }
         out
@@ -197,7 +221,10 @@ mod sys {
                 if o + 24 > v4.len() {
                     break;
                 }
-                out.push((u16::from_be((u32_at(&v4, o + 8) & 0xFFFF) as u16), u32_at(&v4, o + 20)));
+                out.push((
+                    u16::from_be((u32_at(&v4, o + 8) & 0xFFFF) as u16),
+                    u32_at(&v4, o + 20),
+                ));
             }
         }
         let v6 = table(23);
@@ -208,7 +235,10 @@ mod sys {
                 if o + 56 > v6.len() {
                     break;
                 }
-                out.push((u16::from_be((u32_at(&v6, o + 20) & 0xFFFF) as u16), u32_at(&v6, o + 52)));
+                out.push((
+                    u16::from_be((u32_at(&v6, o + 20) & 0xFFFF) as u16),
+                    u32_at(&v6, o + 52),
+                ));
             }
         }
         out
@@ -247,7 +277,9 @@ pub struct Listener {
 
 /// True if the recorded identity still describes a live process (same exe and creation time).
 pub fn is_alive(record: &ProcessIdentity) -> bool {
-    identity(record.pid).map(|cur| cur.same_as(record)).unwrap_or(false)
+    identity(record.pid)
+        .map(|cur| cur.same_as(record))
+        .unwrap_or(false)
 }
 
 /// Every running process whose image file is named one of `names` (compared without case), wherever it lives. Only for
@@ -284,26 +316,52 @@ fn world_alternatives(root: &Path) -> Vec<PathBuf> {
     vec![root.join("coa-bots").join("Core").join("worldserver.exe")]
 }
 
-fn service(root: &Path, name: &'static str, exe: PathBuf, port: u16, listen: &[(u16, u32)]) -> ServiceStatus {
+fn service(
+    root: &Path,
+    name: &'static str,
+    exe: PathBuf,
+    port: u16,
+    listen: &[(u16, u32)],
+) -> ServiceStatus {
     service_with(root, name, exe, &[], port, listen)
 }
 
-fn service_with(root: &Path, name: &'static str, exe: PathBuf, alternatives: &[PathBuf], port: u16, listen: &[(u16, u32)]) -> ServiceStatus {
+fn service_with(
+    root: &Path,
+    name: &'static str,
+    exe: PathBuf,
+    alternatives: &[PathBuf],
+    port: u16,
+    listen: &[(u16, u32)],
+) -> ServiceStatus {
     // Prefer the repack's own record when it still matches a live process; otherwise discover by exact exe path.
     let norm = |p: &Path| p.to_string_lossy().replace('/', "\\");
-    let expected: Vec<String> = std::iter::once(&exe).chain(alternatives).map(|p| norm(p)).collect();
+    let expected: Vec<String> = std::iter::once(&exe)
+        .chain(alternatives)
+        .map(|p| norm(p))
+        .collect();
     let proc = read_state_record(root, name)
         .filter(is_alive)
         .filter(|r| expected.iter().any(|e| r.exe.eq_ignore_ascii_case(e)))
-        .or_else(|| std::iter::once(&exe).chain(alternatives).find_map(|p| find_by_exe(p).into_iter().next()));
+        .or_else(|| {
+            std::iter::once(&exe)
+                .chain(alternatives)
+                .find_map(|p| find_by_exe(p).into_iter().next())
+        });
 
     let owner = listen.iter().find(|(p, _)| *p == port).map(|(_, pid)| *pid);
     let (state, port_ready, conflict) = match (&proc, owner) {
         (Some(p), Some(o)) if p.pid == o => (ServiceState::Running, true, None),
         (Some(_), _) => (ServiceState::Starting, false, None),
-        (None, Some(o)) => {
-            (ServiceState::Stopped, false, Some(PortConflict { port, pid: o, exe: identity(o).map(|i| i.exe) }))
-        }
+        (None, Some(o)) => (
+            ServiceState::Stopped,
+            false,
+            Some(PortConflict {
+                port,
+                pid: o,
+                exe: identity(o).map(|i| i.exe),
+            }),
+        ),
         (None, None) => (ServiceState::Stopped, false, None),
     };
     ServiceStatus {
@@ -325,13 +383,30 @@ pub fn observe(root: &Path, ports: &Ports) -> Observed {
     let listen = listeners();
     let (world, auth, mysql) = crate::layout::executables(root);
     let secondary = crate::multiworld::root(root);
-    let secondary_world = if crate::realms::state(root).is_ok_and(|s| s.simultaneous) || crate::multiworld::is_running(root) {
-        Some(service(&secondary, "world-secondary", secondary.join("Core/worldserver.exe"), crate::layout::read_ports(&secondary).world, &listen))
-    } else { None };
+    let secondary_world = if crate::realms::state(root).is_ok_and(|s| s.simultaneous)
+        || crate::multiworld::is_running(root)
+    {
+        Some(service(
+            &secondary,
+            "world-secondary",
+            secondary.join("Core/worldserver.exe"),
+            crate::layout::read_ports(&secondary).world,
+            &listen,
+        ))
+    } else {
+        None
+    };
     Observed {
         mysql: service(root, "mysql", mysql, ports.mysql, &listen),
         auth: service(root, "auth", auth, ports.auth, &listen),
-        world: service_with(root, "world", world, &world_alternatives(root), ports.world, &listen),
+        world: service_with(
+            root,
+            "world",
+            world,
+            &world_alternatives(root),
+            ports.world,
+            &listen,
+        ),
         secondary_world,
     }
 }
@@ -348,7 +423,10 @@ mod tests {
         assert!(is_alive(&me));
         let mut forged = me.clone();
         forged.created += 1;
-        assert!(!is_alive(&forged), "different creation time = different process (PID reuse)");
+        assert!(
+            !is_alive(&forged),
+            "different creation time = different process (PID reuse)"
+        );
         let mut wrong_exe = me.clone();
         wrong_exe.exe = "C:\\other.exe".into();
         assert!(!is_alive(&wrong_exe));
@@ -359,9 +437,14 @@ mod tests {
     fn detailed_listeners_tell_loopback_from_all_interfaces() {
         let lo = TcpListener::bind("127.0.0.1:0").unwrap();
         let any = TcpListener::bind("0.0.0.0:0").unwrap();
-        let (p_lo, p_any) = (lo.local_addr().unwrap().port(), any.local_addr().unwrap().port());
+        let (p_lo, p_any) = (
+            lo.local_addr().unwrap().port(),
+            any.local_addr().unwrap().port(),
+        );
         let all = listeners_detailed();
-        assert!(all.iter().any(|l| l.port == p_lo && l.pid == std::process::id() && l.loopback_only));
+        assert!(all
+            .iter()
+            .any(|l| l.port == p_lo && l.pid == std::process::id() && l.loopback_only));
         assert!(all.iter().any(|l| l.port == p_any && !l.loopback_only));
     }
 
@@ -380,7 +463,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
-        let ports = Ports { mysql: port, auth: 1, world: 2, ra: 3 };
+        let ports = Ports {
+            mysql: port,
+            auth: 1,
+            world: 2,
+            ra: 3,
+        };
         let o = observe(dir.path(), &ports);
         assert_eq!(o.mysql.state, ServiceState::Stopped);
         assert!(!o.mysql.port_ready);
@@ -394,8 +482,15 @@ mod tests {
         std::fs::create_dir_all(&state).unwrap();
         let me = identity(std::process::id()).unwrap();
         // Right PID, wrong creation time => stale record after PID reuse.
-        let stale = ProcessIdentity { created: me.created + 12345, ..me };
-        std::fs::write(state.join("world.json"), serde_json::to_vec(&stale).unwrap()).unwrap();
+        let stale = ProcessIdentity {
+            created: me.created + 12345,
+            ..me
+        };
+        std::fs::write(
+            state.join("world.json"),
+            serde_json::to_vec(&stale).unwrap(),
+        )
+        .unwrap();
         let o = observe(dir.path(), &Ports::default());
         assert_eq!(o.world.state, ServiceState::Stopped);
         assert!(o.world.pid.is_none());

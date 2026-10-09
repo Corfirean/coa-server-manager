@@ -23,9 +23,15 @@ pub fn diagnose(text: &str) -> Option<ErrorCode> {
             || l.contains("connection refused")
         {
             Some(ErrorCode::DatabaseNotRunning)
-        } else if l.contains("address already in use") || l.contains("could not bind") || l.contains("only one usage of each socket") {
+        } else if l.contains("address already in use")
+            || l.contains("could not bind")
+            || l.contains("only one usage of each socket")
+        {
             Some(ErrorCode::PortInUse)
-        } else if l.contains("config::loadfile") && l.contains("failed open file") && l.contains("worldserver.conf") {
+        } else if l.contains("config::loadfile")
+            && l.contains("failed open file")
+            && l.contains("worldserver.conf")
+        {
             Some(ErrorCode::ServerFilesIncomplete)
         } else {
             None
@@ -38,8 +44,12 @@ pub fn diagnose(text: &str) -> Option<ErrorCode> {
 }
 
 pub fn tail(path: &Path, max_bytes: u64) -> String {
-    let Ok(mut f) = File::open(path) else { return String::new() };
-    let Ok(len) = f.metadata().map(|m| m.len()) else { return String::new() };
+    let Ok(mut f) = File::open(path) else {
+        return String::new();
+    };
+    let Ok(len) = f.metadata().map(|m| m.len()) else {
+        return String::new();
+    };
     let _ = f.seek(SeekFrom::Start(len.saturating_sub(max_bytes)));
     let mut buf = Vec::new();
     let _ = f.take(max_bytes).read_to_end(&mut buf);
@@ -48,9 +58,13 @@ pub fn tail(path: &Path, max_bytes: u64) -> String {
 
 /// Diagnose from the repack's own service logs (only the recent tail of each).
 pub fn diagnose_installation(root: &Path) -> Option<ErrorCode> {
-    ["Core/Logs/world-console.log", "Core/Logs/auth-console.log", "mysql/logs/mysql-error.log"]
-        .iter()
-        .find_map(|rel| diagnose(&tail(&root.join(rel), 64 * 1024)))
+    [
+        "Core/Logs/world-console.log",
+        "Core/Logs/auth-console.log",
+        "mysql/logs/mysql-error.log",
+    ]
+    .iter()
+    .find_map(|rel| diagnose(&tail(&root.join(rel), 64 * 1024)))
 }
 
 #[cfg(test)]
@@ -65,8 +79,14 @@ mod tests {
 
     #[test]
     fn recognises_db_down_and_port_conflicts() {
-        assert_eq!(diagnose("ERROR Can't connect to MySQL server on '127.0.0.1:3307'"), Some(ErrorCode::DatabaseNotRunning));
-        assert_eq!(diagnose("Could not bind to port 8085"), Some(ErrorCode::PortInUse));
+        assert_eq!(
+            diagnose("ERROR Can't connect to MySQL server on '127.0.0.1:3307'"),
+            Some(ErrorCode::DatabaseNotRunning)
+        );
+        assert_eq!(
+            diagnose("Could not bind to port 8085"),
+            Some(ErrorCode::PortInUse)
+        );
         assert_eq!(diagnose("INFO all good"), None);
     }
 

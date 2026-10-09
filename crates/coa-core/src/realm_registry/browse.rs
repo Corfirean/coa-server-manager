@@ -30,18 +30,36 @@ impl BrowseClient {
         Ok(Self { base, http })
     }
 
-    fn get<T: DeserializeOwned>(&self, path_and_query: &str) -> std::result::Result<T, ClientError> {
-        let resp = self.http.get(format!("{}{}", self.base, path_and_query)).send().map_err(|e| ClientError::Transient(e.without_url().to_string()))?;
+    fn get<T: DeserializeOwned>(
+        &self,
+        path_and_query: &str,
+    ) -> std::result::Result<T, ClientError> {
+        let resp = self
+            .http
+            .get(format!("{}{}", self.base, path_and_query))
+            .send()
+            .map_err(|e| ClientError::Transient(e.without_url().to_string()))?;
         let status = resp.status();
         let mut bytes = Vec::new();
-        resp.take(MAX_ANSWER_BYTES).read_to_end(&mut bytes).map_err(|e| ClientError::Transient(e.to_string()))?;
+        resp.take(MAX_ANSWER_BYTES)
+            .read_to_end(&mut bytes)
+            .map_err(|e| ClientError::Transient(e.to_string()))?;
         if status.is_success() {
-            return serde_json::from_slice(&bytes).map_err(|_| ClientError::Protocol("the answer cannot be read".into()));
+            return serde_json::from_slice(&bytes)
+                .map_err(|_| ClientError::Protocol("the answer cannot be read".into()));
         }
         match serde_json::from_slice::<ErrorBody>(&bytes) {
-            Ok(e) if status.as_u16() == 429 || status.as_u16() == 503 => Err(ClientError::Transient(format!("{:?}", e.error.code))),
-            Ok(e) => Err(ClientError::Rejected { code: e.error.code, status: status.as_u16(), message: e.error.message }),
-            Err(_) if status.is_server_error() || status.as_u16() == 429 => Err(ClientError::Transient(format!("HTTP {status}"))),
+            Ok(e) if status.as_u16() == 429 || status.as_u16() == 503 => {
+                Err(ClientError::Transient(format!("{:?}", e.error.code)))
+            }
+            Ok(e) => Err(ClientError::Rejected {
+                code: e.error.code,
+                status: status.as_u16(),
+                message: e.error.message,
+            }),
+            Err(_) if status.is_server_error() || status.as_u16() == 429 => {
+                Err(ClientError::Transient(format!("HTTP {status}")))
+            }
             Err(_) => Err(ClientError::Protocol(format!("HTTP {status}"))),
         }
     }
@@ -74,7 +92,17 @@ pub struct BrowseParams {
 
 impl BrowseParams {
     pub fn to_query(&self) -> crate::Result<ListQuery> {
-        let enc = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+        let enc = |s: &str| {
+            s.bytes()
+                .map(|b| {
+                    if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') {
+                        (b as char).to_string()
+                    } else {
+                        format!("%{b:02X}")
+                    }
+                })
+                .collect::<String>()
+        };
         let mut parts = Vec::new();
         let mut text = |name: &str, v: &Option<String>| {
             if let Some(v) = v.as_deref().filter(|v| !v.is_empty()) {
@@ -107,13 +135,38 @@ mod tests {
 
     #[test]
     fn controls_become_a_checked_query() {
-        let p = BrowseParams { q: Some("Desc ension".into()), ruleset: Some("coa".into()), cap_min: Some(60), module: Some("playerbots".into()), sort: Some("name".into()), ..Default::default() };
+        let p = BrowseParams {
+            q: Some("Desc ension".into()),
+            ruleset: Some("coa".into()),
+            cap_min: Some(60),
+            module: Some("playerbots".into()),
+            sort: Some("name".into()),
+            ..Default::default()
+        };
         let q = p.to_query().unwrap();
-        assert_eq!((q.q.as_deref(), q.cap_min, q.module.as_deref()), (Some("Desc ension"), Some(60), Some("playerbots")));
+        assert_eq!(
+            (q.q.as_deref(), q.cap_min, q.module.as_deref()),
+            (Some("Desc ension"), Some(60), Some("playerbots"))
+        );
         assert!(q.canonical().contains("q=Desc%20ension"));
-        assert!(BrowseParams { ruleset: Some("normal".into()), ..Default::default() }.to_query().is_err());
-        assert!(BrowseParams { module: Some("<script>".into()), ..Default::default() }.to_query().is_err());
-        assert!(BrowseParams { limit: Some(0), ..Default::default() }.to_query().is_err());
+        assert!(BrowseParams {
+            ruleset: Some("normal".into()),
+            ..Default::default()
+        }
+        .to_query()
+        .is_err());
+        assert!(BrowseParams {
+            module: Some("<script>".into()),
+            ..Default::default()
+        }
+        .to_query()
+        .is_err());
+        assert!(BrowseParams {
+            limit: Some(0),
+            ..Default::default()
+        }
+        .to_query()
+        .is_err());
         assert!(BrowseParams::default().to_query().is_ok());
     }
 }

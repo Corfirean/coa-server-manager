@@ -350,7 +350,12 @@ fn is_yes(v: &bool) -> bool {
 
 impl Default for PortableAppearance {
     fn default() -> Self {
-        Self { active: BTreeMap::new(), can_see_item: true, can_see_spell: true, outfits: BTreeMap::new() }
+        Self {
+            active: BTreeMap::new(),
+            can_see_item: true,
+            can_see_spell: true,
+            outfits: BTreeMap::new(),
+        }
     }
 }
 
@@ -363,17 +368,32 @@ impl PortableAppearance {
 
     /// Every appearance id mentioned anywhere (selection and outfits), without 0.
     pub fn ids(&self) -> BTreeSet<u32> {
-        self.active.values().chain(self.outfits.values().flatten()).copied().filter(|id| *id != 0).collect()
+        self.active
+            .values()
+            .chain(self.outfits.values().flatten())
+            .copied()
+            .filter(|id| *id != 0)
+            .collect()
     }
 
     /// The part of this appearance a destination that knows `known` can hold: a selection of an unknown id and an outfit
     /// that mentions one are left out (they stay in the canonical character, see `PORTABLE_APPEARANCE.md`).
     pub fn restricted_to(&self, known: impl Fn(u32) -> bool) -> PortableAppearance {
         PortableAppearance {
-            active: self.active.iter().filter(|(_, id)| known(**id)).map(|(c, id)| (*c, *id)).collect(),
+            active: self
+                .active
+                .iter()
+                .filter(|(_, id)| known(**id))
+                .map(|(c, id)| (*c, *id))
+                .collect(),
             can_see_item: self.can_see_item,
             can_see_spell: self.can_see_spell,
-            outfits: self.outfits.iter().filter(|(_, ids)| ids.iter().all(|id| *id == 0 || known(*id))).map(|(n, ids)| (n.clone(), ids.clone())).collect(),
+            outfits: self
+                .outfits
+                .iter()
+                .filter(|(_, ids)| ids.iter().all(|id| *id == 0 || known(*id)))
+                .map(|(n, ids)| (n.clone(), ids.clone()))
+                .collect(),
         }
     }
 }
@@ -444,12 +464,16 @@ fn invalid<T>(msg: impl Into<String>) -> Result<T> {
 }
 
 fn too_many<T>(what: &str, max: usize) -> Result<T> {
-    Err(PortableError::LimitExceeded(format!("more than {max} {what}")))
+    Err(PortableError::LimitExceeded(format!(
+        "more than {max} {what}"
+    )))
 }
 
 fn check_text(what: &str, s: &str, max_bytes: usize) -> Result<()> {
     if s.len() > max_bytes {
-        return Err(PortableError::LimitExceeded(format!("{what} is longer than {max_bytes} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "{what} is longer than {max_bytes} bytes"
+        )));
     }
     Ok(())
 }
@@ -460,7 +484,9 @@ fn check_name(what: &str, s: &str, max_chars: usize) -> Result<()> {
         return invalid(format!("{what} must have 1 to {max_chars} characters"));
     }
     if s.chars().any(|c| c.is_control()) || s.trim() != s {
-        return invalid(format!("{what} contains control characters or surrounding spaces"));
+        return invalid(format!(
+            "{what} contains control characters or surrounding spaces"
+        ));
     }
     Ok(())
 }
@@ -469,7 +495,9 @@ fn ascending_unique<T: Ord + Copy>(what: &str, ids: impl Iterator<Item = T>) -> 
     let mut previous: Option<T> = None;
     for id in ids {
         if previous.is_some_and(|p| p >= id) {
-            return invalid(format!("{what} must be strictly ascending (call normalize first)"));
+            return invalid(format!(
+                "{what} must be strictly ascending (call normalize first)"
+            ));
         }
         previous = Some(id);
     }
@@ -503,7 +531,14 @@ impl PortableCharacter {
         self.build.glyphs.sort_by_key(|g| g.talent_group);
         self.build.glyphs.dedup_by_key(|g| g.talent_group);
         self.items.sort_by(|a, b| {
-            let key = |i: &PortableItem| (i.container.is_some(), i.container.map(|c| c.as_uuid()), i.slot, i.id.as_uuid());
+            let key = |i: &PortableItem| {
+                (
+                    i.container.is_some(),
+                    i.container.map(|c| c.as_uuid()),
+                    i.slot,
+                    i.id.as_uuid(),
+                )
+            };
             key(a).cmp(&key(b))
         });
         for item in &mut self.items {
@@ -523,7 +558,10 @@ impl PortableCharacter {
     /// Structural validation. Run on everything that enters the store or comes from outside.
     pub fn validate(&self) -> Result<()> {
         if self.format_version != PORTABLE_CHARACTER_FORMAT_VERSION {
-            return Err(PortableError::UnsupportedFormat { found: self.format_version, supported: PORTABLE_CHARACTER_FORMAT_VERSION });
+            return Err(PortableError::UnsupportedFormat {
+                found: self.format_version,
+                supported: PORTABLE_CHARACTER_FORMAT_VERSION,
+            });
         }
         if !valid_namespace(&self.content_namespace) {
             return invalid("content_namespace is not a valid namespace");
@@ -541,9 +579,15 @@ impl PortableCharacter {
             return invalid("level must be at least 1");
         }
         if p.money > MAX_MONEY {
-            return invalid(format!("money exceeds the realm limit of {MAX_MONEY} copper"));
+            return invalid(format!(
+                "money exceeds the realm limit of {MAX_MONEY} copper"
+            ));
         }
-        for (what, text) in [("known_titles", &p.known_titles), ("explored_zones", &p.explored_zones), ("taxi_mask", &p.taxi_mask)] {
+        for (what, text) in [
+            ("known_titles", &p.known_titles),
+            ("explored_zones", &p.explored_zones),
+            ("taxi_mask", &p.taxi_mask),
+        ] {
             check_text(what, text, MAX_RAW_TEXT_BYTES)?;
             if !text.bytes().all(|b| b.is_ascii_digit() || b == b' ') {
                 return invalid(format!("{what} may only contain digits and spaces"));
@@ -587,7 +631,10 @@ impl PortableCharacter {
         if self.actions.len() > MAX_ACTIONS {
             return too_many("action buttons", MAX_ACTIONS);
         }
-        ascending_unique("action buttons", self.actions.iter().map(|a| (a.spec, a.button)))?;
+        ascending_unique(
+            "action buttons",
+            self.actions.iter().map(|a| (a.spec, a.button)),
+        )?;
 
         // pets
         if self.pets.len() > MAX_PETS {
@@ -615,18 +662,31 @@ impl PortableCharacter {
         if self.wardrobe.outfits.len() > MAX_APPEARANCE_OUTFITS {
             return too_many("saved outfits", MAX_APPEARANCE_OUTFITS);
         }
-        if let Some(category) = self.wardrobe.active.keys().find(|c| **c == 0 || **c > MAX_APPEARANCE_CATEGORY) {
+        if let Some(category) = self
+            .wardrobe
+            .active
+            .keys()
+            .find(|c| **c == 0 || **c > MAX_APPEARANCE_CATEGORY)
+        {
             return invalid(format!("appearance category {category} is out of range"));
         }
         if self.wardrobe.active.values().any(|id| *id == 0) {
-            return invalid("an active appearance cannot be 0 (a category without a selection has no entry)");
+            return invalid(
+                "an active appearance cannot be 0 (a category without a selection has no entry)",
+            );
         }
         for (name, ids) in &self.wardrobe.outfits {
-            if name.is_empty() || name.len() > MAX_APPEARANCE_OUTFIT_NAME_BYTES || name.chars().any(|c| (c as u32) < 0x20) {
+            if name.is_empty()
+                || name.len() > MAX_APPEARANCE_OUTFIT_NAME_BYTES
+                || name.chars().any(|c| (c as u32) < 0x20)
+            {
                 return invalid("an outfit name must have 1 to 64 bytes and no control characters");
             }
             if ids.len() > MAX_APPEARANCE_CATEGORY as usize + 1 {
-                return too_many("appearances in one outfit", MAX_APPEARANCE_CATEGORY as usize + 1);
+                return too_many(
+                    "appearances in one outfit",
+                    MAX_APPEARANCE_CATEGORY as usize + 1,
+                );
             }
         }
 
@@ -635,7 +695,12 @@ impl PortableCharacter {
             return too_many("settings sources", MAX_SETTINGS);
         }
         for (source, values) in &self.settings {
-            if source.is_empty() || source.len() > MAX_SETTING_SOURCE_BYTES || !source.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-:".contains(&c)) {
+            if source.is_empty()
+                || source.len() > MAX_SETTING_SOURCE_BYTES
+                || !source
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"._-:".contains(&c))
+            {
                 return invalid(format!("invalid settings source {source:?}"));
             }
             if values.len() > MAX_SETTING_VALUES {
@@ -647,7 +712,9 @@ impl PortableCharacter {
         }
         for blob in self.client_data.values() {
             if blob.data.0.len() > MAX_CLIENT_BLOB_BYTES {
-                return Err(PortableError::LimitExceeded(format!("a client data blob is larger than {MAX_CLIENT_BLOB_BYTES} bytes")));
+                return Err(PortableError::LimitExceeded(format!(
+                    "a client data blob is larger than {MAX_CLIENT_BLOB_BYTES} bytes"
+                )));
             }
         }
         if self.extensions.len() > MAX_EXTENSIONS {
@@ -658,19 +725,28 @@ impl PortableCharacter {
             if !valid_namespace(namespace) {
                 return invalid(format!("invalid extension namespace {namespace:?}"));
             }
-            if ext.format_version == 0 || ext.module_version.is_empty() || ext.module_version.len() > 64 {
+            if ext.format_version == 0
+                || ext.module_version.is_empty()
+                || ext.module_version.len() > 64
+            {
                 return invalid(format!("extension {namespace} has an invalid version"));
             }
             if ext.payload.0.len() > MAX_EXTENSION_BYTES {
-                return Err(PortableError::LimitExceeded(format!("extension {namespace} is larger than {MAX_EXTENSION_BYTES} bytes")));
+                return Err(PortableError::LimitExceeded(format!(
+                    "extension {namespace} is larger than {MAX_EXTENSION_BYTES} bytes"
+                )));
             }
             if !ext.is_intact() {
-                return Err(PortableError::CorruptSnapshot(format!("extension {namespace} does not match its content hash")));
+                return Err(PortableError::CorruptSnapshot(format!(
+                    "extension {namespace} does not match its content hash"
+                )));
             }
             total += ext.payload.0.len();
         }
         if total > MAX_EXTENSIONS_TOTAL_BYTES {
-            return Err(PortableError::LimitExceeded(format!("extensions are larger than {MAX_EXTENSIONS_TOTAL_BYTES} bytes together")));
+            return Err(PortableError::LimitExceeded(format!(
+                "extensions are larger than {MAX_EXTENSIONS_TOTAL_BYTES} bytes together"
+            )));
         }
         Ok(())
     }
@@ -679,7 +755,8 @@ impl PortableCharacter {
         if self.items.len() > MAX_ITEMS {
             return too_many("items", MAX_ITEMS);
         }
-        let mut by_id: HashMap<PortableItemId, &PortableItem> = HashMap::with_capacity(self.items.len());
+        let mut by_id: HashMap<PortableItemId, &PortableItem> =
+            HashMap::with_capacity(self.items.len());
         for item in &self.items {
             if by_id.insert(item.id, item).is_some() {
                 return invalid("two items have the same id");
@@ -711,8 +788,14 @@ impl PortableCharacter {
             }
             if let Some(container) = item.container {
                 match by_id.get(&container) {
-                    None => return invalid("an item is in a container that is not part of the character"),
-                    Some(c) if c.container.is_some() => return invalid("a container must be directly on the character"),
+                    None => {
+                        return invalid(
+                            "an item is in a container that is not part of the character",
+                        )
+                    }
+                    Some(c) if c.container.is_some() => {
+                        return invalid("a container must be directly on the character")
+                    }
                     Some(_) => {}
                 }
             }
@@ -723,4 +806,3 @@ impl PortableCharacter {
         Ok(())
     }
 }
-

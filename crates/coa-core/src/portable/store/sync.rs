@@ -74,7 +74,13 @@ fn pet_presence(protection: &PetProtection, id: PortablePetId) -> Presence {
     }
 }
 
-fn retire_pet(tx: &Transaction<'_>, mapping_id: i64, reason: RetireReason, revision: u64, at: &str) -> Result<()> {
+fn retire_pet(
+    tx: &Transaction<'_>,
+    mapping_id: i64,
+    reason: RetireReason,
+    revision: u64,
+    at: &str,
+) -> Result<()> {
     tx.execute(
         "UPDATE pet_mapping SET state = 'retired', retired_revision = ?1, retired_reason = ?2, updated_at = ?3 WHERE mapping_id = ?4",
         params![revision as i64, reason.as_str(), at, mapping_id],
@@ -82,7 +88,13 @@ fn retire_pet(tx: &Transaction<'_>, mapping_id: i64, reason: RetireReason, revis
     Ok(())
 }
 
-pub(super) fn retire_all_pets(tx: &Transaction<'_>, id: CharacterId, server_id: &str, reason: RetireReason, revision: u64) -> Result<usize> {
+pub(super) fn retire_all_pets(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    reason: RetireReason,
+    revision: u64,
+) -> Result<usize> {
     Ok(tx.execute(
         "UPDATE pet_mapping SET state = 'retired', retired_revision = ?1, retired_reason = ?2, updated_at = ?3 WHERE character_id = ?4 AND server_id = ?5 AND state = 'active'",
         params![revision as i64, reason.as_str(), now(), id.to_string(), server_id],
@@ -90,12 +102,24 @@ pub(super) fn retire_all_pets(tx: &Transaction<'_>, id: CharacterId, server_id: 
 }
 
 /// The pet twin of `reconcile_with`: bring the pet mappings in line with what the realm shows.
-pub(super) fn sync_pets_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revision: u64, observations: &[PetObservation], protection: &PetProtection) -> Result<PetSyncReport> {
+pub(super) fn sync_pets_in_tx(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    revision: u64,
+    observations: &[PetObservation],
+    protection: &PetProtection,
+) -> Result<PetSyncReport> {
     let mut seen_pets = HashSet::new();
     let mut seen_numbers = HashSet::new();
     for o in observations {
-        if !seen_pets.insert(o.portable_pet_id) || !seen_numbers.insert(o.local_pet_number) || o.identity.is_empty() {
-            return Err(PortableError::Invalid("pet observations must be unique and carry an identity".into()));
+        if !seen_pets.insert(o.portable_pet_id)
+            || !seen_numbers.insert(o.local_pet_number)
+            || o.identity.is_empty()
+        {
+            return Err(PortableError::Invalid(
+                "pet observations must be unique and carry an identity".into(),
+            ));
         }
     }
     let at = now();
@@ -136,13 +160,23 @@ pub(super) fn sync_pets_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: 
         report.added += 1;
     }
     let mut stmt = tx.prepare("SELECT mapping_id, portable_pet_id FROM pet_mapping WHERE character_id = ?1 AND server_id = ?2 AND state = 'active'")?;
-    let active: Vec<(i64, String)> = stmt.query_map(params![id.to_string(), server_id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+    let active: Vec<(i64, String)> = stmt
+        .query_map(params![id.to_string(), server_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
+        .collect::<std::result::Result<_, _>>()?;
     drop(stmt);
     for (mapping_id, pet) in active {
-        if observations.iter().any(|o| o.portable_pet_id.to_string() == pet) {
+        if observations
+            .iter()
+            .any(|o| o.portable_pet_id.to_string() == pet)
+        {
             continue;
         }
-        let owned = pet.parse::<PortablePetId>().map(|p| protection.canonical_pets.contains(&p)).unwrap_or(false);
+        let owned = pet
+            .parse::<PortablePetId>()
+            .map(|p| protection.canonical_pets.contains(&p))
+            .unwrap_or(false);
         if owned {
             tx.execute("UPDATE pet_mapping SET presence = 'filtered', updated_at = ?2 WHERE mapping_id = ?1", params![mapping_id, at])?;
             report.filtered += 1;
@@ -155,7 +189,13 @@ pub(super) fn sync_pets_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: 
 }
 
 /// Mappings for pets that are new on a realm (an import or an update added them): no observation of the others.
-pub(super) fn add_pet_mappings(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revision: u64, pets: &[(PortablePetId, u32, String)]) -> Result<()> {
+pub(super) fn add_pet_mappings(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    revision: u64,
+    pets: &[(PortablePetId, u32, String)],
+) -> Result<()> {
     let at = now();
     for (pet, number, identity) in pets {
         tx.execute(
@@ -167,7 +207,13 @@ pub(super) fn add_pet_mappings(tx: &Transaction<'_>, id: CharacterId, server_id:
     Ok(())
 }
 
-pub(super) fn retire_pets_by_id(tx: &Transaction<'_>, id: CharacterId, server_id: &str, pets: &[PortablePetId], revision: u64) -> Result<()> {
+pub(super) fn retire_pets_by_id(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    pets: &[PortablePetId],
+    revision: u64,
+) -> Result<()> {
     let at = now();
     for pet in pets {
         tx.execute(
@@ -179,7 +225,13 @@ pub(super) fn retire_pets_by_id(tx: &Transaction<'_>, id: CharacterId, server_id
     Ok(())
 }
 
-pub(super) fn retire_items_by_id(tx: &Transaction<'_>, id: CharacterId, server_id: &str, items: &[PortableItemId], revision: u64) -> Result<()> {
+pub(super) fn retire_items_by_id(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    items: &[PortableItemId],
+    revision: u64,
+) -> Result<()> {
     let at = now();
     for item in items {
         tx.execute(
@@ -192,7 +244,13 @@ pub(super) fn retire_items_by_id(tx: &Transaction<'_>, id: CharacterId, server_i
 }
 
 /// Item mappings for items that are new on a realm.
-pub(super) fn add_item_mappings(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revision: u64, items: &[(PortableItemId, u32, ContentId, String)]) -> Result<()> {
+pub(super) fn add_item_mappings(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    revision: u64,
+    items: &[(PortableItemId, u32, ContentId, String)],
+) -> Result<()> {
     let at = now();
     for (item, guid, entry, identity) in items {
         tx.execute(
@@ -204,7 +262,12 @@ pub(super) fn add_item_mappings(tx: &Transaction<'_>, id: CharacterId, server_id
     Ok(())
 }
 
-fn read_pet_mappings(conn: &Connection, id: CharacterId, server_id: &str, include_retired: bool) -> Result<Vec<PetMapping>> {
+fn read_pet_mappings(
+    conn: &Connection,
+    id: CharacterId,
+    server_id: &str,
+    include_retired: bool,
+) -> Result<Vec<PetMapping>> {
     let sql = format!(
         "SELECT portable_pet_id, local_pet_number, identity, state, presence, created_revision, confirmed_revision, retired_revision, retired_reason FROM pet_mapping
          WHERE character_id = ?1 AND server_id = ?2 {} ORDER BY mapping_id",
@@ -212,7 +275,17 @@ fn read_pet_mappings(conn: &Connection, id: CharacterId, server_id: &str, includ
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![id.to_string(), server_id], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, i64>(5)?, r.get::<_, i64>(6)?, r.get::<_, Option<i64>>(7)?, r.get::<_, Option<String>>(8)?))
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+            r.get::<_, i64>(5)?,
+            r.get::<_, i64>(6)?,
+            r.get::<_, Option<i64>>(7)?,
+            r.get::<_, Option<String>>(8)?,
+        ))
     })?;
     let mut out = Vec::new();
     for row in rows {
@@ -234,13 +307,20 @@ fn read_pet_mappings(conn: &Connection, id: CharacterId, server_id: &str, includ
 
 // ---- synced snapshot ----------------------------------------------------------------------------------------------------------
 
-pub(super) fn set_synced_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, encoded: &EncodedSnapshot) -> Result<()> {
+pub(super) fn set_synced_in_tx(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    encoded: &EncodedSnapshot,
+) -> Result<()> {
     let changed = tx.execute(
         "UPDATE character_server_mapping SET synced_hash = ?3, synced_payload = ?4, updated_at = ?5 WHERE character_id = ?1 AND server_id = ?2",
         params![id.to_string(), server_id, encoded.content_hash.as_slice(), encoded.payload, now()],
     )?;
     if changed == 0 {
-        return Err(PortableError::Invalid(format!("character {id} is not bound to server {server_id}")));
+        return Err(PortableError::Invalid(format!(
+            "character {id} is not bound to server {server_id}"
+        )));
     }
     Ok(())
 }
@@ -271,7 +351,14 @@ pub struct BaselineInput<'a> {
 }
 
 impl Store {
-    pub fn sync_pet_mappings(&mut self, id: CharacterId, server_id: &str, revision: u64, observations: &[PetObservation], protection: &PetProtection) -> Result<PetSyncReport> {
+    pub fn sync_pet_mappings(
+        &mut self,
+        id: CharacterId,
+        server_id: &str,
+        revision: u64,
+        observations: &[PetObservation],
+        protection: &PetProtection,
+    ) -> Result<PetSyncReport> {
         check_server_id(server_id)?;
         let tx = self.write_tx()?;
         let report = sync_pets_in_tx(&tx, id, server_id, revision, observations, protection)?;
@@ -279,8 +366,15 @@ impl Store {
         Ok(report)
     }
 
-    pub fn active_pet_lookup(&self, id: CharacterId, server_id: &str) -> Result<HashMap<u32, (PortablePetId, String)>> {
-        Ok(read_pet_mappings(&self.conn, id, server_id, false)?.into_iter().map(|m| (m.local_pet_number, (m.portable_pet_id, m.identity))).collect())
+    pub fn active_pet_lookup(
+        &self,
+        id: CharacterId,
+        server_id: &str,
+    ) -> Result<HashMap<u32, (PortablePetId, String)>> {
+        Ok(read_pet_mappings(&self.conn, id, server_id, false)?
+            .into_iter()
+            .map(|m| (m.local_pet_number, (m.portable_pet_id, m.identity)))
+            .collect())
     }
 
     pub fn pet_mappings(&self, id: CharacterId, server_id: &str) -> Result<Vec<PetMapping>> {
@@ -292,22 +386,36 @@ impl Store {
     }
 
     /// The canonical snapshot a realm was last synchronised with: the base of the next in-place update.
-    pub fn synced_model(&self, id: CharacterId, server_id: &str) -> Result<Option<PortableCharacter>> {
+    pub fn synced_model(
+        &self,
+        id: CharacterId,
+        server_id: &str,
+    ) -> Result<Option<PortableCharacter>> {
         let row: Option<(Option<Vec<u8>>, Option<Vec<u8>>)> = self
             .conn
             .query_row("SELECT synced_hash, synced_payload FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?;
         match row {
-            Some((Some(hash), Some(payload))) => Ok(Some(snapshot::decode(&payload, Some(&hash_from_blob(hash)?))?)),
+            Some((Some(hash), Some(payload))) => Ok(Some(snapshot::decode(
+                &payload,
+                Some(&hash_from_blob(hash)?),
+            )?)),
             Some(_) => Ok(None),
-            None => Err(PortableError::Invalid(format!("character {id} is not bound to server {server_id}"))),
+            None => Err(PortableError::Invalid(format!(
+                "character {id} is not bound to server {server_id}"
+            ))),
         }
     }
 
     /// Persist the baseline of a session: `C0` (the snapshot the realm was synchronised with) and `B0` (what the realm shows
     /// after its own normalisation). Classifies the realm's items and pets: owned by the character but not shown by the realm
     /// = **filtered** (kept, mapping stays active); shown by the realm but not owned = **realm-local** (never merged).
-    pub fn capture_baseline(&mut self, id: CharacterId, server_id: &str, input: BaselineInput<'_>) -> Result<Baseline> {
+    pub fn capture_baseline(
+        &mut self,
+        id: CharacterId,
+        server_id: &str,
+        input: BaselineInput<'_>,
+    ) -> Result<Baseline> {
         check_server_id(server_id)?;
         let tx = self.write_tx()?;
         let baseline = capture_baseline_in_tx(&tx, id, server_id, &input)?;
@@ -331,21 +439,42 @@ impl Store {
     /// Turn a reconciled character into the next canonical revision, in **one** local transaction: the new snapshot, the
     /// session head, the realm's item/pet mappings as of `B1`, and the realm's synced snapshot.
     /// The canonical character must still be exactly what this session produced last (no foreign progress in between).
-    pub fn commit_reconciled(&mut self, id: CharacterId, server_id: &str, merged: PortableCharacter, b1_items: &[ItemObservation], b1_pets: &[PetObservation], note: Option<&str>) -> Result<u64> {
+    pub fn commit_reconciled(
+        &mut self,
+        id: CharacterId,
+        server_id: &str,
+        merged: PortableCharacter,
+        b1_items: &[ItemObservation],
+        b1_pets: &[PetObservation],
+        note: Option<&str>,
+    ) -> Result<u64> {
         check_server_id(server_id)?;
         if merged.character_id != id {
-            return Err(PortableError::WrongCharacter { expected: id, found: merged.character_id });
+            return Err(PortableError::WrongCharacter {
+                expected: id,
+                found: merged.character_id,
+            });
         }
         let encoded = snapshot::encode(&merged)?;
         let keep = self.history_keep()?;
         let tx = self.write_tx()?;
-        let baseline = read_open_baseline(&tx, id, server_id)?.ok_or_else(|| PortableError::Invalid("there is no open session baseline for this character on this realm".into()))?;
+        let baseline = read_open_baseline(&tx, id, server_id)?.ok_or_else(|| {
+            PortableError::Invalid(
+                "there is no open session baseline for this character on this realm".into(),
+            )
+        })?;
         let record = read_character(&tx, id)?;
         if record.ruleset != merged.ruleset {
-            return Err(PortableError::RulesetChange { from: record.ruleset.to_string(), to: merged.ruleset.to_string() });
+            return Err(PortableError::RulesetChange {
+                from: record.ruleset.to_string(),
+                to: merged.ruleset.to_string(),
+            });
         }
         if record.revision != baseline.head_revision {
-            return Err(PortableError::StaleRevision { expected: baseline.head_revision, current: record.revision });
+            return Err(PortableError::StaleRevision {
+                expected: baseline.head_revision,
+                current: record.revision,
+            });
         }
         let at = now();
         // a session that changed nothing (or only what the realm normalised) makes no new revision
@@ -365,10 +494,24 @@ impl Store {
         };
 
         let owned_items: HashSet<PortableItemId> = merged.items.iter().map(|i| i.id).collect();
-        let protection = Protection { realm_local_items: b1_items.iter().map(|o| o.portable_item_id).filter(|i| !owned_items.contains(i)).collect(), canonical_items: owned_items };
+        let protection = Protection {
+            realm_local_items: b1_items
+                .iter()
+                .map(|o| o.portable_item_id)
+                .filter(|i| !owned_items.contains(i))
+                .collect(),
+            canonical_items: owned_items,
+        };
         reconcile_with(&tx, id, server_id, revision, b1_items, &protection)?;
         let owned_pets: HashSet<PortablePetId> = merged.pets.iter().map(|p| p.id).collect();
-        let pet_protection = PetProtection { realm_local_pets: b1_pets.iter().map(|o| o.portable_pet_id).filter(|p| !owned_pets.contains(p)).collect(), canonical_pets: owned_pets };
+        let pet_protection = PetProtection {
+            realm_local_pets: b1_pets
+                .iter()
+                .map(|o| o.portable_pet_id)
+                .filter(|p| !owned_pets.contains(p))
+                .collect(),
+            canonical_pets: owned_pets,
+        };
         sync_pets_in_tx(&tx, id, server_id, revision, b1_pets, &pet_protection)?;
 
         tx.execute(
@@ -381,52 +524,113 @@ impl Store {
     }
 }
 
-pub(super) fn synced_model_in(conn: &Connection, id: CharacterId, server_id: &str) -> Result<Option<PortableCharacter>> {
+pub(super) fn synced_model_in(
+    conn: &Connection,
+    id: CharacterId,
+    server_id: &str,
+) -> Result<Option<PortableCharacter>> {
     let row: Option<(Option<Vec<u8>>, Option<Vec<u8>>)> = conn
         .query_row("SELECT synced_hash, synced_payload FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()?;
     match row {
-        Some((Some(hash), Some(payload))) => Ok(Some(snapshot::decode(&payload, Some(&hash_from_blob(hash)?))?)),
+        Some((Some(hash), Some(payload))) => Ok(Some(snapshot::decode(
+            &payload,
+            Some(&hash_from_blob(hash)?),
+        )?)),
         Some(_) => Ok(None),
-        None => Err(PortableError::Invalid(format!("character {id} is not bound to server {server_id}"))),
+        None => Err(PortableError::Invalid(format!(
+            "character {id} is not bound to server {server_id}"
+        ))),
     }
 }
 
 /// Persist the baseline of a session inside a transaction: `C0` is the snapshot the realm was synchronised with, `B0` what the
 /// realm shows after its own normalisation. Items and pets the canonical character owns but the realm does not show are
 /// **filtered** (kept, mapping stays active); shown but not owned = **realm-local** (never merged).
-pub(super) fn capture_baseline_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, input: &BaselineInput<'_>) -> Result<Baseline> {
-    let c0 = synced_model_in(tx, id, server_id)?.ok_or_else(|| PortableError::Invalid("the realm has no synchronised snapshot to use as the session base".into()))?;
+pub(super) fn capture_baseline_in_tx(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    input: &BaselineInput<'_>,
+) -> Result<Baseline> {
+    let c0 = synced_model_in(tx, id, server_id)?.ok_or_else(|| {
+        PortableError::Invalid(
+            "the realm has no synchronised snapshot to use as the session base".into(),
+        )
+    })?;
     if input.b0.character_id != id || input.b0.ruleset != c0.ruleset {
-        return Err(PortableError::WrongCharacter { expected: id, found: input.b0.character_id });
+        return Err(PortableError::WrongCharacter {
+            expected: id,
+            found: input.b0.character_id,
+        });
     }
     let record = read_character(tx, id)?;
     let mapping_revision: i64 = tx.query_row("SELECT last_revision FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![id.to_string(), server_id], |r| r.get(0))?;
     if record.revision != mapping_revision as u64 {
-        return Err(PortableError::StaleRevision { expected: mapping_revision as u64, current: record.revision });
+        return Err(PortableError::StaleRevision {
+            expected: mapping_revision as u64,
+            current: record.revision,
+        });
     }
     let open: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM realm_baseline WHERE character_id = ?1 AND server_id = ?2 AND state = 'open')", params![id.to_string(), server_id], |r| r.get(0))?;
     if open {
-        return Err(PortableError::Invalid("this character already has an open session baseline on this realm".into()));
+        return Err(PortableError::Invalid(
+            "this character already has an open session baseline on this realm".into(),
+        ));
     }
     let c0_enc = snapshot::encode(&c0)?;
     let b0_enc = snapshot::encode(input.b0)?;
     let c0_items: HashSet<PortableItemId> = c0.items.iter().map(|i| i.id).collect();
     let c0_pets: HashSet<PortablePetId> = c0.pets.iter().map(|p| p.id).collect();
-    let protection = Protection { realm_local_items: input.items.iter().map(|o| o.portable_item_id).filter(|i| !c0_items.contains(i)).collect(), canonical_items: c0_items };
+    let protection = Protection {
+        realm_local_items: input
+            .items
+            .iter()
+            .map(|o| o.portable_item_id)
+            .filter(|i| !c0_items.contains(i))
+            .collect(),
+        canonical_items: c0_items,
+    };
     reconcile_with(tx, id, server_id, record.revision, input.items, &protection)?;
-    let pet_protection = PetProtection { realm_local_pets: input.pets.iter().map(|o| o.portable_pet_id).filter(|p| !c0_pets.contains(p)).collect(), canonical_pets: c0_pets };
-    sync_pets_in_tx(tx, id, server_id, record.revision, input.pets, &pet_protection)?;
+    let pet_protection = PetProtection {
+        realm_local_pets: input
+            .pets
+            .iter()
+            .map(|o| o.portable_pet_id)
+            .filter(|p| !c0_pets.contains(p))
+            .collect(),
+        canonical_pets: c0_pets,
+    };
+    sync_pets_in_tx(
+        tx,
+        id,
+        server_id,
+        record.revision,
+        input.pets,
+        &pet_protection,
+    )?;
     let at = now();
     tx.execute(
         "INSERT INTO realm_baseline(character_id, server_id, c0_revision, head_revision, state, c0_hash, c0_payload, b0_hash, b0_payload, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?3, 'open', ?4, ?5, ?6, ?7, ?8, ?8)",
         params![id.to_string(), server_id, record.revision as i64, c0_enc.content_hash.as_slice(), c0_enc.payload, b0_enc.content_hash.as_slice(), b0_enc.payload, at],
     )?;
-    Ok(Baseline { character_id: id, server_id: server_id.to_string(), c0_revision: record.revision, head_revision: record.revision, c0, b0: input.b0.clone(), created_at: at })
+    Ok(Baseline {
+        character_id: id,
+        server_id: server_id.to_string(),
+        c0_revision: record.revision,
+        head_revision: record.revision,
+        c0,
+        b0: input.b0.clone(),
+        created_at: at,
+    })
 }
 
-pub(super) fn read_open_baseline(conn: &Connection, id: CharacterId, server_id: &str) -> Result<Option<Baseline>> {
+pub(super) fn read_open_baseline(
+    conn: &Connection,
+    id: CharacterId,
+    server_id: &str,
+) -> Result<Option<Baseline>> {
     type Row = (i64, i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, String);
     let row: Option<Row> = conn
         .query_row(
@@ -435,7 +639,10 @@ pub(super) fn read_open_baseline(conn: &Connection, id: CharacterId, server_id: 
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
         )
         .optional()?;
-    let Some((c0_revision, head, c0_hash, c0_payload, b0_hash, b0_payload, created_at)) = row else { return Ok(None) };
+    let Some((c0_revision, head, c0_hash, c0_payload, b0_hash, b0_payload, created_at)) = row
+    else {
+        return Ok(None);
+    };
     Ok(Some(Baseline {
         character_id: id,
         server_id: server_id.to_string(),

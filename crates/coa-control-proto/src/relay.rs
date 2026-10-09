@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use uuid::Uuid;
 
-
 pub const RELAY_PROTOCOL_VERSION: u32 = 1;
 
 /// Default local targets that the Host opens for game traffic.
@@ -61,7 +60,7 @@ pub struct RelayWelcome {
 
 /// Messages multiplexed across the Host <-> Relay tunnel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "cmd", rename_all = "snake_case")]
+#[serde(tag = "cmd", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TunnelMsg {
     /// Host asks Relay to allocate a game session for a player.
     Allocate {
@@ -120,7 +119,11 @@ pub enum TunnelMsg {
 }
 
 fn relay_input(realm: &RealmId, nonce: &str) -> Vec<u8> {
-    format!("coa-relay-host-v1\n{}\n{realm}\n{nonce}", RELAY_PROTOCOL_VERSION).into_bytes()
+    format!(
+        "coa-relay-host-v1\n{}\n{realm}\n{nonce}",
+        RELAY_PROTOCOL_VERSION
+    )
+    .into_bytes()
 }
 
 /// Create a signature over (realm_id, nonce) using the realm's signing key.
@@ -130,12 +133,21 @@ pub fn sign_relay_challenge(key: &SigningKey, realm_id: &RealmId, nonce: &str) -
 }
 
 /// Verify a signature over (realm_id, nonce) using the realm's verifying key.
-pub fn verify_relay_challenge(key: &VerifyingKey, realm_id: &RealmId, nonce: &str, sig_hex: &str) -> bool {
-    let Ok(sig_bytes) = hex::decode(sig_hex) else { return false };
-    let Ok(sig) = Signature::from_slice(&sig_bytes) else { return false };
-    key.verify_strict(&relay_input(realm_id, nonce), &sig).is_ok()
+pub fn verify_relay_challenge(
+    key: &VerifyingKey,
+    realm_id: &RealmId,
+    nonce: &str,
+    sig_hex: &str,
+) -> bool {
+    let Ok(sig_bytes) = hex::decode(sig_hex) else {
+        return false;
+    };
+    let Ok(sig) = Signature::from_slice(&sig_bytes) else {
+        return false;
+    };
+    key.verify_strict(&relay_input(realm_id, nonce), &sig)
+        .is_ok()
 }
-
 
 /// Rewrites the realm address in a WoW 3.3.5 REALM_LIST response packet (Opcode 0x10).
 ///
@@ -159,7 +171,10 @@ pub fn verify_relay_challenge(key: &VerifyingKey, realm_id: &RealmId, nonce: &st
 ///
 /// Replaces the address of the first realm (or matches) with `new_host_port` and adjusts
 /// the uint16 length at bytes 1..2 by the byte length delta.
-pub fn rewrite_realm_list_address(pkt: &[u8], new_host_port: &str) -> Result<Option<Vec<u8>>, String> {
+pub fn rewrite_realm_list_address(
+    pkt: &[u8],
+    new_host_port: &str,
+) -> Result<Option<Vec<u8>>, String> {
     if pkt.is_empty() || pkt[0] != 0x10 {
         return Ok(None);
     }
@@ -181,20 +196,35 @@ pub fn rewrite_realm_list_address(pkt: &[u8], new_host_port: &str) -> Result<Opt
     }
     pos += 3; // type, lock, flag
 
-    let name_end = pkt[pos..].iter().position(|&b| b == 0).ok_or("unterminated realm name")? + pos;
+    let name_end = pkt[pos..]
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or("unterminated realm name")?
+        + pos;
     pos = name_end + 1;
 
     let addr_start = pos;
-    let addr_end = pkt[pos..].iter().position(|&b| b == 0).ok_or("unterminated realm address")? + pos;
+    let addr_end = pkt[pos..]
+        .iter()
+        .position(|&b| b == 0)
+        .ok_or("unterminated realm address")?
+        + pos;
     let old_addr = &pkt[addr_start..addr_end];
+
+    if new_host_port.len() > 255 {
+        return Err("new host:port exceeds maximum address length".into());
+    }
+    let diff = new_host_port.len() as isize - old_addr.len() as isize;
+    let new_body_len_isize = body_len as isize + diff;
+    if !(0..=u16::MAX as isize).contains(&new_body_len_isize) {
+        return Err("adjusted body length out of bounds".into());
+    }
+    let new_body_len = new_body_len_isize as u16;
 
     let mut out = Vec::with_capacity(pkt.len() + new_host_port.len() + 1);
     out.extend_from_slice(&pkt[..addr_start]);
     out.extend_from_slice(new_host_port.as_bytes());
     out.extend_from_slice(&pkt[addr_end..]);
-
-    let diff = new_host_port.len() as isize - old_addr.len() as isize;
-    let new_body_len = (body_len as isize + diff) as u16;
     out[1..3].copy_from_slice(&new_body_len.to_le_bytes());
 
     Ok(Some(out))
@@ -213,12 +243,27 @@ mod tests {
         let nonce = "test-challenge-nonce-123";
 
         let sig = sign_relay_challenge(&key, &realm, nonce);
-        assert!(verify_relay_challenge(&key.verifying_key(), &realm, nonce, &sig));
+        assert!(verify_relay_challenge(
+            &key.verifying_key(),
+            &realm,
+            nonce,
+            &sig
+        ));
 
         // Wrong nonce
-        assert!(!verify_relay_challenge(&key.verifying_key(), &realm, "other-nonce", &sig));
+        assert!(!verify_relay_challenge(
+            &key.verifying_key(),
+            &realm,
+            "other-nonce",
+            &sig
+        ));
         // Wrong realm
-        assert!(!verify_relay_challenge(&key.verifying_key(), &RealmId::new(), nonce, &sig));
+        assert!(!verify_relay_challenge(
+            &key.verifying_key(),
+            &RealmId::new(),
+            nonce,
+            &sig
+        ));
     }
 
     #[test]
@@ -250,7 +295,9 @@ mod tests {
 
         // Rewrite
         let new_target = "coa-manager.duckdns.org:40005";
-        let res = rewrite_realm_list_address(&pkt, new_target).unwrap().expect("rewritten");
+        let res = rewrite_realm_list_address(&pkt, new_target)
+            .unwrap()
+            .expect("rewritten");
 
         assert_eq!(res[0], 0x10);
         let new_len = u16::from_le_bytes([res[1], res[2]]) as usize;

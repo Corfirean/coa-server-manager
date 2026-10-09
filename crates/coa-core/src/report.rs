@@ -21,20 +21,35 @@ fn repo_of(url: &str) -> Option<String> {
     let rest = url.strip_prefix("https://github.com/")?;
     let mut parts = rest.split('/');
     let (owner, name) = (parts.next()?, parts.next()?);
-    let ok = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+    let ok = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+    };
     (ok(owner) && ok(name)).then(|| format!("{owner}/{name}"))
 }
 
 fn catalog_repo(id: &str) -> Option<String> {
-    crate::modules::catalog().into_iter().find(|e| e.id == id).and_then(|e| repo_of(&e.repo))
+    crate::modules::catalog()
+        .into_iter()
+        .find(|e| e.id == id)
+        .and_then(|e| repo_of(&e.repo))
 }
 
 /// The three places, in the order the page lists them. A bot system whose repository is unknown falls back to the Manager's.
 pub fn targets() -> Vec<Target> {
-    let mut v = vec![Target { id: "manager", repo: MANAGER_REPO.into(), ours: true }];
+    let mut v = vec![Target {
+        id: "manager",
+        repo: MANAGER_REPO.into(),
+        ours: true,
+    }];
     for (id, module) in [("companions", "companions"), ("squid", "playerbots")] {
         if let Some(repo) = catalog_repo(module) {
-            v.push(Target { id, repo: repo.clone(), ours: repo.starts_with("Corfirean/") });
+            v.push(Target {
+                id,
+                repo: repo.clone(),
+                ours: repo.starts_with("Corfirean/"),
+            });
         }
     }
     v
@@ -63,11 +78,23 @@ pub struct Bots {
 
 pub fn bots(root: &Path) -> Bots {
     let list = crate::modules::list(root);
-    let on = |id: &str| list.iter().find(|m| m.id == id).filter(|m| m.installed && m.enabled);
+    let on = |id: &str| {
+        list.iter()
+            .find(|m| m.id == id)
+            .filter(|m| m.installed && m.enabled)
+    };
     let squid = on("playerbots");
     Bots {
-        suggested: if squid.is_some() { "squid" } else if on("companions").is_some() { "companions" } else { "manager" },
-        squid_version: squid.and_then(|m| m.version.clone()).filter(|v| !v.is_empty()),
+        suggested: if squid.is_some() {
+            "squid"
+        } else if on("companions").is_some() {
+            "companions"
+        } else {
+            "manager"
+        },
+        squid_version: squid
+            .and_then(|m| m.version.clone())
+            .filter(|v| !v.is_empty()),
     }
 }
 
@@ -79,27 +106,50 @@ mod tests {
     fn the_three_targets_come_from_the_catalog() {
         let t = targets();
         let repo = |id: &str| t.iter().find(|x| x.id == id).map(|x| x.repo.clone());
-        assert_eq!(repo("manager").as_deref(), Some("Corfirean/coa-server-manager"));
-        assert_eq!(repo("companions").as_deref(), Some("Corfirean/mod-coa-playerbots"));
+        assert_eq!(
+            repo("manager").as_deref(),
+            Some("Corfirean/coa-server-manager")
+        );
+        assert_eq!(
+            repo("companions").as_deref(),
+            Some("Corfirean/mod-coa-playerbots")
+        );
         assert_eq!(repo("squid").as_deref(), Some("Zyth45/mod-playerbots"));
         assert!(t.iter().find(|x| x.id == "squid").is_some_and(|x| !x.ours));
     }
 
     #[test]
     fn repository_names_are_read_from_module_links() {
-        assert_eq!(repo_of("https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/x").as_deref(), Some("Corfirean/azerothcore-wotlk-coa"));
-        assert_eq!(repo_of("https://github.com/Zyth45/mod-playerbots").as_deref(), Some("Zyth45/mod-playerbots"));
+        assert_eq!(
+            repo_of("https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/x")
+                .as_deref(),
+            Some("Corfirean/azerothcore-wotlk-coa")
+        );
+        assert_eq!(
+            repo_of("https://github.com/Zyth45/mod-playerbots").as_deref(),
+            Some("Zyth45/mod-playerbots")
+        );
         assert_eq!(repo_of("https://example.com/a/b"), None);
         assert_eq!(repo_of("https://github.com/a"), None);
     }
 
     #[test]
     fn only_the_new_issue_pages_of_the_targets_are_allowed() {
-        assert!(is_new_issue_url("https://github.com/Zyth45/mod-playerbots/issues/new"));
-        assert!(is_new_issue_url("https://github.com/Corfirean/mod-coa-playerbots/issues/new?title=a&body=b"));
-        assert!(!is_new_issue_url("https://github.com/Zyth45/mod-playerbots/issues/newer"));
-        assert!(!is_new_issue_url("https://github.com/Zyth45/other/issues/new"));
-        assert!(!is_new_issue_url("https://evil.example/Corfirean/coa-server-manager/issues/new"));
+        assert!(is_new_issue_url(
+            "https://github.com/Zyth45/mod-playerbots/issues/new"
+        ));
+        assert!(is_new_issue_url(
+            "https://github.com/Corfirean/mod-coa-playerbots/issues/new?title=a&body=b"
+        ));
+        assert!(!is_new_issue_url(
+            "https://github.com/Zyth45/mod-playerbots/issues/newer"
+        ));
+        assert!(!is_new_issue_url(
+            "https://github.com/Zyth45/other/issues/new"
+        ));
+        assert!(!is_new_issue_url(
+            "https://evil.example/Corfirean/coa-server-manager/issues/new"
+        ));
     }
 
     #[test]

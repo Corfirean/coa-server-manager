@@ -34,9 +34,15 @@ pub enum ExtensionCompatibility {
     /// The realm does not have the module (or no adapter serves it): the payload stays canonical, the realm receives nothing.
     MissingOnRealm,
     /// The payload is older than the oldest format the realm understands.
-    FormatTooOld { payload: u32, realm: FormatRange },
+    FormatTooOld {
+        payload: u32,
+        realm: FormatRange,
+    },
     /// The payload is newer than the newest format the realm understands.
-    FormatTooNew { payload: u32, realm: FormatRange },
+    FormatTooNew {
+        payload: u32,
+        realm: FormatRange,
+    },
     /// The adapter refuses for its own reason.
     Incompatible(String),
 }
@@ -51,9 +57,17 @@ impl std::fmt::Display for ExtensionCompatibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExtensionCompatibility::Compatible => f.write_str("compatible"),
-            ExtensionCompatibility::MissingOnRealm => f.write_str("the realm does not have this module"),
-            ExtensionCompatibility::FormatTooOld { payload, realm } => write!(f, "the payload is format {payload}, older than the {realm} the realm understands"),
-            ExtensionCompatibility::FormatTooNew { payload, realm } => write!(f, "the payload is format {payload}, newer than the {realm} the realm understands"),
+            ExtensionCompatibility::MissingOnRealm => {
+                f.write_str("the realm does not have this module")
+            }
+            ExtensionCompatibility::FormatTooOld { payload, realm } => write!(
+                f,
+                "the payload is format {payload}, older than the {realm} the realm understands"
+            ),
+            ExtensionCompatibility::FormatTooNew { payload, realm } => write!(
+                f,
+                "the payload is format {payload}, newer than the {realm} the realm understands"
+            ),
             ExtensionCompatibility::Incompatible(why) => write!(f, "incompatible: {why}"),
         }
     }
@@ -76,18 +90,34 @@ pub trait ExtensionAdapter: Send + Sync {
     fn apply(&self, realm: &mut dyn ExtensionRealm, extension: &Extension) -> Result<()>;
     /// Can this payload be applied to a realm with this content profile? The default is the format check against what the profile
     /// published; an adapter may be stricter.
-    fn compatibility(&self, extension: &Extension, realm: &ContentProfile) -> ExtensionCompatibility {
+    fn compatibility(
+        &self,
+        extension: &Extension,
+        realm: &ContentProfile,
+    ) -> ExtensionCompatibility {
         default_compatibility(self.namespace(), extension, realm)
     }
 }
 
 /// The format check every adapter starts from.
-pub fn default_compatibility(namespace: &str, extension: &Extension, realm: &ContentProfile) -> ExtensionCompatibility {
-    let Some(support) = realm.extension(namespace) else { return ExtensionCompatibility::MissingOnRealm };
+pub fn default_compatibility(
+    namespace: &str,
+    extension: &Extension,
+    realm: &ContentProfile,
+) -> ExtensionCompatibility {
+    let Some(support) = realm.extension(namespace) else {
+        return ExtensionCompatibility::MissingOnRealm;
+    };
     if extension.format_version < support.formats.min {
-        ExtensionCompatibility::FormatTooOld { payload: extension.format_version, realm: support.formats }
+        ExtensionCompatibility::FormatTooOld {
+            payload: extension.format_version,
+            realm: support.formats,
+        }
     } else if extension.format_version > support.formats.max {
-        ExtensionCompatibility::FormatTooNew { payload: extension.format_version, realm: support.formats }
+        ExtensionCompatibility::FormatTooNew {
+            payload: extension.format_version,
+            realm: support.formats,
+        }
     } else {
         ExtensionCompatibility::Compatible
     }
@@ -118,9 +148,15 @@ impl std::fmt::Display for ExtensionOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.disposition {
             ExtensionDisposition::Applied => write!(f, "{}: applied", self.namespace),
-            ExtensionDisposition::AlreadyApplied => write!(f, "{}: already applied", self.namespace),
-            ExtensionDisposition::Deferred(why) => write!(f, "{}: deferred, kept canonical ({why})", self.namespace),
-            ExtensionDisposition::Failed(why) => write!(f, "{}: not applied, kept canonical ({why})", self.namespace),
+            ExtensionDisposition::AlreadyApplied => {
+                write!(f, "{}: already applied", self.namespace)
+            }
+            ExtensionDisposition::Deferred(why) => {
+                write!(f, "{}: deferred, kept canonical ({why})", self.namespace)
+            }
+            ExtensionDisposition::Failed(why) => {
+                write!(f, "{}: not applied, kept canonical ({why})", self.namespace)
+            }
             ExtensionDisposition::CanonicalOnly => write!(f, "{}: canonical only", self.namespace),
         }
     }
@@ -151,11 +187,19 @@ impl ExtensionRegistry {
     pub fn register(&mut self, adapter: Arc<dyn ExtensionAdapter>) -> Result<()> {
         let ns = adapter.namespace().to_string();
         if !is_module_namespace(&ns) {
-            return Err(PortableError::Invalid(format!("an extension namespace is mod:<module>, not {ns:?}")));
+            return Err(PortableError::Invalid(format!(
+                "an extension namespace is mod:<module>, not {ns:?}"
+            )));
         }
         let formats = adapter.supported_format_versions();
-        if formats.min == 0 || formats.min > formats.max || adapter.module_version().is_empty() || adapter.module_version().len() > 64 {
-            return Err(PortableError::Invalid(format!("adapter {ns} declares an invalid version or format range")));
+        if formats.min == 0
+            || formats.min > formats.max
+            || adapter.module_version().is_empty()
+            || adapter.module_version().len() > 64
+        {
+            return Err(PortableError::Invalid(format!(
+                "adapter {ns} declares an invalid version or format range"
+            )));
         }
         if self.adapters.insert(ns.clone(), adapter).is_some() {
             return Err(PortableError::Invalid(format!("two adapters for {ns}")));
@@ -176,12 +220,20 @@ impl ExtensionRegistry {
         self.adapters
             .values()
             .filter(|a| a.available(realm))
-            .map(|a| ExtensionSupport { namespace: a.namespace().to_string(), module_version: a.module_version().to_string(), formats: a.supported_format_versions() })
+            .map(|a| ExtensionSupport {
+                namespace: a.namespace().to_string(),
+                module_version: a.module_version().to_string(),
+                formats: a.supported_format_versions(),
+            })
             .collect()
     }
 
     /// The explicit outcome for each extension of a canonical character on a realm with `profile`, without touching anything.
-    pub fn evaluate(&self, extensions: &BTreeMap<String, Extension>, profile: &ContentProfile) -> Vec<ExtensionOutcome> {
+    pub fn evaluate(
+        &self,
+        extensions: &BTreeMap<String, Extension>,
+        profile: &ContentProfile,
+    ) -> Vec<ExtensionOutcome> {
         extensions
             .iter()
             .map(|(namespace, ext)| {
@@ -189,21 +241,29 @@ impl ExtensionRegistry {
                     ExtensionDisposition::CanonicalOnly
                 } else {
                     match self.adapters.get(namespace) {
-                        None => ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm),
+                        None => {
+                            ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm)
+                        }
                         Some(adapter) => match adapter.compatibility(ext, profile) {
                             ExtensionCompatibility::Compatible => ExtensionDisposition::Applied,
                             other => ExtensionDisposition::Deferred(other),
                         },
                     }
                 };
-                ExtensionOutcome { namespace: namespace.clone(), disposition }
+                ExtensionOutcome {
+                    namespace: namespace.clone(),
+                    disposition,
+                }
             })
             .collect()
     }
 
     /// Read every supported extension of the character out of the realm. A payload an adapter produces is validated before it
     /// leaves; an adapter that fails or produces rubbish contributes nothing and the canonical payload is left alone.
-    pub fn export_all(&self, realm: &mut dyn ExtensionRealm) -> (BTreeMap<String, Extension>, Vec<String>) {
+    pub fn export_all(
+        &self,
+        realm: &mut dyn ExtensionRealm,
+    ) -> (BTreeMap<String, Extension>, Vec<String>) {
         let mut out = BTreeMap::new();
         let mut problems = Vec::new();
         for (namespace, adapter) in &self.adapters {
@@ -215,7 +275,9 @@ impl ExtensionRegistry {
                     Ok(()) => {
                         out.insert(namespace.clone(), ext);
                     }
-                    Err(e) => problems.push(format!("{namespace}: the exported payload is not valid ({e})")),
+                    Err(e) => problems.push(format!(
+                        "{namespace}: the exported payload is not valid ({e})"
+                    )),
                 },
                 Ok(None) => {}
                 Err(e) => problems.push(format!("{namespace}: export failed ({e})")),
@@ -226,23 +288,45 @@ impl ExtensionRegistry {
 
     /// Apply what can be applied. `applied` is what was applied before (namespace -> content hash): an unchanged payload is not applied
     /// twice. Returns one outcome per canonical extension, in namespace order.
-    pub fn apply_all(&self, realm: &mut dyn ExtensionRealm, extensions: &BTreeMap<String, Extension>, profile: &ContentProfile, applied: &HashMap<String, String>) -> Vec<ExtensionOutcome> {
+    pub fn apply_all(
+        &self,
+        realm: &mut dyn ExtensionRealm,
+        extensions: &BTreeMap<String, Extension>,
+        profile: &ContentProfile,
+        applied: &HashMap<String, String>,
+    ) -> Vec<ExtensionOutcome> {
         extensions
             .iter()
             .map(|(namespace, ext)| {
                 let disposition = if !is_module_namespace(namespace) {
                     ExtensionDisposition::CanonicalOnly
                 } else if let Some(adapter) = self.adapters.get(namespace) {
-                    self.apply_one(adapter.as_ref(), realm, ext, profile, applied.get(namespace.as_str()))
+                    self.apply_one(
+                        adapter.as_ref(),
+                        realm,
+                        ext,
+                        profile,
+                        applied.get(namespace.as_str()),
+                    )
                 } else {
                     ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm)
                 };
-                ExtensionOutcome { namespace: namespace.clone(), disposition }
+                ExtensionOutcome {
+                    namespace: namespace.clone(),
+                    disposition,
+                }
             })
             .collect()
     }
 
-    fn apply_one(&self, adapter: &dyn ExtensionAdapter, realm: &mut dyn ExtensionRealm, ext: &Extension, profile: &ContentProfile, applied: Option<&String>) -> ExtensionDisposition {
+    fn apply_one(
+        &self,
+        adapter: &dyn ExtensionAdapter,
+        realm: &mut dyn ExtensionRealm,
+        ext: &Extension,
+        profile: &ContentProfile,
+        applied: Option<&String>,
+    ) -> ExtensionDisposition {
         if !adapter.available(realm) {
             return ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm);
         }
@@ -254,7 +338,9 @@ impl ExtensionRegistry {
             return ExtensionDisposition::AlreadyApplied;
         }
         if !ext.is_intact() {
-            return ExtensionDisposition::Failed("the payload does not match its content hash".into());
+            return ExtensionDisposition::Failed(
+                "the payload does not match its content hash".into(),
+            );
         }
         if let Err(e) = adapter.validate(ext) {
             return ExtensionDisposition::Failed(format!("the payload is not valid: {e}"));
@@ -268,10 +354,18 @@ impl ExtensionRegistry {
 
 fn check_exported(adapter: &dyn ExtensionAdapter, ext: &Extension) -> Result<()> {
     if !ext.is_intact() {
-        return Err(PortableError::CorruptSnapshot("the payload does not match its content hash".into()));
+        return Err(PortableError::CorruptSnapshot(
+            "the payload does not match its content hash".into(),
+        ));
     }
-    if !adapter.supported_format_versions().contains(ext.format_version) {
-        return Err(PortableError::Invalid(format!("format {} is outside what the adapter declares", ext.format_version)));
+    if !adapter
+        .supported_format_versions()
+        .contains(ext.format_version)
+    {
+        return Err(PortableError::Invalid(format!(
+            "format {} is outside what the adapter declares",
+            ext.format_version
+        )));
     }
     adapter.validate(ext)
 }
@@ -297,10 +391,15 @@ impl ExtensionRealm for DbExtensionRealm<'_> {
         self.tables.has(table)
     }
     fn query(&mut self, sql: &str) -> Result<String> {
-        self.db.query(sql).map_err(|e| PortableError::RealmRead(e.to_string()))
+        self.db
+            .query(sql)
+            .map_err(|e| PortableError::RealmRead(e.to_string()))
     }
     fn execute(&mut self, script: &str) -> Result<()> {
-        self.db.query(script).map(|_| ()).map_err(|e| PortableError::RealmRead(e.to_string()))
+        self.db
+            .query(script)
+            .map(|_| ())
+            .map_err(|e| PortableError::RealmRead(e.to_string()))
     }
 }
 
@@ -330,7 +429,11 @@ pub(crate) mod fake {
         }
         fn query(&mut self, sql: &str) -> Result<String> {
             assert_eq!(sql, "GET");
-            Ok(self.data.get(&self.guid).map(hex::encode).unwrap_or_default())
+            Ok(self
+                .data
+                .get(&self.guid)
+                .map(hex::encode)
+                .unwrap_or_default())
         }
         fn execute(&mut self, script: &str) -> Result<()> {
             let hex = script.strip_prefix("PUT ").expect("a fake write");
@@ -349,7 +452,11 @@ pub(crate) mod fake {
 
     impl FakeAdapter {
         pub fn new(min: u32, max: u32) -> Arc<Self> {
-            Arc::new(Self { formats: FormatRange::new(min, max), version: "1.0.0", fail_apply: Mutex::new(false) })
+            Arc::new(Self {
+                formats: FormatRange::new(min, max),
+                version: "1.0.0",
+                fail_apply: Mutex::new(false),
+            })
         }
     }
 
@@ -368,7 +475,9 @@ pub(crate) mod fake {
         }
         fn validate(&self, extension: &Extension) -> Result<()> {
             if extension.payload.0.is_empty() || extension.payload.0.len() > 64 {
-                return Err(PortableError::Invalid("a fake payload has 1 to 64 bytes".into()));
+                return Err(PortableError::Invalid(
+                    "a fake payload has 1 to 64 bytes".into(),
+                ));
             }
             Ok(())
         }
@@ -377,11 +486,17 @@ pub(crate) mod fake {
             if hex.is_empty() {
                 return Ok(None);
             }
-            Ok(Some(Extension::new(self.version, self.formats.max, hex::decode(hex).unwrap())))
+            Ok(Some(Extension::new(
+                self.version,
+                self.formats.max,
+                hex::decode(hex).unwrap(),
+            )))
         }
         fn apply(&self, realm: &mut dyn ExtensionRealm, extension: &Extension) -> Result<()> {
             if *self.fail_apply.lock().unwrap() {
-                return Err(PortableError::RealmRead("the module's table is locked".into()));
+                return Err(PortableError::RealmRead(
+                    "the module's table is locked".into(),
+                ));
             }
             realm.execute(&format!("PUT {}", hex::encode(&extension.payload.0)))
         }
@@ -402,7 +517,10 @@ mod tests {
     fn profile_with(extensions: Vec<ExtensionSupport>) -> ContentProfile {
         ContentProfile {
             ruleset: Ruleset::Coa,
-            character_formats: CharacterFormats { readable: FormatRange::new(1, 2), writable: FormatRange::single(2) },
+            character_formats: CharacterFormats {
+                readable: FormatRange::new(1, 2),
+                writable: FormatRange::single(2),
+            },
             online_import_job_formats: vec![2],
             session_protocol: 1,
             collection_protocol: 1,
@@ -420,7 +538,11 @@ mod tests {
     }
 
     fn realm(has_module: bool) -> FakeExtensionRealm {
-        FakeExtensionRealm { guid: 7, has_module, ..Default::default() }
+        FakeExtensionRealm {
+            guid: 7,
+            has_module,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -450,16 +572,35 @@ mod tests {
             }
         }
         let mut r = ExtensionRegistry::new();
-        assert!(r.register(Arc::new(Odd("coa:unlisted-settings", FormatRange::single(1)))).is_err(), "the Manager's own namespaces are not adapters");
-        assert!(r.register(Arc::new(Odd("fake", FormatRange::single(1)))).is_err());
-        assert!(r.register(Arc::new(Odd("mod:zero", FormatRange::new(0, 1)))).is_err());
-        assert!(r.register(Arc::new(Odd("mod:backwards", FormatRange::new(3, 2)))).is_err());
-        r.register(Arc::new(Odd("mod:ok", FormatRange::new(1, 2)))).unwrap();
-        assert!(r.register(Arc::new(Odd("mod:ok", FormatRange::new(1, 2)))).is_err(), "two adapters for one namespace");
+        assert!(
+            r.register(Arc::new(Odd(
+                "coa:unlisted-settings",
+                FormatRange::single(1)
+            )))
+            .is_err(),
+            "the Manager's own namespaces are not adapters"
+        );
+        assert!(r
+            .register(Arc::new(Odd("fake", FormatRange::single(1))))
+            .is_err());
+        assert!(r
+            .register(Arc::new(Odd("mod:zero", FormatRange::new(0, 1))))
+            .is_err());
+        assert!(r
+            .register(Arc::new(Odd("mod:backwards", FormatRange::new(3, 2))))
+            .is_err());
+        r.register(Arc::new(Odd("mod:ok", FormatRange::new(1, 2))))
+            .unwrap();
+        assert!(
+            r.register(Arc::new(Odd("mod:ok", FormatRange::new(1, 2))))
+                .is_err(),
+            "two adapters for one namespace"
+        );
     }
 
     #[test]
-    fn a_realm_without_the_module_gets_nothing_and_the_canonical_payload_is_retained_for_a_realm_that_has_it() {
+    fn a_realm_without_the_module_gets_nothing_and_the_canonical_payload_is_retained_for_a_realm_that_has_it(
+    ) {
         let reg = registry(FakeAdapter::new(2, 3));
         let mut canonical: BTreeMap<String, Extension> = BTreeMap::new();
         canonical.insert("mod:fake".into(), payload(2, b"fake-state"));
@@ -469,12 +610,21 @@ mod tests {
         let profile = profile_with(reg.supported_on(&mut without));
         assert!(profile.extensions.is_empty());
         let out = reg.evaluate(&canonical, &profile);
-        assert_eq!(out[0].disposition, ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm));
+        assert_eq!(
+            out[0].disposition,
+            ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm)
+        );
         let applied = reg.apply_all(&mut without, &canonical, &profile, &HashMap::new());
-        assert_eq!(applied[0].disposition, ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm));
+        assert_eq!(
+            applied[0].disposition,
+            ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm)
+        );
         assert_eq!(without.writes, 0);
         assert!(without.data.is_empty(), "the destination receives nothing");
-        assert_eq!(canonical["mod:fake"].payload.0, b"fake-state", "the canonical payload is untouched");
+        assert_eq!(
+            canonical["mod:fake"].payload.0, b"fake-state",
+            "the canonical payload is untouched"
+        );
 
         // a later realm that has it receives it
         let mut with = realm(true);
@@ -484,12 +634,23 @@ mod tests {
         assert_eq!(applied[0].disposition, ExtensionDisposition::Applied);
         assert_eq!(with.data[&7], b"fake-state");
         // and applying again does not write again
-        let state: HashMap<String, String> = [("mod:fake".to_string(), canonical["mod:fake"].content_hash.clone())].into_iter().collect();
-        assert_eq!(reg.apply_all(&mut with, &canonical, &profile, &state)[0].disposition, ExtensionDisposition::AlreadyApplied);
+        let state: HashMap<String, String> = [(
+            "mod:fake".to_string(),
+            canonical["mod:fake"].content_hash.clone(),
+        )]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            reg.apply_all(&mut with, &canonical, &profile, &state)[0].disposition,
+            ExtensionDisposition::AlreadyApplied
+        );
         assert_eq!(with.writes, 1);
         // a changed payload is applied again
         canonical.insert("mod:fake".into(), payload(2, b"newer-state"));
-        assert_eq!(reg.apply_all(&mut with, &canonical, &profile, &state)[0].disposition, ExtensionDisposition::Applied);
+        assert_eq!(
+            reg.apply_all(&mut with, &canonical, &profile, &state)[0].disposition,
+            ExtensionDisposition::Applied
+        );
         assert_eq!(with.data[&7], b"newer-state");
     }
 
@@ -499,20 +660,44 @@ mod tests {
         let mut with = realm(true);
         let profile = profile_with(reg.supported_on(&mut with));
         for (format, expected) in [
-            (1, ExtensionCompatibility::FormatTooOld { payload: 1, realm: FormatRange::new(2, 3) }),
-            (4, ExtensionCompatibility::FormatTooNew { payload: 4, realm: FormatRange::new(2, 3) }),
+            (
+                1,
+                ExtensionCompatibility::FormatTooOld {
+                    payload: 1,
+                    realm: FormatRange::new(2, 3),
+                },
+            ),
+            (
+                4,
+                ExtensionCompatibility::FormatTooNew {
+                    payload: 4,
+                    realm: FormatRange::new(2, 3),
+                },
+            ),
         ] {
             let mut canonical = BTreeMap::new();
             canonical.insert("mod:fake".to_string(), payload(format, b"x"));
-            assert_eq!(reg.evaluate(&canonical, &profile)[0].disposition, ExtensionDisposition::Deferred(expected.clone()));
+            assert_eq!(
+                reg.evaluate(&canonical, &profile)[0].disposition,
+                ExtensionDisposition::Deferred(expected.clone())
+            );
             let applied = reg.apply_all(&mut with, &canonical, &profile, &HashMap::new());
-            assert_eq!(applied[0].disposition, ExtensionDisposition::Deferred(expected));
-            assert!(with.data.is_empty(), "nothing is written for an incompatible format");
+            assert_eq!(
+                applied[0].disposition,
+                ExtensionDisposition::Deferred(expected)
+            );
+            assert!(
+                with.data.is_empty(),
+                "nothing is written for an incompatible format"
+            );
             assert_eq!(canonical["mod:fake"].payload.0, b"x");
         }
         let mut ok = BTreeMap::new();
         ok.insert("mod:fake".to_string(), payload(3, b"x"));
-        assert_eq!(reg.evaluate(&ok, &profile)[0].disposition, ExtensionDisposition::Applied);
+        assert_eq!(
+            reg.evaluate(&ok, &profile)[0].disposition,
+            ExtensionDisposition::Applied
+        );
     }
 
     #[test]
@@ -524,8 +709,20 @@ mod tests {
         canonical.insert("mod:somebody-elses".to_string(), payload(1, b"opaque"));
         canonical.insert("coa:unlisted-settings".to_string(), payload(1, b"{}"));
         let out = reg.apply_all(&mut with, &canonical, &profile, &HashMap::new());
-        assert_eq!(out.iter().find(|o| o.namespace == "mod:somebody-elses").unwrap().disposition, ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm));
-        assert_eq!(out.iter().find(|o| o.namespace == "coa:unlisted-settings").unwrap().disposition, ExtensionDisposition::CanonicalOnly);
+        assert_eq!(
+            out.iter()
+                .find(|o| o.namespace == "mod:somebody-elses")
+                .unwrap()
+                .disposition,
+            ExtensionDisposition::Deferred(ExtensionCompatibility::MissingOnRealm)
+        );
+        assert_eq!(
+            out.iter()
+                .find(|o| o.namespace == "coa:unlisted-settings")
+                .unwrap()
+                .disposition,
+            ExtensionDisposition::CanonicalOnly
+        );
         assert_eq!(with.writes, 0);
     }
 
@@ -539,16 +736,26 @@ mod tests {
         canonical.insert("mod:fake".to_string(), payload(2, b"state"));
         *adapter.fail_apply.lock().unwrap() = true;
         let out = reg.apply_all(&mut with, &canonical, &profile, &HashMap::new());
-        assert!(matches!(out[0].disposition, ExtensionDisposition::Failed(_)), "{:?}", out[0]);
+        assert!(
+            matches!(out[0].disposition, ExtensionDisposition::Failed(_)),
+            "{:?}",
+            out[0]
+        );
         *adapter.fail_apply.lock().unwrap() = false;
 
         // a payload that fails the adapter's own validation (too large) and one whose content does not match its hash
         canonical.insert("mod:fake".into(), payload(2, &[7u8; 65]));
-        assert!(matches!(reg.apply_all(&mut with, &canonical, &profile, &HashMap::new())[0].disposition, ExtensionDisposition::Failed(_)));
+        assert!(matches!(
+            reg.apply_all(&mut with, &canonical, &profile, &HashMap::new())[0].disposition,
+            ExtensionDisposition::Failed(_)
+        ));
         let mut corrupt = payload(2, b"state");
         corrupt.payload.0[0] ^= 1;
         canonical.insert("mod:fake".into(), corrupt);
-        assert!(matches!(reg.apply_all(&mut with, &canonical, &profile, &HashMap::new())[0].disposition, ExtensionDisposition::Failed(_)));
+        assert!(matches!(
+            reg.apply_all(&mut with, &canonical, &profile, &HashMap::new())[0].disposition,
+            ExtensionDisposition::Failed(_)
+        ));
         assert_eq!(with.writes, 0);
     }
 
@@ -557,15 +764,30 @@ mod tests {
         let reg = registry(FakeAdapter::new(2, 3));
         let mut without = realm(false);
         without.data.insert(7, b"stray".to_vec());
-        assert!(reg.export_all(&mut without).0.is_empty(), "no module, no export");
+        assert!(
+            reg.export_all(&mut without).0.is_empty(),
+            "no module, no export"
+        );
         let mut with = realm(true);
-        assert!(reg.export_all(&mut with).0.is_empty(), "a character without module data exports nothing");
+        assert!(
+            reg.export_all(&mut with).0.is_empty(),
+            "a character without module data exports nothing"
+        );
         with.data.insert(7, b"state".to_vec());
         let (out, problems) = reg.export_all(&mut with);
         assert!(problems.is_empty());
-        assert_eq!((out["mod:fake"].payload.0.as_slice(), out["mod:fake"].format_version), (b"state".as_slice(), 3));
+        assert_eq!(
+            (
+                out["mod:fake"].payload.0.as_slice(),
+                out["mod:fake"].format_version
+            ),
+            (b"state".as_slice(), 3)
+        );
         with.data.insert(7, vec![1u8; 100]);
         let (out, problems) = reg.export_all(&mut with);
-        assert!(out.is_empty() && problems.len() == 1, "a payload the adapter itself rejects contributes nothing: {problems:?}");
+        assert!(
+            out.is_empty() && problems.len() == 1,
+            "a payload the adapter itself rejects contributes nothing: {problems:?}"
+        );
     }
 }

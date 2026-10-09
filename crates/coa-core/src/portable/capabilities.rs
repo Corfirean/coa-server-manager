@@ -123,7 +123,12 @@ pub struct CatalogEntry {
 pub type ClientCatalog = BTreeMap<String, CatalogEntry>;
 
 /// The client tables a profile is about.
-pub const CATALOG_TABLES: [&str; 4] = ["Appearances.dbc", "ItemAppearances.dbc", "VanityCollection.dbc", "ItemSet.dbc"];
+pub const CATALOG_TABLES: [&str; 4] = [
+    "Appearances.dbc",
+    "ItemAppearances.dbc",
+    "VanityCollection.dbc",
+    "ItemSet.dbc",
+];
 
 /// An extension namespace a realm can apply and the format versions it understands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,7 +172,9 @@ impl ContentProfile {
     /// SHA-256 of the canonical JSON (fixed field order, sorted sets and maps).
     pub fn hash(&self) -> Result<[u8; 32]> {
         let mut canonical = self.clone();
-        canonical.extensions.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        canonical
+            .extensions
+            .sort_by(|a, b| a.namespace.cmp(&b.namespace));
         let json = serde_json::to_vec(&canonical)?;
         let mut h = Sha256::new();
         h.update(b"coa-content-profile-v1\0");
@@ -186,7 +193,10 @@ impl ContentProfile {
     /// The character formats a Manager of this version reads and writes.
     pub fn manager_formats() -> CharacterFormats {
         CharacterFormats {
-            readable: FormatRange::new(super::versions::PORTABLE_CHARACTER_MIN_READ_VERSION, super::versions::PORTABLE_CHARACTER_FORMAT_VERSION),
+            readable: FormatRange::new(
+                super::versions::PORTABLE_CHARACTER_MIN_READ_VERSION,
+                super::versions::PORTABLE_CHARACTER_FORMAT_VERSION,
+            ),
             writable: FormatRange::single(super::versions::PORTABLE_CHARACTER_FORMAT_VERSION),
         }
     }
@@ -216,7 +226,12 @@ impl Progression {
         if self.projection_protocol == 0 || self.projection_policy_version == 0 {
             return Err(bad("a version is 0"));
         }
-        if self.progression_signature.len() != 64 || !self.progression_signature.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        if self.progression_signature.len() != 64
+            || !self
+                .progression_signature
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
             return Err(bad("the signature is not a SHA-256"));
         }
         Ok(())
@@ -262,10 +277,22 @@ impl RealmCapabilities {
     }
 
     /// A profile with the progression of the realm's core (or without it, for a realm whose core could not be asked).
-    pub fn build(core: Option<CoreIdentity>, mut content: ContentProfile, progression: Option<Progression>) -> Result<Self> {
-        content.extensions.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+    pub fn build(
+        core: Option<CoreIdentity>,
+        mut content: ContentProfile,
+        progression: Option<Progression>,
+    ) -> Result<Self> {
+        content
+            .extensions
+            .sort_by(|a, b| a.namespace.cmp(&b.namespace));
         let content_profile_hash = hex::encode(content.hash()?);
-        let caps = Self { profile_version: PROFILE_VERSION, core, content, content_profile_hash, progression };
+        let caps = Self {
+            profile_version: PROFILE_VERSION,
+            core,
+            content,
+            content_profile_hash,
+            progression,
+        };
         caps.validate()?;
         Ok(caps)
     }
@@ -282,7 +309,9 @@ impl RealmCapabilities {
     }
 
     pub fn progression_signature(&self) -> Option<&str> {
-        self.progression.as_ref().map(|p| p.progression_signature.as_str())
+        self.progression
+            .as_ref()
+            .map(|p| p.progression_signature.as_str())
     }
 
     pub fn hash(&self) -> &str {
@@ -293,14 +322,21 @@ impl RealmCapabilities {
     pub fn validate(&self) -> Result<()> {
         let bad = |what: &str| PortableError::Invalid(format!("realm capabilities: {what}"));
         if self.profile_version != PROFILE_VERSION {
-            return Err(PortableError::UnsupportedFormat { found: self.profile_version, supported: PROFILE_VERSION });
+            return Err(PortableError::UnsupportedFormat {
+                found: self.profile_version,
+                supported: PROFILE_VERSION,
+            });
         }
         let c = &self.content;
         if !c.character_formats.readable.valid() || !c.character_formats.writable.valid() {
             return Err(bad("a character format range is empty or starts below 1"));
         }
-        if c.online_import_job_formats.iter().any(|v| *v == 0) || c.online_import_job_formats.windows(2).any(|w| w[0] >= w[1]) {
-            return Err(bad("the online import job formats must be ascending, unique and at least 1"));
+        if c.online_import_job_formats.contains(&0)
+            || c.online_import_job_formats.windows(2).any(|w| w[0] >= w[1])
+        {
+            return Err(bad(
+                "the online import job formats must be ascending, unique and at least 1",
+            ));
         }
         if c.session_protocol == 0 || c.collection_protocol == 0 {
             return Err(bad("a protocol version is 0"));
@@ -309,7 +345,11 @@ impl RealmCapabilities {
             return Err(bad("too many extension namespaces"));
         }
         for (i, e) in c.extensions.iter().enumerate() {
-            if !super::ids::valid_namespace(&e.namespace) || !e.formats.valid() || e.module_version.is_empty() || e.module_version.len() > 64 {
+            if !super::ids::valid_namespace(&e.namespace)
+                || !e.formats.valid()
+                || e.module_version.is_empty()
+                || e.module_version.len() > 64
+            {
                 return Err(bad(&format!("extension {:?} is not valid", e.namespace)));
             }
             if i > 0 && c.extensions[i - 1].namespace >= e.namespace {
@@ -323,7 +363,11 @@ impl RealmCapabilities {
         }
         for (name, entry) in &c.client_catalog {
             let known = CATALOG_TABLES.contains(&name.as_str());
-            let hex_ok = entry.sha256.len() == 64 && entry.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+            let hex_ok = entry.sha256.len() == 64
+                && entry
+                    .sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
             if !known || !hex_ok {
                 return Err(bad(&format!("client table {name:?} is not valid")));
             }
@@ -333,7 +377,11 @@ impl RealmCapabilities {
         }
         match &self.progression {
             Some(p) => p.validate()?,
-            None if c.supports(Feature::LevelProjection) => return Err(bad("level projection is claimed without a progression block")),
+            None if c.supports(Feature::LevelProjection) => {
+                return Err(bad(
+                    "level projection is claimed without a progression block",
+                ))
+            }
             None => {}
         }
         Ok(())
@@ -342,7 +390,9 @@ impl RealmCapabilities {
     pub fn to_json(&self) -> Result<Vec<u8>> {
         let bytes = serde_json::to_vec(self)?;
         if bytes.len() > MAX_PROFILE_BYTES {
-            return Err(PortableError::LimitExceeded(format!("a profile is limited to {MAX_PROFILE_BYTES} bytes")));
+            return Err(PortableError::LimitExceeded(format!(
+                "a profile is limited to {MAX_PROFILE_BYTES} bytes"
+            )));
         }
         Ok(bytes)
     }
@@ -351,15 +401,23 @@ impl RealmCapabilities {
     /// profile is migrated (see the module documentation); a newer one than this Manager knows is refused.
     pub fn from_json(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > MAX_PROFILE_BYTES {
-            return Err(PortableError::LimitExceeded(format!("a profile is limited to {MAX_PROFILE_BYTES} bytes")));
+            return Err(PortableError::LimitExceeded(format!(
+                "a profile is limited to {MAX_PROFILE_BYTES} bytes"
+            )));
         }
         let value: serde_json::Value = serde_json::from_slice(bytes)?;
-        let version = value.get("profile_version").and_then(|v| v.as_u64()).ok_or_else(|| PortableError::Invalid("the profile has no version".into()))?;
+        let version = value
+            .get("profile_version")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| PortableError::Invalid("the profile has no version".into()))?;
         if version == PROFILE_VERSION_V1 as u64 {
             return Self::migrate_v1(value);
         }
         if version != PROFILE_VERSION as u64 {
-            return Err(PortableError::UnsupportedFormat { found: version.min(u32::MAX as u64) as u32, supported: PROFILE_VERSION });
+            return Err(PortableError::UnsupportedFormat {
+                found: version.min(u32::MAX as u64) as u32,
+                supported: PROFILE_VERSION,
+            });
         }
         let caps: RealmCapabilities = serde_json::from_value(value)?;
         caps.validate()?;
@@ -369,9 +427,17 @@ impl RealmCapabilities {
     fn migrate_v1(value: serde_json::Value) -> Result<Self> {
         let old: RealmCapabilitiesV1 = serde_json::from_value(value)?;
         if old.content.supports(Feature::LevelProjection) {
-            return Err(PortableError::Invalid("a version 1 profile cannot claim level projection".into()));
+            return Err(PortableError::Invalid(
+                "a version 1 profile cannot claim level projection".into(),
+            ));
         }
-        let caps = Self { profile_version: PROFILE_VERSION, core: old.core, content: old.content, content_profile_hash: old.content_profile_hash, progression: None };
+        let caps = Self {
+            profile_version: PROFILE_VERSION,
+            core: old.core,
+            content: old.content,
+            content_profile_hash: old.content_profile_hash,
+            progression: None,
+        };
         caps.validate()?;
         Ok(caps)
     }
@@ -405,30 +471,65 @@ pub struct CorePortable {
 impl CoreReport {
     /// Parse the single JSON line of the console's answer. Anything else in the answer is ignored; the JSON object must be there.
     pub fn parse(answer: &str) -> Result<CoreReport> {
-        let line = answer.lines().map(str::trim).find(|l| l.starts_with('{')).ok_or_else(|| PortableError::Invalid("the core did not answer with a capability report (an older core?)".into()))?;
+        let line = answer
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with('{'))
+            .ok_or_else(|| {
+                PortableError::Invalid(
+                    "the core did not answer with a capability report (an older core?)".into(),
+                )
+            })?;
         if line.len() > MAX_PROFILE_BYTES {
-            return Err(PortableError::LimitExceeded("the core's capability report is too large".into()));
+            return Err(PortableError::LimitExceeded(
+                "the core's capability report is too large".into(),
+            ));
         }
-        let report: CoreReport = serde_json::from_str(line).map_err(|e| PortableError::Invalid(format!("the core's capability report is not valid: {e}")))?;
+        let report: CoreReport = serde_json::from_str(line).map_err(|e| {
+            PortableError::Invalid(format!("the core's capability report is not valid: {e}"))
+        })?;
         if report.report_version != 1 && report.report_version != 2 {
-            return Err(PortableError::UnsupportedFormat { found: report.report_version, supported: 2 });
+            return Err(PortableError::UnsupportedFormat {
+                found: report.report_version,
+                supported: 2,
+            });
         }
         match (&report.progression, report.report_version) {
             (Some(p), 2) => p.validate()?,
             (None, 1) => {}
-            (Some(_), _) => return Err(PortableError::Invalid("a version 1 report cannot carry a progression block".into())),
-            (None, _) => return Err(PortableError::Invalid("the core's capability report has no progression block".into())),
+            (Some(_), _) => {
+                return Err(PortableError::Invalid(
+                    "a version 1 report cannot carry a progression block".into(),
+                ))
+            }
+            (None, _) => {
+                return Err(PortableError::Invalid(
+                    "the core's capability report has no progression block".into(),
+                ))
+            }
         }
         if report.ruleset != "coa" {
-            return Err(PortableError::Invalid(format!("the core reports ruleset {:?}; only coa is carried", report.ruleset)));
+            return Err(PortableError::Invalid(format!(
+                "the core reports ruleset {:?}; only coa is carried",
+                report.ruleset
+            )));
         }
         for (name, entry) in &report.client_data {
             if !CATALOG_TABLES.contains(&name.as_str()) {
-                return Err(PortableError::Invalid(format!("the core reports an unknown client table {name:?}")));
+                return Err(PortableError::Invalid(format!(
+                    "the core reports an unknown client table {name:?}"
+                )));
             }
             if let Some(e) = entry {
-                if e.sha256.len() != 64 || !e.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
-                    return Err(PortableError::Invalid(format!("the hash of {name} is not a SHA-256")));
+                if e.sha256.len() != 64
+                    || !e
+                        .sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                {
+                    return Err(PortableError::Invalid(format!(
+                        "the hash of {name} is not a SHA-256"
+                    )));
                 }
             }
         }
@@ -441,7 +542,10 @@ impl CoreReport {
 
     /// The catalog as the core loaded it (tables it could not read are absent).
     pub fn catalog(&self) -> ClientCatalog {
-        self.client_data.iter().filter_map(|(k, v)| v.clone().map(|e| (k.clone(), e))).collect()
+        self.client_data
+            .iter()
+            .filter_map(|(k, v)| v.clone().map(|e| (k.clone(), e)))
+            .collect()
     }
 }
 
@@ -451,26 +555,72 @@ mod tests {
 
     fn sample() -> ContentProfile {
         let mut catalog = ClientCatalog::new();
-        catalog.insert("Appearances.dbc".into(), CatalogEntry { sha256: "ab".repeat(32), records: 42_903 });
-        catalog.insert("VanityCollection.dbc".into(), CatalogEntry { sha256: "cd".repeat(32), records: 10_764 });
+        catalog.insert(
+            "Appearances.dbc".into(),
+            CatalogEntry {
+                sha256: "ab".repeat(32),
+                records: 42_903,
+            },
+        );
+        catalog.insert(
+            "VanityCollection.dbc".into(),
+            CatalogEntry {
+                sha256: "cd".repeat(32),
+                records: 10_764,
+            },
+        );
         ContentProfile {
             ruleset: Ruleset::Coa,
-            character_formats: CharacterFormats { readable: FormatRange::new(1, 2), writable: FormatRange::single(2) },
+            character_formats: CharacterFormats {
+                readable: FormatRange::new(1, 2),
+                writable: FormatRange::single(2),
+            },
             online_import_job_formats: vec![2],
             session_protocol: 1,
             collection_protocol: 1,
-            features: [Feature::RuntimeSessions, Feature::Wardrobe, Feature::Collections].into_iter().collect(),
-            collection_kinds: ["coa:appearance".to_string(), "coa:vanity".to_string()].into_iter().collect(),
-            extensions: vec![ExtensionSupport { namespace: "mod:fake".into(), module_version: "1.2.0".into(), formats: FormatRange::new(1, 3) }],
+            features: [
+                Feature::RuntimeSessions,
+                Feature::Wardrobe,
+                Feature::Collections,
+            ]
+            .into_iter()
+            .collect(),
+            collection_kinds: ["coa:appearance".to_string(), "coa:vanity".to_string()]
+                .into_iter()
+                .collect(),
+            extensions: vec![ExtensionSupport {
+                namespace: "mod:fake".into(),
+                module_version: "1.2.0".into(),
+                formats: FormatRange::new(1, 3),
+            }],
             client_catalog: catalog,
         }
     }
 
     #[test]
     fn the_profile_round_trips_and_its_hash_covers_the_content_but_not_the_core_identity() {
-        let a = RealmCapabilities::new(Some(CoreIdentity { commit: "aaaa".into(), branch: "x".into(), date: "d1".into() }), sample()).unwrap();
-        let b = RealmCapabilities::new(Some(CoreIdentity { commit: "bbbb".into(), branch: "y".into(), date: "d2".into() }), sample()).unwrap();
-        assert_eq!(a.content_profile_hash, b.content_profile_hash, "a new core build with the same content is the same content profile");
+        let a = RealmCapabilities::new(
+            Some(CoreIdentity {
+                commit: "aaaa".into(),
+                branch: "x".into(),
+                date: "d1".into(),
+            }),
+            sample(),
+        )
+        .unwrap();
+        let b = RealmCapabilities::new(
+            Some(CoreIdentity {
+                commit: "bbbb".into(),
+                branch: "y".into(),
+                date: "d2".into(),
+            }),
+            sample(),
+        )
+        .unwrap();
+        assert_eq!(
+            a.content_profile_hash, b.content_profile_hash,
+            "a new core build with the same content is the same content profile"
+        );
         assert_ne!(a, b);
         let back = RealmCapabilities::from_json(&a.to_json().unwrap()).unwrap();
         assert_eq!(back, a);
@@ -497,41 +647,69 @@ mod tests {
         c.session_protocol = 2;
         changed.push(c);
         for c in changed {
-            assert_ne!(RealmCapabilities::new(None, c).unwrap().content_profile_hash, base);
+            assert_ne!(
+                RealmCapabilities::new(None, c)
+                    .unwrap()
+                    .content_profile_hash,
+                base
+            );
         }
     }
 
     #[test]
     fn a_profile_from_outside_is_validated_and_a_forged_hash_is_refused() {
         let caps = RealmCapabilities::new(None, sample()).unwrap();
-        let mut value: serde_json::Value = serde_json::from_slice(&caps.to_json().unwrap()).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&caps.to_json().unwrap()).unwrap();
         let bytes = |v: &serde_json::Value| serde_json::to_vec(v).unwrap();
 
         let mut forged = value.clone();
         forged["content_profile_hash"] = "00".repeat(32).into();
-        assert!(RealmCapabilities::from_json(&bytes(&forged)).is_err(), "the hash must be the content's");
+        assert!(
+            RealmCapabilities::from_json(&bytes(&forged)).is_err(),
+            "the hash must be the content's"
+        );
         let mut edited = value.clone();
         edited["content"]["features"] = serde_json::json!(["wardrobe"]);
-        assert!(RealmCapabilities::from_json(&bytes(&edited)).is_err(), "content edited without its hash");
+        assert!(
+            RealmCapabilities::from_json(&bytes(&edited)).is_err(),
+            "content edited without its hash"
+        );
         let mut unknown = value.clone();
         unknown["extra"] = 1.into();
         assert!(RealmCapabilities::from_json(&bytes(&unknown)).is_err());
         let mut newer = value.clone();
         newer["profile_version"] = 3.into();
-        assert!(matches!(RealmCapabilities::from_json(&bytes(&newer)), Err(PortableError::UnsupportedFormat { .. })));
+        assert!(matches!(
+            RealmCapabilities::from_json(&bytes(&newer)),
+            Err(PortableError::UnsupportedFormat { .. })
+        ));
         value["content"]["client_catalog"]["Appearances.dbc"]["sha256"] = "not hex".into();
         assert!(RealmCapabilities::from_json(&bytes(&value)).is_err());
         assert!(RealmCapabilities::from_json(&vec![b' '; MAX_PROFILE_BYTES + 1]).is_err());
         assert!(RealmCapabilities::from_json(b"[]").is_err());
 
         let mut bad = sample();
-        bad.extensions.push(ExtensionSupport { namespace: "mod:fake".into(), module_version: "1".into(), formats: FormatRange::single(1) });
-        assert!(RealmCapabilities::new(None, bad).is_err(), "a namespace twice");
+        bad.extensions.push(ExtensionSupport {
+            namespace: "mod:fake".into(),
+            module_version: "1".into(),
+            formats: FormatRange::single(1),
+        });
+        assert!(
+            RealmCapabilities::new(None, bad).is_err(),
+            "a namespace twice"
+        );
         let mut bad = sample();
         bad.character_formats.readable = FormatRange::new(3, 2);
         assert!(RealmCapabilities::new(None, bad).is_err());
         let mut bad = sample();
-        bad.client_catalog.insert("Whatever.dbc".into(), CatalogEntry { sha256: "ab".repeat(32), records: 1 });
+        bad.client_catalog.insert(
+            "Whatever.dbc".into(),
+            CatalogEntry {
+                sha256: "ab".repeat(32),
+                records: 1,
+            },
+        );
         assert!(RealmCapabilities::new(None, bad).is_err());
     }
 
@@ -544,24 +722,61 @@ mod tests {
         let migrated = RealmCapabilities::from_json(&serde_json::to_vec(&old).unwrap()).unwrap();
         assert_eq!(migrated.profile_version, PROFILE_VERSION);
         assert!(migrated.needs_reprobe() && migrated.progression.is_none());
-        assert_eq!(migrated.content_profile_hash, caps.content_profile_hash, "the content, and its hash, are the same");
+        assert_eq!(
+            migrated.content_profile_hash, caps.content_profile_hash,
+            "the content, and its hash, are the same"
+        );
         let mut with_block = old.clone();
         with_block["progression"] = serde_json::json!({"max_player_level": 60});
-        assert!(RealmCapabilities::from_json(&serde_json::to_vec(&with_block).unwrap()).is_err(), "a v1 profile has no progression to carry");
+        assert!(
+            RealmCapabilities::from_json(&serde_json::to_vec(&with_block).unwrap()).is_err(),
+            "a v1 profile has no progression to carry"
+        );
     }
 
     #[test]
     fn progression_is_validated_and_its_pin_words_are_stable() {
-        let p = Progression { max_player_level: 60, projection_protocol: 1, projection_policy_version: 1, progression_signature: "ab".repeat(32), scaling_enabled: true };
+        let p = Progression {
+            max_player_level: 60,
+            projection_protocol: 1,
+            projection_policy_version: 1,
+            progression_signature: "ab".repeat(32),
+            scaling_enabled: true,
+        };
         let caps = RealmCapabilities::build(None, sample(), Some(p.clone())).unwrap();
-        assert_eq!(RealmCapabilities::from_json(&caps.to_json().unwrap()).unwrap(), caps);
-        assert_eq!(p.pin_words(), vec![1, 60, 0xabababab, 0xabababab, 0xabababab, 0xabababab, 0xabababab, 0xabababab, 0xabababab, 0xabababab]);
-        for bad in [Progression { max_player_level: 0, ..p.clone() }, Progression { projection_protocol: 0, ..p.clone() }, Progression { progression_signature: "zz".into(), ..p.clone() }] {
+        assert_eq!(
+            RealmCapabilities::from_json(&caps.to_json().unwrap()).unwrap(),
+            caps
+        );
+        assert_eq!(
+            p.pin_words(),
+            vec![
+                1, 60, 0xabababab, 0xabababab, 0xabababab, 0xabababab, 0xabababab, 0xabababab,
+                0xabababab, 0xabababab
+            ]
+        );
+        for bad in [
+            Progression {
+                max_player_level: 0,
+                ..p.clone()
+            },
+            Progression {
+                projection_protocol: 0,
+                ..p.clone()
+            },
+            Progression {
+                progression_signature: "zz".into(),
+                ..p.clone()
+            },
+        ] {
             assert!(RealmCapabilities::build(None, sample(), Some(bad)).is_err());
         }
         let mut claims = sample();
         claims.features.insert(Feature::LevelProjection);
-        assert!(RealmCapabilities::build(None, claims, None).is_err(), "level projection is claimed only with the progression block");
+        assert!(
+            RealmCapabilities::build(None, claims, None).is_err(),
+            "level projection is claimed only with the progression block"
+        );
     }
 
     #[test]
@@ -569,13 +784,33 @@ mod tests {
         let line = r#"{"report_version":1,"ruleset":"coa","core":{"commit":"abc","branch":"feat/x","date":"2026-10-06"},"portable":{"job_formats":[2],"character_formats":[2],"session_marker_version":1,"features":["runtime_sessions","wardrobe"]},"extension_namespaces":[],"client_data":{"Appearances.dbc":{"sha256":"abababababababababababababababababababababababababababababababab","records":3},"ItemSet.dbc":null}}"#;
         let report = CoreReport::parse(&format!("noise\n{line}\n")).unwrap();
         assert!(report.has_feature("wardrobe") && !report.has_feature("collections"));
-        assert_eq!(report.catalog().len(), 1, "a table the core could not read is not in the catalog");
-        assert!(CoreReport::parse("Unknown command").is_err(), "an older core has no such command");
-        assert!(CoreReport::parse(&line.replace("\"report_version\":1", "\"report_version\":3")).is_err());
-        assert!(CoreReport::parse(&line.replace("\"report_version\":1", "\"report_version\":2")).is_err(), "a version 2 report must carry its progression block");
+        assert_eq!(
+            report.catalog().len(),
+            1,
+            "a table the core could not read is not in the catalog"
+        );
+        assert!(
+            CoreReport::parse("Unknown command").is_err(),
+            "an older core has no such command"
+        );
+        assert!(
+            CoreReport::parse(&line.replace("\"report_version\":1", "\"report_version\":3"))
+                .is_err()
+        );
+        assert!(
+            CoreReport::parse(&line.replace("\"report_version\":1", "\"report_version\":2"))
+                .is_err(),
+            "a version 2 report must carry its progression block"
+        );
         assert!(CoreReport::parse(&line.replace("\"coa\"", "\"wildcard\"")).is_err());
-        assert!(CoreReport::parse(&line.replace("\"records\":3", "\"records\":3,\"x\":1")).is_err());
+        assert!(
+            CoreReport::parse(&line.replace("\"records\":3", "\"records\":3,\"x\":1")).is_err()
+        );
         assert!(CoreReport::parse(&line.replace("Appearances.dbc", "Secret.dbc")).is_err());
-        assert!(CoreReport::parse(&line.replace("abababababababababababababababababababababababababababababababab", "zz")).is_err());
+        assert!(CoreReport::parse(&line.replace(
+            "abababababababababababababababababababababababababababababababab",
+            "zz"
+        ))
+        .is_err());
     }
 }

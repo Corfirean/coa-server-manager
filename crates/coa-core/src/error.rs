@@ -13,7 +13,11 @@ pub enum Error {
     #[error("not enough free space: need {needed} bytes, have {available}")]
     InsufficientSpace { needed: u64, available: u64 },
     #[error("hash mismatch for {path}: expected {expected}, got {actual}")]
-    HashMismatch { path: String, expected: String, actual: String },
+    HashMismatch {
+        path: String,
+        expected: String,
+        actual: String,
+    },
     #[error("invalid manifest: {0}")]
     InvalidManifest(String),
     #[error("installation {0} is not registered")]
@@ -170,7 +174,12 @@ impl ErrorCode {
             ),
             ErrorCode::Unknown => ("Something went wrong", "See the technical details.", &[ShowDetails]),
         };
-        Human { code: self, title, message, actions }
+        Human {
+            code: self,
+            title,
+            message,
+            actions,
+        }
     }
 }
 
@@ -205,6 +214,10 @@ impl From<Error> for UiError {
             Error::Validation(f) => f.clone(),
             _ => Vec::new(),
         };
-        UiError { human: e.code().human(), technical: e.to_string(), fields }
+        UiError {
+            human: e.code().human(),
+            technical: e.to_string(),
+            fields,
+        }
     }
 }

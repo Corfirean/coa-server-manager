@@ -11,7 +11,9 @@ use super::super::model::*;
 use super::super::realm::collections::Applied;
 use super::super::realm::knowledge::RealmKnowledge;
 use super::super::realm::Exported;
-use super::super::store::{pet_identity, ImportAllocation, ItemObservation, PetObservation, PlannedItem, PlannedPet, Store};
+use super::super::store::{
+    pet_identity, ImportAllocation, ItemObservation, PetObservation, PlannedItem, PlannedPet, Store,
+};
 use super::bridge::*;
 
 pub struct FakeRealm {
@@ -93,21 +95,56 @@ impl FakeRealm {
             fingerprints: 0,
             full_reads: 0,
             collection_writes: 0,
-            extension_realm: super::super::extension::fake::FakeExtensionRealm { guid, has_module: false, ..Default::default() },
+            extension_realm: super::super::extension::fake::FakeExtensionRealm {
+                guid,
+                has_module: false,
+                ..Default::default()
+            },
             registry: None,
         }
     }
 
     /// The character arrives (an import): items and pets get local ids in plan order, like the offline importer does.
-    pub fn import(&mut self, store: &mut Store, character: CharacterId, server_id: &str, revision: u64, session: SessionId) -> Result<()> {
+    pub fn import(
+        &mut self,
+        store: &mut Store,
+        character: CharacterId,
+        server_id: &str,
+        revision: u64,
+        session: SessionId,
+    ) -> Result<()> {
         let model = store.load_snapshot(character, revision)?;
         self.import_model(store, character, server_id, revision, session, model)
     }
 
     /// The same, for a character that is not the canonical one as it is (a working copy projected for this realm).
-    pub fn import_model(&mut self, store: &mut Store, character: CharacterId, server_id: &str, revision: u64, session: SessionId, model: PortableCharacter) -> Result<()> {
-        let items: Vec<PlannedItem> = model.items.iter().map(|i| PlannedItem { id: i.id, entry: i.entry.clone(), identity: item_identity(&i.entry, i.random_property_id) }).collect();
-        let pets: Vec<PlannedPet> = model.pets.iter().map(|p| PlannedPet { id: p.id, entry: p.entry.clone(), identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell) }).collect();
+    pub fn import_model(
+        &mut self,
+        store: &mut Store,
+        character: CharacterId,
+        server_id: &str,
+        revision: u64,
+        session: SessionId,
+        model: PortableCharacter,
+    ) -> Result<()> {
+        let items: Vec<PlannedItem> = model
+            .items
+            .iter()
+            .map(|i| PlannedItem {
+                id: i.id,
+                entry: i.entry.clone(),
+                identity: item_identity(&i.entry, i.random_property_id),
+            })
+            .collect();
+        let pets: Vec<PlannedPet> = model
+            .pets
+            .iter()
+            .map(|p| PlannedPet {
+                id: p.id,
+                entry: p.entry.clone(),
+                identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell),
+            })
+            .collect();
         let ticket = store.begin_import(character, server_id, revision, &items, &pets)?;
         let (item_base, pet_base) = (self.next_item_guid, self.next_pet_number);
         self.next_item_guid += items.len() as u32;
@@ -120,13 +157,38 @@ impl FakeRealm {
         }
         self.db = model.clone();
         self.memory = model;
-        store.finish_import(ticket.import_id, ImportAllocation { local_guid: self.guid, item_base, pet_base })?;
-        self.row = Some(SessionRow { guid: self.guid, session_id: session, character_id: character, imported_revision: revision, generation: 1, state: RowState::WaitingBaseline, checkpoint_seq: 0, save_seq: 0 });
+        store.finish_import(
+            ticket.import_id,
+            ImportAllocation {
+                local_guid: self.guid,
+                item_base,
+                pet_base,
+            },
+        )?;
+        self.row = Some(SessionRow {
+            guid: self.guid,
+            session_id: session,
+            character_id: character,
+            imported_revision: revision,
+            generation: 1,
+            state: RowState::WaitingBaseline,
+            checkpoint_seq: 0,
+            save_seq: 0,
+        });
         Ok(())
     }
 
     fn free_slot(&self) -> u8 {
-        (23u8..=38).chain(39..=66).find(|s| !self.memory.items.iter().any(|i| i.container.is_none() && i.slot == *s)).expect("a free slot")
+        (23u8..=38)
+            .chain(39..=66)
+            .find(|s| {
+                !self
+                    .memory
+                    .items
+                    .iter()
+                    .any(|i| i.container.is_none() && i.slot == *s)
+            })
+            .expect("a free slot")
     }
 
     /// The realm gives the character an item; it goes to the first free place.
@@ -205,17 +267,28 @@ impl FakeRealm {
 
 impl RealmBridge for FakeRealm {
     fn session_row(&mut self, local_guid: u32) -> Result<Option<SessionRow>> {
-        Ok(if local_guid == self.guid { self.row.clone() } else { None })
+        Ok(if local_guid == self.guid {
+            self.row.clone()
+        } else {
+            None
+        })
     }
 
-    fn read(&mut self, local_guid: u32, prior_items: &HashMap<u32, (PortableItemId, String)>, prior_pets: &HashMap<u32, (PortablePetId, String)>) -> Result<RealmRead> {
+    fn read(
+        &mut self,
+        local_guid: u32,
+        prior_items: &HashMap<u32, (PortableItemId, String)>,
+        prior_pets: &HashMap<u32, (PortablePetId, String)>,
+    ) -> Result<RealmRead> {
         assert_eq!(local_guid, self.guid);
         let mut model = self.db.clone();
         let mut ids: HashMap<PortableItemId, PortableItemId> = HashMap::new();
         let mut observations = Vec::new();
         for item in &mut model.items {
             let internal = item.id;
-            let guid = *self.item_guid.get(&internal).ok_or_else(|| PortableError::Invalid("the simulated realm lost track of an item".into()))?;
+            let guid = *self.item_guid.get(&internal).ok_or_else(|| {
+                PortableError::Invalid("the simulated realm lost track of an item".into())
+            })?;
             let identity = item_identity(&item.entry, item.random_property_id);
             let id = match prior_items.get(&guid) {
                 Some((id, prior)) if *prior == identity => *id,
@@ -223,7 +296,12 @@ impl RealmBridge for FakeRealm {
             };
             ids.insert(internal, id);
             item.id = id;
-            observations.push(ItemObservation { portable_item_id: id, local_item_guid: guid, entry: item.entry.clone(), identity });
+            observations.push(ItemObservation {
+                portable_item_id: id,
+                local_item_guid: guid,
+                entry: item.entry.clone(),
+                identity,
+            });
         }
         for item in &mut model.items {
             item.container = item.container.and_then(|c| ids.get(&c).copied());
@@ -241,23 +319,48 @@ impl RealmBridge for FakeRealm {
                 _ => PortablePetId::new(),
             };
             pet.id = id;
-            pet_observations.push(PetObservation { portable_pet_id: id, local_pet_number: number, identity });
+            pet_observations.push(PetObservation {
+                portable_pet_id: id,
+                local_pet_number: number,
+                identity,
+            });
         }
         if let Some(registry) = &self.registry {
-            model.extensions.retain(|k, _| !super::super::extension::is_module_namespace(k));
+            model
+                .extensions
+                .retain(|k, _| !super::super::extension::is_module_namespace(k));
             let (exported, _) = registry.export_all(&mut self.extension_realm);
             model.extensions.extend(exported);
         }
         // the realm's tables are keyed by guid: a later read finds the same rows under the same internal ids
         let model = model.normalized();
-        Ok(RealmRead { exported: Exported { model, local_guid: self.guid, account: 1, observations, pet_observations, session: self.row.clone(), warnings: vec![] }, session: self.row.clone(), online: self.online })
+        Ok(RealmRead {
+            exported: Exported {
+                model,
+                local_guid: self.guid,
+                account: 1,
+                observations,
+                pet_observations,
+                session: self.row.clone(),
+                warnings: vec![],
+            },
+            session: self.row.clone(),
+            online: self.online,
+        })
     }
 
-    fn request_checkpoint(&mut self, local_guid: u32, session: SessionId, sequence: u64) -> Result<CheckpointReply> {
+    fn request_checkpoint(
+        &mut self,
+        local_guid: u32,
+        session: SessionId,
+        sequence: u64,
+    ) -> Result<CheckpointReply> {
         if local_guid != self.guid || !self.online {
             return Ok(CheckpointReply::NotOnline);
         }
-        let Some(row) = &self.row else { return Ok(CheckpointReply::Refused("not a portable character".into())) };
+        let Some(row) = &self.row else {
+            return Ok(CheckpointReply::Refused("not a portable character".into()));
+        };
         if row.session_id != session || row.state != RowState::Active {
             return Ok(CheckpointReply::Refused("wrong session".into()));
         }
@@ -284,11 +387,27 @@ impl RealmBridge for FakeRealm {
         Ok(())
     }
 
-    fn arm(&mut self, local_guid: u32, session: SessionId, character: CharacterId, revision: u64, generation: u32) -> Result<()> {
+    fn arm(
+        &mut self,
+        local_guid: u32,
+        session: SessionId,
+        character: CharacterId,
+        revision: u64,
+        generation: u32,
+    ) -> Result<()> {
         assert_eq!(local_guid, self.guid);
         assert!(!self.online, "a character is re-armed while it is offline");
         let save_seq = self.row.as_ref().map_or(0, |r| r.save_seq);
-        self.row = Some(SessionRow { guid: local_guid, session_id: session, character_id: character, imported_revision: revision, generation, state: RowState::WaitingBaseline, checkpoint_seq: 0, save_seq });
+        self.row = Some(SessionRow {
+            guid: local_guid,
+            session_id: session,
+            character_id: character,
+            imported_revision: revision,
+            generation,
+            state: RowState::WaitingBaseline,
+            checkpoint_seq: 0,
+            save_seq,
+        });
         Ok(())
     }
 
@@ -300,7 +419,12 @@ impl RealmBridge for FakeRealm {
         assert_eq!(account, self.account);
         self.fingerprints += 1;
         let set = self.rows(kind)?;
-        Ok(format!("{}:{}:{}", set.len(), set.ids().last().copied().unwrap_or(0), set.ids().iter().map(|i| *i as u64).sum::<u64>()))
+        Ok(format!(
+            "{}:{}:{}",
+            set.len(),
+            set.ids().last().copied().unwrap_or(0),
+            set.ids().iter().map(|i| *i as u64).sum::<u64>()
+        ))
     }
 
     fn read_collection(&mut self, account: u32, kind: &str) -> Result<IdSet> {
@@ -311,7 +435,13 @@ impl RealmBridge for FakeRealm {
 
     fn apply_collection(&mut self, account: u32, kind: &str, canonical: &IdSet) -> Result<Applied> {
         assert_eq!(account, self.account);
-        let knows = |id: u32| if kind == "coa:appearance" { self.knowledge.knows_appearance(id) } else { self.knowledge.knows_vanity(id) };
+        let knows = |id: u32| {
+            if kind == "coa:appearance" {
+                self.knowledge.knows_appearance(id)
+            } else {
+                self.knowledge.knows_vanity(id)
+            }
+        };
         let held = self.rows(kind)?.clone();
         let mut applied = Applied::default();
         let mut add = Vec::new();
@@ -353,7 +483,10 @@ impl FakeRealm {
 
     /// The player unlocks ids (the core `INSERT IGNORE`s them).
     pub fn unlock(&mut self, kind: &str, ids: impl IntoIterator<Item = u32>) {
-        let union = self.rows(kind).unwrap().union(&IdSet::from_ids(ids).unwrap());
+        let union = self
+            .rows(kind)
+            .unwrap()
+            .union(&IdSet::from_ids(ids).unwrap());
         *self.rows_mut(kind).unwrap() = union;
     }
 }

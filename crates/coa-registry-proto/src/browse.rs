@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::caps::Ruleset;
 use crate::sign::RealmId;
-use crate::{invalid, AccountProvisioning, ModuleEntry, Population, ProtoError, Rates, Result, REGISTRY_PROTOCOL_VERSION};
+use crate::{
+    invalid, AccountProvisioning, ModuleEntry, Population, ProtoError, Rates, Result,
+    REGISTRY_PROTOCOL_VERSION,
+};
 
 pub const DEFAULT_PAGE: u32 = 50;
 pub const MAX_PAGE: u32 = 100;
@@ -93,9 +96,19 @@ impl Cursor {
         if text.len() > MAX_CURSOR_BYTES {
             return invalid("the cursor is too long");
         }
-        let bytes = B64.decode(text).map_err(|_| ProtoError::Invalid("the cursor is not valid".into()))?;
-        let c: Cursor = serde_json::from_slice(&bytes).map_err(|_| ProtoError::Invalid("the cursor is not valid".into()))?;
-        let fits = matches!((c.s, &c.k), (SortKey::Name, CursorKey::Text(t)) if t.chars().count() <= crate::MAX_DISPLAY_NAME_CHARS) || matches!((c.s, &c.k), (SortKey::Players | SortKey::Cap | SortKey::Created, CursorKey::Num(_)));
+        let bytes = B64
+            .decode(text)
+            .map_err(|_| ProtoError::Invalid("the cursor is not valid".into()))?;
+        let c: Cursor = serde_json::from_slice(&bytes)
+            .map_err(|_| ProtoError::Invalid("the cursor is not valid".into()))?;
+        let fits = matches!((c.s, &c.k), (SortKey::Name, CursorKey::Text(t)) if t.chars().count() <= crate::MAX_DISPLAY_NAME_CHARS)
+            || matches!(
+                (c.s, &c.k),
+                (
+                    SortKey::Players | SortKey::Cap | SortKey::Created,
+                    CursorKey::Num(_)
+                )
+            );
         if !fits {
             return invalid("the cursor does not fit its sort");
         }
@@ -122,7 +135,21 @@ pub struct ListQuery {
 
 impl Default for ListQuery {
     fn default() -> Self {
-        Self { limit: DEFAULT_PAGE, cursor: None, q: None, ruleset: None, cap_min: None, cap_max: None, module: None, players_min: None, language: None, region: None, status: Status::Online, sort: SortKey::Players, order: Order::Desc }
+        Self {
+            limit: DEFAULT_PAGE,
+            cursor: None,
+            q: None,
+            ruleset: None,
+            cap_min: None,
+            cap_max: None,
+            module: None,
+            players_min: None,
+            language: None,
+            region: None,
+            status: Status::Online,
+            sort: SortKey::Players,
+            order: Order::Desc,
+        }
     }
 }
 
@@ -133,8 +160,13 @@ fn percent_decode(s: &str) -> Result<String> {
     while i < bytes.len() {
         match bytes[i] {
             b'%' => {
-                let hex = s.get(i + 1..i + 3).ok_or_else(|| ProtoError::Invalid("a percent escape is cut short".into()))?;
-                out.push(u8::from_str_radix(hex, 16).map_err(|_| ProtoError::Invalid("a percent escape is not hex".into()))?);
+                let hex = s
+                    .get(i + 1..i + 3)
+                    .ok_or_else(|| ProtoError::Invalid("a percent escape is cut short".into()))?;
+                out.push(
+                    u8::from_str_radix(hex, 16)
+                        .map_err(|_| ProtoError::Invalid("a percent escape is not hex".into()))?,
+                );
                 i += 3;
             }
             b'+' => {
@@ -177,7 +209,15 @@ impl ListQuery {
                 return invalid("a parameter has control characters");
             }
             match name.as_str() {
-                "limit" => q.limit = number("limit", &value, MAX_PAGE).and_then(|n| if n == 0 { invalid("limit is 0") } else { Ok(n) })?,
+                "limit" => {
+                    q.limit = number("limit", &value, MAX_PAGE).and_then(|n| {
+                        if n == 0 {
+                            invalid("limit is 0")
+                        } else {
+                            Ok(n)
+                        }
+                    })?
+                }
                 "cursor" => q.cursor = Some(Cursor::decode(&value)?),
                 "q" => {
                     if value.chars().count() > MAX_SEARCH_CHARS {
@@ -198,7 +238,9 @@ impl ListQuery {
                     crate::validate_module_id(&value)?;
                     q.module = Some(value);
                 }
-                "players_min" => q.players_min = Some(number("players_min", &value, crate::MAX_PLAYER_NUMBER)?),
+                "players_min" => {
+                    q.players_min = Some(number("players_min", &value, crate::MAX_PLAYER_NUMBER)?)
+                }
                 "language" => {
                     crate::validate_language(&value)?;
                     q.language = Some(value);
@@ -253,14 +295,28 @@ impl ListQuery {
 
     /// A deterministic text of the whole query: the cache key and the base of a client's next request.
     pub fn canonical(&self) -> String {
-        let mut parts = vec![format!("limit={}", self.limit), format!("sort={}", self.sort.as_str()), format!("order={}", self.order.as_str())];
+        let mut parts = vec![
+            format!("limit={}", self.limit),
+            format!("sort={}", self.sort.as_str()),
+            format!("order={}", self.order.as_str()),
+        ];
         let status = match self.status {
             Status::Online => "online",
             Status::Offline => "offline",
             Status::All => "all",
         };
         parts.push(format!("status={status}"));
-        let enc = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+        let enc = |s: &str| {
+            s.bytes()
+                .map(|b| {
+                    if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') {
+                        (b as char).to_string()
+                    } else {
+                        format!("%{b:02X}")
+                    }
+                })
+                .collect::<String>()
+        };
         if let Some(v) = &self.q {
             parts.push(format!("q={}", enc(v)));
         }
@@ -326,7 +382,11 @@ pub struct RealmPage {
 
 impl RealmPage {
     pub fn new(realms: Vec<RealmSummary>, next_cursor: Option<String>) -> Self {
-        Self { protocol_version: REGISTRY_PROTOCOL_VERSION, realms, next_cursor }
+        Self {
+            protocol_version: REGISTRY_PROTOCOL_VERSION,
+            realms,
+            next_cursor,
+        }
     }
 }
 
@@ -336,28 +396,94 @@ mod tests {
 
     #[test]
     fn a_query_is_parsed_strictly() {
-        let q = ListQuery::parse(Some("q=Descen%20sion&ruleset=coa&cap_min=60&module=playerbots&sort=name&limit=25")).unwrap();
-        assert_eq!((q.q.as_deref(), q.ruleset, q.cap_min, q.module.as_deref(), q.sort, q.order, q.limit), (Some("Descen sion"), Some(Ruleset::Coa), Some(60), Some("playerbots"), SortKey::Name, Order::Asc, 25));
+        let q = ListQuery::parse(Some(
+            "q=Descen%20sion&ruleset=coa&cap_min=60&module=playerbots&sort=name&limit=25",
+        ))
+        .unwrap();
+        assert_eq!(
+            (
+                q.q.as_deref(),
+                q.ruleset,
+                q.cap_min,
+                q.module.as_deref(),
+                q.sort,
+                q.order,
+                q.limit
+            ),
+            (
+                Some("Descen sion"),
+                Some(Ruleset::Coa),
+                Some(60),
+                Some("playerbots"),
+                SortKey::Name,
+                Order::Asc,
+                25
+            )
+        );
         let d = ListQuery::parse(None).unwrap();
-        assert_eq!((d.sort, d.order, d.status, d.limit), (SortKey::Players, Order::Desc, Status::Online, 50), "by default: online realms, most players first");
-        for bad in ["limit=0", "limit=101", "limit=x", "sort=ping", "order=up", "ruleset=normal", "status=banned", "unknown=1", "q=a&q=b", "cap_min=300", "cap_min=70&cap_max=60", "module=<b>", "language=<x>", "cursor=%%%", "q=%zz", "q=bad%00", &format!("q={}", "x".repeat(65))] {
+        assert_eq!(
+            (d.sort, d.order, d.status, d.limit),
+            (SortKey::Players, Order::Desc, Status::Online, 50),
+            "by default: online realms, most players first"
+        );
+        for bad in [
+            "limit=0",
+            "limit=101",
+            "limit=x",
+            "sort=ping",
+            "order=up",
+            "ruleset=normal",
+            "status=banned",
+            "unknown=1",
+            "q=a&q=b",
+            "cap_min=300",
+            "cap_min=70&cap_max=60",
+            "module=<b>",
+            "language=<x>",
+            "cursor=%%%",
+            "q=%zz",
+            "q=bad%00",
+            &format!("q={}", "x".repeat(65)),
+        ] {
             assert!(ListQuery::parse(Some(bad)).is_err(), "{bad}");
         }
-        assert!(ListQuery::parse(Some(&"a=b&".repeat(400))).is_err(), "too long");
+        assert!(
+            ListQuery::parse(Some(&"a=b&".repeat(400))).is_err(),
+            "too long"
+        );
     }
 
     #[test]
     fn a_cursor_belongs_to_one_sort_and_is_bounded() {
-        let c = Cursor { s: SortKey::Players, o: Order::Desc, k: CursorKey::Num(12), id: RealmId::new() };
+        let c = Cursor {
+            s: SortKey::Players,
+            o: Order::Desc,
+            k: CursorKey::Num(12),
+            id: RealmId::new(),
+        };
         let text = c.encode();
         assert_eq!(Cursor::decode(&text).unwrap(), c);
         assert!(ListQuery::parse(Some(&format!("sort=players&cursor={text}"))).is_ok());
-        assert!(ListQuery::parse(Some(&format!("sort=name&cursor={text}"))).is_err(), "another sort");
-        assert!(ListQuery::parse(Some(&format!("sort=players&order=asc&cursor={text}"))).is_err(), "another order");
+        assert!(
+            ListQuery::parse(Some(&format!("sort=name&cursor={text}"))).is_err(),
+            "another sort"
+        );
+        assert!(
+            ListQuery::parse(Some(&format!("sort=players&order=asc&cursor={text}"))).is_err(),
+            "another order"
+        );
         assert!(Cursor::decode(&"A".repeat(400)).is_err());
         assert!(Cursor::decode("not base64 !").is_err());
-        let wrong = Cursor { s: SortKey::Name, o: Order::Asc, k: CursorKey::Num(1), id: RealmId::new() };
-        assert!(Cursor::decode(&wrong.encode()).is_err(), "a number is not a name");
+        let wrong = Cursor {
+            s: SortKey::Name,
+            o: Order::Asc,
+            k: CursorKey::Num(1),
+            id: RealmId::new(),
+        };
+        assert!(
+            Cursor::decode(&wrong.encode()).is_err(),
+            "a number is not a name"
+        );
     }
 
     #[test]
@@ -365,6 +491,10 @@ mod tests {
         let a = ListQuery::parse(Some("sort=name&q=a%20b&ruleset=coa")).unwrap();
         let b = ListQuery::parse(Some("ruleset=coa&q=a+b&sort=name&order=asc&limit=50")).unwrap();
         assert_eq!(a.canonical(), b.canonical());
-        assert_eq!(ListQuery::parse(Some(&a.canonical())).unwrap(), a, "and it parses back to the same query");
+        assert_eq!(
+            ListQuery::parse(Some(&a.canonical())).unwrap(),
+            a,
+            "and it parses back to the same query"
+        );
     }
 }

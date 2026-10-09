@@ -23,17 +23,25 @@ pub enum Source {
 /// Read a small file (manifest, signature) from the source.
 pub fn fetch_small(source: &Source, name: &str) -> Result<Vec<u8>> {
     match source {
-        Source::Dir(d) => Ok(fs::read(fsx::safe_join(d, name)?).map_err(|_| Error::Invalid(format!("{name} was not found in the package folder.")))?),
+        Source::Dir(d) => Ok(fs::read(fsx::safe_join(d, name)?)
+            .map_err(|_| Error::Invalid(format!("{name} was not found in the package folder.")))?),
         Source::Url(base) => {
             let url = format!("{}/{name}", base.trim_end_matches('/'));
             download::check_url(&url)?;
             let t = download::HttpTransport::new()?;
-            let reply = download::Transport::get(&t, &url, 0).map_err(|e| Error::NetworkUnreachable(format!("{e}")))?;
+            let reply = download::Transport::get(&t, &url, 0)
+                .map_err(|e| Error::NetworkUnreachable(e.to_string()))?;
             if reply.status == 404 || reply.status == 410 {
-                return Err(Error::PackageNotPublished(format!("the download server answered {} for {name} ({url})", reply.status)));
+                return Err(Error::PackageNotPublished(format!(
+                    "the download server answered {} for {name} ({url})",
+                    reply.status
+                )));
             }
             if reply.status != 200 {
-                return Err(Error::Invalid(format!("The download server answered {} for {name}.", reply.status)));
+                return Err(Error::Invalid(format!(
+                    "The download server answered {} for {name}.",
+                    reply.status
+                )));
             }
             let mut buf = Vec::new();
             reply.body.take(64 * 1024 * 1024).read_to_end(&mut buf)?;
@@ -62,22 +70,48 @@ pub fn human_bytes(n: u64) -> String {
         v /= 1024.0;
         i += 1;
     }
-    if i == 0 || v >= 100.0 { format!("{} {}", v.round() as u64, units[i]) } else { format!("{v:.1} {}", units[i]) }
+    if i == 0 || v >= 100.0 {
+        format!("{} {}", v.round() as u64, units[i])
+    } else {
+        format!("{v:.1} {}", units[i])
+    }
 }
 
-pub fn fetch_parts(source: &Source, manifest: &Manifest, download_dir: &Path, cancel: &Cancel, report: &dyn Fn(f64, Option<String>)) -> Result<PathBuf> {
-    let archive = manifest.archive.as_ref().ok_or_else(|| Error::InvalidManifest("manifest has no archive".into()))?;
+pub fn fetch_parts(
+    source: &Source,
+    manifest: &Manifest,
+    download_dir: &Path,
+    cancel: &Cancel,
+    report: &dyn Fn(f64, Option<String>),
+) -> Result<PathBuf> {
+    let archive = manifest
+        .archive
+        .as_ref()
+        .ok_or_else(|| Error::InvalidManifest("manifest has no archive".into()))?;
     match source {
         Source::Dir(d) => Ok(d.clone()),
         Source::Url(base) => {
             let all: u64 = archive.parts.iter().map(|p| p.size).sum::<u64>().max(1);
             let mut before = 0u64;
             for part in archive.parts.iter() {
-                let job = Job { url: format!("{}/{}", base.trim_end_matches('/'), part.name), dest: download_dir.join(&part.name), sha256: part.sha256.clone(), size: part.size };
+                let job = Job {
+                    url: format!("{}/{}", base.trim_end_matches('/'), part.name),
+                    dest: download_dir.join(&part.name),
+                    sha256: part.sha256.clone(),
+                    size: part.size,
+                };
                 download::fetch(&job, cancel, &|p: Progress| {
                     let done = before + p.downloaded.min(part.size);
                     // language-neutral so the screen can show it as it is: "3.1 GB / 5.9 GB · 40.6 MB/s"
-                    report(done as f64 / all as f64, Some(format!("{} / {} \u{b7} {:.1} MB/s", human_bytes(done), human_bytes(all), p.bytes_per_sec as f64 / 1e6)));
+                    report(
+                        done as f64 / all as f64,
+                        Some(format!(
+                            "{} / {} \u{b7} {:.1} MB/s",
+                            human_bytes(done),
+                            human_bytes(all),
+                            p.bytes_per_sec as f64 / 1e6
+                        )),
+                    );
                 })?;
                 before += part.size;
             }

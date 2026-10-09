@@ -54,7 +54,12 @@ pub const CARRY: &[&str] = &[
     "core.ascension_bar.#",
 ];
 
-const DROP_PREFIX: &[&str] = &["coa.bot", "coa.gameplay_test", "coa.highrisk", "coa.portable."];
+const DROP_PREFIX: &[&str] = &[
+    "coa.bot",
+    "coa.gameplay_test",
+    "coa.highrisk",
+    "coa.portable.",
+];
 
 /// Does `source` match `pattern`? `#` = 1-9 ASCII digits, anything else literal.
 pub fn matches_pattern(source: &str, pattern: &str) -> bool {
@@ -130,7 +135,11 @@ mod tests {
             "mod.someone.new_feature",
             "core.unheard_of",
         ] {
-            assert_eq!(classify_setting(s, Ruleset::Coa), Disposition::Quarantine, "{s}");
+            assert_eq!(
+                classify_setting(s, Ruleset::Coa),
+                Disposition::Quarantine,
+                "{s}"
+            );
         }
     }
 
@@ -158,7 +167,11 @@ mod tests {
             "core.ascension_starter_liveX",
             "core.ascension_resetcredits",
         ] {
-            assert_eq!(classify_setting(s, Ruleset::Coa), Disposition::Quarantine, "{s:?} must not be carried");
+            assert_eq!(
+                classify_setting(s, Ruleset::Coa),
+                Disposition::Quarantine,
+                "{s:?} must not be carried"
+            );
         }
     }
 
@@ -166,7 +179,10 @@ mod tests {
     fn the_pattern_matcher_itself() {
         assert!(matches_pattern("a.5", "a.#"));
         assert!(matches_pattern("a.123456789", "a.#"));
-        assert!(!matches_pattern("a.1234567890", "a.#"), "more than nine digits");
+        assert!(
+            !matches_pattern("a.1234567890", "a.#"),
+            "more than nine digits"
+        );
         assert!(!matches_pattern("a.", "a.#"));
         assert!(matches_pattern("a.1.b.22", "a.#.b.#"));
         assert!(!matches_pattern("a.1.b.22.", "a.#.b.#"));
@@ -177,24 +193,49 @@ mod tests {
 
     #[test]
     fn bots_tests_bookkeeping_and_the_importers_own_marker_are_dropped() {
-        for s in ["coa.bot.gear", "coa.bot_profile", "coa.gameplay_test", "coa.highrisk", "coa.portable.import"] {
+        for s in [
+            "coa.bot.gear",
+            "coa.bot_profile",
+            "coa.gameplay_test",
+            "coa.highrisk",
+            "coa.portable.import",
+        ] {
             assert_eq!(classify_setting(s, Ruleset::Coa), Disposition::Drop, "{s}");
         }
     }
 
     #[test]
     fn wildcard_state_is_quarantined_on_every_ruleset_until_reviewed() {
-        for s in ["core.wildcard", "core.wildcard.cards", "core.wildcard.spec", "core.wildcard.scrolls.spec2"] {
-            assert_eq!(classify_setting(s, Ruleset::Wildcard), Disposition::Quarantine, "{s}");
-            assert_eq!(classify_setting(s, Ruleset::Coa), Disposition::Quarantine, "{s}");
+        for s in [
+            "core.wildcard",
+            "core.wildcard.cards",
+            "core.wildcard.spec",
+            "core.wildcard.scrolls.spec2",
+        ] {
+            assert_eq!(
+                classify_setting(s, Ruleset::Wildcard),
+                Disposition::Quarantine,
+                "{s}"
+            );
+            assert_eq!(
+                classify_setting(s, Ruleset::Coa),
+                Disposition::Quarantine,
+                "{s}"
+            );
         }
         // the carried keys are the same on a Wildcard realm
-        assert_eq!(classify_setting("core.ascension_active_spec", Ruleset::Wildcard), Disposition::Carry);
+        assert_eq!(
+            classify_setting("core.ascension_active_spec", Ruleset::Wildcard),
+            Disposition::Carry
+        );
     }
 
     #[test]
     fn the_carry_list_is_exactly_what_was_approved() {
         assert_eq!(CARRY.len(), 10);
-        assert!(CARRY.iter().all(|p| p.starts_with("core.ascension_")), "nothing outside the ascension build/spec/starter/reset family");
+        assert!(
+            CARRY.iter().all(|p| p.starts_with("core.ascension_")),
+            "nothing outside the ascension build/spec/starter/reset family"
+        );
     }
 }

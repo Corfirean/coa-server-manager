@@ -44,7 +44,9 @@ impl std::fmt::Display for LinkError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LinkError::HostOffline => write!(f, "The server's Manager is not online right now."),
-            LinkError::HostBusy => write!(f, "The server's Manager is busy; try again in a moment."),
+            LinkError::HostBusy => {
+                write!(f, "The server's Manager is busy; try again in a moment.")
+            }
             LinkError::RateLimited => write!(f, "Too many attempts; wait a minute."),
             LinkError::Auth(m) => write!(f, "The server could not be verified: {m}"),
             LinkError::Protocol(m) => write!(f, "The connection broke the protocol: {m}"),
@@ -79,7 +81,10 @@ pub fn from_error_frame(code: ErrorCode, message: &str) -> LinkError {
 /// `http(s)://host[:port]` -> `ws(s)://host[:port]` + `path`. The Registry's address is the Coordinator's address (one front door).
 pub fn coordinator_url(registry_url: &str, path: &str) -> Option<String> {
     let base = registry_url.trim().trim_end_matches('/');
-    let rest = base.strip_prefix("https://").map(|r| format!("wss://{r}")).or_else(|| base.strip_prefix("http://").map(|r| format!("ws://{r}")))?;
+    let rest = base
+        .strip_prefix("https://")
+        .map(|r| format!("wss://{r}"))
+        .or_else(|| base.strip_prefix("http://").map(|r| format!("ws://{r}")))?;
     Some(format!("{rest}{path}"))
 }
 
@@ -87,9 +92,9 @@ pub fn relay_url(registry_url: &str, path: &str) -> Option<String> {
     coordinator_url(registry_url, path)
 }
 
-
 pub fn connect(url: &str, read_timeout: Duration) -> Result<Ws, LinkError> {
-    let (mut ws, _) = tungstenite::connect(url).map_err(|e| LinkError::Io(clean(&e.to_string())))?;
+    let (mut ws, _) =
+        tungstenite::connect(url).map_err(|e| LinkError::Io(clean(&e.to_string())))?;
     set_timeouts(&mut ws, read_timeout);
     Ok(ws)
 }
@@ -115,8 +120,14 @@ pub fn set_timeouts(ws: &mut Ws, read: Duration) {
 pub fn poll(ws: &mut Ws) -> Result<Option<Message>, LinkError> {
     match ws.read() {
         Ok(m) => Ok(Some(m)),
-        Err(tungstenite::Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => Ok(None),
-        Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => Err(LinkError::Io("the connection was closed".into())),
+        Err(tungstenite::Error::Io(e))
+            if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+        {
+            Ok(None)
+        }
+        Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
+            Err(LinkError::Io("the connection was closed".into()))
+        }
         Err(e) => Err(LinkError::Io(clean(&e.to_string()))),
     }
 }
@@ -138,18 +149,26 @@ pub fn next_frame(ws: &mut Ws, total: Duration) -> Result<Frame, LinkError> {
                 return Ok(frame);
             }
             Some(Message::Ping(_) | Message::Pong(_)) => continue,
-            Some(Message::Close(_)) => return Err(LinkError::Io("the connection was closed".into())),
-            Some(_) => return Err(LinkError::Protocol("a binary frame arrived where a control frame was expected".into())),
+            Some(Message::Close(_)) => {
+                return Err(LinkError::Io("the connection was closed".into()))
+            }
+            Some(_) => {
+                return Err(LinkError::Protocol(
+                    "a binary frame arrived where a control frame was expected".into(),
+                ))
+            }
         }
     }
 }
 
 pub fn send_text(ws: &mut Ws, frame: &Frame) -> Result<(), LinkError> {
-    ws.send(Message::Text(coord::to_text(frame).into())).map_err(|e| LinkError::Io(clean(&e.to_string())))
+    ws.send(Message::Text(coord::to_text(frame).into()))
+        .map_err(|e| LinkError::Io(clean(&e.to_string())))
 }
 
 pub fn send_binary(ws: &mut Ws, data: Vec<u8>) -> Result<(), LinkError> {
-    ws.send(Message::Binary(data.into())).map_err(|e| LinkError::Io(clean(&e.to_string())))
+    ws.send(Message::Binary(data.into()))
+        .map_err(|e| LinkError::Io(clean(&e.to_string())))
 }
 
 #[cfg(test)]
@@ -158,17 +177,41 @@ mod tests {
 
     #[test]
     fn the_coordinator_address_follows_the_registrys() {
-        assert_eq!(coordinator_url("https://registry.example/", "/coord/v1/host").unwrap(), "wss://registry.example/coord/v1/host");
-        assert_eq!(coordinator_url("http://127.0.0.1:8080", "/coord/v1/player?realm=x").unwrap(), "ws://127.0.0.1:8080/coord/v1/player?realm=x");
-        assert!(coordinator_url("ftp://x", "/").is_none() && coordinator_url("registry.example", "/").is_none());
+        assert_eq!(
+            coordinator_url("https://registry.example/", "/coord/v1/host").unwrap(),
+            "wss://registry.example/coord/v1/host"
+        );
+        assert_eq!(
+            coordinator_url("http://127.0.0.1:8080", "/coord/v1/player?realm=x").unwrap(),
+            "ws://127.0.0.1:8080/coord/v1/player?realm=x"
+        );
+        assert!(
+            coordinator_url("ftp://x", "/").is_none()
+                && coordinator_url("registry.example", "/").is_none()
+        );
     }
 
     #[test]
     fn coordinator_refusals_become_messages_a_player_can_act_on() {
-        assert_eq!(from_error_frame(ErrorCode::HostOffline, "").code(), "host_offline");
-        assert_eq!(from_error_frame(ErrorCode::UnknownRealm, "").code(), "host_offline");
-        assert_eq!(from_error_frame(ErrorCode::HostBusy, "").code(), "host_busy");
-        assert_eq!(from_error_frame(ErrorCode::RateLimited, "").code(), "rate_limited");
-        assert_eq!(LinkError::HostOffline.to_string(), "The server's Manager is not online right now.");
+        assert_eq!(
+            from_error_frame(ErrorCode::HostOffline, "").code(),
+            "host_offline"
+        );
+        assert_eq!(
+            from_error_frame(ErrorCode::UnknownRealm, "").code(),
+            "host_offline"
+        );
+        assert_eq!(
+            from_error_frame(ErrorCode::HostBusy, "").code(),
+            "host_busy"
+        );
+        assert_eq!(
+            from_error_frame(ErrorCode::RateLimited, "").code(),
+            "rate_limited"
+        );
+        assert_eq!(
+            LinkError::HostOffline.to_string(),
+            "The server's Manager is not online right now."
+        );
     }
 }

@@ -34,7 +34,11 @@ pub struct RelayStatus {
 pub struct RelayLink {
     stop: Arc<AtomicBool>,
     status: Arc<Mutex<RelayStatus>>,
-    alloc_tx: Sender<(Uuid, Option<String>, Sender<Result<RelayAllocationInfo, LinkError>>)>,
+    alloc_tx: Sender<(
+        Uuid,
+        Option<String>,
+        Sender<Result<RelayAllocationInfo, LinkError>>,
+    )>,
     join: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -48,24 +52,25 @@ pub struct RelayAllocationInfo {
 }
 
 impl RelayProvider for RelayLink {
-    fn allocate(&self, player_id: &Uuid, client_ip: Option<&str>) -> crate::error::Result<RelayAllocationInfo> {
+    fn allocate(
+        &self,
+        player_id: &Uuid,
+        client_ip: Option<&str>,
+    ) -> crate::error::Result<RelayAllocationInfo> {
         let (tx, rx) = channel();
         self.alloc_tx
             .send((*player_id, client_ip.map(|s| s.to_string()), tx))
-            .map_err(|_| crate::error::Error::Invalid("relay link worker thread not running".to_string()))?;
+            .map_err(|_| {
+                crate::error::Error::Invalid("relay link worker thread not running".to_string())
+            })?;
         rx.recv_timeout(Duration::from_secs(10))
             .map_err(|_| crate::error::Error::Invalid("relay allocation timed out".to_string()))?
             .map_err(|e| crate::error::Error::Invalid(e.to_string()))
     }
 }
 
-
 impl RelayLink {
-    pub fn start(
-        url: String,
-        realm_id: RealmId,
-        key: SigningKey,
-    ) -> Arc<Self> {
+    pub fn start(url: String, realm_id: RealmId, key: SigningKey) -> Arc<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(RelayStatus::default()));
         let (alloc_tx, alloc_rx) = channel();
@@ -115,7 +120,11 @@ fn run(
     url: &str,
     realm: RealmId,
     key: &SigningKey,
-    alloc_rx: Receiver<(Uuid, Option<String>, Sender<Result<RelayAllocationInfo, LinkError>>)>,
+    alloc_rx: Receiver<(
+        Uuid,
+        Option<String>,
+        Sender<Result<RelayAllocationInfo, LinkError>>,
+    )>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
 ) {
@@ -160,7 +169,11 @@ fn session(
     url: &str,
     realm: RealmId,
     key: &SigningKey,
-    alloc_rx: &Receiver<(Uuid, Option<String>, Sender<Result<RelayAllocationInfo, LinkError>>)>,
+    alloc_rx: &Receiver<(
+        Uuid,
+        Option<String>,
+        Sender<Result<RelayAllocationInfo, LinkError>>,
+    )>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
 ) -> Result<(), LinkError> {
@@ -180,7 +193,7 @@ fn session(
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            got.ok_or_else(|| LinkError::Timeout)?
+            got.ok_or(LinkError::Timeout)?
         }
     };
 
@@ -224,7 +237,8 @@ fn session(
     tracing::info!(%realm, "relay link active");
 
     let mut streams: HashMap<u32, StreamWorker> = HashMap::new();
-    let mut pending_allocs: HashMap<u64, Sender<Result<RelayAllocationInfo, LinkError>>> = HashMap::new();
+    let mut pending_allocs: HashMap<u64, Sender<Result<RelayAllocationInfo, LinkError>>> =
+        HashMap::new();
     let req_counter = AtomicU64::new(1);
     let (ws_out_tx, ws_out_rx) = channel::<TunnelMsg>();
 
@@ -250,7 +264,9 @@ fn session(
 
         // Keepalive
         if last_ping.elapsed() > Duration::from_secs(30) {
-            let _ = ws.send(Message::Text(serde_json::to_string(&TunnelMsg::Ping).unwrap().into()));
+            let _ = ws.send(Message::Text(
+                serde_json::to_string(&TunnelMsg::Ping).unwrap().into(),
+            ));
             last_ping = Instant::now();
         }
 
@@ -259,7 +275,9 @@ fn session(
             match transport::poll(&mut ws)? {
                 None => break,
                 Some(Message::Text(text)) => {
-                    let Ok(msg) = serde_json::from_str::<TunnelMsg>(&text) else { continue };
+                    let Ok(msg) = serde_json::from_str::<TunnelMsg>(&text) else {
+                        continue;
+                    };
                     match msg {
                         TunnelMsg::AllocateOk {
                             request_id,
@@ -284,7 +302,9 @@ fn session(
                                 let _ = tx.send(Err(LinkError::Protocol(error)));
                             }
                         }
-                        TunnelMsg::Connect { stream_id, target, .. } => {
+                        TunnelMsg::Connect {
+                            stream_id, target, ..
+                        } => {
                             // Strictly predefined local targets: Auth (3724) or World (8085)
                             let local_port = target.local_port();
                             match TcpStream::connect(("127.0.0.1", local_port)) {
@@ -298,14 +318,18 @@ fn session(
 
                                     // Reply ConnectOk
                                     let ok_msg = TunnelMsg::ConnectOk { stream_id };
-                                    let _ = ws.send(Message::Text(serde_json::to_string(&ok_msg).unwrap().into()));
+                                    let _ = ws.send(Message::Text(
+                                        serde_json::to_string(&ok_msg).unwrap().into(),
+                                    ));
                                 }
                                 Err(e) => {
                                     let err_msg = TunnelMsg::ConnectErr {
                                         stream_id,
                                         error: e.to_string(),
                                     };
-                                    let _ = ws.send(Message::Text(serde_json::to_string(&err_msg).unwrap().into()));
+                                    let _ = ws.send(Message::Text(
+                                        serde_json::to_string(&err_msg).unwrap().into(),
+                                    ));
                                 }
                             }
                             set_status(status, |s| s.active_streams = streams.len());
@@ -331,7 +355,9 @@ fn session(
                         _ => {}
                     }
                 }
-                Some(Message::Close(_)) => return Err(LinkError::Io("relay closed connection".into())),
+                Some(Message::Close(_)) => {
+                    return Err(LinkError::Io("relay closed connection".into()))
+                }
                 _ => {}
             }
         }
@@ -364,7 +390,10 @@ fn spawn_local_tcp_bridge(
                     }
                     Ok(n) => {
                         let chunk = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-                        if to_tunnel_read.send(TunnelMsg::Data { stream_id, chunk }).is_err() {
+                        if to_tunnel_read
+                            .send(TunnelMsg::Data { stream_id, chunk })
+                            .is_err()
+                        {
                             break;
                         }
                     }

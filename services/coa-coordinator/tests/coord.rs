@@ -409,3 +409,46 @@ fn probe_endpoint_verifies_reachable_and_unreachable_ports() {
     assert!(out2.contains(&format!("\"{p2_live}\":true")), "{out2}");
     assert!(out2.contains("\"all_reachable\":true"), "{out2}");
 }
+
+#[test]
+fn attack_attempt_to_probe_third_party_or_spoofed_victim_ip_fails() {
+    use std::io::Write;
+
+    // Case A: Attacker connects directly to Coordinator and supplies spoofed X-Forwarded-For header
+    let s = start(quick());
+    let mut t = TcpStream::connect(s.addr).unwrap();
+    let victim_ip = "198.51.100.77";
+    let req = format!(
+        "GET /coord/v1/probe?ports=3724 HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: {victim_ip}\r\n\r\n"
+    );
+    t.write_all(req.as_bytes()).unwrap();
+    let out = read_response(&mut t);
+    assert!(out.starts_with("HTTP/1.1 200"), "{out}");
+    // Coordinator MUST use actual peer IP (127.0.0.1), NEVER the spoofed victim IP
+    assert!(out.contains("\"client_ip\":\"127.0.0.1\""), "Must use peer IP, got: {out}");
+    assert!(!out.contains(victim_ip), "Must never probe victim IP");
+
+    // Case B: Production mode behind proxy (trust_proxy = true): probing private / internal infrastructure is forbidden
+    let mut cfg = quick();
+    cfg.trust_proxy = true;
+    let s_proxy = start(cfg);
+    let mut t2 = TcpStream::connect(s_proxy.addr).unwrap();
+    // Proxy forwards client IP that is private (e.g. attacker attempting internal SSRF)
+    let req2 = "GET /coord/v1/probe?ports=3724 HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 10.0.0.1\r\n\r\n";
+    t2.write_all(req2.as_bytes()).unwrap();
+    let out2 = read_response(&mut t2);
+    assert!(out2.starts_with("HTTP/1.1 403"), "Internal/private probe must be rejected: {out2}");
+}
+
+#[test]
+fn attack_attempt_to_probe_forbidden_infrastructure_ports_fails() {
+    use std::io::Write;
+    let s = start(quick());
+    for forbidden_port in [22, 5432, 8080, 8081, 3306, 6379] {
+        let mut t = TcpStream::connect(s.addr).unwrap();
+        let req = format!("GET /coord/v1/probe?ports={forbidden_port} HTTP/1.1\r\nHost: x\r\n\r\n");
+        t.write_all(req.as_bytes()).unwrap();
+        let out = read_response(&mut t);
+        assert!(out.starts_with("HTTP/1.1 403"), "Port {forbidden_port} must be forbidden: {out}");
+    }
+}

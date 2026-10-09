@@ -1,13 +1,22 @@
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::doc_overindented_list_items,
+    clippy::unnecessary_sort_by,
+    clippy::explicit_counter_loop,
+    clippy::large_enum_variant,
+)]
+
 pub mod accounts;
+pub mod allsettings;
 pub mod backup;
 pub mod cleanbase;
-pub mod companions;
 pub mod client;
-pub mod remote_client;
 pub mod clientdl;
+pub mod companions;
 pub mod config;
-pub mod control;
 pub mod console;
+pub mod control;
 pub mod dashboard;
 pub mod db;
 pub mod diag;
@@ -22,31 +31,31 @@ pub mod health;
 pub mod install;
 pub mod layout;
 pub mod logging;
-pub mod pkgsource;
-pub mod population;
-pub mod process;
 pub mod manifest;
 pub mod migrations;
-pub mod portable;
+pub mod modules;
 pub mod multiworld;
-pub mod repair;
-pub mod schema_check;
 pub mod net;
 pub mod package;
+pub mod pkgsource;
+pub mod population;
+pub mod portable;
+pub mod process;
 pub mod ra;
-pub mod allsettings;
-pub mod modules;
+pub mod realm_registry;
 pub mod realmlist;
 pub mod realms;
-pub mod realm_registry;
 pub mod registry;
 pub mod release;
-pub mod report;
 pub mod release_schema;
-pub mod update;
-pub mod upnp;
+pub mod remote_client;
+pub mod repair;
+pub mod report;
+pub mod schema_check;
 pub mod signing;
 pub mod srp6;
+pub mod update;
+pub mod upnp;
 
 pub use error::{Error, ErrorCode, Result};
 

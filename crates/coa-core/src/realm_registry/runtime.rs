@@ -14,9 +14,21 @@ use crate::{Error, Result};
 
 enum Cmd {
     SetUrl(Option<String>, Sender<Result<()>>),
-    Publish { local_id: String, name: String, description: String, language: String, region: Option<String>, reply: Sender<Result<()>> },
+    Publish {
+        local_id: String,
+        name: String,
+        description: String,
+        language: String,
+        region: Option<String>,
+        reply: Sender<Result<()>>,
+    },
     Unpublish(String, Sender<Result<()>>),
-    SetAccess { local_id: String, existing_only: bool, route: Option<String>, reply: Sender<Result<()>> },
+    SetAccess {
+        local_id: String,
+        existing_only: bool,
+        route: Option<String>,
+        reply: Sender<Result<()>>,
+    },
     Retry(String),
     Shutdown,
 }
@@ -28,11 +40,21 @@ pub struct RegistryRuntime {
 }
 
 impl RegistryRuntime {
-    pub fn start(dir: &Path, keys: Arc<dyn KeyStore>, source: Arc<dyn AdvertSource>) -> Result<Self> {
+    pub fn start(
+        dir: &Path,
+        keys: Arc<dyn KeyStore>,
+        source: Arc<dyn AdvertSource>,
+    ) -> Result<Self> {
         Self::start_with(dir, keys, source, system_clock(), Timing::default())
     }
 
-    pub fn start_with(dir: &Path, keys: Arc<dyn KeyStore>, source: Arc<dyn AdvertSource>, clock: Clock, timing: Timing) -> Result<Self> {
+    pub fn start_with(
+        dir: &Path,
+        keys: Arc<dyn KeyStore>,
+        source: Arc<dyn AdvertSource>,
+        clock: Clock,
+        timing: Timing,
+    ) -> Result<Self> {
         let mut host = RegistryHost::open(dir, keys, source, clock, timing, Instant::now())?;
         let status = Arc::new(Mutex::new(host.status(Instant::now())));
         let (tx, rx) = mpsc::channel::<Cmd>();
@@ -45,14 +67,34 @@ impl RegistryRuntime {
                     Ok(Cmd::SetUrl(url, reply)) => {
                         let _ = reply.send(host.set_url(url.as_deref(), Instant::now()));
                     }
-                    Ok(Cmd::Publish { local_id, name, description, language, region, reply }) => {
-                        let _ = reply.send(host.publish(&local_id, &name, &description, &language, region.as_deref(), Instant::now()));
+                    Ok(Cmd::Publish {
+                        local_id,
+                        name,
+                        description,
+                        language,
+                        region,
+                        reply,
+                    }) => {
+                        let _ = reply.send(host.publish(
+                            &local_id,
+                            &name,
+                            &description,
+                            &language,
+                            region.as_deref(),
+                            Instant::now(),
+                        ));
                     }
                     Ok(Cmd::Unpublish(local_id, reply)) => {
                         let _ = reply.send(host.unpublish(&local_id, Instant::now()));
                     }
-                    Ok(Cmd::SetAccess { local_id, existing_only, route, reply }) => {
-                        let _ = reply.send(host.set_access(&local_id, existing_only, route.as_deref()));
+                    Ok(Cmd::SetAccess {
+                        local_id,
+                        existing_only,
+                        route,
+                        reply,
+                    }) => {
+                        let _ =
+                            reply.send(host.set_access(&local_id, existing_only, route.as_deref()));
                     }
                     Ok(Cmd::Retry(local_id)) => host.retry(&local_id, Instant::now()),
                     Err(RecvTimeoutError::Timeout) => {}
@@ -64,7 +106,11 @@ impl RegistryRuntime {
                 }
             })
             .map_err(Error::Io)?;
-        Ok(Self { tx, status, join: Mutex::new(Some(join)) })
+        Ok(Self {
+            tx,
+            status,
+            join: Mutex::new(Some(join)),
+        })
     }
 
     pub fn status(&self) -> RegistryStatus {
@@ -73,24 +119,52 @@ impl RegistryRuntime {
 
     fn ask(&self, make: impl FnOnce(Sender<Result<()>>) -> Cmd) -> Result<()> {
         let (reply, answer) = mpsc::channel();
-        self.tx.send(make(reply)).map_err(|_| Error::Invalid("the registry loop has stopped".into()))?;
-        answer.recv_timeout(Duration::from_secs(30)).map_err(|_| Error::Invalid("the registry loop did not answer".into()))?
+        self.tx
+            .send(make(reply))
+            .map_err(|_| Error::Invalid("the registry loop has stopped".into()))?;
+        answer
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| Error::Invalid("the registry loop did not answer".into()))?
     }
 
     pub fn set_url(&self, url: Option<String>) -> Result<()> {
         self.ask(|reply| Cmd::SetUrl(url, reply))
     }
 
-    pub fn publish(&self, local_id: &str, name: &str, description: &str, language: &str, region: Option<&str>) -> Result<()> {
-        self.ask(|reply| Cmd::Publish { local_id: local_id.into(), name: name.into(), description: description.into(), language: language.into(), region: region.map(str::to_string), reply })
+    pub fn publish(
+        &self,
+        local_id: &str,
+        name: &str,
+        description: &str,
+        language: &str,
+        region: Option<&str>,
+    ) -> Result<()> {
+        self.ask(|reply| Cmd::Publish {
+            local_id: local_id.into(),
+            name: name.into(),
+            description: description.into(),
+            language: language.into(),
+            region: region.map(str::to_string),
+            reply,
+        })
     }
 
     pub fn unpublish(&self, local_id: &str) -> Result<()> {
         self.ask(|reply| Cmd::Unpublish(local_id.into(), reply))
     }
 
-    pub fn set_access(&self, local_id: &str, existing_only: bool, route: Option<&str>) -> Result<()> {
-        self.ask(|reply| Cmd::SetAccess { local_id: local_id.into(), existing_only, route: route.map(str::to_string), reply })
+    pub fn set_access(
+        &self,
+        local_id: &str,
+        existing_only: bool,
+        route: Option<&str>,
+    ) -> Result<()> {
+        self.ask(|reply| Cmd::SetAccess {
+            local_id: local_id.into(),
+            existing_only,
+            route: route.map(str::to_string),
+            reply,
+        })
     }
 
     pub fn retry(&self, local_id: &str) {

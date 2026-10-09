@@ -38,7 +38,11 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { mode: Mode::Local, host: None, lan_address_override: None }
+        Settings {
+            mode: Mode::Local,
+            host: None,
+            lan_address_override: None,
+        }
     }
 }
 
@@ -66,25 +70,38 @@ pub fn save(meta: &Path, s: &Settings) -> Result<()> {
 }
 
 fn host_ok(h: &str) -> bool {
-    !h.is_empty() && h.len() <= 253 && h.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-')) && !h.starts_with('-')
+    !h.is_empty()
+        && h.len() <= 253
+        && h.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+        && !h.starts_with('-')
 }
 
 /// The files whose `BindIP` decides who can reach the login and world servers.
 fn bind_targets(root: &Path) -> Vec<PathBuf> {
-    ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf", "Settings/authserver.conf.template", "Core/configs/authserver.conf"]
-        .iter()
-        .map(|r| root.join(r))
-        .filter(|p| p.is_file())
-        .collect()
+    [
+        "Settings/worldserver.conf.template",
+        "Core/configs/worldserver.conf",
+        "Settings/authserver.conf.template",
+        "Core/configs/authserver.conf",
+    ]
+    .iter()
+    .map(|r| root.join(r))
+    .filter(|p| p.is_file())
+    .collect()
 }
 
 /// Whether the configuration currently lets other computers reach the login and world servers.
 pub fn bind_is_open(root: &Path) -> bool {
     let files = bind_targets(root);
     !files.is_empty()
-        && files
-            .iter()
-            .all(|p| fs::read(p).ok().and_then(|b| ConfFile::parse_bytes(&b).ok()).and_then(|c| c.get("BindIP").map(|v| v.trim() == "\"0.0.0.0\"")).unwrap_or(false))
+        && files.iter().all(|p| {
+            fs::read(p)
+                .ok()
+                .and_then(|b| ConfFile::parse_bytes(&b).ok())
+                .and_then(|c| c.get("BindIP").map(|v| v.trim() == "\"0.0.0.0\""))
+                .unwrap_or(false)
+        })
 }
 
 /// Open (`0.0.0.0`) or close (`127.0.0.1`) the login and world servers to other computers. The database and the server
@@ -110,7 +127,11 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
         let mut conf = ConfFile::parse_bytes(&bytes)?;
         // Opening turns it on; closing leaves it alone (it only matters while the servers listen beyond this computer).
         if open && conf.get("CoA.AllowRemoteClients").map(str::trim) != Some("1") {
-            conf.set("CoA.AllowRemoteClients", "1", &["Set by CoA Server Manager together with the friends mode"]);
+            conf.set(
+                "CoA.AllowRemoteClients",
+                "1",
+                &["Set by CoA Server Manager together with the friends mode"],
+            );
             originals.push((coa_conf.clone(), bytes));
             edits.push((coa_conf, conf.to_text()));
         }
@@ -118,7 +139,16 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
     if edits.is_empty() {
         return Ok(false);
     }
-    take_snapshot(meta, Scope::Server, if open { "before opening the servers to friends" } else { "before closing the servers to friends" }, &originals)?;
+    take_snapshot(
+        meta,
+        Scope::Server,
+        if open {
+            "before opening the servers to friends"
+        } else {
+            "before closing the servers to friends"
+        },
+        &originals,
+    )?;
     for (p, text) in edits {
         fsx::atomic_write(&p, text.as_bytes())?;
     }
@@ -132,7 +162,11 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     }
     let db = Db::from_repack(root, Account::Admin)?;
     let realm = crate::realms::state(root)?.active.realm_id();
-    let where_realms = if crate::realms::state(root)?.simultaneous { "id IN (1,2)".into() } else { format!("id={realm}") };
+    let where_realms = if crate::realms::state(root)?.simultaneous {
+        "id IN (1,2)".into()
+    } else {
+        format!("id={realm}")
+    };
     db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}', localAddress='{host}' WHERE {where_realms};"))?;
     Ok(())
 }
@@ -159,20 +193,35 @@ pub fn reapply(root: &Path, meta: &Path) -> Result<()> {
 
 /// Build the friend's package: instructions, a ready realmlist file and (optionally) the companion addon.
 /// Only whitelisted content goes in - never credentials, configuration or database files.
-pub fn make_friend_package(root: &Path, host: &str, include_addon: bool, out_zip: &Path) -> Result<()> {
+pub fn make_friend_package(
+    root: &Path,
+    host: &str,
+    include_addon: bool,
+    out_zip: &Path,
+) -> Result<()> {
     if !host_ok(host) {
         return Err(Error::Invalid("That address is not valid.".into()));
     }
     let file = fs::File::create(out_zip)?;
     let mut zip = zip::ZipWriter::new(file);
-    let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
     let mut add = |name: &str, bytes: &[u8]| -> Result<()> {
-        zip.start_file(name, opts).map_err(|e| Error::Invalid(e.to_string()))?;
+        zip.start_file(name, opts)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
         zip.write_all(bytes)?;
         Ok(())
     };
-    add("HOW-TO-CONNECT.txt", crate::net::instructions(host).replace('\n', "\r\n").as_bytes())?;
-    add("realmlist.wtf", format!("set realmlist {host}\r\n").as_bytes())?;
+    add(
+        "HOW-TO-CONNECT.txt",
+        crate::net::instructions(host)
+            .replace('\n', "\r\n")
+            .as_bytes(),
+    )?;
+    add(
+        "realmlist.wtf",
+        format!("set realmlist {host}\r\n").as_bytes(),
+    )?;
     if include_addon {
         if let Some(src) = crate::client::addon_source(root) {
             let mut stack = vec![src.clone()];
@@ -182,7 +231,11 @@ pub fn make_friend_package(root: &Path, host: &str, include_addon: bool, out_zip
                     if p.is_dir() {
                         stack.push(p);
                     } else {
-                        let rel = p.strip_prefix(&src).unwrap().to_string_lossy().replace('\\', "/");
+                        let rel = p
+                            .strip_prefix(&src)
+                            .unwrap()
+                            .to_string_lossy()
+                            .replace('\\', "/");
                         add(&format!("Interface/AddOns/CoABotUI/{rel}"), &fs::read(&p)?)?;
                     }
                 }
@@ -205,10 +258,22 @@ mod tests {
         fs::create_dir_all(root.join("Core/configs")).unwrap();
         fs::create_dir_all(&meta).unwrap();
         for (f, body) in [
-            ("Settings/worldserver.conf.template", "[worldserver]\r\nBindIP = \"127.0.0.1\"\r\nRa.IP = \"127.0.0.1\"\r\n"),
-            ("Core/configs/worldserver.conf", "[worldserver]\r\nBindIP = \"127.0.0.1\"\r\nRa.IP = \"127.0.0.1\"\r\n"),
-            ("Settings/authserver.conf.template", "[authserver]\nBindIP = \"127.0.0.1\"\n"),
-            ("Core/configs/authserver.conf", "[authserver]\nBindIP = \"127.0.0.1\"\n"),
+            (
+                "Settings/worldserver.conf.template",
+                "[worldserver]\r\nBindIP = \"127.0.0.1\"\r\nRa.IP = \"127.0.0.1\"\r\n",
+            ),
+            (
+                "Core/configs/worldserver.conf",
+                "[worldserver]\r\nBindIP = \"127.0.0.1\"\r\nRa.IP = \"127.0.0.1\"\r\n",
+            ),
+            (
+                "Settings/authserver.conf.template",
+                "[authserver]\nBindIP = \"127.0.0.1\"\n",
+            ),
+            (
+                "Core/configs/authserver.conf",
+                "[authserver]\nBindIP = \"127.0.0.1\"\n",
+            ),
         ] {
             fs::write(root.join(f), body).unwrap();
         }
@@ -220,12 +285,27 @@ mod tests {
         let (_d, root, meta) = setup();
         assert!(set_open(&root, &meta, true).unwrap());
         let w = fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap();
-        assert_eq!(w, "[worldserver]\r\nBindIP = \"0.0.0.0\"\r\nRa.IP = \"127.0.0.1\"\r\n", "console address untouched, line endings kept");
-        assert_eq!(fs::read_to_string(root.join("Settings/authserver.conf.template")).unwrap(), "[authserver]\nBindIP = \"0.0.0.0\"\n");
+        assert_eq!(
+            w, "[worldserver]\r\nBindIP = \"0.0.0.0\"\r\nRa.IP = \"127.0.0.1\"\r\n",
+            "console address untouched, line endings kept"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("Settings/authserver.conf.template")).unwrap(),
+            "[authserver]\nBindIP = \"0.0.0.0\"\n"
+        );
         assert!(!set_open(&root, &meta, true).unwrap(), "idempotent");
-        assert!(crate::config::list_snapshots(&meta).iter().any(|s| s.reason.contains("opening")), "a snapshot was taken first");
+        assert!(
+            crate::config::list_snapshots(&meta)
+                .iter()
+                .any(|s| s.reason.contains("opening")),
+            "a snapshot was taken first"
+        );
         assert!(set_open(&root, &meta, false).unwrap());
-        assert!(fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("BindIP = \"127.0.0.1\""));
+        assert!(
+            fs::read_to_string(root.join("Core/configs/worldserver.conf"))
+                .unwrap()
+                .contains("BindIP = \"127.0.0.1\"")
+        );
     }
 
     #[test]
@@ -233,33 +313,72 @@ mod tests {
         let (_d, root, meta) = setup();
         let coa = root.join("Core/configs/modules/coa.conf");
         fs::create_dir_all(coa.parent().unwrap()).unwrap();
-        fs::write(&coa, "CoA.Enable = 1
+        fs::write(
+            &coa,
+            "CoA.Enable = 1
 CoA.AllowRemoteClients = 0
-").unwrap();
+",
+        )
+        .unwrap();
         assert!(set_open(&root, &meta, true).unwrap());
-        assert!(fs::read_to_string(&coa).unwrap().contains("CoA.AllowRemoteClients = 1"));
+        assert!(fs::read_to_string(&coa)
+            .unwrap()
+            .contains("CoA.AllowRemoteClients = 1"));
         assert!(fs::read_to_string(&coa).unwrap().contains("CoA.Enable = 1"));
         assert!(set_open(&root, &meta, false).unwrap());
-        assert!(fs::read_to_string(&coa).unwrap().contains("CoA.AllowRemoteClients = 1"), "closing only changes BindIP");
+        assert!(
+            fs::read_to_string(&coa)
+                .unwrap()
+                .contains("CoA.AllowRemoteClients = 1"),
+            "closing only changes BindIP"
+        );
     }
 
     #[test]
     fn a_shared_server_gets_its_bind_address_back_before_start_and_a_local_one_is_left_alone() {
         let (_d, root, meta) = setup();
-        assert!(!ensure_bind(&root, &meta).unwrap(), "local mode: nothing to do");
-        save(&meta, &Settings { mode: Mode::Private, host: Some("100.64.1.2".into()), ..Settings::default() }).unwrap();
-        assert!(ensure_bind(&root, &meta).unwrap(), "templates were reset to 127.0.0.1 -> reopened");
+        assert!(
+            !ensure_bind(&root, &meta).unwrap(),
+            "local mode: nothing to do"
+        );
+        save(
+            &meta,
+            &Settings {
+                mode: Mode::Private,
+                host: Some("100.64.1.2".into()),
+                ..Settings::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            ensure_bind(&root, &meta).unwrap(),
+            "templates were reset to 127.0.0.1 -> reopened"
+        );
         assert!(bind_is_open(&root));
-        assert!(!ensure_bind(&root, &meta).unwrap(), "already open: idempotent");
+        assert!(
+            !ensure_bind(&root, &meta).unwrap(),
+            "already open: idempotent"
+        );
     }
 
     #[test]
     fn settings_round_trip_and_default_to_local() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(load(d.path()).mode, Mode::Local);
-        save(d.path(), &Settings { mode: Mode::Private, host: Some("100.64.1.2".into()), ..Settings::default() }).unwrap();
+        save(
+            d.path(),
+            &Settings {
+                mode: Mode::Private,
+                host: Some("100.64.1.2".into()),
+                ..Settings::default()
+            },
+        )
+        .unwrap();
         let s = load(d.path());
-        assert_eq!((s.mode, s.host.as_deref()), (Mode::Private, Some("100.64.1.2")));
+        assert_eq!(
+            (s.mode, s.host.as_deref()),
+            (Mode::Private, Some("100.64.1.2"))
+        );
     }
 
     #[test]
@@ -274,14 +393,26 @@ CoA.AllowRemoteClients = 0
     fn lan_preference_survives_save_load_and_every_other_mode_and_can_be_cleared() {
         let d = tempfile::tempdir().unwrap();
         let mut s = Settings::default();
-        s.select_mode(Mode::Lan, "192.168.1.50".into(), Some("192.168.1.50".into()));
-        for (mode, host) in [(Mode::Private, "100.101.20.5"), (Mode::Direct, "203.0.113.9"), (Mode::Local, "127.0.0.1")] {
+        s.select_mode(
+            Mode::Lan,
+            "192.168.1.50".into(),
+            Some("192.168.1.50".into()),
+        );
+        for (mode, host) in [
+            (Mode::Private, "100.101.20.5"),
+            (Mode::Direct, "203.0.113.9"),
+            (Mode::Local, "127.0.0.1"),
+        ] {
             s.select_mode(mode, host.into(), None);
             save(d.path(), &s).unwrap();
             s = load(d.path());
             assert_eq!(s.lan_address_override.as_deref(), Some("192.168.1.50"));
             assert_eq!(s.host.as_deref(), Some(host));
-            let lan = crate::net::resolve_lan_host(s.lan_address_override.as_deref(), Some("192.168.0.169".parse().unwrap())).unwrap();
+            let lan = crate::net::resolve_lan_host(
+                s.lan_address_override.as_deref(),
+                Some("192.168.0.169".parse().unwrap()),
+            )
+            .unwrap();
             s.select_mode(Mode::Lan, lan, s.lan_address_override.clone());
             assert_eq!(s.host.as_deref(), Some("192.168.1.50"));
         }
@@ -293,8 +424,16 @@ CoA.AllowRemoteClients = 0
     #[test]
     fn friend_package_contains_only_whitelisted_files() {
         let (d, root, _m) = setup();
-        fs::write(root.join("Settings/database.json"), "{\"rootPassword\":\"SECRET\"}").unwrap();
-        fs::write(root.join("Settings/repack.json"), "{\"raPassword\":\"SECRET\"}").unwrap();
+        fs::write(
+            root.join("Settings/database.json"),
+            "{\"rootPassword\":\"SECRET\"}",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Settings/repack.json"),
+            "{\"raPassword\":\"SECRET\"}",
+        )
+        .unwrap();
         let addon = root.join("Extras/CoABotUI");
         fs::create_dir_all(addon.join("Libs")).unwrap();
         fs::write(addon.join("CoABotUI.toc"), "## Version: 1").unwrap();
@@ -302,12 +441,23 @@ CoA.AllowRemoteClients = 0
         let out = d.path().join("friend.zip");
         make_friend_package(&root, "203.0.113.7", true, &out).unwrap();
         let mut z = zip::ZipArchive::new(fs::File::open(&out).unwrap()).unwrap();
-        let names: Vec<String> = (0..z.len()).map(|i| z.by_index(i).unwrap().name().to_string()).collect();
-        assert!(names.contains(&"HOW-TO-CONNECT.txt".to_string()) && names.contains(&"realmlist.wtf".to_string()));
+        let names: Vec<String> = (0..z.len())
+            .map(|i| z.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"HOW-TO-CONNECT.txt".to_string())
+                && names.contains(&"realmlist.wtf".to_string())
+        );
         assert!(names.contains(&"Interface/AddOns/CoABotUI/Libs/x.lua".to_string()));
-        assert!(!names.iter().any(|n| n.contains("database") || n.contains("repack") || n.contains("conf")), "{names:?}");
+        assert!(
+            !names
+                .iter()
+                .any(|n| n.contains("database") || n.contains("repack") || n.contains("conf")),
+            "{names:?}"
+        );
         let mut realm = String::new();
-        std::io::Read::read_to_string(&mut z.by_name("realmlist.wtf").unwrap(), &mut realm).unwrap();
+        std::io::Read::read_to_string(&mut z.by_name("realmlist.wtf").unwrap(), &mut realm)
+            .unwrap();
         assert_eq!(realm, "set realmlist 203.0.113.7\r\n");
         for i in 0..z.len() {
             let mut body = String::new();
@@ -321,18 +471,26 @@ CoA.AllowRemoteClients = 0
     fn manual_lan_host_survives_startup_bind_restoration_and_drives_friend_package() {
         let (d, root, meta) = setup();
         let mut s = Settings::default();
-        s.select_mode(Mode::Lan, "192.168.1.50".into(), Some("192.168.1.50".into()));
+        s.select_mode(
+            Mode::Lan,
+            "192.168.1.50".into(),
+            Some("192.168.1.50".into()),
+        );
         save(&meta, &s).unwrap();
         assert!(ensure_bind(&root, &meta).unwrap());
         assert!(bind_is_open(&root));
         let restored = load(&meta);
         assert_eq!(restored.host.as_deref(), Some("192.168.1.50"));
-        assert_eq!(restored.lan_address_override.as_deref(), Some("192.168.1.50"));
+        assert_eq!(
+            restored.lan_address_override.as_deref(),
+            Some("192.168.1.50")
+        );
         let package = d.path().join("manual-lan.zip");
         make_friend_package(&root, restored.host.as_deref().unwrap(), false, &package).unwrap();
         let mut zip = zip::ZipArchive::new(fs::File::open(package).unwrap()).unwrap();
         let mut realm = String::new();
-        std::io::Read::read_to_string(&mut zip.by_name("realmlist.wtf").unwrap(), &mut realm).unwrap();
+        std::io::Read::read_to_string(&mut zip.by_name("realmlist.wtf").unwrap(), &mut realm)
+            .unwrap();
         assert_eq!(realm, "set realmlist 192.168.1.50\r\n");
     }
 }

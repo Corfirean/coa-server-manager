@@ -59,9 +59,16 @@ Manager at the one you have, or let it download one for you.
 
 ## Status
 
-Phases 0–10 of the plan in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are done: foundation, import, start/stop,
-config engine, backups, clean install from signed packages, updates, companions, client launch, friends, polish.
-Remaining work (translation review by native speakers, optional extras) is listed in section 9 of that document. Translation notes: [docs/TRANSLATIONS.md](docs/TRANSLATIONS.md).
+Phases 0–15 are complete: foundation, import, start/stop, config engine, backups, clean install from signed packages,
+updates, companions, client launch, friends, public registry, end-to-end control plane (Noise XX), portable characters
+with remote transfer and level projection, game relay fallback, verified direct connectivity (UPnP / NAT-PMP),
+and security/release hardening.
+
+### Known Limitations
+* **Native client login prefill**: Ascension's 3.3.5 client does not accept command-line credentials; users type their password once or link an existing account.
+* **Non-Windows SecretStore**: Windows uses DPAPI (`CryptProtectData`) with domain separation entropy. On Linux/macOS, keys fall back to strict 0600 file permissions.
+* **Direct to Relay migration**: Established direct TCP sessions cannot migrate mid-stream to Relay; network breaks trigger automatic fallback on the next JOIN.
+* **WorkerThreads**: `CharacterDatabase.WorkerThreads` must be set to `1` (the default) for safe remote portable character imports.
 
 ## Develop
 ```

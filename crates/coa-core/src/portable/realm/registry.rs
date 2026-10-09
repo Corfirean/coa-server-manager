@@ -29,12 +29,19 @@ pub enum TableClass {
 }
 
 pub fn classify(table: &str) -> Option<TableClass> {
-    TABLES.binary_search_by(|(name, _)| (*name).cmp(table)).ok().map(|i| TABLES[i].1)
+    TABLES
+        .binary_search_by(|(name, _)| (*name).cmp(table))
+        .ok()
+        .map(|i| TABLES[i].1)
 }
 
 /// The tables of `actual` that the registry does not know (new modules, newer core).
 pub fn unclassified<'a>(actual: impl IntoIterator<Item = &'a str>) -> Vec<String> {
-    actual.into_iter().filter(|t| classify(t).is_none()).map(str::to_string).collect()
+    actual
+        .into_iter()
+        .filter(|t| classify(t).is_none())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Column names that identify "this table holds data of one character". `account` is deliberately not here: account
@@ -42,7 +49,18 @@ pub fn unclassified<'a>(actual: impl IntoIterator<Item = &'a str>) -> Vec<String
 pub fn is_character_column(column: &str) -> bool {
     matches!(
         column.to_ascii_lowercase().as_str(),
-        "guid" | "owner_guid" | "owner" | "character_guid" | "char_guid" | "characterguid" | "charguid" | "player_guid" | "playerguid" | "owner_id" | "bot_guid" | "character_id"
+        "guid"
+            | "owner_guid"
+            | "owner"
+            | "character_guid"
+            | "char_guid"
+            | "characterguid"
+            | "charguid"
+            | "player_guid"
+            | "playerguid"
+            | "owner_id"
+            | "bot_guid"
+            | "character_id"
     )
 }
 
@@ -64,7 +82,10 @@ pub const TABLES: &[(&str, TableClass)] = &[
     ("ascension_manastorm_loadout", TableClass::CharacterLocal),
     ("ascension_manastorm_xp", TableClass::CharacterLocal),
     ("ascension_player_ticket", TableClass::CharacterLocal),
-    ("ascension_player_ticket_message", TableClass::CharacterLocal),
+    (
+        "ascension_player_ticket_message",
+        TableClass::CharacterLocal,
+    ),
     ("auctionhouse", TableClass::Realm),
     ("banned_addons", TableClass::Realm),
     ("battleground_deserters", TableClass::Realm),
@@ -76,7 +97,10 @@ pub const TABLES: &[(&str, TableClass)] = &[
     ("channels_rights", TableClass::Realm),
     ("character_account_data", TableClass::Portable),
     ("character_achievement", TableClass::CharacterLocal),
-    ("character_achievement_offline_updates", TableClass::CharacterLocal),
+    (
+        "character_achievement_offline_updates",
+        TableClass::CharacterLocal,
+    ),
     ("character_achievement_progress", TableClass::CharacterLocal),
     ("character_action", TableClass::Portable),
     ("character_appearance", TableClass::Appearance),
@@ -141,7 +165,10 @@ pub const TABLES: &[(&str, TableClass)] = &[
     ("coa_wildcard_skill_card_account", TableClass::Collection),
     ("coa_wildcard_skill_card_pending", TableClass::Collection),
     ("coa_wildcard_skill_card_purchase", TableClass::Collection),
-    ("coa_wildcard_specialization_cache", TableClass::AccountLocal),
+    (
+        "coa_wildcard_specialization_cache",
+        TableClass::AccountLocal,
+    ),
     ("corpse", TableClass::CharacterLocal),
     ("creature_respawn", TableClass::Realm),
     ("ethereal_bazaar_meta", TableClass::Realm),
@@ -188,7 +215,10 @@ pub const TABLES: &[(&str, TableClass)] = &[
     ("mod_ascension_bank_log", TableClass::Deferred),
     ("mod_ascension_bank_money", TableClass::Deferred),
     ("mod_ascension_bank_tab", TableClass::Deferred),
-    ("mod_coa_bot_guild_gather_orders", TableClass::CharacterLocal),
+    (
+        "mod_coa_bot_guild_gather_orders",
+        TableClass::CharacterLocal,
+    ),
     ("mod_craftsmans_codex", TableClass::Deferred),
     ("pet_aura", TableClass::CharacterLocal),
     ("pet_spell", TableClass::Portable),
@@ -222,27 +252,48 @@ mod tests {
     const SCHEMA_TABLES: &str = include_str!("testdata/characters-tables.txt");
 
     fn of(class: TableClass) -> BTreeSet<&'static str> {
-        TABLES.iter().filter(|(_, c)| *c == class).map(|(t, _)| *t).collect()
+        TABLES
+            .iter()
+            .filter(|(_, c)| *c == class)
+            .map(|(t, _)| *t)
+            .collect()
     }
 
     #[test]
     fn the_registry_is_sorted_and_free_of_duplicates() {
-        assert!(TABLES.windows(2).all(|w| w[0].0 < w[1].0), "TABLES must be strictly sorted for the binary search");
+        assert!(
+            TABLES.windows(2).all(|w| w[0].0 < w[1].0),
+            "TABLES must be strictly sorted for the binary search"
+        );
     }
 
     #[test]
     fn every_table_of_the_real_schema_is_classified_and_nothing_is_stale() {
-        let schema: BTreeSet<&str> = SCHEMA_TABLES.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        let schema: BTreeSet<&str> = SCHEMA_TABLES
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
         assert_eq!(schema.len(), 164);
         let missing: Vec<_> = schema.iter().filter(|t| classify(t).is_none()).collect();
         assert!(missing.is_empty(), "unclassified tables: {missing:?}");
-        let stale: Vec<_> = TABLES.iter().map(|(t, _)| *t).filter(|t| !schema.contains(t)).collect();
-        assert!(stale.is_empty(), "classified tables that are not in the schema: {stale:?}");
+        let stale: Vec<_> = TABLES
+            .iter()
+            .map(|(t, _)| *t)
+            .filter(|t| !schema.contains(t))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "classified tables that are not in the schema: {stale:?}"
+        );
     }
 
     #[test]
     fn a_new_module_table_is_reported_as_unclassified() {
-        assert_eq!(unclassified(["characters", "mod_shiny_new_thing", "item_instance"]), vec!["mod_shiny_new_thing".to_string()]);
+        assert_eq!(
+            unclassified(["characters", "mod_shiny_new_thing", "item_instance"]),
+            vec!["mod_shiny_new_thing".to_string()]
+        );
     }
 
     #[test]
@@ -284,11 +335,27 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(of(TableClass::Deferred), deferred);
-        let appearance: BTreeSet<&str> = ["character_appearance", "character_appearance_outfit", "character_appearance_settings"].into_iter().collect();
+        let appearance: BTreeSet<&str> = [
+            "character_appearance",
+            "character_appearance_outfit",
+            "character_appearance_settings",
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(of(TableClass::Appearance), appearance);
-        let blocking: BTreeSet<&str> = ["coa_character_challenge", "coa_character_gamemode", "coa_custom_trial_active", "ascension_manastorm_cache"].into_iter().collect();
+        let blocking: BTreeSet<&str> = [
+            "coa_character_challenge",
+            "coa_character_gamemode",
+            "coa_custom_trial_active",
+            "ascension_manastorm_cache",
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(of(TableClass::Blocking), blocking);
-        let collections: BTreeSet<&str> = ["account_appearance_collection", "account_vanity_collection"].into_iter().collect();
+        let collections: BTreeSet<&str> =
+            ["account_appearance_collection", "account_vanity_collection"]
+                .into_iter()
+                .collect();
         assert!(collections.is_subset(&of(TableClass::Collection)));
         assert_eq!(classify("mail"), Some(TableClass::Realm));
         assert_eq!(classify("character_aura"), Some(TableClass::CharacterLocal));
@@ -298,7 +365,14 @@ mod tests {
 
     #[test]
     fn character_columns_are_recognised() {
-        for c in ["guid", "GUID", "owner_guid", "owner", "character_guid", "bot_guid"] {
+        for c in [
+            "guid",
+            "GUID",
+            "owner_guid",
+            "owner",
+            "character_guid",
+            "bot_guid",
+        ] {
             assert!(is_character_column(c), "{c}");
         }
         for c in ["account", "entry", "id", "item_guid", "name"] {

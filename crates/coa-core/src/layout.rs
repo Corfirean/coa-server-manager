@@ -75,7 +75,12 @@ pub struct Ports {
 
 impl Default for Ports {
     fn default() -> Self {
-        Ports { mysql: 3307, auth: 3724, world: 8085, ra: 3443 }
+        Ports {
+            mysql: 3307,
+            auth: 3724,
+            world: 8085,
+            ra: 3443,
+        }
     }
 }
 
@@ -114,8 +119,22 @@ pub(crate) fn exists(root: &Path, rel: &str) -> bool {
     root.join(rel).exists()
 }
 
-pub(crate) fn item(key: &'static str, label: &'static str, present: bool, detail: Option<String>) -> Item {
-    Item { key, label, status: if present { Status::Found } else { Status::Missing }, detail }
+pub(crate) fn item(
+    key: &'static str,
+    label: &'static str,
+    present: bool,
+    detail: Option<String>,
+) -> Item {
+    Item {
+        key,
+        label,
+        status: if present {
+            Status::Found
+        } else {
+            Status::Missing
+        },
+        detail,
+    }
 }
 
 pub(crate) fn hash_exe(path: &Path, release: Option<&ReleaseJson>, name: &str) -> Option<ExeInfo> {
@@ -125,9 +144,16 @@ pub(crate) fn hash_exe(path: &Path, release: Option<&ReleaseJson>, name: &str) -
     }
     let sha256 = fsx::sha256_file(path).ok()?;
     let matches_release = release.and_then(|r| {
-        r.binaries.iter().find(|b| b.name.eq_ignore_ascii_case(name)).map(|b| b.sha256.eq_ignore_ascii_case(&sha256))
+        r.binaries
+            .iter()
+            .find(|b| b.name.eq_ignore_ascii_case(name))
+            .map(|b| b.sha256.eq_ignore_ascii_case(&sha256))
     });
-    Some(ExeInfo { size: meta.len(), sha256, matches_release })
+    Some(ExeInfo {
+        size: meta.len(),
+        sha256,
+        matches_release,
+    })
 }
 
 pub fn read_ports(root: &Path) -> Ports {
@@ -186,7 +212,10 @@ pub fn detect_client(dir: &Path) -> Option<ClientInfo> {
     }
     for exe in ["Ascension.exe", "Wow.exe", "WoW.exe"] {
         if dir.join(exe).is_file() {
-            return Some(ClientInfo { path: dir.to_string_lossy().into_owned(), executable: exe.into() });
+            return Some(ClientInfo {
+                path: dir.to_string_lossy().into_owned(),
+                executable: exe.into(),
+            });
         }
     }
     None
@@ -194,14 +223,21 @@ pub fn detect_client(dir: &Path) -> Option<ClientInfo> {
 
 pub(crate) fn count_bot_keys(conf: &Path) -> usize {
     fs::read_to_string(conf)
-        .map(|t| t.lines().filter(|l| l.trim_start().starts_with("CoaBots.")).count())
+        .map(|t| {
+            t.lines()
+                .filter(|l| l.trim_start().starts_with("CoaBots."))
+                .count()
+        })
         .unwrap_or(0)
 }
 
 /// Scan `root` without modifying it.
 pub fn scan(root: &Path) -> Result<ScanReport> {
     if !root.is_dir() {
-        return Err(crate::error::Error::Invalid(format!("{} is not a folder", root.display())));
+        return Err(crate::error::Error::Invalid(format!(
+            "{} is not a folder",
+            root.display()
+        )));
     }
     let root = fsx::canonicalize_lenient(root)?;
     if crate::docker::is_docker(&root) {
@@ -210,8 +246,16 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
     let mut notes = Vec::new();
 
     let release: Option<ReleaseJson> = fsx::read_json(&root.join("RELEASE.json")).ok();
-    let world = hash_exe(&root.join("Core/worldserver.exe"), release.as_ref(), "worldserver.exe");
-    let auth = hash_exe(&root.join("Core/authserver.exe"), release.as_ref(), "authserver.exe");
+    let world = hash_exe(
+        &root.join("Core/worldserver.exe"),
+        release.as_ref(),
+        "worldserver.exe",
+    );
+    let auth = hash_exe(
+        &root.join("Core/authserver.exe"),
+        release.as_ref(),
+        "authserver.exe",
+    );
 
     let modules_dir = root.join("Core/configs/modules");
     let mut module_configs: Vec<String> = fs::read_dir(&modules_dir)
@@ -235,31 +279,66 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
     // A fresh repack ships `mod_coa_playerbots.conf.dist` and only writes the active file when someone changes it.
     let bot_active = modules_dir.join("mod_coa_playerbots.conf");
     let bot_dist = modules_dir.join("mod_coa_playerbots.conf.dist");
-    let bot_conf = if bot_active.is_file() { bot_active } else { bot_dist };
+    let bot_conf = if bot_active.is_file() {
+        bot_active
+    } else {
+        bot_dist
+    };
     let bot_config_keys = count_bot_keys(&bot_conf);
     let banner_revision = banner_revision_in_log(&root.join("Core/Logs/Server.log"));
 
-    let has_repack_scaffold =
-        exists(&root, "Scripts/manage.py") && exists(&root, "Settings/repack.json") && exists(&root, "Runtime/python/python.exe");
+    let has_repack_scaffold = exists(&root, "Scripts/manage.py")
+        && exists(&root, "Settings/repack.json")
+        && exists(&root, "Runtime/python/python.exe");
     let has_bundled_db = exists(&root, "mysql/bin/mysqld.exe") && database_schemas.len() == 3;
     let has_data = exists(&root, "Data/dbc") && exists(&root, "Data/maps");
 
     let items = vec![
         item("worldserver", "World server", world.is_some(), None),
         item("authserver", "Auth server", auth.is_some(), None),
-        item("worldserver_conf", "World server configuration", exists(&root, "Core/configs/worldserver.conf"), None),
-        item("authserver_conf", "Auth server configuration", exists(&root, "Core/configs/authserver.conf"), None),
-        item("modules_conf", "Module configuration", modules_dir.is_dir(), Some(format!("{} files", module_configs.len()))),
+        item(
+            "worldserver_conf",
+            "World server configuration",
+            exists(&root, "Core/configs/worldserver.conf"),
+            None,
+        ),
+        item(
+            "authserver_conf",
+            "Auth server configuration",
+            exists(&root, "Core/configs/authserver.conf"),
+            None,
+        ),
+        item(
+            "modules_conf",
+            "Module configuration",
+            modules_dir.is_dir(),
+            Some(format!("{} files", module_configs.len())),
+        ),
         item("game_data", "Game data (maps, DBC)", has_data, None),
-        item("database_runtime", "Database runtime", exists(&root, "mysql/bin/mysqld.exe"), None),
+        item(
+            "database_runtime",
+            "Database runtime",
+            exists(&root, "mysql/bin/mysqld.exe"),
+            None,
+        ),
         item(
             "database_content",
             "Auth / Characters / World databases",
             has_bundled_db,
             Some(database_schemas.join(", ")),
         ),
-        item("launcher", "Repack launcher scripts", has_repack_scaffold, None),
-        item("release_info", "RELEASE.json", release.is_some(), release.as_ref().and_then(|r| r.main_revision.clone())),
+        item(
+            "launcher",
+            "Repack launcher scripts",
+            has_repack_scaffold,
+            None,
+        ),
+        item(
+            "release_info",
+            "RELEASE.json",
+            release.is_some(),
+            release.as_ref().and_then(|r| r.main_revision.clone()),
+        ),
         item(
             "companions",
             "CoA Companions (bots)",
@@ -268,7 +347,9 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         ),
     ];
 
-    let client = ["Client", "client"].iter().find_map(|d| detect_client(&root.join(d)));
+    let client = ["Client", "client"]
+        .iter()
+        .find_map(|d| detect_client(&root.join(d)));
 
     if let (Some(w), Some(r)) = (&world, &release) {
         if w.matches_release == Some(false) {
@@ -290,7 +371,10 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         Classification::Incompatible
     } else if has_exes && !has_repack_scaffold {
         Classification::UnknownCustom
-    } else if has_exes && has_repack_scaffold && has_bundled_db && has_data
+    } else if has_exes
+        && has_repack_scaffold
+        && has_bundled_db
+        && has_data
         && exists(&root, "Core/configs/worldserver.conf")
         && exists(&root, "Core/configs/authserver.conf")
     {
@@ -305,17 +389,22 @@ pub fn scan(root: &Path) -> Result<ScanReport> {
         notes.push("This looks like a game client folder, not a server folder.".into());
     }
 
-    let (suggested_path, hint) = if classification == Classification::Incompatible && !looks_like_client {
-        match find_repack_nearby(&root) {
-            Some(p) => (Some(p.to_string_lossy().into_owned()), None),
-            None if root.join("worldserver.exe").is_file() || has_exes => (None, Some("not-repack")),
-            None => (None, None),
-        }
-    } else {
-        (None, None)
-    };
+    let (suggested_path, hint) =
+        if classification == Classification::Incompatible && !looks_like_client {
+            match find_repack_nearby(&root) {
+                Some(p) => (Some(p.to_string_lossy().into_owned()), None),
+                None if root.join("worldserver.exe").is_file() || has_exes => {
+                    (None, Some("not-repack"))
+                }
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
 
-    if crate::squid::imported_repack(&root) { notes.push("import.squidRepackWarning".into()); }
+    if crate::squid::imported_repack(&root) {
+        notes.push("import.squidRepackWarning".into());
+    }
     Ok(ScanReport {
         path: root.to_string_lossy().into_owned(),
         classification,
@@ -349,18 +438,33 @@ fn find_repack_nearby(root: &Path) -> Option<PathBuf> {
         }
     }
     let subdirs = |dir: &Path| -> Vec<PathBuf> {
-        fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).take(200).collect()).unwrap_or_default()
+        fs::read_dir(dir)
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                    .take(200)
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     let first = subdirs(root);
     if let Some(p) = first.iter().find(|p| is_repack_root(p)) {
         return Some(p.clone());
     }
-    first.iter().flat_map(|d| subdirs(d)).find(|p| is_repack_root(p))
+    first
+        .iter()
+        .flat_map(|d| subdirs(d))
+        .find(|p| is_repack_root(p))
 }
 
 /// Paths of the executables used by an installation, if present.
 pub fn executables(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
-    (root.join("Core/worldserver.exe"), root.join("Core/authserver.exe"), root.join("mysql/bin/mysqld.exe"))
+    (
+        root.join("Core/worldserver.exe"),
+        root.join("Core/authserver.exe"),
+        root.join("mysql/bin/mysqld.exe"),
+    )
 }
 
 #[cfg(any(test, feature = "testkit"))]
@@ -378,10 +482,22 @@ pub mod testkit {
     pub fn fake_repack(root: &Path) {
         put(root, "Core/worldserver.exe", b"fake-world");
         put(root, "Core/authserver.exe", b"fake-auth");
-        put(root, "Core/configs/worldserver.conf", b"[worldserver]\nRealmID = 1\n");
+        put(
+            root,
+            "Core/configs/worldserver.conf",
+            b"[worldserver]\nRealmID = 1\n",
+        );
         put(root, "Core/configs/authserver.conf", b"[authserver]\n");
-        put(root, "Core/configs/modules/mod_coa_playerbots.conf", b"CoaBots.AutoLoginOnStartup = 0\nCoaBots.X = 1\n");
-        put(root, "Core/Logs/Server.log", b"x\nINFO AzerothCore rev. 3567e2f8e9d5 2026-09-18 ready...\n");
+        put(
+            root,
+            "Core/configs/modules/mod_coa_playerbots.conf",
+            b"CoaBots.AutoLoginOnStartup = 0\nCoaBots.X = 1\n",
+        );
+        put(
+            root,
+            "Core/Logs/Server.log",
+            b"x\nINFO AzerothCore rev. 3567e2f8e9d5 2026-09-18 ready...\n",
+        );
         put(root, "Data/dbc/Spell.dbc", b"d");
         put(root, "Data/maps/000.map", b"m");
         put(root, "mysql/bin/mysqld.exe", b"fake-mysqld");
@@ -390,7 +506,11 @@ pub mod testkit {
         }
         put(root, "Scripts/manage.py", b"# stub");
         put(root, "Runtime/python/python.exe", b"stub");
-        put(root, "Settings/repack.json", br#"{"mysqlPort":3307,"authPort":3724,"worldPort":8085,"raPort":3443}"#);
+        put(
+            root,
+            "Settings/repack.json",
+            br#"{"mysqlPort":3307,"authPort":3724,"worldPort":8085,"raPort":3443}"#,
+        );
         let world_hash = crate::fsx::sha256_bytes(b"fake-world");
         let release = format!(
             r#"{{"name":"CoA Repack","releaseDate":"2026-09-11","mainRevision":"c3beca68","binaries":[{{"Name":"worldserver.exe","SHA256":"{world_hash}","Bytes":10}}]}}"#
@@ -448,7 +568,10 @@ mod tests {
         fs::create_dir_all(root.join("Core")).unwrap();
         fs::write(root.join("Core/worldserver.exe"), b"w").unwrap();
         fs::write(root.join("Core/authserver.exe"), b"a").unwrap();
-        assert_eq!(scan(&root).unwrap().classification, Classification::UnknownCustom);
+        assert_eq!(
+            scan(&root).unwrap().classification,
+            Classification::UnknownCustom
+        );
     }
 
     #[test]
@@ -464,7 +587,10 @@ mod tests {
         testkit::fake_repack(&outer.path().join("unpacked").join("CoA-Repack"));
         let r = scan(outer.path()).unwrap();
         assert_eq!(r.classification, Classification::Incompatible);
-        assert!(Path::new(r.suggested_path.as_deref().unwrap()).ends_with("CoA-Repack"), "found two levels down");
+        assert!(
+            Path::new(r.suggested_path.as_deref().unwrap()).ends_with("CoA-Repack"),
+            "found two levels down"
+        );
 
         let healthy = scan(&repack).unwrap();
         assert!(healthy.suggested_path.is_none() && healthy.hint.is_none());
@@ -488,9 +614,18 @@ mod tests {
         let root = dir.path().join("repack");
         testkit::fake_repack(&root);
         let modules = root.join("Core/configs/modules");
-        fs::rename(modules.join("mod_coa_playerbots.conf"), modules.join("mod_coa_playerbots.conf.dist")).unwrap();
+        fs::rename(
+            modules.join("mod_coa_playerbots.conf"),
+            modules.join("mod_coa_playerbots.conf.dist"),
+        )
+        .unwrap();
         let r = scan(&root).unwrap();
-        assert!(r.items.iter().any(|i| i.key == "companions" && i.status == Status::Found), "found through the .dist");
+        assert!(
+            r.items
+                .iter()
+                .any(|i| i.key == "companions" && i.status == Status::Found),
+            "found through the .dist"
+        );
         assert_eq!(r.bot_config_keys, 2);
     }
 
@@ -505,18 +640,28 @@ mod tests {
         let client = dir.path().join("wow");
         fs::create_dir_all(client.join("Data")).unwrap();
         fs::write(client.join("Wow.exe"), b"x").unwrap();
-        assert_eq!(scan(&client).unwrap().classification, Classification::Incompatible);
+        assert_eq!(
+            scan(&client).unwrap().classification,
+            Classification::Incompatible
+        );
         let docs = dir.path().join("Documents");
         fs::create_dir_all(&docs).unwrap();
         fs::write(docs.join("cv.docx"), b"x").unwrap();
-        assert_eq!(scan(&docs).unwrap().classification, Classification::Incompatible);
+        assert_eq!(
+            scan(&docs).unwrap().classification,
+            Classification::Incompatible
+        );
     }
 
     #[test]
     fn banner_takes_the_last_occurrence() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("Server.log");
-        fs::write(&p, "AzerothCore rev. aaaaaaaaaaaa x\nnoise\nAzerothCore rev. bbbbbbbbbbbb y\n").unwrap();
+        fs::write(
+            &p,
+            "AzerothCore rev. aaaaaaaaaaaa x\nnoise\nAzerothCore rev. bbbbbbbbbbbb y\n",
+        )
+        .unwrap();
         assert_eq!(banner_revision_in_log(&p).as_deref(), Some("bbbbbbbbbbbb"));
         assert_eq!(banner_revision_in_log(&dir.path().join("none")), None);
     }
@@ -526,7 +671,14 @@ mod tests {
             for e in fs::read_dir(dir).unwrap() {
                 let e = e.unwrap();
                 let md = e.metadata().unwrap();
-                out.push((e.path().strip_prefix(root).unwrap().to_string_lossy().into_owned(), md.len()));
+                out.push((
+                    e.path()
+                        .strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                    md.len(),
+                ));
                 if md.is_dir() {
                     walk(&e.path(), root, out);
                 }

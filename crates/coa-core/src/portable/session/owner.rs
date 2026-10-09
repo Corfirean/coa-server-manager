@@ -68,15 +68,28 @@ impl<'a> OwnerService<'a> {
             Err(e) => return rejected(self.store, &e.to_string()),
         };
         let merge = self.store.merge_collection(profile, &msg.kind, &observed)?;
-        let (info, canonical) = self.store.collection(profile, &msg.kind)?.map(|(i, s)| (Some(i), s)).unwrap_or((None, IdSet::new()));
-        let canonical_state = match (&info, observed.count_new(&canonical) == 0 && canonical.count_new(&observed) == 0) {
-            (Some(info), false) => Some(CollectionState::new(&msg.kind, info.revision, &canonical)?),
+        let (info, canonical) = self
+            .store
+            .collection(profile, &msg.kind)?
+            .map(|(i, s)| (Some(i), s))
+            .unwrap_or((None, IdSet::new()));
+        let canonical_state = match (
+            &info,
+            observed.count_new(&canonical) == 0 && canonical.count_new(&observed) == 0,
+        ) {
+            (Some(info), false) => {
+                Some(CollectionState::new(&msg.kind, info.revision, &canonical)?)
+            }
             _ => None,
         };
         Ok(CollectionAck {
             protocol_version: PROTOCOL_VERSION,
             kind: msg.kind,
-            outcome: if merge.changed { CollectionOutcome::Applied } else { CollectionOutcome::Unchanged },
+            outcome: if merge.changed {
+                CollectionOutcome::Applied
+            } else {
+                CollectionOutcome::Unchanged
+            },
             collection_revision: info.as_ref().map_or(0, |i| i.revision),
             collection_hash: info.map_or_else(String::new, |i| hex::encode(i.hash)),
             canonical: canonical_state,

@@ -136,7 +136,8 @@ impl Descriptor {
             return Err(Error::Invalid("A realm file is limited to 64 KiB.".into()));
         }
         let text = String::from_utf8_lossy(bytes);
-        let d: Descriptor = serde_json::from_str(text.trim_start_matches('\u{feff}')).map_err(|e| Error::Invalid(format!("This is not a realm file: {e}")))?;
+        let d: Descriptor = serde_json::from_str(text.trim_start_matches('\u{feff}'))
+            .map_err(|e| Error::Invalid(format!("This is not a realm file: {e}")))?;
         d.validate()?;
         Ok(d)
     }
@@ -158,13 +159,25 @@ impl Descriptor {
         if self.db_port == 0 || self.ra_port == 0 {
             return Err(bad("a port is 0"));
         }
-        if !self.db_user.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') || self.db_user.is_empty() {
+        if !self
+            .db_user
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            || self.db_user.is_empty()
+        {
             return Err(bad("the database user is not a plain name"));
         }
-        if self.game_server_users.iter().any(|u| u.is_empty() || !u.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')) {
+        if self
+            .game_server_users
+            .iter()
+            .any(|u| u.is_empty() || !u.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+        {
             return Err(bad("a game server user is not a plain name"));
         }
-        if !Path::new(&self.mysql_bin).join(if cfg!(windows) { "mysql.exe" } else { "mysql" }).is_file() {
+        if !Path::new(&self.mysql_bin)
+            .join(if cfg!(windows) { "mysql.exe" } else { "mysql" })
+            .is_file()
+        {
             return Err(bad("the database tools are not in the given folder"));
         }
         Ok(())
@@ -191,7 +204,10 @@ impl RealmAccess {
 
     /// A server this Manager knows. The realm id is derived from the installation id so that it never collides with a descriptor's.
     pub fn from_install(install_id: &str, root: &Path) -> RealmAccess {
-        let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Server".into());
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Server".into());
         RealmAccess {
             id: format!("srv-{install_id}"),
             name,
@@ -203,7 +219,9 @@ impl RealmAccess {
             job_dir: root.join("Core").join("PortableImport"),
             data_dir: root.join("Data"),
             game_server_users: default_game_users(),
-            source: Source::Install { root: root.to_path_buf() },
+            source: Source::Install {
+                root: root.to_path_buf(),
+            },
         }
     }
 
@@ -211,7 +229,13 @@ impl RealmAccess {
     pub fn db(&self) -> Result<Db> {
         match &self.source {
             Source::Install { root } => Db::from_repack(root, Account::Admin),
-            Source::Descriptor(d) => Ok(Db::with_tools(PathBuf::from(&d.mysql_bin), d.db_port, leak(&d.db_user), d.db_password.expose(), Mode::Coa)),
+            Source::Descriptor(d) => Ok(Db::with_tools(
+                PathBuf::from(&d.mysql_bin),
+                d.db_port,
+                leak(&d.db_user),
+                d.db_password.expose(),
+                Mode::Coa,
+            )),
         }
     }
 
@@ -232,17 +256,48 @@ impl RealmAccess {
             Source::Descriptor(d) => (Some(d.db_port), d.ra_port),
         }
     }
+
+    /// Inspects the server configuration for CharacterDatabase.WorkerThreads.
+    pub fn worker_threads(&self) -> Option<u32> {
+        let root = self.root.as_ref()?;
+        let candidates = [
+            root.join("Core/configs/worldserver.conf"),
+            root.join("Settings/worldserver.conf.template"),
+            root.join("Core/worldserver.conf"),
+        ];
+        for path in candidates {
+            if let Ok(bytes) = std::fs::read(&path) {
+                if let Ok(conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
+                    if let Some(val) = conf.get("CharacterDatabase.WorkerThreads") {
+                        if let Ok(n) = val.trim().trim_matches('"').parse::<u32>() {
+                            return Some(n);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 /// The descriptors in a folder (unreadable or invalid ones are reported, not fatal).
 pub fn load_descriptors(dir: &Path) -> (Vec<Descriptor>, Vec<(PathBuf, String)>) {
     let mut ok = Vec::new();
     let mut bad = Vec::new();
-    let Ok(read) = std::fs::read_dir(dir) else { return (ok, bad) };
-    let mut files: Vec<PathBuf> = read.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return (ok, bad);
+    };
+    let mut files: Vec<PathBuf> = read
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
     files.sort();
     for file in files {
-        match std::fs::read(&file).map_err(Error::from).and_then(|b| Descriptor::parse(&b)) {
+        match std::fs::read(&file)
+            .map_err(Error::from)
+            .and_then(|b| Descriptor::parse(&b))
+        {
             Ok(d) => ok.push(d),
             Err(e) => bad.push((file, e.to_string())),
         }
@@ -252,7 +307,8 @@ pub fn load_descriptors(dir: &Path) -> (Vec<Descriptor>, Vec<(PathBuf, String)>)
 
 /// Remember a descriptor the player gave (copied into the Manager's own folder, so the original may be moved).
 pub fn add_descriptor(dir: &Path, source: &Path) -> Result<Descriptor> {
-    let bytes = std::fs::read(source).map_err(|e| Error::Invalid(format!("The realm file could not be read: {e}")))?;
+    let bytes = std::fs::read(source)
+        .map_err(|e| Error::Invalid(format!("The realm file could not be read: {e}")))?;
     let d = Descriptor::parse(&bytes)?;
     std::fs::create_dir_all(dir)?;
     fsx::atomic_write_json(&dir.join(format!("{}.json", d.id)), &d)?;
@@ -297,7 +353,12 @@ mod tests {
 
     fn tools() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(if cfg!(windows) { "mysql.exe" } else { "mysql" }), b"x").unwrap();
+        std::fs::write(
+            dir.path()
+                .join(if cfg!(windows) { "mysql.exe" } else { "mysql" }),
+            b"x",
+        )
+        .unwrap();
         dir
     }
 
@@ -307,8 +368,14 @@ mod tests {
         let d = sample(tools.path());
         let json = serde_json::to_vec(&d).unwrap();
         assert_eq!(Descriptor::parse(&json).unwrap(), d);
-        let shown = format!("{d:?} {:?}", RealmAccess::from_descriptor(d.clone()).unwrap());
-        assert!(!shown.contains("secret-db") && !shown.contains("secret-ra"), "{shown}");
+        let shown = format!(
+            "{d:?} {:?}",
+            RealmAccess::from_descriptor(d.clone()).unwrap()
+        );
+        assert!(
+            !shown.contains("secret-db") && !shown.contains("secret-ra"),
+            "{shown}"
+        );
         assert!(Descriptor::parse(&[b' '; 70_000]).is_err());
     }
 
@@ -328,7 +395,10 @@ mod tests {
         ] {
             let mut d = ok.clone();
             edit(&mut d);
-            assert!(Descriptor::parse(&serde_json::to_vec(&d).unwrap()).is_err(), "{d:?}");
+            assert!(
+                Descriptor::parse(&serde_json::to_vec(&d).unwrap()).is_err(),
+                "{d:?}"
+            );
         }
         let mut with_extra: serde_json::Value = serde_json::to_value(&ok).unwrap();
         with_extra["extra"] = 1.into();
@@ -348,14 +418,20 @@ mod tests {
         assert!(add_descriptor(dir.path(), &src.path().join("broken.json")).is_err());
         let (ok, bad) = load_descriptors(dir.path());
         assert_eq!((ok.len(), bad.len()), (1, 0));
-        assert!(remove_descriptor(dir.path(), "pt-guest").unwrap() && !remove_descriptor(dir.path(), "pt-guest").unwrap());
+        assert!(
+            remove_descriptor(dir.path(), "pt-guest").unwrap()
+                && !remove_descriptor(dir.path(), "pt-guest").unwrap()
+        );
         assert!(remove_descriptor(dir.path(), "../x").is_err());
     }
 
     #[test]
     fn an_installed_realm_is_derived_from_its_folder() {
         let a = RealmAccess::from_install("abc", Path::new("C:/games/My Server"));
-        assert_eq!((a.id.as_str(), a.name.as_str(), a.kind), ("srv-abc", "My Server", Kind::Installed));
+        assert_eq!(
+            (a.id.as_str(), a.name.as_str(), a.kind),
+            ("srv-abc", "My Server", Kind::Installed)
+        );
         assert!(a.job_dir.ends_with("PortableImport") && a.data_dir.ends_with("Data"));
         assert!(valid_descriptor_id(&a.id));
     }

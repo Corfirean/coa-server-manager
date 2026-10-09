@@ -97,7 +97,9 @@ fn backups_dir(meta: &Path) -> PathBuf {
 fn backup_roots(meta: &Path) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = custom_dir(meta).into_iter().collect();
     let default = default_dir(meta);
-    if !roots.contains(&default) { roots.push(default); }
+    if !roots.contains(&default) {
+        roots.push(default);
+    }
     roots
 }
 
@@ -111,7 +113,11 @@ pub struct BackupLocation {
 pub fn location(meta: &Path) -> BackupLocation {
     let default = default_dir(meta);
     let current = backups_dir(meta);
-    BackupLocation { is_default: current == default, path: current.to_string_lossy().into_owned(), default_path: default.to_string_lossy().into_owned() }
+    BackupLocation {
+        is_default: current == default,
+        path: current.to_string_lossy().into_owned(),
+        default_path: default.to_string_lossy().into_owned(),
+    }
 }
 
 /// Choose where new backups are stored (`None` = the default folder next to the server). Existing backups stay where
@@ -122,19 +128,32 @@ pub fn set_location(root: &Path, meta: &Path, path: Option<&str>) -> Result<Back
     match path.map(str::trim).filter(|p| !p.is_empty()) {
         None => {
             let file = meta.join(LOCATION_FILE);
-            if file.exists() { fs::remove_file(file)?; }
+            if file.exists() {
+                fs::remove_file(file)?;
+            }
         }
         Some(chosen) => {
             let dir = PathBuf::from(chosen);
-            if !dir.is_absolute() { return Err(Error::Invalid("Choose a full folder path, for example D:\\CoA backups.".into())); }
+            if !dir.is_absolute() {
+                return Err(Error::Invalid(
+                    "Choose a full folder path, for example D:\\CoA backups.".into(),
+                ));
+            }
             if fsx::ensure_within(root, &dir).is_ok() {
                 return Err(Error::Invalid("Backups cannot be stored inside the server folder: they would be part of what is being backed up.".into()));
             }
-            fs::create_dir_all(&dir).map_err(|e| Error::Invalid(format!("The folder cannot be created: {e}")))?;
+            fs::create_dir_all(&dir)
+                .map_err(|e| Error::Invalid(format!("The folder cannot be created: {e}")))?;
             let probe = dir.join(format!(".coa-write-test-{}", uuid::Uuid::new_v4().simple()));
-            fs::write(&probe, b"x").map_err(|e| Error::Invalid(format!("The folder is not writable: {e}")))?;
+            fs::write(&probe, b"x")
+                .map_err(|e| Error::Invalid(format!("The folder is not writable: {e}")))?;
             let _ = fs::remove_file(&probe);
-            fsx::atomic_write_json(&meta.join(LOCATION_FILE), &StoredLocation { path: dir.to_string_lossy().into_owned() })?;
+            fsx::atomic_write_json(
+                &meta.join(LOCATION_FILE),
+                &StoredLocation {
+                    path: dir.to_string_lossy().into_owned(),
+                },
+            )?;
         }
     }
     Ok(location(meta))
@@ -146,14 +165,23 @@ pub(crate) fn point_json(meta: &Path, id: &str) -> Result<PathBuf> {
 }
 
 fn id_ok(id: &str) -> bool {
-    !id.is_empty() && id.len() < 100 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) && !id.contains("..")
+    !id.is_empty()
+        && id.len() < 100
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        && !id.contains("..")
 }
 
 fn point_dir(meta: &Path, id: &str) -> Result<PathBuf> {
     if !id_ok(id) {
         return Err(Error::PathRejected(format!("bad backup id {id:?}")));
     }
-    if let Some(found) = backup_roots(meta).into_iter().map(|root| root.join(id)).find(|dir| dir.is_dir()) {
+    if let Some(found) = backup_roots(meta)
+        .into_iter()
+        .map(|root| root.join(id))
+        .find(|dir| dir.is_dir())
+    {
         return Ok(found);
     }
     Ok(backups_dir(meta).join(id))
@@ -163,10 +191,16 @@ pub fn list(meta: &Path) -> Vec<RecoveryPoint> {
     let mut out: Vec<RecoveryPoint> = Vec::new();
     for root in backup_roots(meta) {
         let found: Vec<RecoveryPoint> = fs::read_dir(&root)
-            .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| fsx::read_json(&e.path().join("backup.json")).ok()).collect())
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .filter_map(|e| fsx::read_json(&e.path().join("backup.json")).ok())
+                    .collect()
+            })
             .unwrap_or_default();
         for point in found {
-            if !out.iter().any(|p| p.id == point.id) { out.push(point); }
+            if !out.iter().any(|p| p.id == point.id) {
+                out.push(point);
+            }
         }
     }
     out.sort_by(|a, b| b.id.cmp(&a.id));
@@ -177,9 +211,20 @@ pub fn get(meta: &Path, id: &str) -> Result<RecoveryPoint> {
     let dir = point_dir(meta, id)?;
     // The folder holding the backups may itself be a junction or symlink to another drive (the owner moved it there);
     // what must hold is that the recovery point stays inside that folder.
-    let holder = dir.parent().ok_or_else(|| Error::PathRejected(format!("bad backup folder for {id}")))?;
-    let point: RecoveryPoint = fsx::read_json(&fsx::ensure_within(holder, &dir.join("backup.json"))?).map_err(|_| Error::Invalid(format!("backup {id} was not found or its metadata is damaged")))?;
-    if point.id != id || point.schema != 1 { return Err(Error::Invalid(format!("Backup {id} has inconsistent identity or an unsupported schema."))); }
+    let holder = dir
+        .parent()
+        .ok_or_else(|| Error::PathRejected(format!("bad backup folder for {id}")))?;
+    let point: RecoveryPoint =
+        fsx::read_json(&fsx::ensure_within(holder, &dir.join("backup.json"))?).map_err(|_| {
+            Error::Invalid(format!(
+                "backup {id} was not found or its metadata is damaged"
+            ))
+        })?;
+    if point.id != id || point.schema != 1 {
+        return Err(Error::Invalid(format!(
+            "Backup {id} has inconsistent identity or an unsupported schema."
+        )));
+    }
     Ok(point)
 }
 
@@ -196,7 +241,11 @@ pub fn config_files(root: &Path) -> Vec<String> {
                 walk(root, &p, out);
             } else if md.len() <= MAX {
                 let name = p.file_name().unwrap().to_string_lossy().to_lowercase();
-                if name.ends_with(".bak") || name.ends_with(".orig") || name.ends_with(".old") || name.contains(".bak-") {
+                if name.ends_with(".bak")
+                    || name.ends_with(".orig")
+                    || name.ends_with(".old")
+                    || name.contains(".bak-")
+                {
                     continue;
                 }
                 if let Ok(rel) = p.strip_prefix(root) {
@@ -219,7 +268,9 @@ pub fn config_files(root: &Path) -> Vec<String> {
         out.push("RELEASE.json".into());
     }
     walk(root, &root.join("Settings/realm-profiles"), &mut out);
-    if root.join("Settings/realm-profile.json").is_file() { out.push("Settings/realm-profile.json".into()); }
+    if root.join("Settings/realm-profile.json").is_file() {
+        out.push("Settings/realm-profile.json".into());
+    }
     out.sort();
     out
 }
@@ -237,7 +288,15 @@ fn copy_configs(root: &Path, dir: &Path) -> Result<Component> {
         bytes += content.len() as u64;
         file_sha256.insert(rel.clone(), fsx::sha256_bytes(&content));
     }
-    Ok(Component { name: "configs".into(), path: "files".into(), bytes, sha256: None, tables: None, files: Some(files), file_sha256 })
+    Ok(Component {
+        name: "configs".into(),
+        path: "files".into(),
+        bytes,
+        sha256: None,
+        tables: None,
+        files: Some(files),
+        file_sha256,
+    })
 }
 
 /// Make sure the database is up for `f`. If we had to start it (and nothing else is running), stop it again.
@@ -249,13 +308,19 @@ pub fn with_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result
         let out = driver::run(root, Verb::StartMysql)?;
         if !out.ok {
             // Keep the launcher's own last lines: the title alone ("Something went wrong") hides the cause.
-            return Err(Error::Invalid(format!("The database could not be started. {}", driver::startup_failure(root, &out))));
+            return Err(Error::Invalid(format!(
+                "The database could not be started. {}",
+                driver::startup_failure(root, &out)
+            )));
         }
     }
     let result = f(&db);
     if !mysql_was_up {
         let now = process::observe(root, &read_ports(root));
-        if now.world.state == ServiceState::Stopped && now.auth.state == ServiceState::Stopped && !crate::multiworld::is_running(root) {
+        if now.world.state == ServiceState::Stopped
+            && now.auth.state == ServiceState::Stopped
+            && !crate::multiworld::is_running(root)
+        {
             let _ = driver::run(root, Verb::StopAll);
         }
     }
@@ -263,10 +328,15 @@ pub fn with_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result
 }
 
 /// Run `f` only if the database is already up; `None` (and nothing started) otherwise.
-pub fn with_running_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result<Option<T>> {
+pub fn with_running_database<T>(
+    root: &Path,
+    f: impl FnOnce(&Db) -> Result<T>,
+) -> Result<Option<T>> {
     let db = Db::from_repack(root, Account::Admin)?;
     let observed = process::observe(root, &read_ports(root));
-    if observed.mysql.state != ServiceState::Running || !db.ping() { return Ok(None); }
+    if observed.mysql.state != ServiceState::Running || !db.ping() {
+        return Ok(None);
+    }
     f(&db).map(Some)
 }
 
@@ -279,17 +349,29 @@ fn wanted_databases(kind: Kind) -> &'static [&'static str] {
 }
 
 /// Create a recovery point. The server may be running: dumps are consistent snapshots (`--single-transaction`).
-pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Option<String>, progress: &dyn Fn(&str)) -> Result<RecoveryPoint> {
-    let id = format!("{}-{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"), match trigger {
-        Trigger::Manual => "manual",
-        Trigger::Automatic => "auto",
-        Trigger::BeforeUpdate => "before-update",
-        Trigger::BeforeRestore => "before-restore",
-        Trigger::BeforeMigration => "before-migration",
-        Trigger::BeforeBots => "before-bots",
-        Trigger::BeforeRepair => "before-repair",
-        Trigger::BeforeDangerousChange => "before-change",
-    }, uuid::Uuid::new_v4().simple());
+pub fn create(
+    root: &Path,
+    meta: &Path,
+    kind: Kind,
+    trigger: Trigger,
+    label: Option<String>,
+    progress: &dyn Fn(&str),
+) -> Result<RecoveryPoint> {
+    let id = format!(
+        "{}-{}-{}",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S"),
+        match trigger {
+            Trigger::Manual => "manual",
+            Trigger::Automatic => "auto",
+            Trigger::BeforeUpdate => "before-update",
+            Trigger::BeforeRestore => "before-restore",
+            Trigger::BeforeMigration => "before-migration",
+            Trigger::BeforeBots => "before-bots",
+            Trigger::BeforeRepair => "before-repair",
+            Trigger::BeforeDangerousChange => "before-change",
+        },
+        uuid::Uuid::new_v4().simple()
+    );
     let final_dir = point_dir(meta, &id)?;
     let partial = backups_dir(meta).join(format!("{id}.partial"));
     fs::create_dir_all(&partial)?;
@@ -297,12 +379,23 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
     let build = || -> Result<Vec<Component>> {
         let mut components = Vec::new();
         let realm = crate::realms::state(root)?;
-        let mut databases: Vec<(String, &str)> = wanted_databases(kind).iter()
-            .map(|name| Ok((name.to_string(), realm.active.schema(name)?))).collect::<Result<_>>()?;
+        let mut databases: Vec<(String, &str)> = wanted_databases(kind)
+            .iter()
+            .map(|name| Ok((name.to_string(), realm.active.schema(name)?)))
+            .collect::<Result<_>>()?;
         if realm.wildcard_created && kind != Kind::Config {
-            let other = if realm.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa };
-            databases.push((format!("{}-characters", other.name()), other.schema("characters")?));
-            if kind == Kind::Full { databases.push((format!("{}-world", other.name()), other.schema("world")?)); }
+            let other = if realm.active == crate::realms::Mode::Coa {
+                crate::realms::Mode::Wildcard
+            } else {
+                crate::realms::Mode::Coa
+            };
+            databases.push((
+                format!("{}-characters", other.name()),
+                other.schema("characters")?,
+            ));
+            if kind == Kind::Full {
+                databases.push((format!("{}-world", other.name()), other.schema("world")?));
+            }
         }
         if kind != Kind::Config && with_database(root, |db| db.schema_exists("acore_playerbots"))? {
             databases.push(("playerbots".into(), "acore_playerbots"));
@@ -316,7 +409,15 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
                 let tables = db.tables(schema)?.len();
                 let file = format!("{name}.sql.zst");
                 let (bytes, sha) = db.dump_to(schema, &partial.join(&file))?;
-                Ok(Component { name, path: file, bytes, sha256: Some(sha), tables: Some(tables), files: None, file_sha256: Default::default() })
+                Ok(Component {
+                    name,
+                    path: file,
+                    bytes,
+                    sha256: Some(sha),
+                    tables: Some(tables),
+                    files: None,
+                    file_sha256: Default::default(),
+                })
             })?;
             components.push(component);
         }
@@ -356,8 +457,13 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
 
 /// Keep the newest `keep` automatic recovery points; manual and safety ones are never pruned.
 pub fn prune_automatic(meta: &Path, keep: usize) {
-    if crate::update::ensure_recovered(meta).is_err() { return; }
-    let autos: Vec<_> = list(meta).into_iter().filter(|p| p.trigger == Trigger::Automatic).collect();
+    if crate::update::ensure_recovered(meta).is_err() {
+        return;
+    }
+    let autos: Vec<_> = list(meta)
+        .into_iter()
+        .filter(|p| p.trigger == Trigger::Automatic)
+        .collect();
     for p in autos.into_iter().skip(keep) {
         if let Ok(dir) = point_dir(meta, &p.id) {
             let _ = fs::remove_dir_all(dir);
@@ -378,16 +484,29 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
     let mut names = std::collections::BTreeSet::new();
     let mut schemas = std::collections::BTreeSet::new();
     for c in &point.components {
-        if !names.insert(&c.name) { problems.push(format!("{} appears more than once", c.name)); }
+        if !names.insert(&c.name) {
+            problems.push(format!("{} appears more than once", c.name));
+        }
         let path = fsx::ensure_within(&dir, &fsx::safe_join(&dir, &c.path)?)?;
-        if c.name != "configs" && (c.sha256.is_none() || c.tables.is_none()) { problems.push(format!("{} lacks database integrity metadata", c.name)); }
+        if c.name != "configs" && (c.sha256.is_none() || c.tables.is_none()) {
+            problems.push(format!("{} lacks database integrity metadata", c.name));
+        }
         if c.name == "configs" {
-            if c.sha256.is_some() || c.files.is_none() { problems.push("configuration integrity metadata is inconsistent".into()); }
+            if c.sha256.is_some() || c.files.is_none() {
+                problems.push("configuration integrity metadata is inconsistent".into());
+            }
         } else {
-            let schema = if c.name.contains('-') || c.name == "playerbots" { db::schema_of(&c.name) } else { point.realm.schema(&c.name) };
+            let schema = if c.name.contains('-') || c.name == "playerbots" {
+                db::schema_of(&c.name)
+            } else {
+                point.realm.schema(&c.name)
+            };
             match schema {
                 Ok(schema) if schemas.insert(schema) => {}
-                _ => problems.push(format!("{} has an unknown or duplicate database target", c.name)),
+                _ => problems.push(format!(
+                    "{} has an unknown or duplicate database target",
+                    c.name
+                )),
             }
         }
         match (&c.sha256, &c.files) {
@@ -398,19 +517,29 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
             },
             (None, Some(files)) => {
                 for f in files {
-                    if !c.file_sha256.is_empty() && !c.file_sha256.contains_key(f) { problems.push(format!("configuration file {f} lacks its checksum")); }
-                    if !fsx::safe_join(&path, f).map(|p| p.is_file()).unwrap_or(false) {
+                    if !c.file_sha256.is_empty() && !c.file_sha256.contains_key(f) {
+                        problems.push(format!("configuration file {f} lacks its checksum"));
+                    }
+                    if !fsx::safe_join(&path, f)
+                        .map(|p| p.is_file())
+                        .unwrap_or(false)
+                    {
                         problems.push(format!("configuration file {f} is missing"));
                     } else if let Some(expected) = c.file_sha256.get(f) {
                         let file = fsx::ensure_within(&dir, &fsx::safe_join(&path, f)?)?;
-                        if fsx::sha256_file(&file)?.as_str() != expected { problems.push(format!("configuration file {f} is damaged")); }
+                        if fsx::sha256_file(&file)?.as_str() != expected {
+                            problems.push(format!("configuration file {f} is damaged"));
+                        }
                     }
                 }
             }
             _ => problems.push(format!("{} lacks an integrity inventory", c.name)),
         }
     }
-    Ok(VerifyReport { ok: problems.is_empty(), problems })
+    Ok(VerifyReport {
+        ok: problems.is_empty(),
+        problems,
+    })
 }
 
 /// Delete one recovery point (its own folder only).
@@ -418,7 +547,9 @@ pub fn delete(meta: &Path, id: &str) -> Result<()> {
     let _lock = crate::update::operation_lock(meta)?;
     crate::update::ensure_recovered(meta)?;
     if crate::update::unfinished(meta).is_some_and(|t| t.recovery_point.as_deref() == Some(id)) {
-        return Err(Error::Invalid("This recovery point is required by an unfinished update and cannot be deleted.".into()));
+        return Err(Error::Invalid(
+            "This recovery point is required by an unfinished update and cannot be deleted.".into(),
+        ));
     }
     let dir = point_dir(meta, id)?;
     get(meta, id)?; // must be a real recovery point
@@ -430,13 +561,28 @@ pub fn delete(meta: &Path, id: &str) -> Result<()> {
 pub fn restore_configs(root: &Path, meta: &Path, id: &str) -> Result<RecoveryPoint> {
     let point = get(meta, id)?;
     if point.realm != crate::realms::state(root)?.active {
-        return Err(Error::Invalid("Select the realm this backup belongs to before restoring it.".into()));
+        return Err(Error::Invalid(
+            "Select the realm this backup belongs to before restoring it.".into(),
+        ));
     }
-    let comp = point.components.iter().find(|c| c.name == "configs").ok_or_else(|| Error::Invalid("this backup has no configuration".into()))?;
+    let comp = point
+        .components
+        .iter()
+        .find(|c| c.name == "configs")
+        .ok_or_else(|| Error::Invalid("this backup has no configuration".into()))?;
     if !verify(meta, id)?.ok {
-        return Err(Error::Invalid("This backup is damaged and cannot be restored.".into()));
+        return Err(Error::Invalid(
+            "This backup is damaged and cannot be restored.".into(),
+        ));
     }
-    let safety = create(root, meta, Kind::Config, Trigger::BeforeRestore, Some(format!("before restoring {id}")), &|_| {})?;
+    let safety = create(
+        root,
+        meta,
+        Kind::Config,
+        Trigger::BeforeRestore,
+        Some(format!("before restoring {id}")),
+        &|_| {},
+    )?;
     let src_root = point_dir(meta, id)?.join(&comp.path);
     for rel in comp.files.as_deref().unwrap_or_default() {
         let dst = fsx::ensure_within(root, &fsx::safe_join(root, rel)?)?;
@@ -458,37 +604,67 @@ pub struct DbRestore {
 pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Result<DbRestore> {
     let point = get(meta, id)?;
     if point.realm != crate::realms::state(root)?.active {
-        return Err(Error::Invalid("Select the realm this backup belongs to before restoring it.".into()));
+        return Err(Error::Invalid(
+            "Select the realm this backup belongs to before restoring it.".into(),
+        ));
     }
-    let comp = point.components.iter().find(|c| c.name == name && c.sha256.is_some()).ok_or_else(|| Error::Invalid(format!("this backup has no {name} database")))?;
+    let comp = point
+        .components
+        .iter()
+        .find(|c| c.name == name && c.sha256.is_some())
+        .ok_or_else(|| Error::Invalid(format!("this backup has no {name} database")))?;
     if !verify(meta, id)?.ok {
-        return Err(Error::Invalid("This backup is damaged and cannot be restored.".into()));
+        return Err(Error::Invalid(
+            "This backup is damaged and cannot be restored.".into(),
+        ));
     }
     let now = process::observe(root, &read_ports(root));
-    if now.world.state != ServiceState::Stopped || now.auth.state != ServiceState::Stopped || crate::multiworld::is_running(root) {
-        return Err(Error::Invalid("Stop the server before restoring a database.".into()));
+    if now.world.state != ServiceState::Stopped
+        || now.auth.state != ServiceState::Stopped
+        || crate::multiworld::is_running(root)
+    {
+        return Err(Error::Invalid(
+            "Stop the server before restoring a database.".into(),
+        ));
     }
-    let live = if name.contains('-') || name == "playerbots" { db::schema_of(name)? } else { point.realm.schema(name)? };
+    let live = if name.contains('-') || name == "playerbots" {
+        db::schema_of(name)?
+    } else {
+        point.realm.schema(name)?
+    };
     let expected_tables = comp.tables.unwrap_or(0);
     let dump = point_dir(meta, id)?.join(&comp.path);
     let stamp = uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
 
     // 1. Safety copy of the current state, so even a wrong restore is reversible.
-    let safety = create(root, meta, Kind::Database, Trigger::BeforeRestore, Some(format!("before restoring {name} from {id}")), &|_| {})?;
+    let safety = create(
+        root,
+        meta,
+        Kind::Database,
+        Trigger::BeforeRestore,
+        Some(format!("before restoring {name} from {id}")),
+        &|_| {},
+    )?;
 
     with_database(root, |db| {
         let db = db.clone().for_realm(crate::realms::Mode::Coa);
         let staging = format!("{live}_restore_{stamp}");
         let old = format!("{live}_before_restore_{stamp}");
         if db.schema_exists(&staging)? || db.schema_exists(&old)? {
-            return Err(Error::Invalid("A previous restore left its work schemas behind; try again in a moment.".into()));
+            return Err(Error::Invalid(
+                "A previous restore left its work schemas behind; try again in a moment.".into(),
+            ));
         }
         // 2. Import into staging.
-        db.query(&format!("CREATE DATABASE `{staging}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"))?;
+        db.query(&format!(
+            "CREATE DATABASE `{staging}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        ))?;
         db.import_from(&staging, &dump)?;
         // 3. Sanity checks.
         let staged = db.tables(&staging)?;
-        if comp.tables.is_some_and(|expected| staged.len() != expected) || (comp.tables.is_none() && staged.is_empty()) {
+        if comp.tables.is_some_and(|expected| staged.len() != expected)
+            || (comp.tables.is_none() && staged.is_empty())
+        {
             return Err(Error::Invalid(format!("The restored copy looks incomplete ({} of {expected_tables} tables); nothing was changed.", staged.len())));
         }
         if db.extra_objects(&staging)? > 0 || db.extra_objects(live)? > 0 {
@@ -496,7 +672,9 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
         }
         // 4. Atomic swap: live tables move to the `before_restore` schema, staged tables move into place.
         let current = db.tables(live)?;
-        db.query(&format!("CREATE DATABASE `{old}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"))?;
+        db.query(&format!(
+            "CREATE DATABASE `{old}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        ))?;
         let mut renames = Vec::new();
         for t in &current {
             renames.push(format!("`{live}`.`{t}` TO `{old}`.`{t}`"));
@@ -504,8 +682,14 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
         for t in &staged {
             renames.push(format!("`{staging}`.`{t}` TO `{live}`.`{t}`"));
         }
-        if !renames.is_empty() { db.query(&format!("RENAME TABLE {};", renames.join(", ")))?; }
-        Ok(DbRestore { previous_schema: old, safety_backup: safety.id.clone(), tables_restored: staged.len() })
+        if !renames.is_empty() {
+            db.query(&format!("RENAME TABLE {};", renames.join(", ")))?;
+        }
+        Ok(DbRestore {
+            previous_schema: old,
+            safety_backup: safety.id.clone(),
+            tables_restored: staged.len(),
+        })
     })
 }
 
@@ -518,7 +702,11 @@ mod tests {
         let root = dir.path().join("srv");
         let meta = dir.path().join("srv.manager");
         crate::layout::testkit::fake_repack(&root);
-        fs::write(root.join("Settings/database.json"), r#"{"rootPassword":"secret-root","appPassword":"secret-app"}"#).unwrap_or_else(|_| {
+        fs::write(
+            root.join("Settings/database.json"),
+            r#"{"rootPassword":"secret-root","appPassword":"secret-app"}"#,
+        )
+        .unwrap_or_else(|_| {
             fs::create_dir_all(root.join("Settings")).unwrap();
             fs::write(root.join("Settings/database.json"), "{}").unwrap();
         });
@@ -541,13 +729,26 @@ mod tests {
     #[test]
     fn damaged_configuration_is_detected_before_restore_and_copies_are_retained() {
         let (_d, root, meta) = setup();
-        let point = create(&root, &meta, Kind::Config, Trigger::Automatic, None, &|_| {}).unwrap();
-        let file = point_dir(&meta, &point.id).unwrap().join("files/Core/configs/worldserver.conf");
+        let point = create(
+            &root,
+            &meta,
+            Kind::Config,
+            Trigger::Automatic,
+            None,
+            &|_| {},
+        )
+        .unwrap();
+        let file = point_dir(&meta, &point.id)
+            .unwrap()
+            .join("files/Core/configs/worldserver.conf");
         fs::write(&file, b"corrupted").unwrap();
         assert!(!verify(&meta, &point.id).unwrap().ok);
         let original = fs::read(root.join("Core/configs/worldserver.conf")).unwrap();
         assert!(restore_configs(&root, &meta, &point.id).is_err());
-        assert_eq!(fs::read(root.join("Core/configs/worldserver.conf")).unwrap(), original);
+        assert_eq!(
+            fs::read(root.join("Core/configs/worldserver.conf")).unwrap(),
+            original
+        );
         assert_eq!(list(&meta).len(), 1);
         fs::create_dir_all(meta.join("updates/broken")).unwrap();
         fs::write(meta.join("updates/broken/txn.json"), b"{damaged").unwrap();
@@ -560,26 +761,53 @@ mod tests {
     fn config_backup_excludes_secrets_and_clutter_and_restores_byte_exact() {
         let (_d, root, meta) = setup();
         fs::create_dir_all(root.join("Settings")).unwrap();
-        fs::write(root.join("Settings/database.json"), r#"{"rootPassword":"x"}"#).unwrap();
+        fs::write(
+            root.join("Settings/database.json"),
+            r#"{"rootPassword":"x"}"#,
+        )
+        .unwrap();
         fs::write(root.join("Settings/worldserver.conf.template"), "A = 1\n").unwrap();
         fs::write(root.join("Core/configs/modules/old.conf.bak"), "junk").unwrap();
         let files = config_files(&root);
         assert!(files.contains(&"Core/configs/worldserver.conf".to_string()));
         assert!(files.contains(&"Settings/worldserver.conf.template".to_string()));
-        assert!(!files.iter().any(|f| f.contains("database.json")), "secrets excluded");
+        assert!(
+            !files.iter().any(|f| f.contains("database.json")),
+            "secrets excluded"
+        );
         assert!(!files.iter().any(|f| f.ends_with(".bak")));
 
-        let p = create(&root, &meta, Kind::Config, Trigger::Manual, Some("test".into()), &|_| {}).unwrap();
+        let p = create(
+            &root,
+            &meta,
+            Kind::Config,
+            Trigger::Manual,
+            Some("test".into()),
+            &|_| {},
+        )
+        .unwrap();
         assert!(verify(&meta, &p.id).unwrap().ok);
         assert_eq!(list(&meta).len(), 1);
-        assert!(!backups_dir(&meta).join(format!("{}.partial", p.id)).exists());
+        assert!(!backups_dir(&meta)
+            .join(format!("{}.partial", p.id))
+            .exists());
 
         let original = fs::read(root.join("Core/configs/worldserver.conf")).unwrap();
-        fs::write(root.join("Core/configs/worldserver.conf"), "[worldserver]\nRealmID = 99\n").unwrap();
+        fs::write(
+            root.join("Core/configs/worldserver.conf"),
+            "[worldserver]\nRealmID = 99\n",
+        )
+        .unwrap();
         fs::write(root.join("Core/configs/unrelated_new.conf"), "keep").unwrap();
         let safety = restore_configs(&root, &meta, &p.id).unwrap();
-        assert_eq!(fs::read(root.join("Core/configs/worldserver.conf")).unwrap(), original);
-        assert!(root.join("Core/configs/unrelated_new.conf").is_file(), "restore never deletes other files");
+        assert_eq!(
+            fs::read(root.join("Core/configs/worldserver.conf")).unwrap(),
+            original
+        );
+        assert!(
+            root.join("Core/configs/unrelated_new.conf").is_file(),
+            "restore never deletes other files"
+        );
         assert_eq!(safety.trigger, Trigger::BeforeRestore);
         assert!(list(&meta).len() >= 2);
     }
@@ -587,7 +815,15 @@ mod tests {
     #[test]
     fn backups_can_live_in_a_chosen_folder_and_old_ones_stay_visible() {
         let (d, root, meta) = setup();
-        let before = create(&root, &meta, Kind::Config, Trigger::Manual, Some("default folder".into()), &|_| {}).unwrap();
+        let before = create(
+            &root,
+            &meta,
+            Kind::Config,
+            Trigger::Manual,
+            Some("default folder".into()),
+            &|_| {},
+        )
+        .unwrap();
         assert!(location(&meta).is_default);
 
         // inside the server folder is refused, a relative path is refused
@@ -597,13 +833,30 @@ mod tests {
         let elsewhere = d.path().join("other drive").join("CoA backups");
         let loc = set_location(&root, &meta, Some(elsewhere.to_str().unwrap())).unwrap();
         assert!(!loc.is_default && elsewhere.is_dir());
-        let after = create(&root, &meta, Kind::Config, Trigger::Manual, Some("chosen folder".into()), &|_| {}).unwrap();
-        assert!(elsewhere.join(&after.id).join("backup.json").is_file(), "new backups go to the chosen folder");
+        let after = create(
+            &root,
+            &meta,
+            Kind::Config,
+            Trigger::Manual,
+            Some("chosen folder".into()),
+            &|_| {},
+        )
+        .unwrap();
+        assert!(
+            elsewhere.join(&after.id).join("backup.json").is_file(),
+            "new backups go to the chosen folder"
+        );
         assert!(!default_dir(&meta).join(&after.id).exists());
         let ids: Vec<_> = list(&meta).into_iter().map(|p| p.id).collect();
-        assert!(ids.contains(&before.id) && ids.contains(&after.id), "the old backup is still listed");
+        assert!(
+            ids.contains(&before.id) && ids.contains(&after.id),
+            "the old backup is still listed"
+        );
         assert!(verify(&meta, &before.id).unwrap().ok && verify(&meta, &after.id).unwrap().ok);
-        assert_eq!(point_json(&meta, &after.id).unwrap(), elsewhere.join(&after.id).join("backup.json"));
+        assert_eq!(
+            point_json(&meta, &after.id).unwrap(),
+            elsewhere.join(&after.id).join("backup.json")
+        );
         restore_configs(&root, &meta, &after.id).unwrap();
         delete(&meta, &after.id).unwrap();
         assert!(!elsewhere.join(&after.id).exists());
@@ -616,7 +869,9 @@ mod tests {
     fn verify_detects_tampering_and_restore_refuses_damaged_backup() {
         let (_d, root, meta) = setup();
         let p = create(&root, &meta, Kind::Config, Trigger::Manual, None, &|_| {}).unwrap();
-        let victim = point_dir(&meta, &p.id).unwrap().join("files/Core/configs/worldserver.conf");
+        let victim = point_dir(&meta, &p.id)
+            .unwrap()
+            .join("files/Core/configs/worldserver.conf");
         fs::remove_file(&victim).unwrap();
         let v = verify(&meta, &p.id).unwrap();
         assert!(!v.ok && v.problems[0].contains("worldserver.conf"));
@@ -659,6 +914,9 @@ mod tests {
         assert_eq!(left.iter().filter(|i| i.ends_with("-auto")).count(), 2);
         assert!(left.contains(&"20260101-000000-manual".to_string()));
         assert!(left.contains(&"20260102-000000-before-restore".to_string()));
-        assert!(left.contains(&"20260204-000000-auto".to_string()), "newest automatic kept");
+        assert!(
+            left.contains(&"20260204-000000-auto".to_string()),
+            "newest automatic kept"
+        );
     }
 }

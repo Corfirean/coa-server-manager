@@ -64,11 +64,20 @@ impl ActiveMapping {
     pub fn cleanup(&mut self) {
         match self {
             ActiveMapping::None => {}
-            ActiveMapping::Upnp { gateway, auth_port, world_port } => {
+            ActiveMapping::Upnp {
+                gateway,
+                auth_port,
+                world_port,
+            } => {
                 let _ = upnp::remove_mapping(gateway, *auth_port);
                 let _ = upnp::remove_mapping(gateway, *world_port);
             }
-            ActiveMapping::NatPmp { gateway, auth_internal, world_internal, .. } => {
+            ActiveMapping::NatPmp {
+                gateway,
+                auth_internal,
+                world_internal,
+                ..
+            } => {
                 let _ = nat_pmp::delete_mapping(*gateway, *auth_internal);
                 let _ = nat_pmp::delete_mapping(*gateway, *world_internal);
             }
@@ -84,10 +93,7 @@ pub struct DirectRouteManager {
 }
 
 impl DirectRouteManager {
-    pub fn start(
-        registry_base_url: Option<String>,
-        service: Arc<HostService>,
-    ) -> Self {
+    pub fn start(registry_base_url: Option<String>, service: Arc<HostService>) -> Self {
         let status = Arc::new(RwLock::new(RouteStatus::Probing));
         let stop = Arc::new(AtomicBool::new(false));
 
@@ -109,7 +115,10 @@ impl DirectRouteManager {
     }
 
     pub fn status(&self) -> RouteStatus {
-        self.status.read().map(|s| s.clone()).unwrap_or(RouteStatus::Probing)
+        self.status
+            .read()
+            .map(|s| s.clone())
+            .unwrap_or(RouteStatus::Probing)
     }
 
     pub fn is_direct_ready(&self) -> bool {
@@ -148,13 +157,16 @@ fn probe_endpoints(base_url: Option<&str>, ports: &[u16]) -> bool {
                 ports: ports.to_vec(),
             };
             let body_str = serde_json::to_string(&probe_body).unwrap_or_default();
-            if let Ok(resp) = c.post(&probe_url)
+            if let Ok(resp) = c
+                .post(&probe_url)
                 .header("Content-Type", "application/json")
                 .body(body_str)
                 .send()
             {
                 if let Ok(text) = resp.text() {
-                    if let Ok(p_resp) = serde_json::from_str::<coa_control_proto::coord::ProbeResponse>(&text) {
+                    if let Ok(p_resp) =
+                        serde_json::from_str::<coa_control_proto::coord::ProbeResponse>(&text)
+                    {
                         return p_resp.all_reachable;
                     }
                 }
@@ -162,7 +174,14 @@ fn probe_endpoints(base_url: Option<&str>, ports: &[u16]) -> bool {
         }
         false
     } else {
-        std::env::var("COA_TEST_FORCE_DIRECT_VERIFIED").is_ok()
+        #[cfg(debug_assertions)]
+        {
+            std::env::var("COA_TEST_FORCE_DIRECT_VERIFIED").is_ok()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            false
+        }
     }
 }
 
@@ -194,9 +213,12 @@ fn attempt_route_discovery(
 ) {
     // 1. Discover local LAN address
     let Some(lan_ip) = net::lan_ip() else {
-        set_status(status, RouteStatus::RelayOnly {
-            reason: "No usable local network address found.".into(),
-        });
+        set_status(
+            status,
+            RouteStatus::RelayOnly {
+                reason: "No usable local network address found.".into(),
+            },
+        );
         service.set_direct_route(None);
         return;
     };
@@ -240,7 +262,9 @@ fn attempt_route_discovery(
         if let Some(c) = client {
             if let Ok(resp) = c.get(&probe_url).send() {
                 if let Ok(text) = resp.text() {
-                    if let Ok(p_resp) = serde_json::from_str::<coa_control_proto::coord::ProbeResponse>(&text) {
+                    if let Ok(p_resp) =
+                        serde_json::from_str::<coa_control_proto::coord::ProbeResponse>(&text)
+                    {
                         probe_ip = p_resp.client_ip.parse::<Ipv4Addr>().ok();
                     }
                 }
@@ -251,18 +275,26 @@ fn attempt_route_discovery(
     let public_ip = discovered_public_ip.or(probe_ip);
 
     let Some(public_ip) = public_ip else {
-        set_status(status, RouteStatus::RelayOnly {
-            reason: "Could not discover public IPv4 address.".into(),
-        });
+        set_status(
+            status,
+            RouteStatus::RelayOnly {
+                reason: "Could not discover public IPv4 address.".into(),
+            },
+        );
         service.set_direct_route(None);
         return;
     };
 
     // 4. CGNAT check
     if net::is_cgnat_range(public_ip) {
-        set_status(status, RouteStatus::RelayOnly {
-            reason: format!("Carrier-grade NAT detected ({public_ip}); direct routing unavailable."),
-        });
+        set_status(
+            status,
+            RouteStatus::RelayOnly {
+                reason: format!(
+                    "Carrier-grade NAT detected ({public_ip}); direct routing unavailable."
+                ),
+            },
+        );
         service.set_direct_route(None);
         return;
     };
@@ -295,22 +327,23 @@ fn attempt_route_discovery(
         local_world,
     ) {
         Ok(ing) => Ok(ing),
-        Err(_) => {
-            DirectIngress::start(
-                0,
-                0,
-                public_ip.to_string(),
-                desired_world_port,
-                local_auth,
-                local_world,
-            )
-        }
+        Err(_) => DirectIngress::start(
+            0,
+            0,
+            public_ip.to_string(),
+            desired_world_port,
+            local_auth,
+            local_world,
+        ),
     };
 
     let Ok(mut ingress) = ingress else {
-        set_status(status, RouteStatus::RelayOnly {
-            reason: "Cannot bind direct ingress listeners.".into(),
-        });
+        set_status(
+            status,
+            RouteStatus::RelayOnly {
+                reason: "Cannot bind direct ingress listeners.".into(),
+            },
+        );
         service.set_direct_route(None);
         return;
     };
@@ -348,11 +381,16 @@ fn attempt_route_discovery(
         if matches!(active_mapping, ActiveMapping::None) {
             if let Some(gw) = default_gw {
                 let lifetime = 3600;
-                if let Some(a_ext) = nat_pmp::request_mapping(gw, bound_auth_port, bound_auth_port, lifetime) {
-                    if let Some(w_ext) = nat_pmp::request_mapping(gw, bound_world_port, bound_world_port, lifetime) {
+                if let Some(a_ext) =
+                    nat_pmp::request_mapping(gw, bound_auth_port, bound_auth_port, lifetime)
+                {
+                    if let Some(w_ext) =
+                        nat_pmp::request_mapping(gw, bound_world_port, bound_world_port, lifetime)
+                    {
                         mapped_auth_port = a_ext;
                         mapped_world_port = w_ext;
-                        let renew_at = std::time::Instant::now() + Duration::from_secs(lifetime as u64 / 2);
+                        let renew_at =
+                            std::time::Instant::now() + Duration::from_secs(lifetime as u64 / 2);
                         active_mapping = ActiveMapping::NatPmp {
                             gateway: gw,
                             auth_internal: bound_auth_port,
@@ -372,9 +410,12 @@ fn attempt_route_discovery(
         }
 
         if matches!(active_mapping, ActiveMapping::None) {
-            set_status(status, RouteStatus::RelayOnly {
-                reason: "Router port mapping (UPnP/NAT-PMP) failed or unsupported.".into(),
-            });
+            set_status(
+                status,
+                RouteStatus::RelayOnly {
+                    reason: "Router port mapping (UPnP/NAT-PMP) failed or unsupported.".into(),
+                },
+            );
             service.set_direct_route(None);
             ingress.stop();
             return;
@@ -385,7 +426,10 @@ fn attempt_route_discovery(
     ingress.update_external_world_endpoint(&public_ip.to_string(), mapped_world_port);
 
     // 7. External Reachability Verification Probe
-    let verified = probe_endpoints(registry_base_url.as_deref(), &[mapped_auth_port, mapped_world_port]);
+    let verified = probe_endpoints(
+        registry_base_url.as_deref(),
+        &[mapped_auth_port, mapped_world_port],
+    );
 
     if !verified {
         set_status(status, RouteStatus::RelayOnly {
@@ -399,12 +443,15 @@ fn attempt_route_discovery(
 
     // 8. DIRECT_READY: update status and register direct route with HostService
     let direct_endpoint = format!("{public_ip}:{mapped_auth_port}");
-    set_status(status, RouteStatus::DirectReady {
-        public_ip: public_ip.to_string(),
-        auth_port: mapped_auth_port,
-        world_port: mapped_world_port,
-        method: method.to_string(),
-    });
+    set_status(
+        status,
+        RouteStatus::DirectReady {
+            public_ip: public_ip.to_string(),
+            auth_port: mapped_auth_port,
+            world_port: mapped_world_port,
+            method: method.to_string(),
+        },
+    );
     service.set_direct_route(Some(direct_endpoint));
 
     // 9. Route Health, Renewal, and Network Change Monitoring Loop
@@ -417,9 +464,12 @@ fn attempt_route_discovery(
         // Network change detection
         let current_lan_ip = net::lan_ip();
         if current_lan_ip != Some(last_lan_ip) {
-            set_status(status, RouteStatus::RelayOnly {
-                reason: "Local network interface address changed.".into(),
-            });
+            set_status(
+                status,
+                RouteStatus::RelayOnly {
+                    reason: "Local network interface address changed.".into(),
+                },
+            );
             service.set_direct_route(None);
             active_mapping.cleanup();
             ingress.stop();
@@ -436,17 +486,28 @@ fn attempt_route_discovery(
             world_external,
             lifetime_secs,
             ref mut renew_at,
-        } = active_mapping {
+        } = active_mapping
+        {
             if std::time::Instant::now() >= *renew_at {
-                let ra = nat_pmp::request_mapping(gateway, auth_internal, auth_external, lifetime_secs);
-                let rw = nat_pmp::request_mapping(gateway, world_internal, world_external, lifetime_secs);
+                let ra =
+                    nat_pmp::request_mapping(gateway, auth_internal, auth_external, lifetime_secs);
+                let rw = nat_pmp::request_mapping(
+                    gateway,
+                    world_internal,
+                    world_external,
+                    lifetime_secs,
+                );
                 if ra == Some(auth_external) && rw == Some(world_external) {
-                    *renew_at = std::time::Instant::now() + Duration::from_secs(lifetime_secs as u64 / 2);
+                    *renew_at =
+                        std::time::Instant::now() + Duration::from_secs(lifetime_secs as u64 / 2);
                     need_probe = true;
                 } else {
-                    set_status(status, RouteStatus::RelayOnly {
-                        reason: "NAT-PMP port mapping renewal failed.".into(),
-                    });
+                    set_status(
+                        status,
+                        RouteStatus::RelayOnly {
+                            reason: "NAT-PMP port mapping renewal failed.".into(),
+                        },
+                    );
                     service.set_direct_route(None);
                     active_mapping.cleanup();
                     ingress.stop();
@@ -459,7 +520,10 @@ fn attempt_route_discovery(
         if need_probe || last_health_check.elapsed() >= Duration::from_secs(30) {
             last_health_check = std::time::Instant::now();
             if registry_base_url.is_some() {
-                let still_reachable = probe_endpoints(registry_base_url.as_deref(), &[mapped_auth_port, mapped_world_port]);
+                let still_reachable = probe_endpoints(
+                    registry_base_url.as_deref(),
+                    &[mapped_auth_port, mapped_world_port],
+                );
                 if !still_reachable {
                     set_status(status, RouteStatus::RelayOnly {
                         reason: format!("Periodic external reachability probe failed on {public_ip}:{mapped_auth_port},{mapped_world_port}."),
@@ -507,11 +571,13 @@ mod tests {
             world_port: 8085,
             method: "nat_pmp".into(),
         }));
-        set_status(&status, RouteStatus::RelayOnly {
-            reason: "Renewal failed".into(),
-        });
+        set_status(
+            &status,
+            RouteStatus::RelayOnly {
+                reason: "Renewal failed".into(),
+            },
+        );
         let cur = status.read().unwrap().clone();
         assert!(matches!(cur, RouteStatus::RelayOnly { .. }));
     }
 }
-

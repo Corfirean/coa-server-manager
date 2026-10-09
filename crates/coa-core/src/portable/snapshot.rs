@@ -32,7 +32,9 @@ pub fn canonical_json(model: &PortableCharacter) -> Result<Vec<u8>> {
     let normalized = model.clone().normalized();
     let json = serde_json::to_vec(&normalized)?;
     if json.len() > MAX_SNAPSHOT_BYTES {
-        return Err(PortableError::LimitExceeded(format!("the snapshot is larger than {MAX_SNAPSHOT_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "the snapshot is larger than {MAX_SNAPSHOT_BYTES} bytes"
+        )));
     }
     Ok(json)
 }
@@ -49,9 +51,15 @@ pub fn encode(model: &PortableCharacter) -> Result<EncodedSnapshot> {
     let content_hash: [u8; 32] = Sha256::digest(&json).into();
     let payload = zstd::stream::encode_all(json.as_slice(), ZSTD_LEVEL)?;
     if payload.len() > MAX_COMPRESSED_BYTES {
-        return Err(PortableError::LimitExceeded(format!("the compressed snapshot is larger than {MAX_COMPRESSED_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "the compressed snapshot is larger than {MAX_COMPRESSED_BYTES} bytes"
+        )));
     }
-    Ok(EncodedSnapshot { content_hash, uncompressed_size: json.len() as u64, payload })
+    Ok(EncodedSnapshot {
+        content_hash,
+        uncompressed_size: json.len() as u64,
+        payload,
+    })
 }
 
 /// A decoded snapshot with where it came from: the character is always in the current format, `source_version` and
@@ -82,9 +90,12 @@ pub fn semantic_hash(payload: &[u8], stored_hash: &[u8; 32]) -> Result<[u8; 32]>
 /// [`decode`] that also reports the stored version and the stored hash.
 pub fn decode_verified(payload: &[u8], expected_hash: Option<&[u8; 32]>) -> Result<Decoded> {
     if payload.len() > MAX_COMPRESSED_BYTES {
-        return Err(PortableError::LimitExceeded(format!("the compressed snapshot is larger than {MAX_COMPRESSED_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "the compressed snapshot is larger than {MAX_COMPRESSED_BYTES} bytes"
+        )));
     }
-    let decoder = zstd::stream::read::Decoder::new(payload).map_err(|e| PortableError::CorruptSnapshot(format!("not a compressed snapshot: {e}")))?;
+    let decoder = zstd::stream::read::Decoder::new(payload)
+        .map_err(|e| PortableError::CorruptSnapshot(format!("not a compressed snapshot: {e}")))?;
     let mut json = Vec::new();
     // Read one byte more than allowed: if it is there, the payload would have inflated past the cap.
     decoder
@@ -92,17 +103,25 @@ pub fn decode_verified(payload: &[u8], expected_hash: Option<&[u8; 32]>) -> Resu
         .read_to_end(&mut json)
         .map_err(|e| PortableError::CorruptSnapshot(format!("decompression failed: {e}")))?;
     if json.len() > MAX_SNAPSHOT_BYTES {
-        return Err(PortableError::LimitExceeded(format!("the snapshot inflates beyond {MAX_SNAPSHOT_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "the snapshot inflates beyond {MAX_SNAPSHOT_BYTES} bytes"
+        )));
     }
     // the hash of the payload as it was written is verified BEFORE anything is migrated or interpreted
     let source_hash: [u8; 32] = Sha256::digest(&json).into();
     if let Some(expected) = expected_hash {
         if &source_hash != expected {
-            return Err(PortableError::CorruptSnapshot("content hash mismatch".into()));
+            return Err(PortableError::CorruptSnapshot(
+                "content hash mismatch".into(),
+            ));
         }
     }
     let (model, source_version) = decode_json_versioned(&json)?;
-    Ok(Decoded { model, source_version, source_hash })
+    Ok(Decoded {
+        model,
+        source_version,
+        source_hash,
+    })
 }
 
 /// Decode canonical JSON (already decompressed and, if needed, hash-checked).
@@ -122,17 +141,30 @@ pub fn decode_json_versioned(json: &[u8]) -> Result<(PortableCharacter, u32)> {
         .and_then(|v| v.as_u64())
         .ok_or_else(|| PortableError::CorruptSnapshot("format_version is missing".into()))?;
     if version > PORTABLE_CHARACTER_FORMAT_VERSION as u64 {
-        return Err(PortableError::UnsupportedFormat { found: version.min(u32::MAX as u64) as u32, supported: PORTABLE_CHARACTER_FORMAT_VERSION });
+        return Err(PortableError::UnsupportedFormat {
+            found: version.min(u32::MAX as u64) as u32,
+            supported: PORTABLE_CHARACTER_FORMAT_VERSION,
+        });
     }
     if version < PORTABLE_CHARACTER_MIN_READ_VERSION as u64 {
-        return Err(PortableError::UnsupportedFormat { found: version as u32, supported: PORTABLE_CHARACTER_FORMAT_VERSION });
+        return Err(PortableError::UnsupportedFormat {
+            found: version as u32,
+            supported: PORTABLE_CHARACTER_FORMAT_VERSION,
+        });
     }
     if version == 1 {
-        let object = value.as_object_mut().ok_or_else(|| PortableError::CorruptSnapshot("a snapshot is not an object".into()))?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| PortableError::CorruptSnapshot("a snapshot is not an object".into()))?;
         if object.contains_key("wardrobe") {
-            return Err(PortableError::CorruptSnapshot("a format 1 snapshot cannot contain a wardrobe (it was added in format 2)".into()));
+            return Err(PortableError::CorruptSnapshot(
+                "a format 1 snapshot cannot contain a wardrobe (it was added in format 2)".into(),
+            ));
         }
-        object.insert("format_version".into(), serde_json::json!(PORTABLE_CHARACTER_FORMAT_VERSION));
+        object.insert(
+            "format_version".into(),
+            serde_json::json!(PORTABLE_CHARACTER_FORMAT_VERSION),
+        );
     }
     let model: PortableCharacter = serde_json::from_value(value)?;
     model.validate()?;
@@ -144,10 +176,15 @@ pub fn decode_json_versioned(json: &[u8]) -> Result<(PortableCharacter, u32)> {
 #[cfg(test)]
 pub(crate) fn encode_as_format_1(model: &PortableCharacter) -> EncodedSnapshot {
     assert!(model.wardrobe.is_empty(), "format 1 has no wardrobe");
-    let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(model).unwrap()).unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&canonical_json(model).unwrap()).unwrap();
     value["format_version"] = serde_json::json!(1);
     let json = serde_json::to_vec(&value).unwrap();
-    EncodedSnapshot { content_hash: Sha256::digest(&json).into(), uncompressed_size: json.len() as u64, payload: zstd::stream::encode_all(json.as_slice(), ZSTD_LEVEL).unwrap() }
+    EncodedSnapshot {
+        content_hash: Sha256::digest(&json).into(),
+        uncompressed_size: json.len() as u64,
+        payload: zstd::stream::encode_all(json.as_slice(), ZSTD_LEVEL).unwrap(),
+    }
 }
 
 #[cfg(test)]
@@ -173,8 +210,14 @@ mod tests {
         shuffled.reputation.reverse();
         shuffled.items.reverse();
         let sorted = fixtures::geared_level_eighty();
-        assert_eq!(content_hash(&shuffled).unwrap(), content_hash(&sorted).unwrap());
-        assert_eq!(encode(&shuffled).unwrap().payload, encode(&sorted).unwrap().payload);
+        assert_eq!(
+            content_hash(&shuffled).unwrap(),
+            content_hash(&sorted).unwrap()
+        );
+        assert_eq!(
+            encode(&shuffled).unwrap().payload,
+            encode(&sorted).unwrap().payload
+        );
     }
 
     #[test]
@@ -190,12 +233,18 @@ mod tests {
     fn unknown_extension_survives_byte_for_byte() {
         let mut model = fixtures::geared_level_eighty();
         let payload: Vec<u8> = (0..=255u8).cycle().take(5000).collect();
-        model.extensions.insert("mod:unknown-module".into(), crate::portable::model::Extension::new("9.9.9", 7, payload.clone()));
+        model.extensions.insert(
+            "mod:unknown-module".into(),
+            crate::portable::model::Extension::new("9.9.9", 7, payload.clone()),
+        );
         let encoded = encode(&model).unwrap();
         let back = decode(&encoded.payload, Some(&encoded.content_hash)).unwrap();
         let ext = &back.extensions["mod:unknown-module"];
         assert_eq!(ext.payload.0, payload);
-        assert_eq!((ext.module_version.as_str(), ext.format_version), ("9.9.9", 7));
+        assert_eq!(
+            (ext.module_version.as_str(), ext.format_version),
+            ("9.9.9", 7)
+        );
     }
 
     #[test]
@@ -204,7 +253,10 @@ mod tests {
         let mut ext = crate::portable::model::Extension::new("1", 1, vec![1, 2, 3]);
         ext.payload.0[0] ^= 0xFF;
         model.extensions.insert("mod:broken".into(), ext);
-        assert!(matches!(encode(&model), Err(PortableError::CorruptSnapshot(_))));
+        assert!(matches!(
+            encode(&model),
+            Err(PortableError::CorruptSnapshot(_))
+        ));
     }
 
     #[test]
@@ -212,7 +264,10 @@ mod tests {
         let encoded = encode(&fixtures::geared_level_eighty()).unwrap();
         let mut wrong = encoded.content_hash;
         wrong[0] ^= 1;
-        assert!(matches!(decode(&encoded.payload, Some(&wrong)), Err(PortableError::CorruptSnapshot(_))));
+        assert!(matches!(
+            decode(&encoded.payload, Some(&wrong)),
+            Err(PortableError::CorruptSnapshot(_))
+        ));
     }
 
     #[test]
@@ -225,9 +280,20 @@ mod tests {
     #[test]
     fn decompression_bomb_is_stopped_at_the_cap() {
         // 20 MiB of spaces compress to a few KB; the decoder must refuse instead of inflating it.
-        let bomb = zstd::stream::encode_all(vec![b' '; MAX_SNAPSHOT_BYTES + 4 * 1024 * 1024].as_slice(), 19).unwrap();
-        assert!(bomb.len() < 4096, "the test needs a genuinely small payload, got {}", bomb.len());
-        assert!(matches!(decode(&bomb, None), Err(PortableError::LimitExceeded(_))));
+        let bomb = zstd::stream::encode_all(
+            vec![b' '; MAX_SNAPSHOT_BYTES + 4 * 1024 * 1024].as_slice(),
+            19,
+        )
+        .unwrap();
+        assert!(
+            bomb.len() < 4096,
+            "the test needs a genuinely small payload, got {}",
+            bomb.len()
+        );
+        assert!(matches!(
+            decode(&bomb, None),
+            Err(PortableError::LimitExceeded(_))
+        ));
     }
 
     #[test]
@@ -236,7 +302,10 @@ mod tests {
         value["format_version"] = serde_json::json!(PORTABLE_CHARACTER_FORMAT_VERSION + 1);
         value["a_field_of_the_future"] = serde_json::json!(true);
         let json = serde_json::to_vec(&value).unwrap();
-        assert!(matches!(decode_json(&json), Err(PortableError::UnsupportedFormat { .. })));
+        assert!(matches!(
+            decode_json(&json),
+            Err(PortableError::UnsupportedFormat { .. })
+        ));
     }
 
     #[test]
@@ -250,10 +319,16 @@ mod tests {
     fn oversized_content_is_refused() {
         let mut model = fixtures::geared_level_eighty();
         model.build.spells = (1..=(MAX_SPELLS as u32 + 1)).map(|s| (s, 1)).collect();
-        assert!(matches!(encode(&model), Err(PortableError::LimitExceeded(_))));
+        assert!(matches!(
+            encode(&model),
+            Err(PortableError::LimitExceeded(_))
+        ));
         let mut model = fixtures::geared_level_eighty();
         model.items[0].text = Some("x".repeat(MAX_ITEM_TEXT_BYTES + 1));
-        assert!(matches!(encode(&model), Err(PortableError::LimitExceeded(_))));
+        assert!(matches!(
+            encode(&model),
+            Err(PortableError::LimitExceeded(_))
+        ));
         let mut model = fixtures::geared_level_eighty();
         model.progression.money = MAX_MONEY + 1;
         assert!(encode(&model).is_err());
@@ -263,7 +338,11 @@ mod tests {
     fn broken_item_structure_is_refused() {
         // an item inside a container that does not exist
         let mut model = fixtures::geared_level_eighty();
-        let orphan = model.items.iter().position(|i| i.container.is_some()).unwrap();
+        let orphan = model
+            .items
+            .iter()
+            .position(|i| i.container.is_some())
+            .unwrap();
         model.items[orphan].container = Some(crate::portable::ids::PortableItemId::new());
         assert!(encode(&model).is_err());
         // two items in the same place
@@ -282,27 +361,54 @@ mod tests {
     #[test]
     fn a_geared_snapshot_is_small() {
         let encoded = encode(&fixtures::geared_level_eighty()).unwrap();
-        assert!(encoded.payload.len() < 64 * 1024, "{} bytes", encoded.payload.len());
+        assert!(
+            encoded.payload.len() < 64 * 1024,
+            "{} bytes",
+            encoded.payload.len()
+        );
     }
 
     #[test]
-    fn a_genuine_format_1_snapshot_migrates_with_an_empty_wardrobe_and_its_original_hash_is_verified_first() {
+    fn a_genuine_format_1_snapshot_migrates_with_an_empty_wardrobe_and_its_original_hash_is_verified_first(
+    ) {
         let model = fixtures::geared_level_eighty();
         let v1 = encode_as_format_1(&model);
         let decoded = decode_verified(&v1.payload, Some(&v1.content_hash)).unwrap();
-        assert_eq!((decoded.source_version, decoded.source_hash), (1, v1.content_hash));
-        assert_eq!(decoded.model.format_version, PORTABLE_CHARACTER_FORMAT_VERSION);
+        assert_eq!(
+            (decoded.source_version, decoded.source_hash),
+            (1, v1.content_hash)
+        );
+        assert_eq!(
+            decoded.model.format_version,
+            PORTABLE_CHARACTER_FORMAT_VERSION
+        );
         assert!(decoded.model.wardrobe.is_empty());
-        assert_eq!(decoded.model, model.clone().normalized(), "nothing but the version changed");
-        assert_ne!(v1.content_hash, content_hash(&decoded.model).unwrap(), "the same character has another hash in format 2");
-        assert_eq!(semantic_hash(&v1.payload, &v1.content_hash).unwrap(), content_hash(&decoded.model).unwrap());
+        assert_eq!(
+            decoded.model,
+            model.clone().normalized(),
+            "nothing but the version changed"
+        );
+        assert_ne!(
+            v1.content_hash,
+            content_hash(&decoded.model).unwrap(),
+            "the same character has another hash in format 2"
+        );
+        assert_eq!(
+            semantic_hash(&v1.payload, &v1.content_hash).unwrap(),
+            content_hash(&decoded.model).unwrap()
+        );
         let v2 = encode(&model).unwrap();
-        assert_eq!(semantic_hash(&v2.payload, &v2.content_hash).unwrap(), v2.content_hash);
+        assert_eq!(
+            semantic_hash(&v2.payload, &v2.content_hash).unwrap(),
+            v2.content_hash
+        );
 
         // the stored hash is checked against the payload as it was written, before the migration can hide a difference
         let mut wrong = v1.content_hash;
         wrong[0] ^= 1;
-        assert!(matches!(decode(&v1.payload, Some(&wrong)), Err(PortableError::CorruptSnapshot(m)) if m.contains("hash")));
+        assert!(
+            matches!(decode(&v1.payload, Some(&wrong)), Err(PortableError::CorruptSnapshot(m)) if m.contains("hash"))
+        );
         // the migrated form's hash is not accepted for the old payload
         assert!(decode(&v1.payload, Some(&content_hash(&decoded.model).unwrap())).is_err());
     }
@@ -311,16 +417,21 @@ mod tests {
     fn a_format_1_payload_with_a_wardrobe_is_not_a_format_1_payload() {
         let mut model = fixtures::geared_level_eighty();
         model.wardrobe.active.insert(1, 100);
-        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&model).unwrap()).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&canonical_json(&model).unwrap()).unwrap();
         value["format_version"] = serde_json::json!(1);
         let json = serde_json::to_vec(&value).unwrap();
         let payload = zstd::stream::encode_all(json.as_slice(), ZSTD_LEVEL).unwrap();
         let hash: [u8; 32] = Sha256::digest(&json).into();
         // even with a correct hash, an old version cannot carry what the old version did not have
-        assert!(matches!(decode(&payload, Some(&hash)), Err(PortableError::CorruptSnapshot(m)) if m.contains("wardrobe")));
+        assert!(
+            matches!(decode(&payload, Some(&hash)), Err(PortableError::CorruptSnapshot(m)) if m.contains("wardrobe"))
+        );
         assert!(decode_json(&json).is_err());
         // an empty wardrobe object written by hand is still a wardrobe in a version that had none
-        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap()).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap())
+                .unwrap();
         value["format_version"] = serde_json::json!(1);
         value["wardrobe"] = serde_json::json!({});
         assert!(decode_json(&serde_json::to_vec(&value).unwrap()).is_err());
@@ -328,13 +439,23 @@ mod tests {
 
     #[test]
     fn format_1_keeps_every_other_strictness_and_version_0_is_not_a_version() {
-        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap()).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap())
+                .unwrap();
         value["format_version"] = serde_json::json!(1);
         value["identity"]["secret_flag"] = serde_json::json!(1);
-        assert!(decode_json(&serde_json::to_vec(&value).unwrap()).is_err(), "unknown fields are refused in the old format too");
-        let mut value: serde_json::Value = serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap()).unwrap();
+        assert!(
+            decode_json(&serde_json::to_vec(&value).unwrap()).is_err(),
+            "unknown fields are refused in the old format too"
+        );
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&canonical_json(&fixtures::geared_level_eighty()).unwrap())
+                .unwrap();
         value["format_version"] = serde_json::json!(0);
-        assert!(matches!(decode_json(&serde_json::to_vec(&value).unwrap()), Err(PortableError::UnsupportedFormat { .. })));
+        assert!(matches!(
+            decode_json(&serde_json::to_vec(&value).unwrap()),
+            Err(PortableError::UnsupportedFormat { .. })
+        ));
         value["format_version"] = serde_json::json!("1");
         assert!(decode_json(&serde_json::to_vec(&value).unwrap()).is_err());
     }

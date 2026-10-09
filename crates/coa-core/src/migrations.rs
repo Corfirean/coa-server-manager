@@ -35,7 +35,9 @@ pub struct LedgerRow {
 /// Storage for the ledger and the ability to run a SQL file; implemented by the real database and by tests.
 pub trait Store {
     fn load(&self) -> Result<Vec<LedgerRow>>;
-    fn load_readonly(&self) -> Result<Vec<LedgerRow>> { self.load() }
+    fn load_readonly(&self) -> Result<Vec<LedgerRow>> {
+        self.load()
+    }
     fn put(&self, row: &LedgerRow) -> Result<()>;
     fn run_file(&self, schema: &str, file: &Path) -> Result<()>;
 }
@@ -45,7 +47,10 @@ fn hex_of(s: &str) -> String {
 }
 
 fn ident_ok(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 150 && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    !s.is_empty()
+        && s.len() <= 150
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
 }
 
 impl Store for Db {
@@ -57,33 +62,62 @@ impl Store for Db {
     }
 
     fn load_readonly(&self) -> Result<Vec<LedgerRow>> {
-        let out = if self.tables(LEDGER_SCHEMA)?.iter().any(|name| name == LEDGER_TABLE) {
+        let out = if self
+            .tables(LEDGER_SCHEMA)?
+            .iter()
+            .any(|name| name == LEDGER_TABLE)
+        {
             self.query(&format!("SELECT `db`,`id`,`sha256`,`status`,`baseline`,COALESCE(HEX(`error`),'') FROM `{LEDGER_SCHEMA}`.`{LEDGER_TABLE}` ORDER BY `db`,`id`;"))?
-        } else { String::new() };
+        } else {
+            String::new()
+        };
         let mut rows = Vec::new();
         // Files the core's own updater (or whoever prepared this database) already recorded count as applied.
         for (kind, schema) in db::SCHEMAS {
             if self.tables(schema)?.iter().any(|name| name == "updates") {
                 let names = self.query(&format!("SELECT name FROM `{schema}`.`updates`;"))?;
                 for name in names.lines().filter(|n| n.ends_with(".sql")) {
-                    rows.push(LedgerRow { db: kind.into(), id: name.trim_end_matches(".sql").into(), sha256: "0".repeat(64), status: Status::Applied, error: None, baseline: true });
+                    rows.push(LedgerRow {
+                        db: kind.into(),
+                        id: name.trim_end_matches(".sql").into(),
+                        sha256: "0".repeat(64),
+                        status: Status::Applied,
+                        error: None,
+                        baseline: true,
+                    });
                 }
             }
         }
         for line in out.lines().filter(|l| !l.is_empty()) {
             let f: Vec<&str> = line.split('\t').collect();
             if f.len() < 5 {
-                return Err(Error::Invalid("The database migration history is malformed; no SQL was replayed.".into()));
+                return Err(Error::Invalid(
+                    "The database migration history is malformed; no SQL was replayed.".into(),
+                ));
             }
-            if !matches!(f[3], "applied" | "failed" | "running") || !ident_ok(f[1]) || f[2].len() != 64 || !f[2].chars().all(|c| c.is_ascii_hexdigit()) {
-                return Err(Error::Invalid("The database migration history is invalid; no SQL was replayed.".into()));
+            if !matches!(f[3], "applied" | "failed" | "running")
+                || !ident_ok(f[1])
+                || f[2].len() != 64
+                || !f[2].chars().all(|c| c.is_ascii_hexdigit())
+            {
+                return Err(Error::Invalid(
+                    "The database migration history is invalid; no SQL was replayed.".into(),
+                ));
             }
-            let err = f.get(5).filter(|h| !h.is_empty()).and_then(|h| hex::decode(h).ok()).map(|b| String::from_utf8_lossy(&b).into_owned());
+            let err = f
+                .get(5)
+                .filter(|h| !h.is_empty())
+                .and_then(|h| hex::decode(h).ok())
+                .map(|b| String::from_utf8_lossy(&b).into_owned());
             rows.push(LedgerRow {
                 db: f[0].into(),
                 id: f[1].into(),
                 sha256: f[2].into(),
-                status: match f[3] { "applied" => Status::Applied, "running" => Status::Running, _ => Status::Failed },
+                status: match f[3] {
+                    "applied" => Status::Applied,
+                    "running" => Status::Running,
+                    _ => Status::Failed,
+                },
                 baseline: f[4] == "1",
                 error: err,
             });
@@ -92,11 +126,25 @@ impl Store for Db {
     }
 
     fn put(&self, r: &LedgerRow) -> Result<()> {
-        if !ident_ok(&r.id) || !ident_ok(&r.db) || r.sha256.len() != 64 || !r.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::Invalid("migration record has an invalid identifier".into()));
+        if !ident_ok(&r.id)
+            || !ident_ok(&r.db)
+            || r.sha256.len() != 64
+            || !r.sha256.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(Error::Invalid(
+                "migration record has an invalid identifier".into(),
+            ));
         }
-        let status = match r.status { Status::Applied => "applied", Status::Running => "running", _ => "failed" };
-        let err = r.error.as_deref().map(|e| format!("UNHEX('{}')", hex_of(e))).unwrap_or_else(|| "NULL".into());
+        let status = match r.status {
+            Status::Applied => "applied",
+            Status::Running => "running",
+            _ => "failed",
+        };
+        let err = r
+            .error
+            .as_deref()
+            .map(|e| format!("UNHEX('{}')", hex_of(e)))
+            .unwrap_or_else(|| "NULL".into());
         self.query(&format!(
             "REPLACE INTO `{LEDGER_SCHEMA}`.`{LEDGER_TABLE}` (`db`,`id`,`sha256`,`status`,`applied_at`,`error`,`baseline`) VALUES ('{}','{}','{}','{status}',NOW(),{err},{});",
             r.db, r.id, r.sha256, r.baseline as u8
@@ -117,7 +165,19 @@ pub fn looks_destructive(sql: &str) -> bool {
         .collect::<Vec<_>>()
         .join(" ")
         .to_uppercase();
-    ["DROP TABLE", "DROP DATABASE", "DROP SCHEMA", "TRUNCATE", "DELETE FROM", "DROP COLUMN", "DROP INDEX", "DROP PRIMARY", "DROP FOREIGN"].iter().any(|k| upper.contains(k))
+    [
+        "DROP TABLE",
+        "DROP DATABASE",
+        "DROP SCHEMA",
+        "TRUNCATE",
+        "DELETE FROM",
+        "DROP COLUMN",
+        "DROP INDEX",
+        "DROP PRIMARY",
+        "DROP FOREIGN",
+    ]
+    .iter()
+    .any(|k| upper.contains(k))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -166,13 +226,21 @@ const SAME_EFFECT: &[(&str, &[&str])] = &[(
 )];
 
 fn same_effect(id: &str, a: &str, b: &str) -> bool {
-    SAME_EFFECT.iter().any(|(known, hashes)| *known == id
-        && hashes.iter().any(|h| h.eq_ignore_ascii_case(a)) && hashes.iter().any(|h| h.eq_ignore_ascii_case(b)))
+    SAME_EFFECT.iter().any(|(known, hashes)| {
+        *known == id
+            && hashes.iter().any(|h| h.eq_ignore_ascii_case(a))
+            && hashes.iter().any(|h| h.eq_ignore_ascii_case(b))
+    })
 }
 
 fn hash_changed(row: &LedgerRow, m: &Migration) -> bool {
-    row.status == Status::Applied && row.sha256 != "0".repeat(64) && !row.sha256.eq_ignore_ascii_case(&m.sha256)
-        && !m.compatible_sha256.iter().any(|hash| hash.eq_ignore_ascii_case(&row.sha256))
+    row.status == Status::Applied
+        && row.sha256 != "0".repeat(64)
+        && !row.sha256.eq_ignore_ascii_case(&m.sha256)
+        && !m
+            .compatible_sha256
+            .iter()
+            .any(|hash| hash.eq_ignore_ascii_case(&row.sha256))
         && !same_effect(&m.id, &row.sha256, &m.sha256)
 }
 
@@ -184,24 +252,48 @@ pub fn preflight(store: &dyn Store, list: &[Migration]) -> Result<()> {
 pub fn pending_count(store: &dyn Store, list: &[Migration]) -> Result<usize> {
     let rows = store.load_readonly()?;
     check_history(&rows, list)?;
-    Ok(list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).count())
+    Ok(list
+        .iter()
+        .filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied))
+        .count())
 }
 
 fn verified_file(m: &Migration, dir: &Path) -> Result<(&'static str, std::path::PathBuf, bool)> {
-    if !ident_ok(&m.id) { return Err(Error::InvalidManifest(format!("migration id {:?} is not allowed", m.id))); }
+    if !ident_ok(&m.id) {
+        return Err(Error::InvalidManifest(format!(
+            "migration id {:?} is not allowed",
+            m.id
+        )));
+    }
     let schema = db::schema_of(&m.db)?;
     let path = fsx::safe_join(dir, &format!("{}/{}.sql", m.db, m.id))?;
-    let bytes = std::fs::read(&path).map_err(|_| Error::Invalid(format!("migration file {} is missing", m.id)))?;
+    let bytes = std::fs::read(&path)
+        .map_err(|_| Error::Invalid(format!("migration file {} is missing", m.id)))?;
     let actual = fsx::sha256_bytes(&bytes);
-    if !actual.eq_ignore_ascii_case(&m.sha256) { return Err(Error::HashMismatch { path: path.display().to_string(), expected: m.sha256.clone(), actual }); }
-    Ok((schema, path, m.destructive || looks_destructive(&String::from_utf8_lossy(&bytes))))
+    if !actual.eq_ignore_ascii_case(&m.sha256) {
+        return Err(Error::HashMismatch {
+            path: path.display().to_string(),
+            expected: m.sha256.clone(),
+            actual,
+        });
+    }
+    Ok((
+        schema,
+        path,
+        m.destructive || looks_destructive(&String::from_utf8_lossy(&bytes)),
+    ))
 }
 
 /// Check every migration artifact, including applied history, before replacing server files.
 pub fn verify_files(list: &[Migration], dir: &Path) -> Result<()> {
     let mut seen = std::collections::BTreeSet::new();
     for m in list {
-        if !seen.insert((&m.db, &m.id)) { return Err(Error::InvalidManifest(format!("duplicate migration {} ({})", m.id, m.db))); }
+        if !seen.insert((&m.db, &m.id)) {
+            return Err(Error::InvalidManifest(format!(
+                "duplicate migration {} ({})",
+                m.id, m.db
+            )));
+        }
         verified_file(m, dir)?;
     }
     Ok(())
@@ -225,10 +317,20 @@ pub fn baseline(store: &dyn Store, list: &[Migration]) -> Result<usize> {
     let rows = store.load()?;
     let mut n = 0;
     for m in list {
-        if rows.iter().any(|r| r.db == m.db && r.id == m.id && r.status == Status::Applied) {
+        if rows
+            .iter()
+            .any(|r| r.db == m.db && r.id == m.id && r.status == Status::Applied)
+        {
             continue;
         }
-        store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Applied, error: None, baseline: true })?;
+        store.put(&LedgerRow {
+            db: m.db.clone(),
+            id: m.id.clone(),
+            sha256: m.sha256.clone(),
+            status: Status::Applied,
+            error: None,
+            baseline: true,
+        })?;
         n += 1;
     }
     Ok(n)
@@ -243,12 +345,25 @@ pub struct ApplyReport {
 
 /// Apply every pending migration in list order, stopping at the first failure. `snapshot` runs once, before the
 /// first pending migration, when any of them is (or looks) destructive.
-pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot: &dyn Fn() -> Result<String>) -> Result<ApplyReport> {
+pub fn apply_pending(
+    store: &dyn Store,
+    list: &[Migration],
+    dir: &Path,
+    snapshot: &dyn Fn() -> Result<String>,
+) -> Result<ApplyReport> {
     let rows = store.load()?;
     // The list order is the release's order of application (released updates, then pending, then modules).
     check_history(&rows, list)?;
-    let todo: Vec<&Migration> = list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).collect();
-    tracing::info!(total = list.len(), pending = todo.len(), skipped = list.len() - todo.len(), "database migration plan");
+    let todo: Vec<&Migration> = list
+        .iter()
+        .filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied))
+        .collect();
+    tracing::info!(
+        total = list.len(),
+        pending = todo.len(),
+        skipped = list.len() - todo.len(),
+        "database migration plan"
+    );
 
     // Resolve and verify every file before running anything.
     let mut files = Vec::new();
@@ -259,26 +374,55 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
         files.push((*m, schema, path));
     }
 
-    let mut report = ApplyReport { applied: Vec::new(), failed: None, snapshot: None };
+    let mut report = ApplyReport {
+        applied: Vec::new(),
+        failed: None,
+        snapshot: None,
+    };
     if files.is_empty() {
         return Ok(report);
     }
     if any_destructive {
-        report.snapshot = Some(snapshot().map_err(|e| Error::Invalid(format!("No database update was applied because the safety backup failed: {e}")))?);
+        report.snapshot = Some(snapshot().map_err(|e| {
+            Error::Invalid(format!(
+                "No database update was applied because the safety backup failed: {e}"
+            ))
+        })?);
     }
     for (m, schema, path) in files {
         tracing::info!(migration = %m.id, database = %m.db, "database migration starting");
-        store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Running, error: Some("Interrupted SQL must be recovered before replay.".into()), baseline: false })?;
+        store.put(&LedgerRow {
+            db: m.db.clone(),
+            id: m.id.clone(),
+            sha256: m.sha256.clone(),
+            status: Status::Running,
+            error: Some("Interrupted SQL must be recovered before replay.".into()),
+            baseline: false,
+        })?;
         match store.run_file(schema, &path) {
             Ok(()) => {
-                store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Applied, error: None, baseline: false })?;
+                store.put(&LedgerRow {
+                    db: m.db.clone(),
+                    id: m.id.clone(),
+                    sha256: m.sha256.clone(),
+                    status: Status::Applied,
+                    error: None,
+                    baseline: false,
+                })?;
                 report.applied.push(m.id.clone());
                 tracing::info!(migration = %m.id, database = %m.db, "database migration applied");
             }
             Err(e) => {
                 tracing::error!(migration = %m.id, database = %m.db, "database migration failed; details saved in migration history");
                 let msg = e.to_string();
-                let _ = store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Failed, error: Some(msg.clone()), baseline: false });
+                let _ = store.put(&LedgerRow {
+                    db: m.db.clone(),
+                    id: m.id.clone(),
+                    sha256: m.sha256.clone(),
+                    status: Status::Failed,
+                    error: Some(msg.clone()),
+                    baseline: false,
+                });
                 report.failed = Some((m.id.clone(), msg));
                 break;
             }
@@ -294,14 +438,45 @@ mod tests {
 
     #[test]
     fn the_two_published_versions_of_the_wildcard_table_repair_are_interchangeable() {
-        let (old, new) = ("c1d8dbf2271234283a48a39e4b4aea1106b83b70581f1e3c4aa9fff438e8e4d2", "9e4a36245c3f83255415c122c01f08ceb3e3b83898d3d427ac4e2fbcf61e9638");
+        let (old, new) = (
+            "c1d8dbf2271234283a48a39e4b4aea1106b83b70581f1e3c4aa9fff438e8e4d2",
+            "9e4a36245c3f83255415c122c01f08ceb3e3b83898d3d427ac4e2fbcf61e9638",
+        );
         let id = "manager_repair__20261005_missing_wildcard_tables";
-        let row = |id: &str, sha: &str| LedgerRow { db: "characters".into(), id: id.into(), sha256: sha.into(), status: Status::Applied, error: None, baseline: false };
-        let migration = |id: &str, sha: &str| Migration { compatible_sha256: vec![], id: id.into(), db: "characters".into(), sha256: sha.into(), destructive: false };
-        assert!(!hash_changed(&row(id, old), &migration(id, new)), "applied as c1d8, offered as 9e4a");
-        assert!(!hash_changed(&row(id, new), &migration(id, old)), "applied as 9e4a, offered as c1d8");
-        assert!(hash_changed(&row(id, &"a".repeat(64)), &migration(id, new)), "an unknown version is still a change");
-        assert!(hash_changed(&row("other_migration", old), &migration("other_migration", new)), "only the known pair is exempt");
+        let row = |id: &str, sha: &str| LedgerRow {
+            db: "characters".into(),
+            id: id.into(),
+            sha256: sha.into(),
+            status: Status::Applied,
+            error: None,
+            baseline: false,
+        };
+        let migration = |id: &str, sha: &str| Migration {
+            compatible_sha256: vec![],
+            id: id.into(),
+            db: "characters".into(),
+            sha256: sha.into(),
+            destructive: false,
+        };
+        assert!(
+            !hash_changed(&row(id, old), &migration(id, new)),
+            "applied as c1d8, offered as 9e4a"
+        );
+        assert!(
+            !hash_changed(&row(id, new), &migration(id, old)),
+            "applied as 9e4a, offered as c1d8"
+        );
+        assert!(
+            hash_changed(&row(id, &"a".repeat(64)), &migration(id, new)),
+            "an unknown version is still a change"
+        );
+        assert!(
+            hash_changed(
+                &row("other_migration", old),
+                &migration("other_migration", new)
+            ),
+            "only the known pair is exempt"
+        );
     }
 
     #[derive(Default)]
@@ -337,7 +512,13 @@ mod tests {
         for (db, id, sql) in files {
             std::fs::create_dir_all(d.path().join(db)).unwrap();
             std::fs::write(d.path().join(db).join(format!("{id}.sql")), sql).unwrap();
-            list.push(Migration { compatible_sha256: vec![], id: id.to_string(), db: db.to_string(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
+            list.push(Migration {
+                compatible_sha256: vec![],
+                id: id.to_string(),
+                db: db.to_string(),
+                sha256: fsx::sha256_bytes(sql.as_bytes()),
+                destructive: false,
+            });
         }
         (d, list)
     }
@@ -350,11 +531,27 @@ mod tests {
     fn manager_failure_overrides_an_old_core_update_record() {
         let (d, list) = setup(&[("characters", "same_id", "SELECT 1;")]);
         let store = Mem::default();
-        let old = LedgerRow { db: "characters".into(), id: "same_id".into(), sha256: "0".repeat(64), status: Status::Applied, error: None, baseline: true };
-        let failed = LedgerRow { sha256: list[0].sha256.clone(), status: Status::Failed, error: Some("previous failure".into()), baseline: false, ..old.clone() };
+        let old = LedgerRow {
+            db: "characters".into(),
+            id: "same_id".into(),
+            sha256: "0".repeat(64),
+            status: Status::Applied,
+            error: None,
+            baseline: true,
+        };
+        let failed = LedgerRow {
+            sha256: list[0].sha256.clone(),
+            status: Status::Failed,
+            error: Some("previous failure".into()),
+            baseline: false,
+            ..old.clone()
+        };
         store.rows.borrow_mut().extend([old, failed]);
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
-        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap_err().to_string().contains("partially applied"));
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot)
+            .unwrap_err()
+            .to_string()
+            .contains("partially applied"));
         assert!(store.ran.borrow().is_empty());
     }
 
@@ -362,7 +559,14 @@ mod tests {
     fn changed_applied_sql_is_reported_and_never_replayed() {
         let (d, list) = setup(&[("characters", "same_id", "SELECT 1;")]);
         let store = Mem::default();
-        store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "same_id".into(), sha256: "a".repeat(64), status: Status::Applied, error: None, baseline: false });
+        store.rows.borrow_mut().push(LedgerRow {
+            db: "characters".into(),
+            id: "same_id".into(),
+            sha256: "a".repeat(64),
+            status: Status::Applied,
+            error: None,
+            baseline: false,
+        });
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
         assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
         assert!(store.ran.borrow().is_empty());
@@ -388,15 +592,30 @@ mod tests {
     fn preflight_uses_readonly_history_and_rejects_conflicts_without_writes() {
         struct ReadOnly<'a>(&'a Mem);
         impl Store for ReadOnly<'_> {
-            fn load(&self) -> Result<Vec<LedgerRow>> { panic!("preflight must use readonly access") }
-            fn load_readonly(&self) -> Result<Vec<LedgerRow>> { self.0.load() }
-            fn put(&self, _: &LedgerRow) -> Result<()> { panic!("preflight must not rewrite history") }
-            fn run_file(&self, _: &str, _: &Path) -> Result<()> { panic!("preflight must not run SQL") }
+            fn load(&self) -> Result<Vec<LedgerRow>> {
+                panic!("preflight must use readonly access")
+            }
+            fn load_readonly(&self) -> Result<Vec<LedgerRow>> {
+                self.0.load()
+            }
+            fn put(&self, _: &LedgerRow) -> Result<()> {
+                panic!("preflight must not rewrite history")
+            }
+            fn run_file(&self, _: &str, _: &Path) -> Result<()> {
+                panic!("preflight must not run SQL")
+            }
         }
         let (_d, list) = setup(&[("characters", "repair", "SELECT 1;\n")]);
         for state in [Status::Applied, Status::Running, Status::Failed] {
             let store = Mem::default();
-            store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "repair".into(), sha256: "a".repeat(64), status: state, error: None, baseline: false });
+            store.rows.borrow_mut().push(LedgerRow {
+                db: "characters".into(),
+                id: "repair".into(),
+                sha256: "a".repeat(64),
+                status: state,
+                error: None,
+                baseline: false,
+            });
             assert!(preflight(&ReadOnly(&store), &list).is_err());
             assert_eq!(store.rows.borrow()[0].sha256, "a".repeat(64));
             assert_eq!(store.rows.borrow()[0].status, state);
@@ -408,11 +627,21 @@ mod tests {
         let (d, mut list) = setup(&[("characters", "repair", "SELECT 1;\n")]);
         let store = Mem::default();
         let old = fsx::sha256_bytes(b"SELECT 1;\r\n");
-        store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "repair".into(), sha256: old.clone(), status: Status::Applied, error: None, baseline: false });
+        store.rows.borrow_mut().push(LedgerRow {
+            db: "characters".into(),
+            id: "repair".into(),
+            sha256: old.clone(),
+            status: Status::Applied,
+            error: None,
+            baseline: false,
+        });
         assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
         list[0].compatible_sha256.push(old.clone());
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Applied);
-        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap().applied.is_empty());
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot)
+            .unwrap()
+            .applied
+            .is_empty());
         assert!(store.ran.borrow().is_empty());
         assert_eq!(store.rows.borrow()[0].sha256, old);
         store.rows.borrow_mut()[0].status = Status::Running;
@@ -424,41 +653,75 @@ mod tests {
 
     #[test]
     fn applies_in_order_once_and_records_the_ledger() {
-        let (d, list) = setup(&[("world", "2026_09_01_00_a", "CREATE TABLE t (id INT);"), ("world", "2026_09_02_00_b", "ALTER TABLE t ADD c INT;")]);
+        let (d, list) = setup(&[
+            ("world", "2026_09_01_00_a", "CREATE TABLE t (id INT);"),
+            ("world", "2026_09_02_00_b", "ALTER TABLE t ADD c INT;"),
+        ]);
         let store = Mem::default();
         let r = apply_pending(&store, &list, d.path(), &no_snapshot).unwrap();
-        assert_eq!(r.applied, ["2026_09_01_00_a", "2026_09_02_00_b"], "manifest order is application order");
+        assert_eq!(
+            r.applied,
+            ["2026_09_01_00_a", "2026_09_02_00_b"],
+            "manifest order is application order"
+        );
         assert_eq!(*store.ran.borrow(), ["2026_09_01_00_a", "2026_09_02_00_b"]);
         let again = apply_pending(&store, &list, d.path(), &no_snapshot).unwrap();
         assert!(again.applied.is_empty(), "never applied twice");
-        assert!(status(&store, &list).unwrap().iter().all(|i| i.status == Status::Applied));
+        assert!(status(&store, &list)
+            .unwrap()
+            .iter()
+            .all(|i| i.status == Status::Applied));
     }
 
     #[test]
     fn a_failure_stops_the_batch_and_is_remembered() {
-        let (d, list) = setup(&[("world", "m1", "SELECT 1;"), ("world", "m2", "BROKEN;"), ("world", "m3", "SELECT 3;")]);
-        let store = Mem { fail_on: Some("m2"), ..Default::default() };
+        let (d, list) = setup(&[
+            ("world", "m1", "SELECT 1;"),
+            ("world", "m2", "BROKEN;"),
+            ("world", "m3", "SELECT 3;"),
+        ]);
+        let store = Mem {
+            fail_on: Some("m2"),
+            ..Default::default()
+        };
         let r = apply_pending(&store, &list, d.path(), &no_snapshot).unwrap();
         assert_eq!(r.applied, ["m1"]);
         assert_eq!(r.failed.as_ref().unwrap().0, "m2");
-        assert_eq!(*store.ran.borrow(), ["m1"], "m3 must not run after m2 failed");
+        assert_eq!(
+            *store.ran.borrow(),
+            ["m1"],
+            "m3 must not run after m2 failed"
+        );
         let st = status(&store, &list).unwrap();
-        assert_eq!(st.iter().map(|i| i.status).collect::<Vec<_>>(), [Status::Applied, Status::Failed, Status::Pending]);
+        assert_eq!(
+            st.iter().map(|i| i.status).collect::<Vec<_>>(),
+            [Status::Applied, Status::Failed, Status::Pending]
+        );
         assert!(st[1].error.as_deref().unwrap().contains("syntax error"));
     }
 
     #[test]
     fn destructive_migrations_force_a_backup_first_and_a_failed_backup_blocks_everything() {
-        let (d, list) = setup(&[("characters", "d1", "-- cleanup\nDELETE FROM old_stuff WHERE 1;")]);
+        let (d, list) = setup(&[(
+            "characters",
+            "d1",
+            "-- cleanup\nDELETE FROM old_stuff WHERE 1;",
+        )]);
         let store = Mem::default();
         let r = apply_pending(&store, &list, d.path(), &|| Ok("backup-1".into())).unwrap();
         assert_eq!(r.snapshot.as_deref(), Some("backup-1"));
         assert_eq!(r.applied, ["d1"]);
 
         let store = Mem::default();
-        let e = apply_pending(&store, &list, d.path(), &|| Err(Error::Invalid("disk full".into()))).unwrap_err();
+        let e = apply_pending(&store, &list, d.path(), &|| {
+            Err(Error::Invalid("disk full".into()))
+        })
+        .unwrap_err();
         assert!(e.to_string().contains("safety backup failed"));
-        assert!(store.ran.borrow().is_empty(), "nothing ran without a backup");
+        assert!(
+            store.ran.borrow().is_empty(),
+            "nothing ran without a backup"
+        );
     }
 
     #[test]
@@ -466,8 +729,14 @@ mod tests {
         let (d, mut list) = setup(&[("world", "t1", "SELECT 1;"), ("world", "t2", "SELECT 2;")]);
         list[1].sha256 = "0".repeat(64);
         let store = Mem::default();
-        assert!(matches!(apply_pending(&store, &list, d.path(), &no_snapshot), Err(Error::HashMismatch { .. })));
-        assert!(store.ran.borrow().is_empty(), "t1 must not run when t2 is bad");
+        assert!(matches!(
+            apply_pending(&store, &list, d.path(), &no_snapshot),
+            Err(Error::HashMismatch { .. })
+        ));
+        assert!(
+            store.ran.borrow().is_empty(),
+            "t1 must not run when t2 is bad"
+        );
         std::fs::remove_file(d.path().join("world/t1.sql")).unwrap();
         assert!(apply_pending(&store, &list[..1], d.path(), &no_snapshot).is_err());
     }
@@ -476,9 +745,19 @@ mod tests {
     fn interrupted_sql_is_reported_and_never_automatically_replayed() {
         let (d, list) = setup(&[("world", "partial", "DROP TABLE valuable;")]);
         let store = Mem::default();
-        store.rows.borrow_mut().push(LedgerRow { db: "world".into(), id: "partial".into(), sha256: list[0].sha256.clone(), status: Status::Running, error: Some("interrupted".into()), baseline: false });
+        store.rows.borrow_mut().push(LedgerRow {
+            db: "world".into(),
+            id: "partial".into(),
+            sha256: list[0].sha256.clone(),
+            status: Status::Running,
+            error: Some("interrupted".into()),
+            baseline: false,
+        });
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
-        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap_err().to_string().contains("interrupted"));
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot)
+            .unwrap_err()
+            .to_string()
+            .contains("interrupted"));
         assert!(store.ran.borrow().is_empty());
     }
 
@@ -499,7 +778,9 @@ mod tests {
     fn destructive_detection_ignores_comments() {
         assert!(looks_destructive("ALTER TABLE t DROP COLUMN c;"));
         assert!(looks_destructive("truncate table t;"));
-        assert!(!looks_destructive("-- DROP TABLE nothing\nINSERT INTO t VALUES (1);"));
+        assert!(!looks_destructive(
+            "-- DROP TABLE nothing\nINSERT INTO t VALUES (1);"
+        ));
         assert!(!looks_destructive("CREATE TABLE IF NOT EXISTS t (id INT);"));
     }
 }

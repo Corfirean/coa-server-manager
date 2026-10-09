@@ -9,14 +9,14 @@ use coa_core::backup::{self, Kind, RecoveryPoint, Trigger, VerifyReport};
 use coa_core::config::{self, Scope, SettingsView};
 use coa_core::download::Cancel;
 use coa_core::driver::{self, DriverOutcome, Verb};
-use coa_core::install::{self, Preflight, Source};
-use coa_core::ra::Ra;
-use coa_core::update::{self, Resolution};
 use coa_core::error::UiError;
+use coa_core::install::{self, Preflight, Source};
 use coa_core::layout::{self, Classification, ScanReport};
-use coa_core::process::{self, Observed};
 use coa_core::portable::service::{self as portable_service, PortableRuntime, ServiceError};
+use coa_core::process::{self, Observed};
+use coa_core::ra::Ra;
 use coa_core::registry::{metadata_dir_for, InstallKind, InstallMeta, MetaDir, Registry};
+use coa_core::update::{self, Resolution};
 use coa_core::{Error, Result};
 use serde::Serialize;
 use serde_json::Value;
@@ -50,108 +50,198 @@ struct InstallControl {
 
 impl InstallControl {
     fn run(&self, install_id: &str, verb: Verb) -> Result<()> {
-        let root = self.registry.list()?.into_iter().find(|(i, _)| i == install_id).map(|(_, p)| p).ok_or_else(|| Error::UnknownInstallation(install_id.to_string()))?;
+        let root = self
+            .registry
+            .list()?
+            .into_iter()
+            .find(|(i, _)| i == install_id)
+            .map(|(_, p)| p)
+            .ok_or_else(|| Error::UnknownInstallation(install_id.to_string()))?;
         let out = driver::run(&root, verb)?;
-        if out.ok { Ok(()) } else { Err(Error::Invalid(out.output.lines().last().unwrap_or("The server did not answer.").to_string())) }
+        if out.ok {
+            Ok(())
+        } else {
+            Err(Error::Invalid(
+                out.output
+                    .lines()
+                    .last()
+                    .unwrap_or("The server did not answer.")
+                    .to_string(),
+            ))
+        }
     }
 }
 
 impl portable_service::ServerControl for InstallControl {
-    fn stop_all(&self, install_id: &str) -> Result<()> { self.run(install_id, Verb::StopAll) }
-    fn start_database(&self, install_id: &str) -> Result<()> { self.run(install_id, Verb::StartMysql) }
-    fn start_all(&self, install_id: &str) -> Result<()> { self.run(install_id, Verb::StartAll) }
+    fn stop_all(&self, install_id: &str) -> Result<()> {
+        self.run(install_id, Verb::StopAll)
+    }
+    fn start_database(&self, install_id: &str) -> Result<()> {
+        self.run(install_id, Verb::StartMysql)
+    }
+    fn start_all(&self, install_id: &str) -> Result<()> {
+        self.run(install_id, Verb::StartAll)
+    }
 }
 
 fn runtime(state: &State<'_, AppState>) -> std::result::Result<Arc<PortableRuntime>, ServiceError> {
-    state.portable.clone().ok_or_else(|| ServiceError { code: "stopped".into(), message: "The portable play service could not start; see the Manager's log.".into(), notes: vec![] })
+    state.portable.clone().ok_or_else(|| ServiceError {
+        code: "stopped".into(),
+        message: "The portable play service could not start; see the Manager's log.".into(),
+        notes: vec![],
+    })
 }
 
 /// Run one action of the portable play service on its own thread without blocking the interface.
-async fn portable_call<R: Send + 'static>(state: &State<'_, AppState>, f: impl FnOnce(&mut portable_service::PortableService) -> std::result::Result<R, ServiceError> + Send + 'static) -> std::result::Result<R, ServiceError> {
+async fn portable_call<R: Send + 'static>(
+    state: &State<'_, AppState>,
+    f: impl FnOnce(&mut portable_service::PortableService) -> std::result::Result<R, ServiceError>
+        + Send
+        + 'static,
+) -> std::result::Result<R, ServiceError> {
     let rt = runtime(state)?;
     tauri::async_runtime::spawn_blocking(move || rt.call(f))
         .await
-        .map_err(|e| ServiceError { code: "other".into(), message: e.to_string(), notes: vec![] })?
+        .map_err(|e| ServiceError {
+            code: "other".into(),
+            message: e.to_string(),
+            notes: vec![],
+        })?
         .and_then(|r| r)
 }
 
 #[tauri::command]
 fn portable_state(state: State<'_, AppState>) -> portable_service::PortableState {
-    state.portable.as_ref().map(|r| r.state()).unwrap_or_default()
+    state
+        .portable
+        .as_ref()
+        .map(|r| r.state())
+        .unwrap_or_default()
 }
 
 #[tauri::command]
-async fn portable_preflight(state: State<'_, AppState>, character: String, realm: String) -> std::result::Result<portable_service::PreflightView, ServiceError> {
+async fn portable_preflight(
+    state: State<'_, AppState>,
+    character: String,
+    realm: String,
+) -> std::result::Result<portable_service::PreflightView, ServiceError> {
     portable_call(&state, move |s| s.preflight(&character, &realm)).await
 }
 
 #[tauri::command]
-async fn portable_play(state: State<'_, AppState>, character: String, realm: String, account: Option<String>) -> std::result::Result<portable_service::PlayView, ServiceError> {
-    portable_call(&state, move |s| s.play(&character, &realm, account.as_deref())).await
+async fn portable_play(
+    state: State<'_, AppState>,
+    character: String,
+    realm: String,
+    account: Option<String>,
+) -> std::result::Result<portable_service::PlayView, ServiceError> {
+    portable_call(&state, move |s| {
+        s.play(&character, &realm, account.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
-async fn portable_local_characters(state: State<'_, AppState>, realm: String) -> std::result::Result<Vec<portable_service::LocalCharacterView>, ServiceError> {
+async fn portable_local_characters(
+    state: State<'_, AppState>,
+    realm: String,
+) -> std::result::Result<Vec<portable_service::LocalCharacterView>, ServiceError> {
     portable_call(&state, move |s| s.local_characters(&realm)).await
 }
 
 #[tauri::command]
-async fn portable_make(state: State<'_, AppState>, realm: String, token: u32) -> std::result::Result<portable_service::CharacterView, ServiceError> {
+async fn portable_make(
+    state: State<'_, AppState>,
+    realm: String,
+    token: u32,
+) -> std::result::Result<portable_service::CharacterView, ServiceError> {
     portable_call(&state, move |s| s.make_portable(&realm, token)).await
 }
 
 #[tauri::command]
-async fn portable_resolve(state: State<'_, AppState>, character: String, realm: String, action: portable_service::Resolve) -> std::result::Result<(), ServiceError> {
+async fn portable_resolve(
+    state: State<'_, AppState>,
+    character: String,
+    realm: String,
+    action: portable_service::Resolve,
+) -> std::result::Result<(), ServiceError> {
     portable_call(&state, move |s| s.resolve(&character, &realm, action)).await
 }
 
 #[tauri::command]
-async fn portable_history(state: State<'_, AppState>, character: String) -> std::result::Result<Vec<portable_service::HistoryEntry>, ServiceError> {
+async fn portable_history(
+    state: State<'_, AppState>,
+    character: String,
+) -> std::result::Result<Vec<portable_service::HistoryEntry>, ServiceError> {
     portable_call(&state, move |s| s.history(&character)).await
 }
 
 #[tauri::command]
-async fn portable_add_realm(state: State<'_, AppState>, path: String) -> std::result::Result<portable_service::RealmView, ServiceError> {
-    portable_call(&state, move |s| s.add_prepared_realm(std::path::Path::new(&path))).await
+async fn portable_add_realm(
+    state: State<'_, AppState>,
+    path: String,
+) -> std::result::Result<portable_service::RealmView, ServiceError> {
+    portable_call(&state, move |s| {
+        s.add_prepared_realm(std::path::Path::new(&path))
+    })
+    .await
 }
 
 #[tauri::command]
-async fn portable_remove_realm(state: State<'_, AppState>, realm: String) -> std::result::Result<(), ServiceError> {
+async fn portable_remove_realm(
+    state: State<'_, AppState>,
+    realm: String,
+) -> std::result::Result<(), ServiceError> {
     portable_call(&state, move |s| s.remove_prepared_realm(&realm)).await
 }
 
 #[tauri::command]
-async fn portable_diagnostics(state: State<'_, AppState>) -> std::result::Result<portable_service::DiagnosticsReport, ServiceError> {
+async fn portable_diagnostics(
+    state: State<'_, AppState>,
+) -> std::result::Result<portable_service::DiagnosticsReport, ServiceError> {
     portable_call(&state, |s| Ok(s.diagnostics())).await
 }
 
 /// Start the game for a realm that is ready: an installed server uses its own client, any other realm the Player Mode client pointed at
 /// the realm's address.
 #[tauri::command]
-async fn portable_launch(state: State<'_, AppState>, realm: String) -> std::result::Result<(), ServiceError> {
+async fn portable_launch(
+    state: State<'_, AppState>,
+    realm: String,
+) -> std::result::Result<(), ServiceError> {
     let (install, address) = portable_call(&state, move |s| s.realm_launch_info(&realm)).await?;
-    let other = |e: UiError| ServiceError { code: "launch".into(), message: e.technical, notes: vec![] };
+    let other = |e: UiError| ServiceError {
+        code: "launch".into(),
+        message: e.technical,
+        notes: vec![],
+    };
     match install {
         Some(id) => play(state, id).await.map(|_| ()).map_err(other),
         None => {
             {
                 let dir = remote_dir();
-                let mut profile = coa_core::remote_client::load(&dir).map_err(|e| other(e.into()))?;
+                let mut profile =
+                    coa_core::remote_client::load(&dir).map_err(|e| other(e.into()))?;
                 profile.host = address;
                 coa_core::remote_client::save(&dir, &profile).map_err(|e| other(e.into()))?;
             }
-            play(state, REMOTE_CLIENT_ID.to_string()).await.map(|_| ()).map_err(other)
+            play(state, REMOTE_CLIENT_ID.to_string())
+                .await
+                .map(|_| ())
+                .map_err(other)
         }
     }
 }
 
-
 /// Where official server packages are published (created by the release pipeline, Phase 6).
 /// Where signed update packages are published; override with COA_UPDATE_SOURCE (URL or local package folder).
-const DEFAULT_UPDATE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/download/stable";
+const DEFAULT_UPDATE_URL: &str =
+    "https://github.com/Corfirean/coa-server-build/releases/download/stable";
 
 fn update_source(custom: Option<String>) -> Source {
-    let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_UPDATE_SOURCE").ok());
+    let pick = custom
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| std::env::var("COA_UPDATE_SOURCE").ok());
     match pick {
         Some(p) if p.to_ascii_lowercase().starts_with("http") => Source::Url(p),
         Some(p) => Source::Dir(PathBuf::from(p)),
@@ -159,10 +249,13 @@ fn update_source(custom: Option<String>) -> Source {
     }
 }
 
-const DEFAULT_PACKAGE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/download/base";
+const DEFAULT_PACKAGE_URL: &str =
+    "https://github.com/Corfirean/coa-server-build/releases/download/base";
 
 fn package_source(custom: Option<String>) -> Source {
-    let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_PACKAGE_SOURCE").ok());
+    let pick = custom
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| std::env::var("COA_PACKAGE_SOURCE").ok());
     match pick {
         Some(p) if p.to_ascii_lowercase().starts_with("http") => Source::Url(p),
         Some(p) => Source::Dir(PathBuf::from(p)),
@@ -187,11 +280,16 @@ struct StatusView {
 /// Where the Manager keeps its own state (server list, logs). `%LOCALAPPDATA%` on Windows, the XDG data folder elsewhere.
 fn data_dir() -> PathBuf {
     // a separate data folder for tests and diagnostics, so that a development build never reads or writes the installed Manager's own state
-    if let Some(dir) = std::env::var_os("COA_MANAGER_DATA_DIR").map(PathBuf::from).filter(|p| p.is_absolute()) {
+    if let Some(dir) = std::env::var_os("COA_MANAGER_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
         return dir;
     }
     #[cfg(windows)]
-    let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
     #[cfg(not(windows))]
     let base = unix_data_home(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"));
     base.join("CoAServerManager")
@@ -217,8 +315,15 @@ fn path_of(state: &AppState, id: &str) -> Result<PathBuf> {
 }
 
 fn summary(id: String, path: PathBuf) -> ServerSummary {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Server".into());
-    ServerSummary { id, name, path: path.to_string_lossy().into_owned() }
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Server".into());
+    ServerSummary {
+        id,
+        name,
+        path: path.to_string_lossy().into_owned(),
+    }
 }
 
 #[tauri::command]
@@ -236,7 +341,10 @@ async fn scan_server(path: String) -> std::result::Result<ScanReport, UiError> {
 
 /// Import: writes only `<folder>.manager` and the registry entry. The server folder is never modified.
 #[tauri::command]
-async fn add_server(state: State<'_, AppState>, path: String) -> std::result::Result<ServerSummary, UiError> {
+async fn add_server(
+    state: State<'_, AppState>,
+    path: String,
+) -> std::result::Result<ServerSummary, UiError> {
     let root = PathBuf::from(&path);
     let report = tauri::async_runtime::spawn_blocking({
         let root = root.clone();
@@ -253,11 +361,17 @@ async fn add_server(state: State<'_, AppState>, path: String) -> std::result::Re
     }
 
     let mut meta = InstallMeta::new(InstallKind::Imported, std::path::Path::new(&report.path));
-    meta.core.commit = report.release.as_ref().and_then(|r| r.main_revision.clone());
+    meta.core.commit = report
+        .release
+        .as_ref()
+        .and_then(|r| r.main_revision.clone());
     meta.core.version = report.banner_revision.clone();
     meta.database.port = Some(report.ports.mysql);
     meta.database.schemas = report.database_schemas.clone();
-    for (rel, exe) in [("Core/worldserver.exe", &report.worldserver), ("Core/authserver.exe", &report.authserver)] {
+    for (rel, exe) in [
+        ("Core/worldserver.exe", &report.worldserver),
+        ("Core/authserver.exe", &report.authserver),
+    ] {
         if let Some(e) = exe {
             meta.original_hashes.insert(rel.into(), e.sha256.clone());
         }
@@ -277,7 +391,12 @@ async fn add_server(state: State<'_, AppState>, path: String) -> std::result::Re
 
 #[tauri::command]
 fn list_servers(state: State<'_, AppState>) -> std::result::Result<Vec<ServerSummary>, UiError> {
-    Ok(state.registry.list()?.into_iter().map(|(id, p)| summary(id, p)).collect())
+    Ok(state
+        .registry
+        .list()?
+        .into_iter()
+        .map(|(id, p)| summary(id, p))
+        .collect())
 }
 
 #[tauri::command]
@@ -287,7 +406,10 @@ fn forget_server(state: State<'_, AppState>, id: String) -> std::result::Result<
 }
 
 #[tauri::command]
-async fn server_status(state: State<'_, AppState>, id: String) -> std::result::Result<StatusView, UiError> {
+async fn server_status(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<StatusView, UiError> {
     let root = path_of(&state, &id)?;
     let busy = state.busy.lock().map(|b| b.contains(&id)).unwrap_or(false);
     let path_exists = root.is_dir();
@@ -297,12 +419,25 @@ async fn server_status(state: State<'_, AppState>, id: String) -> std::result::R
     })
     .await
     .map_err(|e| Error::Invalid(e.to_string()))?;
-    Ok(StatusView { observed, busy, path_exists })
+    Ok(StatusView {
+        observed,
+        busy,
+        path_exists,
+    })
 }
 
-async fn run_verb(state: &AppState, id: String, verb: Verb) -> std::result::Result<DriverOutcome, UiError> {
+async fn run_verb(
+    state: &AppState,
+    id: String,
+    verb: Verb,
+) -> std::result::Result<DriverOutcome, UiError> {
     let root = path_of(state, &id)?;
-    if !state.busy.lock().map_err(|_| Error::Invalid("state poisoned".into()))?.insert(id.clone()) {
+    if !state
+        .busy
+        .lock()
+        .map_err(|_| Error::Invalid("state poisoned".into()))?
+        .insert(id.clone())
+    {
         return Ok(DriverOutcome {
             ok: false,
             exit_code: None,
@@ -315,11 +450,16 @@ async fn run_verb(state: &AppState, id: String, verb: Verb) -> std::result::Resu
     if let Ok(mut b) = state.busy.lock() {
         b.remove(&id);
     }
-    result.map_err(|e| Error::Invalid(e.to_string()))?.map_err(Into::into)
+    result
+        .map_err(|e| Error::Invalid(e.to_string()))?
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
+async fn start_server(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<DriverOutcome, UiError> {
     let _guard = BusyGuard::acquire(&state, &id)?;
     // Servers installed before module configs were created automatically get them now (missing files only). Imported
     // servers only get the module files they lack (see below); nothing they have is changed.
@@ -348,14 +488,20 @@ async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Re
             // Companions requested while the server was stopped are created now (once; a failure is only logged).
             let r = root.clone();
             let _ = tauri::async_runtime::spawn_blocking(move || -> Result<()> {
-                if coa_core::realms::guard_module(&r, "companions").is_err() { return Ok(()); }
+                if coa_core::realms::guard_module(&r, "companions").is_err() {
+                    return Ok(());
+                }
                 let pending = meta_dir(&r)?.join("companions.pending.json");
                 if let Ok(v) = coa_core::fsx::read_json::<serde_json::Value>(&pending) {
                     let _ = std::fs::remove_file(&pending);
                     let n = v["count"].as_u64().unwrap_or(0) as u32;
                     if n > 0 {
-                        let made = coa_core::db::Db::from_repack(&r, coa_core::db::Account::Admin).and_then(|db| coa_core::companions::ensure_templates(&db));
-                        if let Err(e) = made.and_then(|_| Ra::connect(&r)).and_then(|mut ra| ra.spawn_bots(n)) {
+                        let made = coa_core::db::Db::from_repack(&r, coa_core::db::Account::Admin)
+                            .and_then(|db| coa_core::companions::ensure_templates(&db));
+                        if let Err(e) = made
+                            .and_then(|_| Ra::connect(&r))
+                            .and_then(|mut ra| ra.spawn_bots(n))
+                        {
                             tracing::warn!("pending companions were not created: {e}");
                         }
                     }
@@ -363,17 +509,22 @@ async fn start_server(state: State<'_, AppState>, id: String) -> std::result::Re
                 Ok(())
             })
             .await;
-            let _ = tauri::async_runtime::spawn_blocking(move || meta_dir(&root).and_then(|m| coa_core::friends::reapply(&root, &m))).await;
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                meta_dir(&root).and_then(|m| coa_core::friends::reapply(&root, &m))
+            })
+            .await;
         }
     }
     Ok(out)
 }
 
 #[tauri::command]
-async fn stop_server(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
+async fn stop_server(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<DriverOutcome, UiError> {
     run_verb(&state, id, Verb::StopAll).await
 }
-
 
 #[derive(Serialize)]
 struct PresetInfo {
@@ -382,7 +533,9 @@ struct PresetInfo {
     description: String,
 }
 
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> std::result::Result<T, UiError> {
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T> + Send + 'static,
+) -> std::result::Result<T, UiError> {
     tauri::async_runtime::spawn_blocking(f)
         .await
         .map_err(|e| Error::Invalid(e.to_string()))?
@@ -394,12 +547,18 @@ fn meta_dir(root: &std::path::Path) -> Result<PathBuf> {
     if dir.join("install.json").is_file() {
         Ok(dir)
     } else {
-        Err(Error::Invalid("This server has not been added to the Manager yet.".into()))
+        Err(Error::Invalid(
+            "This server has not been added to the Manager yet.".into(),
+        ))
     }
 }
 
 #[tauri::command]
-async fn get_settings(state: State<'_, AppState>, id: String, scope: Scope) -> std::result::Result<SettingsView, UiError> {
+async fn get_settings(
+    state: State<'_, AppState>,
+    id: String,
+    scope: Scope,
+) -> std::result::Result<SettingsView, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || config::load(&root, scope)).await
 }
@@ -425,24 +584,47 @@ fn list_presets(scope: Scope) -> Vec<PresetInfo> {
     scope
         .presets()
         .iter()
-        .map(|p| PresetInfo { id: p.id.clone(), title: p.title.clone(), description: p.description.clone() })
+        .map(|p| PresetInfo {
+            id: p.id.clone(),
+            title: p.title.clone(),
+            description: p.description.clone(),
+        })
         .collect()
 }
 
 #[tauri::command]
-async fn preview_preset(state: State<'_, AppState>, id: String, scope: Scope, preset: String) -> std::result::Result<config::PresetPreview, UiError> {
+async fn preview_preset(
+    state: State<'_, AppState>,
+    id: String,
+    scope: Scope,
+    preset: String,
+) -> std::result::Result<config::PresetPreview, UiError> {
     let root = path_of(&state, &id)?;
-    blocking(move || if preset == "defaults" { config::preview_defaults(&root, scope) } else { config::preview_preset(&root, scope, &preset) }).await
+    blocking(move || {
+        if preset == "defaults" {
+            config::preview_defaults(&root, scope)
+        } else {
+            config::preview_preset(&root, scope, &preset)
+        }
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_config_snapshots(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<config::SnapshotInfo>, UiError> {
+fn list_config_snapshots(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<config::SnapshotInfo>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(config::list_snapshots(&meta_dir(&root)?))
 }
 
 #[tauri::command]
-async fn restore_config_snapshot(state: State<'_, AppState>, id: String, snapshot: String) -> std::result::Result<(), UiError> {
+async fn restore_config_snapshot(
+    state: State<'_, AppState>,
+    id: String,
+    snapshot: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || config::restore_snapshot(&meta_dir(&root)?, &snapshot)).await
 }
@@ -455,11 +637,19 @@ struct BusyGuard<'a> {
 
 impl<'a> BusyGuard<'a> {
     fn acquire(state: &'a AppState, id: &str) -> Result<Self> {
-        let mut b = state.busy.lock().map_err(|_| Error::Invalid("state poisoned".into()))?;
+        let mut b = state
+            .busy
+            .lock()
+            .map_err(|_| Error::Invalid("state poisoned".into()))?;
         if !b.insert(id.to_string()) {
-            return Err(Error::Invalid("Another action is still in progress for this server.".into()));
+            return Err(Error::Invalid(
+                "Another action is still in progress for this server.".into(),
+            ));
         }
-        Ok(Self { state, id: id.to_string() })
+        Ok(Self {
+            state,
+            id: id.to_string(),
+        })
     }
 }
 
@@ -472,52 +662,90 @@ impl Drop for BusyGuard<'_> {
 }
 
 #[tauri::command]
-fn backup_location(state: State<'_, AppState>, id: String) -> std::result::Result<backup::BackupLocation, UiError> {
+fn backup_location(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<backup::BackupLocation, UiError> {
     let root = path_of(&state, &id)?;
     Ok(backup::location(&meta_dir(&root)?))
 }
 
 #[tauri::command]
-async fn set_backup_location(state: State<'_, AppState>, id: String, path: Option<String>) -> std::result::Result<backup::BackupLocation, UiError> {
+async fn set_backup_location(
+    state: State<'_, AppState>,
+    id: String,
+    path: Option<String>,
+) -> std::result::Result<backup::BackupLocation, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || backup::set_location(&root, &meta_dir(&root)?, path.as_deref())).await
 }
 
 #[tauri::command]
-async fn dashboard_status(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+async fn dashboard_status(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::dashboard::Status, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || Ok(coa_core::dashboard::status(&root))).await
 }
 
 #[tauri::command]
-async fn dashboard_install(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+async fn dashboard_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::dashboard::Status, UiError> {
     let root = path_of(&state, &id)?;
-    blocking(move || coa_core::dashboard::install(&root, &|step| { let _ = app.emit("dashboard-progress", step); })).await
+    blocking(move || {
+        coa_core::dashboard::install(&root, &|step| {
+            let _ = app.emit("dashboard-progress", step);
+        })
+    })
+    .await
 }
 
 #[tauri::command]
-async fn dashboard_open(state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+async fn dashboard_open(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     let status = blocking(move || Ok(coa_core::dashboard::status(&root))).await?;
-    if !status.running { return Err(Error::Invalid("The dashboard is not running.".into()).into()); }
-    tauri_plugin_opener::open_url(&status.url, None::<&str>).map_err(|e| Error::Invalid(e.to_string()))?;
+    if !status.running {
+        return Err(Error::Invalid("The dashboard is not running.".into()).into());
+    }
+    tauri_plugin_opener::open_url(&status.url, None::<&str>)
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     Ok(())
 }
 
 #[tauri::command]
-async fn dashboard_start(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+async fn dashboard_start(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::dashboard::Status, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::dashboard::start(&root)).await
 }
 
 #[tauri::command]
-async fn dashboard_stop(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::dashboard::Status, UiError> {
+async fn dashboard_stop(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::dashboard::Status, UiError> {
     let root = path_of(&state, &id)?;
-    blocking(move || { coa_core::dashboard::stop(&root)?; Ok(coa_core::dashboard::status(&root)) }).await
+    blocking(move || {
+        coa_core::dashboard::stop(&root)?;
+        Ok(coa_core::dashboard::status(&root))
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_backups(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<RecoveryPoint>, UiError> {
+fn list_backups(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<RecoveryPoint>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(backup::list(&meta_dir(&root)?))
 }
@@ -542,36 +770,58 @@ async fn create_backup(
 }
 
 #[tauri::command]
-async fn verify_backup(state: State<'_, AppState>, id: String, backup_id: String) -> std::result::Result<VerifyReport, UiError> {
+async fn verify_backup(
+    state: State<'_, AppState>,
+    id: String,
+    backup_id: String,
+) -> std::result::Result<VerifyReport, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || backup::verify(&meta_dir(&root)?, &backup_id)).await
 }
 
 #[tauri::command]
-fn delete_backup(state: State<'_, AppState>, id: String, backup_id: String) -> std::result::Result<(), UiError> {
+fn delete_backup(
+    state: State<'_, AppState>,
+    id: String,
+    backup_id: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     Ok(backup::delete(&meta_dir(&root)?, &backup_id)?)
 }
 
 #[tauri::command]
-async fn restore_backup_configs(state: State<'_, AppState>, id: String, backup_id: String) -> std::result::Result<RecoveryPoint, UiError> {
+async fn restore_backup_configs(
+    state: State<'_, AppState>,
+    id: String,
+    backup_id: String,
+) -> std::result::Result<RecoveryPoint, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || backup::restore_configs(&root, &meta_dir(&root)?, &backup_id)).await
 }
 
 #[tauri::command]
-async fn restore_backup_database(state: State<'_, AppState>, id: String, backup_id: String, database: String) -> std::result::Result<backup::DbRestore, UiError> {
+async fn restore_backup_database(
+    state: State<'_, AppState>,
+    id: String,
+    backup_id: String,
+    database: String,
+) -> std::result::Result<backup::DbRestore, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
-    blocking(move || backup::restore_database(&root, &meta_dir(&root)?, &backup_id, &database)).await
+    blocking(move || backup::restore_database(&root, &meta_dir(&root)?, &backup_id, &database))
+        .await
 }
 
 #[tauri::command]
 fn install_preflight(state: State<'_, AppState>, dest: String, needed: Option<u64>) -> Preflight {
     // `needed` is the real size from the signed package list when the screen already has it; the real size is checked
     // again at install time either way.
-    install::preflight(std::path::Path::new(&dest), needed.unwrap_or(6 * 1024 * 1024 * 1024), &state.registry)
+    install::preflight(
+        std::path::Path::new(&dest),
+        needed.unwrap_or(6 * 1024 * 1024 * 1024),
+        &state.registry,
+    )
 }
 
 #[derive(Serialize)]
@@ -585,25 +835,50 @@ struct InstallRequirements {
 
 /// How big the server is, read from the package's signed list before anything is downloaded.
 #[tauri::command]
-async fn install_requirements(package: Option<String>) -> std::result::Result<InstallRequirements, UiError> {
+async fn install_requirements(
+    package: Option<String>,
+) -> std::result::Result<InstallRequirements, UiError> {
     blocking(move || {
-        let (m, _) = coa_core::pkgsource::fetch_manifest(&package_source(package), coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
-        let archive = m.archive.ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
-        Ok(InstallRequirements { download_bytes: archive.parts.iter().map(|p| p.size).sum(), unpacked_bytes: archive.unpacked_size, version: m.version })
+        let (m, _) = coa_core::pkgsource::fetch_manifest(
+            &package_source(package),
+            coa_core::signing::EMBEDDED_PUBLIC_KEY,
+        )?;
+        let archive = m
+            .archive
+            .ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
+        Ok(InstallRequirements {
+            download_bytes: archive.parts.iter().map(|p| p.size).sum(),
+            unpacked_bytes: archive.unpacked_size,
+            version: m.version,
+        })
     })
     .await
 }
 
 #[tauri::command]
-async fn install_new(app: AppHandle, state: State<'_, AppState>, dest: String, package: Option<String>) -> std::result::Result<ServerSummary, UiError> {
+async fn install_new(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    dest: String,
+    package: Option<String>,
+) -> std::result::Result<ServerSummary, UiError> {
     let cancel = Cancel::default();
-    *state.install_cancel.lock().map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
+    *state
+        .install_cancel
+        .lock()
+        .map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
     let source = package_source(package);
     let registry = Registry::at(data_dir().join("installs.json"));
     let dest_path = PathBuf::from(dest);
     let result = tauri::async_runtime::spawn_blocking(move || {
         install::install_base(
-            &install::Params { source, dest: dest_path, trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY, registry: &registry, cancel },
+            &install::Params {
+                source,
+                dest: dest_path,
+                trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY,
+                registry: &registry,
+                cancel,
+            },
             &|step| {
                 let _ = app.emit("install-progress", step);
             },
@@ -627,7 +902,13 @@ fn cancel_install(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
-async fn create_account(state: State<'_, AppState>, id: String, username: String, password: String, administrator: bool) -> std::result::Result<(), UiError> {
+async fn create_account(
+    state: State<'_, AppState>,
+    id: String,
+    username: String,
+    password: String,
+    administrator: bool,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         coa_core::ra::validate_account(&username, &password)?;
@@ -643,27 +924,49 @@ async fn create_account(state: State<'_, AppState>, id: String, username: String
 }
 
 #[tauri::command]
-async fn realmlist_profiles(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::realmlist::View, UiError> {
+async fn realmlist_profiles(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::realmlist::View, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
-        Ok(coa_core::realmlist::view(&dir, linked_client(&root)?.as_deref()))
+        Ok(coa_core::realmlist::view(
+            &dir,
+            linked_client(&root)?.as_deref(),
+        ))
     })
     .await
 }
 
 #[tauri::command]
-async fn realmlist_save(state: State<'_, AppState>, id: String, profile_id: Option<String>, name: String, data: String) -> std::result::Result<coa_core::realmlist::Profile, UiError> {
+async fn realmlist_save(
+    state: State<'_, AppState>,
+    id: String,
+    profile_id: Option<String>,
+    name: String,
+    data: String,
+) -> std::result::Result<coa_core::realmlist::Profile, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
-        coa_core::realmlist::save_profile(&dir, linked_client(&root)?.as_deref(), profile_id.as_deref(), &name, &data)
+        coa_core::realmlist::save_profile(
+            &dir,
+            linked_client(&root)?.as_deref(),
+            profile_id.as_deref(),
+            &name,
+            &data,
+        )
     })
     .await
 }
 
 #[tauri::command]
-async fn realmlist_delete(state: State<'_, AppState>, id: String, profile_id: String) -> std::result::Result<(), UiError> {
+async fn realmlist_delete(
+    state: State<'_, AppState>,
+    id: String,
+    profile_id: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
@@ -674,11 +977,17 @@ async fn realmlist_delete(state: State<'_, AppState>, id: String, profile_id: St
 
 /// Write the chosen realmlist into the linked game client.
 #[tauri::command]
-async fn realmlist_activate(state: State<'_, AppState>, id: String, profile_id: String) -> std::result::Result<Vec<String>, UiError> {
+async fn realmlist_activate(
+    state: State<'_, AppState>,
+    id: String,
+    profile_id: String,
+) -> std::result::Result<Vec<String>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
-        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
+        let client = linked_client(&root)?.ok_or_else(|| {
+            Error::Invalid("No game client is set up for this server yet.".into())
+        })?;
         let changed = coa_core::realmlist::activate(&dir, &client, &profile_id)?;
         tracing::info!(profile = %profile_id, files = changed.len(), "realmlist switched");
         Ok(changed)
@@ -687,25 +996,38 @@ async fn realmlist_activate(state: State<'_, AppState>, id: String, profile_id: 
 }
 
 #[tauri::command]
-async fn modules_list(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::modules::ModuleView>, UiError> {
+async fn modules_list(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::modules::ModuleView>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || Ok(coa_core::modules::list(&root))).await
 }
 
 #[tauri::command]
-async fn realm_profiles(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::realms::View, UiError> {
+async fn realm_profiles(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::realms::View, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::realms::view(&root)).await
 }
 
 #[tauri::command]
-async fn realm_select(state: State<'_, AppState>, id: String, mode: coa_core::realms::Mode, restart: bool) -> std::result::Result<coa_core::realms::View, UiError> {
+async fn realm_select(
+    state: State<'_, AppState>,
+    id: String,
+    mode: coa_core::realms::Mode,
+    restart: bool,
+) -> std::result::Result<coa_core::realms::View, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     let result = blocking(move || {
         if restart {
             let out = driver::run(&root, Verb::StopAll)?;
-            if !out.ok { return Err(Error::Invalid(out.output)); }
+            if !out.ok {
+                return Err(Error::Invalid(out.output));
+            }
         }
         let view = coa_core::realms::select(&root, mode)?;
         let (dir, meta) = install_meta(&root)?;
@@ -714,41 +1036,74 @@ async fn realm_select(state: State<'_, AppState>, id: String, mode: coa_core::re
         }
         if restart {
             let out = driver::run(&root, Verb::StartAll)?;
-            if !out.ok { return Err(Error::Invalid(format!("Realm selected, but startup failed: {}", out.output))); }
+            if !out.ok {
+                return Err(Error::Invalid(format!(
+                    "Realm selected, but startup failed: {}",
+                    out.output
+                )));
+            }
         }
         Ok(view)
-    }).await;
+    })
+    .await;
     result
 }
 
 #[tauri::command]
-async fn realm_simultaneous(state: State<'_, AppState>, id: String, enabled: bool) -> std::result::Result<coa_core::realms::View, UiError> {
+async fn realm_simultaneous(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> std::result::Result<coa_core::realms::View, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || coa_core::multiworld::set_enabled(&root, enabled)).await
 }
 
 #[tauri::command]
-async fn check_database(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::repair::DatabaseCheck>, UiError> {
+async fn check_database(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::repair::DatabaseCheck>, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || coa_core::repair::check(&root, &meta_dir(&root)?)).await
 }
 
 #[tauri::command]
-async fn repair_server(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::repair::Report, UiError> {
+async fn repair_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::repair::Report, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let dir = meta_dir(&root)?;
-        coa_core::repair::run(&root, &dir, &package_source(None), &update_source(None), coa_core::signing::EMBEDDED_PUBLIC_KEY, &|step,percent| {
-            let _ = app.emit("repair-progress", serde_json::json!({ "id": id, "step": step, "percent": percent }));
-        })
-    }).await
+        coa_core::repair::run(
+            &root,
+            &dir,
+            &package_source(None),
+            &update_source(None),
+            coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            &|step, percent| {
+                let _ = app.emit(
+                    "repair-progress",
+                    serde_json::json!({ "id": id, "step": step, "percent": percent }),
+                );
+            },
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-async fn module_set_enabled(state: State<'_, AppState>, id: String, module: String, enabled: bool) -> std::result::Result<(), UiError> {
+async fn module_set_enabled(
+    state: State<'_, AppState>,
+    id: String,
+    module: String,
+    enabled: bool,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
@@ -759,13 +1114,22 @@ async fn module_set_enabled(state: State<'_, AppState>, id: String, module: Stri
 }
 
 #[tauri::command]
-async fn module_settings(state: State<'_, AppState>, id: String, module: String) -> std::result::Result<Vec<coa_core::modules::Setting>, UiError> {
+async fn module_settings(
+    state: State<'_, AppState>,
+    id: String,
+    module: String,
+) -> std::result::Result<Vec<coa_core::modules::Setting>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::modules::settings(&root, &module)).await
 }
 
 #[tauri::command]
-async fn module_save_settings(state: State<'_, AppState>, id: String, module: String, changes: BTreeMap<String, String>) -> std::result::Result<Vec<String>, UiError> {
+async fn module_save_settings(
+    state: State<'_, AppState>,
+    id: String,
+    module: String,
+    changes: BTreeMap<String, String>,
+) -> std::result::Result<Vec<String>, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
@@ -776,13 +1140,20 @@ async fn module_save_settings(state: State<'_, AppState>, id: String, module: St
 }
 
 #[tauri::command]
-async fn all_settings(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::allsettings::Item>, UiError> {
+async fn all_settings(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::allsettings::Item>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::allsettings::list(&root)).await
 }
 
 #[tauri::command]
-async fn all_settings_save(state: State<'_, AppState>, id: String, changes: BTreeMap<String, String>) -> std::result::Result<Vec<String>, UiError> {
+async fn all_settings_save(
+    state: State<'_, AppState>,
+    id: String,
+    changes: BTreeMap<String, String>,
+) -> std::result::Result<Vec<String>, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
@@ -793,13 +1164,21 @@ async fn all_settings_save(state: State<'_, AppState>, id: String, changes: BTre
 }
 
 #[tauri::command]
-async fn list_accounts(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::accounts::AccountInfo>, UiError> {
+async fn list_accounts(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::accounts::AccountInfo>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || coa_core::accounts::list(&root)).await
 }
 
 #[tauri::command]
-async fn account_set_password(state: State<'_, AppState>, id: String, name: String, password: String) -> std::result::Result<(), UiError> {
+async fn account_set_password(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    password: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         Ra::connect(&root)?.set_account_password(&name, &password)?;
@@ -810,7 +1189,12 @@ async fn account_set_password(state: State<'_, AppState>, id: String, name: Stri
 }
 
 #[tauri::command]
-async fn account_set_access(state: State<'_, AppState>, id: String, name: String, level: u8) -> std::result::Result<(), UiError> {
+async fn account_set_access(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    level: u8,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         Ra::connect(&root)?.set_account_access(&name, level)?;
@@ -821,7 +1205,13 @@ async fn account_set_access(state: State<'_, AppState>, id: String, name: String
 }
 
 #[tauri::command]
-async fn account_rename(state: State<'_, AppState>, id: String, name: String, new_name: String, password: String) -> std::result::Result<(), UiError> {
+async fn account_rename(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    new_name: String,
+    password: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let mut ra = Ra::connect(&root)?;
@@ -831,7 +1221,11 @@ async fn account_rename(state: State<'_, AppState>, id: String, name: String, ne
 }
 
 #[tauri::command]
-async fn account_delete(state: State<'_, AppState>, id: String, name: String) -> std::result::Result<(), UiError> {
+async fn account_delete(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let mut ra = Ra::connect(&root)?;
@@ -847,20 +1241,39 @@ fn install_meta(root: &std::path::Path) -> Result<(PathBuf, InstallMeta)> {
 }
 
 #[tauri::command]
-async fn check_update(state: State<'_, AppState>, id: String, source: Option<String>, background: Option<bool>) -> std::result::Result<update::Preview, UiError> {
+async fn check_update(
+    state: State<'_, AppState>,
+    id: String,
+    source: Option<String>,
+    background: Option<bool>,
+) -> std::result::Result<update::Preview, UiError> {
     let root = path_of(&state, &id)?;
     let src = update_source(source);
     // The check that repeats every few minutes must not start and stop the database of a stopped server.
-    let access = if background.unwrap_or(false) { update::DatabaseAccess::OnlyIfRunning } else { update::DatabaseAccess::Start };
+    let access = if background.unwrap_or(false) {
+        update::DatabaseAccess::OnlyIfRunning
+    } else {
+        update::DatabaseAccess::Start
+    };
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
-        update::preview_with(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default(), access)
+        update::preview_with(
+            &root,
+            &meta,
+            &src,
+            coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            &Default::default(),
+            access,
+        )
     })
     .await
 }
 
 #[tauri::command]
-fn pending_update(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::Txn>, UiError> {
+fn pending_update(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Option<update::Txn>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(update::pending_checked(&meta_dir(&root)?)?)
 }
@@ -880,17 +1293,37 @@ async fn apply_update(
         let (dir, _) = install_meta(&root)?;
         // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
         let observed = coa_core::process::observe(&root, &layout::read_ports(&root));
-        if observed.world.state != coa_core::process::ServiceState::Stopped || observed.auth.state != coa_core::process::ServiceState::Stopped || coa_core::multiworld::is_running(&root) {
+        if observed.world.state != coa_core::process::ServiceState::Stopped
+            || observed.auth.state != coa_core::process::ServiceState::Stopped
+            || coa_core::multiworld::is_running(&root)
+        {
             let out = driver::run(&root, Verb::StopAll)?;
             if !out.ok {
-                return Err(Error::Invalid("The server could not be stopped, so the update was not started.".into()));
+                return Err(Error::Invalid(
+                    "The server could not be stopped, so the update was not started.".into(),
+                ));
             }
         }
-        let env = update::RepackEnv { root: &root, meta_dir: &dir };
+        let env = update::RepackEnv {
+            root: &root,
+            meta_dir: &dir,
+        };
         update::apply(
-            &update::Params { root: &root, meta_dir: &dir, source: src, trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY, cancel: Cancel::default(), resolutions, env: &env, fail_after_ops: None },
+            &update::Params {
+                root: &root,
+                meta_dir: &dir,
+                source: src,
+                trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY,
+                cancel: Cancel::default(),
+                resolutions,
+                env: &env,
+                fail_after_ops: None,
+            },
             &|step, percent| {
-                let _ = app.emit("update-progress", serde_json::json!({ "step": step, "percent": percent }));
+                let _ = app.emit(
+                    "update-progress",
+                    serde_json::json!({ "step": step, "percent": percent }),
+                );
             },
         )
     })
@@ -898,32 +1331,60 @@ async fn apply_update(
 }
 
 #[tauri::command]
-async fn rollback_update(state: State<'_, AppState>, id: String, txn: String) -> std::result::Result<update::Txn, UiError> {
+async fn rollback_update(
+    state: State<'_, AppState>,
+    id: String,
+    txn: String,
+) -> std::result::Result<update::Txn, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let dir = meta_dir(&root)?;
-        let env = update::RepackEnv { root: &root, meta_dir: &dir };
+        let env = update::RepackEnv {
+            root: &root,
+            meta_dir: &dir,
+        };
         update::rollback(&root, &dir, &txn, &env)
     })
     .await
 }
 
 #[tauri::command]
-async fn retry_update_validation(state: State<'_, AppState>, id: String, txn: String) -> std::result::Result<update::Txn, UiError> {
+async fn retry_update_validation(
+    state: State<'_, AppState>,
+    id: String,
+    txn: String,
+) -> std::result::Result<update::Txn, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let dir = meta_dir(&root)?;
         let pending = update::load(&dir, &txn)?;
-        let source = coa_core::pkgsource::Source::Url(format!("https://github.com/Corfirean/coa-server-build/releases/download/server-{}/", pending.to_version));
-        let env = update::RepackEnv { root: &root, meta_dir: &dir };
-        update::retry_validation(&root, &dir, &txn, &source, coa_core::signing::EMBEDDED_PUBLIC_KEY, &env)
-    }).await
+        let source = coa_core::pkgsource::Source::Url(format!(
+            "https://github.com/Corfirean/coa-server-build/releases/download/server-{}/",
+            pending.to_version
+        ));
+        let env = update::RepackEnv {
+            root: &root,
+            meta_dir: &dir,
+        };
+        update::retry_validation(
+            &root,
+            &dir,
+            &txn,
+            &source,
+            coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            &env,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-async fn get_population(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::population::Population>, UiError> {
+async fn get_population(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Option<coa_core::population::Population>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(tauri::async_runtime::spawn_blocking(move || {
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
@@ -943,20 +1404,33 @@ struct CompanionAction {
 }
 
 #[tauri::command]
-async fn companions_stop_spawning(state: State<'_, AppState>, id: String) -> std::result::Result<CompanionAction, UiError> {
+async fn companions_stop_spawning(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
-    blocking(move || Ok(CompanionAction { count: Ra::connect(&root)?.cancel_spawning()? })).await
+    blocking(move || {
+        Ok(CompanionAction {
+            count: Ra::connect(&root)?.cancel_spawning()?,
+        })
+    })
+    .await
 }
 
 #[tauri::command]
-async fn companions_take_offline(state: State<'_, AppState>, id: String) -> std::result::Result<CompanionAction, UiError> {
+async fn companions_take_offline(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let mut ra = Ra::connect(&root)?;
         // Anything still waiting to be created must not come back right after.
         let _ = ra.cancel_spawning();
-        Ok(CompanionAction { count: ra.despawn_all()? })
+        Ok(CompanionAction {
+            count: ra.despawn_all()?,
+        })
     })
     .await
 }
@@ -964,7 +1438,11 @@ async fn companions_take_offline(state: State<'_, AppState>, id: String) -> std:
 /// Log `count` randomly chosen online companions out to lower the load. Uses the per-bot command that every server
 /// build has, so it works on older builds too.
 #[tauri::command]
-async fn companions_despawn_some(state: State<'_, AppState>, id: String, count: u32) -> std::result::Result<CompanionAction, UiError> {
+async fn companions_despawn_some(
+    state: State<'_, AppState>,
+    id: String,
+    count: u32,
+) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
@@ -991,15 +1469,28 @@ async fn companions_despawn_some(state: State<'_, AppState>, id: String, count: 
 
 /// Delete every companion for good. A recovery point of the characters and accounts is saved first.
 #[tauri::command]
-async fn companions_delete_all(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<CompanionAction, UiError> {
+async fn companions_delete_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let meta = meta_dir(&root)?;
-        backup::create(&root, &meta, Kind::Quick, Trigger::BeforeDangerousChange, Some("before deleting all companions".into()), &|step| {
-            let _ = app.emit("backup-progress", step);
-        })?;
-        let before = coa_core::population::query(&root).map(|p| p.bots_total).unwrap_or(0);
+        backup::create(
+            &root,
+            &meta,
+            Kind::Quick,
+            Trigger::BeforeDangerousChange,
+            Some("before deleting all companions".into()),
+            &|step| {
+                let _ = app.emit("backup-progress", step);
+            },
+        )?;
+        let before = coa_core::population::query(&root)
+            .map(|p| p.bots_total)
+            .unwrap_or(0);
         let mut ra = Ra::connect(&root)?;
         let _ = ra.cancel_spawning();
         ra.purge_all()?;
@@ -1009,14 +1500,20 @@ async fn companions_delete_all(app: AppHandle, state: State<'_, AppState>, id: S
 }
 
 #[tauri::command]
-async fn get_performance(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::ra::Performance>, UiError> {
+async fn get_performance(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Option<coa_core::ra::Performance>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(tauri::async_runtime::spawn_blocking(move || {
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
         if o.world.state != coa_core::process::ServiceState::Running {
             return None;
         }
-        Ra::connect(&root).and_then(|mut r| r.performance()).ok().flatten()
+        Ra::connect(&root)
+            .and_then(|mut r| r.performance())
+            .ok()
+            .flatten()
     })
     .await
     .unwrap_or(None))
@@ -1046,12 +1543,18 @@ struct CompanionsResult {
 
 /// Turn on automatic bot login for `count` bots and, if the server is running, ask it to create them.
 #[tauri::command]
-async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> std::result::Result<CompanionsResult, UiError> {
+async fn add_companions(
+    state: State<'_, AppState>,
+    id: String,
+    count: u32,
+) -> std::result::Result<CompanionsResult, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         if !(1..=2000).contains(&count) {
-            return Err(Error::Invalid("Choose between 1 and 2000 companions.".into()));
+            return Err(Error::Invalid(
+                "Choose between 1 and 2000 companions.".into(),
+            ));
         }
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
@@ -1059,10 +1562,20 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
         // Every companion, old and new, should come back at the next start, so the start-up limit only ever grows here.
         let existing_max = config::load(&root, Scope::Bots)
             .ok()
-            .and_then(|v| v.settings.iter().find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount").and_then(|s| s.value.as_u64()))
+            .and_then(|v| {
+                v.settings
+                    .iter()
+                    .find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount")
+                    .and_then(|s| s.value.as_u64())
+            })
             .unwrap_or(0) as u32;
-        let already = coa_core::population::query(&root).map(|p| p.bots_total).unwrap_or(0);
-        changes.insert("CoaBots.AutoLogin.MaxCount".to_string(), Value::from(existing_max.max(already + count).min(5000)));
+        let already = coa_core::population::query(&root)
+            .map(|p| p.bots_total)
+            .unwrap_or(0);
+        changes.insert(
+            "CoaBots.AutoLogin.MaxCount".to_string(),
+            Value::from(existing_max.max(already + count).min(5000)),
+        );
         config::save(&root, &meta, Scope::Bots, &changes)?;
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
         // Large batches while the server is stopped: create them in the database right now, fully equipped.
@@ -1079,8 +1592,15 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
                 }
             }
             let made = (|| -> Result<()> {
-                coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?)?;
-                coa_core::companions::offline_create(&root, &meta.join("logs").join("companions-offline.log"), count)?;
+                coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
+                    &root,
+                    coa_core::db::Account::Admin,
+                )?)?;
+                coa_core::companions::offline_create(
+                    &root,
+                    &meta.join("logs").join("companions-offline.log"),
+                    count,
+                )?;
                 Ok(())
             })();
             if started_db {
@@ -1088,28 +1608,46 @@ async fn add_companions(state: State<'_, AppState>, id: String, count: u32) -> s
             }
             made?;
             tracing::info!(count, "companions created offline");
-            return Ok(CompanionsResult { spawned: None, created: Some(count), baseline: None });
+            return Ok(CompanionsResult {
+                spawned: None,
+                created: Some(count),
+                baseline: None,
+            });
         }
         let mut baseline = None;
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
             // Older servers have no template characters to copy bots from: add them first.
-            coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?)?;
-            baseline = coa_core::population::query(&root).ok().map(|p| p.bots_total);
+            coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
+                &root,
+                coa_core::db::Account::Admin,
+            )?)?;
+            baseline = coa_core::population::query(&root)
+                .ok()
+                .map(|p| p.bots_total);
             Some(Ra::connect(&root)?.spawn_bots(count)?)
         } else {
             // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
-            coa_core::fsx::atomic_write_json(&meta.join("companions.pending.json"), &serde_json::json!({ "count": count }))?;
+            coa_core::fsx::atomic_write_json(
+                &meta.join("companions.pending.json"),
+                &serde_json::json!({ "count": count }),
+            )?;
             None
         };
         tracing::info!(count, spawned = spawned.is_some(), "companions requested");
-        Ok(CompanionsResult { spawned, created: None, baseline })
+        Ok(CompanionsResult {
+            spawned,
+            created: None,
+            baseline,
+        })
     })
     .await
 }
 
 const REMOTE_CLIENT_ID: &str = "@remote-client";
 
-fn remote_dir() -> PathBuf { data_dir().join("remote-client") }
+fn remote_dir() -> PathBuf {
+    data_dir().join("remote-client")
+}
 
 #[tauri::command]
 fn remote_connection() -> std::result::Result<coa_core::remote_client::Profile, UiError> {
@@ -1117,13 +1655,20 @@ fn remote_connection() -> std::result::Result<coa_core::remote_client::Profile, 
 }
 
 #[tauri::command]
-fn remote_connect(state: State<'_, AppState>, host: String) -> std::result::Result<coa_core::remote_client::Profile, UiError> {
+fn remote_connect(
+    state: State<'_, AppState>,
+    host: String,
+) -> std::result::Result<coa_core::remote_client::Profile, UiError> {
     let job = state.client_cancel.lock().unwrap();
-    if job.is_some() { return Err(Error::Invalid("Wait for the client operation to finish.".into()).into()); }
+    if job.is_some() {
+        return Err(Error::Invalid("Wait for the client operation to finish.".into()).into());
+    }
     let dir = remote_dir();
     let mut profile = coa_core::remote_client::load(&dir)?;
     let host = host.trim();
-    if host.is_empty() { return Err(Error::Invalid("Enter the host's IP address or hostname.".into()).into()); }
+    if host.is_empty() {
+        return Err(Error::Invalid("Enter the host's IP address or hostname.".into()).into());
+    }
     profile.host = host.into();
     coa_core::remote_client::save(&dir, &profile)?;
     Ok(profile)
@@ -1141,20 +1686,35 @@ fn client_context(state: &AppState, id: &str) -> Result<ClientContext> {
     if id == REMOTE_CLIENT_ID {
         let dir = remote_dir();
         let profile = coa_core::remote_client::load(&dir)?;
-        return Ok(ClientContext { dir, path: profile.client_path.map(PathBuf::from), source: None, host: profile.host, root: None });
+        return Ok(ClientContext {
+            dir,
+            path: profile.client_path.map(PathBuf::from),
+            source: None,
+            host: profile.host,
+            root: None,
+        });
     }
     let root = path_of(state, id)?;
     let (dir, meta) = install_meta(&root)?;
     let source = coa_core::client::addon_source(&root);
-    Ok(ClientContext { dir, path: meta.client_path.map(PathBuf::from), source, host: "127.0.0.1".into(), root: Some(root) })
+    Ok(ClientContext {
+        dir,
+        path: meta.client_path.map(PathBuf::from),
+        source,
+        host: "127.0.0.1".into(),
+        root: Some(root),
+    })
 }
 
 impl ClientContext {
     fn linked(&self) -> Option<PathBuf> {
-        self.path.clone().filter(|p| coa_core::client::detect(p, None).is_some())
+        self.path
+            .clone()
+            .filter(|p| coa_core::client::detect(p, None).is_some())
     }
     fn require(&self) -> Result<PathBuf> {
-        self.linked().ok_or_else(|| Error::Invalid("Set up a game client first.".into()))
+        self.linked()
+            .ok_or_else(|| Error::Invalid("Set up a game client first.".into()))
     }
     fn link(&self, path: &str) -> Result<()> {
         if let Some(root) = &self.root {
@@ -1171,40 +1731,74 @@ impl ClientContext {
 
 fn client_of(root: &std::path::Path) -> Result<(PathBuf, InstallMeta, Option<PathBuf>)> {
     let (dir, meta) = install_meta(root)?;
-    let client = meta.client_path.clone().map(PathBuf::from).ok_or_else(|| Error::Invalid("No game client is set up for this server yet.".into()))?;
+    let client =
+        meta.client_path.clone().map(PathBuf::from).ok_or_else(|| {
+            Error::Invalid("No game client is set up for this server yet.".into())
+        })?;
     Ok((dir, meta, Some(client)))
 }
 
 #[tauri::command]
-fn client_info(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::client::ClientInfo>, UiError> {
+fn client_info(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Option<coa_core::client::ClientInfo>, UiError> {
     let ctx = client_context(&state, &id)?;
-    Ok(ctx.path.and_then(|p| coa_core::client::detect(&p, ctx.source.as_deref())))
+    Ok(ctx
+        .path
+        .and_then(|p| coa_core::client::detect(&p, ctx.source.as_deref())))
 }
 
 #[tauri::command]
-fn set_client(state: State<'_, AppState>, id: String, path: String) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
+fn set_client(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
     let job = state.client_cancel.lock().unwrap();
-    if job.is_some() { return Err(Error::Invalid("Wait for the client operation to finish.".into()).into()); }
+    if job.is_some() {
+        return Err(Error::Invalid("Wait for the client operation to finish.".into()).into());
+    }
     let ctx = client_context(&state, &id)?;
     let info = coa_core::client::detect(std::path::Path::new(&path), ctx.source.as_deref())
         .ok_or_else(|| Error::Invalid("This folder does not look like a game client (it needs Data and the game executable).".into()))?;
     ctx.link(&info.path)?;
-    Ok(coa_core::client::detect(std::path::Path::new(&info.path), ctx.source.as_deref()).unwrap_or(info))
+    Ok(
+        coa_core::client::detect(std::path::Path::new(&info.path), ctx.source.as_deref())
+            .unwrap_or(info),
+    )
 }
 
 #[tauri::command]
-fn client_realmlist(state: State<'_, AppState>, id: String, host: String) -> std::result::Result<Vec<String>, UiError> {
+fn client_realmlist(
+    state: State<'_, AppState>,
+    id: String,
+    host: String,
+) -> std::result::Result<Vec<String>, UiError> {
     let root = path_of(&state, &id)?;
     let (dir, _, client) = client_of(&root)?;
-    Ok(coa_core::client::set_realmlist(&client.unwrap(), &dir, &host)?)
+    Ok(coa_core::client::set_realmlist(
+        &client.unwrap(),
+        &dir,
+        &host,
+    )?)
 }
 
 #[tauri::command]
-fn client_install_addon(state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+fn client_install_addon(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     let (dir, _, client) = client_of(&root)?;
-    let source = coa_core::client::addon_source(&root).ok_or_else(|| Error::Invalid("This server package does not include the companion addon.".into()))?;
-    Ok(coa_core::client::install_addon(&client.unwrap(), &dir, &source)?)
+    let source = coa_core::client::addon_source(&root).ok_or_else(|| {
+        Error::Invalid("This server package does not include the companion addon.".into())
+    })?;
+    Ok(coa_core::client::install_addon(
+        &client.unwrap(),
+        &dir,
+        &source,
+    )?)
 }
 
 #[derive(Serialize)]
@@ -1222,12 +1816,18 @@ struct ClientStatus {
 
 fn linked_client(root: &std::path::Path) -> Result<Option<PathBuf>> {
     let (_, meta) = install_meta(root)?;
-    Ok(meta.client_path.map(PathBuf::from).filter(|p| coa_core::client::detect(p, None).is_some()))
+    Ok(meta
+        .client_path
+        .map(PathBuf::from)
+        .filter(|p| coa_core::client::detect(p, None).is_some()))
 }
 
 /// Cheap: one small manifest request and the local state file; no game file is read.
 #[tauri::command]
-async fn client_status(state: State<'_, AppState>, id: String) -> std::result::Result<ClientStatus, UiError> {
+async fn client_status(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<ClientStatus, UiError> {
     let ctx = client_context(&state, &id)?;
     blocking(move || {
         let client = ctx.linked();
@@ -1235,7 +1835,11 @@ async fn client_status(state: State<'_, AppState>, id: String) -> std::result::R
         let local = client.as_deref().map(coa_core::clientdl::local);
         let managed = local.as_ref().map(|l| l.managed).unwrap_or(false);
         let installed = local.and_then(|l| l.version);
-        let update_available = managed && latest.as_ref().map(|l| installed.as_deref() != Some(l.version.as_str())).unwrap_or(false);
+        let update_available = managed
+            && latest
+                .as_ref()
+                .map(|l| installed.as_deref() != Some(l.version.as_str()))
+                .unwrap_or(false);
         Ok(ClientStatus {
             linked: client.is_some(),
             managed,
@@ -1260,7 +1864,9 @@ struct ClientDownloadCheck {
 const CLIENT_FOLDER: &str = "CoA Client";
 
 #[tauri::command]
-async fn client_download_check(parent: String) -> std::result::Result<ClientDownloadCheck, UiError> {
+async fn client_download_check(
+    parent: String,
+) -> std::result::Result<ClientDownloadCheck, UiError> {
     blocking(move || {
         let latest = coa_core::clientdl::fetch_latest()?;
         let dest = PathBuf::from(&parent).join(CLIENT_FOLDER);
@@ -1276,7 +1882,11 @@ async fn client_download_check(parent: String) -> std::result::Result<ClientDown
 
 /// Compare the linked client with the published one. Hashes files only where the recorded state cannot vouch for them.
 #[tauri::command]
-async fn client_plan(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::clientdl::Plan, UiError> {
+async fn client_plan(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::clientdl::Plan, UiError> {
     let ctx = client_context(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let result = blocking(move || {
@@ -1294,13 +1904,20 @@ async fn client_plan(app: AppHandle, state: State<'_, AppState>, id: String) -> 
 
 /// Bring the linked client to the published version. `keep_modified` leaves files the player changed alone.
 #[tauri::command]
-async fn client_sync(app: AppHandle, state: State<'_, AppState>, id: String, keep_modified: bool) -> std::result::Result<(), UiError> {
+async fn client_sync(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    keep_modified: bool,
+) -> std::result::Result<(), UiError> {
     let ctx = client_context(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let result = blocking(move || {
         let client = ctx.require()?;
         run_client_sync(&app, &client, keep_modified, &cancel)?;
-        if ctx.root.is_none() && !ctx.host.is_empty() { coa_core::client::set_realmlist(&client, &ctx.dir, &ctx.host)?; }
+        if ctx.root.is_none() && !ctx.host.is_empty() {
+            coa_core::client::set_realmlist(&client, &ctx.dir, &ctx.host)?;
+        }
         Ok(())
     })
     .await;
@@ -1308,7 +1925,12 @@ async fn client_sync(app: AppHandle, state: State<'_, AppState>, id: String, kee
     result
 }
 
-fn run_client_sync(app: &AppHandle, client: &std::path::Path, keep_modified: bool, cancel: &Cancel) -> Result<()> {
+fn run_client_sync(
+    app: &AppHandle,
+    client: &std::path::Path,
+    keep_modified: bool,
+    cancel: &Cancel,
+) -> Result<()> {
     let emit = |s: coa_core::clientdl::Step| {
         let _ = app.emit("client-progress", s);
     };
@@ -1318,7 +1940,15 @@ fn run_client_sync(app: &AppHandle, client: &std::path::Path, keep_modified: boo
     coa_core::download::check_url(coa_core::clientdl::OBJECTS_URL)?;
     let transport = coa_core::download::HttpTransport::new()?;
     coa_core::clientdl::apply(
-        &coa_core::clientdl::Apply { client, manifest: &manifest, plan: &plan, keep_modified, transport: &transport, objects_url: coa_core::clientdl::OBJECTS_URL, cancel },
+        &coa_core::clientdl::Apply {
+            client,
+            manifest: &manifest,
+            plan: &plan,
+            keep_modified,
+            transport: &transport,
+            objects_url: coa_core::clientdl::OBJECTS_URL,
+            cancel,
+        },
         &emit,
     )?;
     tracing::info!(version = %manifest.version, downloaded = plan.items.len(), "client brought up to date");
@@ -1327,26 +1957,43 @@ fn run_client_sync(app: &AppHandle, client: &std::path::Path, keep_modified: boo
 
 /// Download the client into `<parent>/CoA Client`, then link it to a host or player profile.
 #[tauri::command]
-async fn client_download(app: AppHandle, state: State<'_, AppState>, id: String, parent: String) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
+async fn client_download(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    parent: String,
+) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
     let ctx = client_context(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let result = blocking(move || {
         let parent = PathBuf::from(&parent);
         if !parent.is_dir() {
-            return Err(Error::Invalid("Choose an existing folder to put the game client in.".into()));
+            return Err(Error::Invalid(
+                "Choose an existing folder to put the game client in.".into(),
+            ));
         }
         let dest = parent.join(CLIENT_FOLDER);
         let resuming = coa_core::clientdl::load_state(&dest).is_some();
-        let non_empty = std::fs::read_dir(&dest).map(|mut r| r.next().is_some()).unwrap_or(false);
+        let non_empty = std::fs::read_dir(&dest)
+            .map(|mut r| r.next().is_some())
+            .unwrap_or(false);
         if non_empty && !resuming {
-            return Err(Error::Invalid(format!("{} already exists and is not an unfinished download. Choose another folder.", dest.display())));
+            return Err(Error::Invalid(format!(
+                "{} already exists and is not an unfinished download. Choose another folder.",
+                dest.display()
+            )));
         }
         std::fs::create_dir_all(&dest)?;
         run_client_sync(&app, &dest, false, &cancel)?;
-        let info = coa_core::client::detect(&dest, ctx.source.as_deref()).ok_or_else(|| Error::Invalid("The downloaded client looks incomplete.".into()))?;
+        let info = coa_core::client::detect(&dest, ctx.source.as_deref())
+            .ok_or_else(|| Error::Invalid("The downloaded client looks incomplete.".into()))?;
         ctx.link(&info.path)?;
-        if !ctx.host.is_empty() { coa_core::client::set_realmlist(&dest, &ctx.dir, &ctx.host)?; }
-        if let Some(src) = &ctx.source { coa_core::client::install_addon(&dest, &ctx.dir, src)?; }
+        if !ctx.host.is_empty() {
+            coa_core::client::set_realmlist(&dest, &ctx.dir, &ctx.host)?;
+        }
+        if let Some(src) = &ctx.source {
+            coa_core::client::install_addon(&dest, &ctx.dir, src)?;
+        }
         Ok(coa_core::client::detect(&dest, ctx.source.as_deref()).unwrap_or(info))
     })
     .await;
@@ -1364,9 +2011,15 @@ fn client_cancel(state: State<'_, AppState>) {
 }
 
 fn begin_client_job(state: &AppState) -> std::result::Result<Cancel, UiError> {
-    let mut slot = state.client_cancel.lock().map_err(|_| Error::Invalid("state poisoned".into()))?;
+    let mut slot = state
+        .client_cancel
+        .lock()
+        .map_err(|_| Error::Invalid("state poisoned".into()))?;
     if slot.is_some() {
-        return Err(Error::Invalid("The game client is already being checked or downloaded.".into()).into());
+        return Err(Error::Invalid(
+            "The game client is already being checked or downloaded.".into(),
+        )
+        .into());
     }
     let cancel = Cancel::default();
     *slot = Some(cancel.clone());
@@ -1381,31 +2034,72 @@ fn end_client_job(state: &AppState) {
 
 /// Launch the game client independently of the local server.
 #[tauri::command]
-async fn play(state: State<'_, AppState>, id: String) -> std::result::Result<DriverOutcome, UiError> {
+async fn play(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<DriverOutcome, UiError> {
     if id == REMOTE_CLIENT_ID {
         let ctx = client_context(&state, &id)?;
         let client = ctx.require()?;
         return blocking(move || {
-            if ctx.host.is_empty() { return Err(Error::Invalid("Enter the host's IP address or hostname first.".into())); }
-            if coa_core::client::is_running(&client) { return Err(Error::Invalid("The game is already running.".into())); }
-            coa_core::client::set_realmlist(&client, &ctx.dir, &ctx.host)?;
+            if ctx.host.is_empty() {
+                return Err(Error::Invalid(
+                    "Enter the host's IP address or hostname first.".into(),
+                ));
+            }
+            if coa_core::client::is_running(&client) {
+                return Err(Error::Invalid("The game is already running.".into()));
+            }
+            coa_core::client::begin_realmlist_override(&client, &ctx.dir, &ctx.host)?;
             coa_core::client::launch(&client)?;
-            Ok(DriverOutcome { ok: true, exit_code: None, code: None, human: None, output: String::new() })
-        }).await;
+            let client_c = client.clone();
+            let meta_c = ctx.dir.clone();
+            std::thread::Builder::new()
+                .name("client-realmlist-watcher".into())
+                .spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(3000));
+                    while coa_core::client::is_running(&client_c) {
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                    }
+                    let _ = coa_core::client::revert_realmlist_override(&meta_c);
+                })
+                .ok();
+            Ok(DriverOutcome {
+                ok: true,
+                exit_code: None,
+                code: None,
+                human: None,
+                output: String::new(),
+            })
+        })
+        .await;
     }
     let root = path_of(&state, &id)?;
     let (dir, _, client) = client_of(&root)?;
     let client = client.unwrap();
     if coa_core::client::is_running(&client) {
-        return Err(Error::Invalid("Close the game client before pressing Play so its selected realm can be updated.".into()).into());
+        return Err(Error::Invalid(
+            "Close the game client before pressing Play so its selected realm can be updated."
+                .into(),
+        )
+        .into());
     }
     blocking(move || {
         let mode = coa_core::realms::state(&root)?.active;
         if !coa_core::client::sync_realm(&client, &dir, mode)? {
-            return Err(Error::Invalid("Close the game client before pressing Play so its selected realm can be updated.".into()));
+            return Err(Error::Invalid(
+                "Close the game client before pressing Play so its selected realm can be updated."
+                    .into(),
+            ));
         }
         coa_core::client::launch(&client)?;
-        Ok(DriverOutcome { ok: true, exit_code: None, code: None, human: None, output: String::new() })
+        Ok(DriverOutcome {
+            ok: true,
+            exit_code: None,
+            code: None,
+            human: None,
+            output: String::new(),
+        })
     })
     .await
 }
@@ -1430,14 +2124,24 @@ struct FriendsStatus {
 /// Manager to launch an arbitrary address.
 #[tauri::command]
 fn open_link(url: String) -> std::result::Result<(), UiError> {
-    const ALLOWED: &[&str] = &["https://tailscale.com/", "https://login.tailscale.com/", "https://portforward.com/", "https://github.com/Corfirean/"];
+    const ALLOWED: &[&str] = &[
+        "https://tailscale.com/",
+        "https://login.tailscale.com/",
+        "https://portforward.com/",
+        "https://github.com/Corfirean/",
+    ];
     // A prefilled "new issue" page of one of the places a report can go (the Manager, Companions, SQUID Playerbots): the
     // address must be exactly that page, and its query may carry `&` between the (percent-encoded) title and text.
     let issue = coa_core::report::is_new_issue_url(&url);
-    let chars_ok = url.chars().all(|c| c.is_ascii_alphanumeric() || "/:._-?=#%".contains(c) || (issue && c == '&'));
+    let chars_ok = url
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/:._-?=#%".contains(c) || (issue && c == '&'));
     // the GitHub page of a module that is in the bundled catalog (some are not ours)
     let catalog = coa_core::modules::catalog().iter().any(|e| e.repo == url);
-    if !(issue || catalog || ALLOWED.iter().any(|p| url.starts_with(p))) || !chars_ok || url.len() > 12_000 {
+    if !(issue || catalog || ALLOWED.iter().any(|p| url.starts_with(p)))
+        || !chars_ok
+        || url.len() > 12_000
+    {
         return Err(Error::Invalid("That link is not allowed.".into()).into());
     }
     tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -1472,8 +2176,15 @@ fn windows_version() -> String {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let out = cmd.output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
-    let build: Option<u32> = out.split("Version").nth(1).and_then(|v| v.trim().trim_end_matches(']').split('.').nth(2)).and_then(|b| b.trim().parse().ok());
+    let out = cmd
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    let build: Option<u32> = out
+        .split("Version")
+        .nth(1)
+        .and_then(|v| v.trim().trim_end_matches(']').split('.').nth(2))
+        .and_then(|b| b.trim().parse().ok());
     match build {
         Some(b) if b >= 22000 => format!("Windows 11 (build {b})"),
         Some(b) => format!("Windows 10 (build {b})"),
@@ -1483,26 +2194,52 @@ fn windows_version() -> String {
 
 /// What the problem report fills in on its own. Nothing here identifies the person or the machine.
 #[tauri::command]
-async fn report_context(state: State<'_, AppState>, id: String) -> std::result::Result<ReportContext, UiError> {
+async fn report_context(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<ReportContext, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
         let bots = coa_core::report::bots(&root);
-        let companions = [meta.bots.version.clone(), meta.bots.commit.as_ref().map(|c| c.chars().take(8).collect())].into_iter().flatten().collect::<Vec<String>>().join(" · ");
+        let companions = [
+            meta.bots.version.clone(),
+            meta.bots
+                .commit
+                .as_ref()
+                .map(|c| c.chars().take(8).collect()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<String>>()
+        .join(" · ");
         Ok(ReportContext {
             manager_version: coa_core::MANAGER_VERSION.to_string(),
             windows: windows_version(),
-            install_kind: if meta.kind == coa_core::registry::InstallKind::New { "new".into() } else { "imported".into() },
+            install_kind: if meta.kind == coa_core::registry::InstallKind::New {
+                "new".into()
+            } else {
+                "imported".into()
+            },
             server_version: meta.core.version.clone(),
             suggested_target: bots.suggested.to_string(),
-            bots_version: if bots.suggested == "squid" { bots.squid_version } else if bots.suggested == "companions" && !companions.is_empty() { Some(companions) } else { None },
+            bots_version: if bots.suggested == "squid" {
+                bots.squid_version
+            } else if bots.suggested == "companions" && !companions.is_empty() {
+                Some(companions)
+            } else {
+                None
+            },
         })
     })
     .await
 }
 
 #[tauri::command]
-async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::Result<FriendsStatus, UiError> {
+async fn friends_status(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<FriendsStatus, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let meta = meta_dir(&root)?;
@@ -1516,10 +2253,13 @@ async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::
             servers_open: coa_core::friends::bind_is_open(&root),
             firewall: coa_core::firewall::status(),
             tailscale: coa_core::net::tailscale(),
-            server_running: coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running,
+            server_running: coa_core::process::observe(&root, &ports).world.state
+                == coa_core::process::ServiceState::Running,
             auth_port: ports.auth,
             world_port: ports.world,
-            secondary_world_port: coa_core::realms::state(&root)?.secondary_world_port.filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.simultaneous)),
+            secondary_world_port: coa_core::realms::state(&root)?
+                .secondary_world_port
+                .filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.simultaneous)),
         })
     })
     .await
@@ -1539,7 +2279,9 @@ async fn friends_check_internet() -> std::result::Result<InternetCheck, UiError>
     blocking(move || {
         let public = coa_core::net::public_ip().ok();
         let gw = coa_core::upnp::discover();
-        let router = gw.as_ref().and_then(|g| coa_core::upnp::external_ip(g).ok());
+        let router = gw
+            .as_ref()
+            .and_then(|g| coa_core::upnp::external_ip(g).ok());
         Ok(InternetCheck {
             public_ip: public.map(|a| a.to_string()),
             router_ip: router.map(|a| a.to_string()),
@@ -1612,13 +2354,26 @@ async fn friends_enable(
 }
 
 #[tauri::command]
-async fn friends_package(state: State<'_, AppState>, id: String) -> std::result::Result<String, UiError> {
+async fn friends_package(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<String, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let meta = meta_dir(&root)?;
-        let host = coa_core::friends::load(&meta).host.ok_or_else(|| Error::Invalid("Choose how friends connect first.".into()))?;
-        let desktop = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Desktop");
-        let out = if desktop.is_dir() { desktop } else { std::env::temp_dir() }.join("CoA-Friend-Setup.zip");
+        let host = coa_core::friends::load(&meta)
+            .host
+            .ok_or_else(|| Error::Invalid("Choose how friends connect first.".into()))?;
+        let desktop = std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("Desktop");
+        let out = if desktop.is_dir() {
+            desktop
+        } else {
+            std::env::temp_dir()
+        }
+        .join("CoA-Friend-Setup.zip");
         coa_core::friends::make_friend_package(&root, &host, true, &out)?;
         Ok(out.to_string_lossy().into_owned())
     })
@@ -1626,7 +2381,10 @@ async fn friends_package(state: State<'_, AppState>, id: String) -> std::result:
 }
 
 #[tauri::command]
-async fn run_diagnostics(state: State<'_, AppState>, id: String) -> std::result::Result<coa_core::diag::Report, UiError> {
+async fn run_diagnostics(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::diag::Report, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
@@ -1636,7 +2394,10 @@ async fn run_diagnostics(state: State<'_, AppState>, id: String) -> std::result:
 }
 
 #[tauri::command]
-async fn verify_files(state: State<'_, AppState>, id: String) -> std::result::Result<Vec<coa_core::diag::FileProblem>, UiError> {
+async fn verify_files(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::diag::FileProblem>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
@@ -1647,20 +2408,30 @@ async fn verify_files(state: State<'_, AppState>, id: String) -> std::result::Re
 
 /// Writes a redacted zip for bug reports to the Desktop and returns its path.
 #[tauri::command]
-async fn export_diagnostics(state: State<'_, AppState>, id: String) -> std::result::Result<String, UiError> {
+async fn export_diagnostics(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<String, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let (dir, meta) = install_meta(&root)?;
         let report = coa_core::diag::run(&root, &meta);
-        let out = coa_core::diag::desktop_or_temp().join(format!("CoA-Diagnostics-{}.zip", coa_core::diag::stamp()));
-        coa_core::diag::export_package(&root, &dir, &data_dir().join("logs").join("manager.log"), &meta, &report, &out)?;
+        let out = coa_core::diag::desktop_or_temp()
+            .join(format!("CoA-Diagnostics-{}.zip", coa_core::diag::stamp()));
+        coa_core::diag::export_package(
+            &root,
+            &dir,
+            &data_dir().join("logs").join("manager.log"),
+            &meta,
+            &report,
+            &out,
+        )?;
         // Show the file in its folder so nobody has to look for it; failing to open the folder is not a failure.
         let _ = tauri_plugin_opener::reveal_item_in_dir(&out);
         Ok(out.to_string_lossy().into_owned())
     })
     .await
 }
-
 
 #[tauri::command]
 async fn console_tail(
@@ -1672,7 +2443,11 @@ async fn console_tail(
 ) -> std::result::Result<Vec<coa_core::console::Line>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
-        let path = coa_core::console::log_path(&root, &data_dir().join("logs").join("manager.log"), source);
+        let path = coa_core::console::log_path(
+            &root,
+            &data_dir().join("logs").join("manager.log"),
+            source,
+        );
         coa_core::console::tail(&path, filter.as_deref(), lines.unwrap_or(300).min(2000))
     })
     .await
@@ -1685,12 +2460,20 @@ fn console_risk(command: String) -> coa_core::console::Risk {
 
 /// Send one command to the world server console. Risky commands need `confirmed`.
 #[tauri::command]
-async fn console_command(state: State<'_, AppState>, id: String, command: String, confirmed: bool) -> std::result::Result<String, UiError> {
+async fn console_command(
+    state: State<'_, AppState>,
+    id: String,
+    command: String,
+    confirmed: bool,
+) -> std::result::Result<String, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         let c = coa_core::console::check_command(&command)?.to_string();
         if coa_core::console::risk(&c) == coa_core::console::Risk::Dangerous && !confirmed {
-            return Err(Error::Invalid("This command can shut things down or change many records. Confirm it first.".into()));
+            return Err(Error::Invalid(
+                "This command can shut things down or change many records. Confirm it first."
+                    .into(),
+            ));
         }
         tracing::info!(command = %c, "console command");
         Ra::connect(&root)?.run(&c)
@@ -1701,13 +2484,24 @@ async fn console_command(state: State<'_, AppState>, id: String, command: String
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
+    // Crash safety: recover any unfinished client realmlist overrides from previous abnormal termination
+    let _ = coa_core::client::revert_realmlist_override(&dir);
     let portable = start_portable(&dir);
     let (control, host_control) = control_cmds::start(&dir, portable.clone());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None), portable, realm_registry: start_realm_registry(&dir), control, host_control })
+        .manage(AppState {
+            registry: Registry::at(dir.join("installs.json")),
+            busy: Mutex::new(HashSet::new()),
+            install_cancel: Mutex::new(None),
+            client_cancel: Mutex::new(None),
+            portable,
+            realm_registry: start_realm_registry(&dir),
+            control,
+            host_control,
+        })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
             scan_server,
@@ -1851,18 +2645,33 @@ pub fn run() {
 
 // ---- Public listing (Registry) -----------------------------------------------------------------------------------------------
 
-fn realm_registry(state: &State<'_, AppState>) -> std::result::Result<Arc<coa_core::realm_registry::RegistryRuntime>, UiError> {
-    state.realm_registry.clone().ok_or_else(|| Error::Invalid("the publishing service did not start".into()).into())
+fn realm_registry(
+    state: &State<'_, AppState>,
+) -> std::result::Result<Arc<coa_core::realm_registry::RegistryRuntime>, UiError> {
+    state
+        .realm_registry
+        .clone()
+        .ok_or_else(|| Error::Invalid("the publishing service did not start".into()).into())
 }
 
 #[tauri::command]
-async fn portable_preflight_remote(state: State<'_, AppState>, character: String, capabilities: serde_json::Value) -> std::result::Result<portable_service::PreflightView, ServiceError> {
-    portable_call(&state, move |s| s.preflight_advert(&character, &capabilities)).await
+async fn portable_preflight_remote(
+    state: State<'_, AppState>,
+    character: String,
+    capabilities: serde_json::Value,
+) -> std::result::Result<portable_service::PreflightView, ServiceError> {
+    portable_call(&state, move |s| {
+        s.preflight_advert(&character, &capabilities)
+    })
+    .await
 }
 
 fn browse_client() -> std::result::Result<coa_core::realm_registry::BrowseClient, UiError> {
     let settings = coa_core::realm_registry::settings::load(&data_dir().join("registry"))?;
-    let url = std::env::var("COA_REGISTRY_URL").ok().filter(|u| !u.is_empty()).unwrap_or_else(|| settings.effective_url().to_string());
+    let url = std::env::var("COA_REGISTRY_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| settings.effective_url().to_string());
     Ok(coa_core::realm_registry::BrowseClient::new(&url)?)
 }
 
@@ -1872,7 +2681,9 @@ fn browse_error(e: coa_core::realm_registry::ClientError) -> UiError {
 
 /// One page of the public realm list (a plain read of the Registry; nothing about the player is sent).
 #[tauri::command]
-async fn browse_list(params: coa_core::realm_registry::BrowseParams) -> std::result::Result<coa_registry_proto::RealmPage, UiError> {
+async fn browse_list(
+    params: coa_core::realm_registry::BrowseParams,
+) -> std::result::Result<coa_registry_proto::RealmPage, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let query = params.to_query()?;
         browse_client()?.list(&query).map_err(browse_error)
@@ -1882,9 +2693,12 @@ async fn browse_list(params: coa_core::realm_registry::BrowseParams) -> std::res
 }
 
 #[tauri::command]
-async fn browse_detail(realm_id: String) -> std::result::Result<coa_registry_proto::RealmDetail, UiError> {
+async fn browse_detail(
+    realm_id: String,
+) -> std::result::Result<coa_registry_proto::RealmDetail, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
-        let id = coa_registry_proto::RealmId::parse(&realm_id).map_err(|e| Error::Invalid(e.to_string()))?;
+        let id = coa_registry_proto::RealmId::parse(&realm_id)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
         browse_client()?.detail(&id).map_err(browse_error)
     })
     .await
@@ -1903,30 +2717,73 @@ struct ModuleInfo {
 /// The Manager's own module catalog: names and descriptions of the modules a realm's advertisement lists by id.
 #[tauri::command]
 fn module_catalog() -> Vec<ModuleInfo> {
-    coa_core::modules::catalog().into_iter().map(|e| ModuleInfo { id: e.id, name: e.name, description: e.description, status: e.status, icon: e.icon }).collect()
+    coa_core::modules::catalog()
+        .into_iter()
+        .map(|e| ModuleInfo {
+            id: e.id,
+            name: e.name,
+            description: e.description,
+            status: e.status,
+            icon: e.icon,
+        })
+        .collect()
 }
 
 #[tauri::command]
 fn registry_status(state: State<'_, AppState>) -> coa_core::realm_registry::RegistryStatus {
-    state.realm_registry.as_ref().map(|r| r.status()).unwrap_or_default()
+    state
+        .realm_registry
+        .as_ref()
+        .map(|r| r.status())
+        .unwrap_or_default()
 }
 
 #[tauri::command]
-async fn registry_set_url(state: State<'_, AppState>, url: Option<String>) -> std::result::Result<(), UiError> {
+async fn registry_set_url(
+    state: State<'_, AppState>,
+    url: Option<String>,
+) -> std::result::Result<(), UiError> {
     let rt = realm_registry(&state)?;
-    tauri::async_runtime::spawn_blocking(move || rt.set_url(url)).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
+    tauri::async_runtime::spawn_blocking(move || rt.set_url(url))
+        .await
+        .map_err(|e| Error::Invalid(e.to_string()))?
+        .map_err(UiError::from)
 }
 
 #[tauri::command]
-async fn registry_publish(state: State<'_, AppState>, local_id: String, display_name: String, description: String, language: String, region: Option<String>) -> std::result::Result<(), UiError> {
+async fn registry_publish(
+    state: State<'_, AppState>,
+    local_id: String,
+    display_name: String,
+    description: String,
+    language: String,
+    region: Option<String>,
+) -> std::result::Result<(), UiError> {
     let rt = realm_registry(&state)?;
-    tauri::async_runtime::spawn_blocking(move || rt.publish(&local_id, &display_name, &description, &language, region.as_deref())).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
+    tauri::async_runtime::spawn_blocking(move || {
+        rt.publish(
+            &local_id,
+            &display_name,
+            &description,
+            &language,
+            region.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| Error::Invalid(e.to_string()))?
+    .map_err(UiError::from)
 }
 
 #[tauri::command]
-async fn registry_unpublish(state: State<'_, AppState>, local_id: String) -> std::result::Result<(), UiError> {
+async fn registry_unpublish(
+    state: State<'_, AppState>,
+    local_id: String,
+) -> std::result::Result<(), UiError> {
     let rt = realm_registry(&state)?;
-    tauri::async_runtime::spawn_blocking(move || rt.unpublish(&local_id)).await.map_err(|e| Error::Invalid(e.to_string()))?.map_err(UiError::from)
+    tauri::async_runtime::spawn_blocking(move || rt.unpublish(&local_id))
+        .await
+        .map_err(|e| Error::Invalid(e.to_string()))?
+        .map_err(UiError::from)
 }
 
 #[tauri::command]
@@ -1936,14 +2793,23 @@ fn registry_retry(state: State<'_, AppState>, local_id: String) {
     }
 }
 
-fn start_realm_registry(dir: &std::path::Path) -> Option<Arc<coa_core::realm_registry::RegistryRuntime>> {
+fn start_realm_registry(
+    dir: &std::path::Path,
+) -> Option<Arc<coa_core::realm_registry::RegistryRuntime>> {
     use coa_core::realm_registry::{FileKeyStore, LocalRealmsSource, RegistryRuntime};
     let installs = Registry::at(dir.join("installs.json"));
     let registry_dir = dir.join("registry");
-    let source = LocalRealmsSource::with_provisioning(dir.join("portable").join("realms"), move || installs.list().unwrap_or_default(), move |local_id| {
-        // a realm creates accounts for joining players unless its owner said it only links the ones that exist
-        coa_core::realm_registry::settings::load(&registry_dir).ok().and_then(|s| s.realms.get(local_id).map(|c| !c.existing_only)).unwrap_or(true)
-    });
+    let source = LocalRealmsSource::with_provisioning(
+        dir.join("portable").join("realms"),
+        move || installs.list().unwrap_or_default(),
+        move |local_id| {
+            // a realm creates accounts for joining players unless its owner said it only links the ones that exist
+            coa_core::realm_registry::settings::load(&registry_dir)
+                .ok()
+                .and_then(|s| s.realms.get(local_id).map(|c| !c.existing_only))
+                .unwrap_or(true)
+        },
+    );
     let keys = FileKeyStore::new(dir.join("registry").join("keys"));
     match RegistryRuntime::start(&dir.join("registry"), Arc::new(keys), Arc::new(source)) {
         Ok(rt) => Some(Arc::new(rt)),
@@ -1956,8 +2822,11 @@ fn start_realm_registry(dir: &std::path::Path) -> Option<Arc<coa_core::realm_reg
 
 fn start_portable(dir: &std::path::Path) -> Option<Arc<PortableRuntime>> {
     let registry = Registry::at(dir.join("installs.json"));
-    let control = InstallControl { registry: Registry::at(dir.join("installs.json")) };
-    let installs: portable_service::runtime::Installs = Box::new(move || registry.list().unwrap_or_default());
+    let control = InstallControl {
+        registry: Registry::at(dir.join("installs.json")),
+    };
+    let installs: portable_service::runtime::Installs =
+        Box::new(move || registry.list().unwrap_or_default());
     match PortableRuntime::start(&dir.join("portable"), installs, Some(Box::new(control))) {
         Ok(rt) => Some(Arc::new(rt)),
         Err(e) => {
@@ -1979,13 +2848,22 @@ mod tests {
 
     #[test]
     fn data_home_prefers_an_absolute_xdg_folder() {
-        assert_eq!(unix_data_home(os("/data/xdg"), os("/home/u")), PathBuf::from("/data/xdg"));
+        assert_eq!(
+            unix_data_home(os("/data/xdg"), os("/home/u")),
+            PathBuf::from("/data/xdg")
+        );
     }
 
     #[test]
     fn data_home_ignores_a_relative_xdg_folder_and_falls_back_to_home() {
-        assert_eq!(unix_data_home(os("relative/dir"), os("/home/u")), PathBuf::from("/home/u/.local/share"));
-        assert_eq!(unix_data_home(None, os("/home/u")), PathBuf::from("/home/u/.local/share"));
+        assert_eq!(
+            unix_data_home(os("relative/dir"), os("/home/u")),
+            PathBuf::from("/home/u/.local/share")
+        );
+        assert_eq!(
+            unix_data_home(None, os("/home/u")),
+            PathBuf::from("/home/u/.local/share")
+        );
     }
 
     #[test]

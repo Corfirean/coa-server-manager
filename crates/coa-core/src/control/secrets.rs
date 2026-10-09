@@ -24,7 +24,13 @@ pub trait SecretStore: Send + Sync {
 }
 
 fn check_name(name: &str) -> Result<()> {
-    if name.is_empty() || name.len() > 96 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) || name.starts_with('.') {
+    if name.is_empty()
+        || name.len() > 96
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        || name.starts_with('.')
+    {
         return Err(Error::Invalid("a secret has an invalid name".into()));
     }
     Ok(())
@@ -43,11 +49,16 @@ pub fn default_store(dir: &Path) -> Box<dyn SecretStore> {
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let dir = path.parent().ok_or_else(|| Error::Invalid("a secret has no folder".into()))?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| Error::Invalid("a secret has no folder".into()))?;
     fs::create_dir_all(dir)?;
     let tmp = dir.join(format!(".{}.tmp", uuid::Uuid::new_v4().simple()));
     let result = (|| -> Result<()> {
-        let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
         restrict(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
@@ -70,12 +81,24 @@ fn restrict(file: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn restrict(file: &Path) -> Result<()> {
-    let user = std::env::var("USERNAME").map_err(|_| Error::Invalid("the current user is unknown".into()))?;
+    let user = std::env::var("USERNAME")
+        .map_err(|_| Error::Invalid("the current user is unknown".into()))?;
     let domain = std::env::var("USERDOMAIN").unwrap_or_default();
-    let who = if domain.is_empty() { user } else { format!("{domain}\\{user}") };
-    let out = std::process::Command::new("icacls").arg(file).arg("/inheritance:r").arg("/grant:r").arg(format!("{who}:(F)")).output()?;
+    let who = if domain.is_empty() {
+        user
+    } else {
+        format!("{domain}\\{user}")
+    };
+    let out = std::process::Command::new("icacls")
+        .arg(file)
+        .arg("/inheritance:r")
+        .arg("/grant:r")
+        .arg(format!("{who}:(F)"))
+        .output()?;
     if !out.status.success() {
-        return Err(Error::Invalid("a secret file's permissions could not be restricted".into()));
+        return Err(Error::Invalid(
+            "a secret file's permissions could not be restricted".into(),
+        ));
     }
     Ok(())
 }
@@ -141,16 +164,27 @@ pub struct MemoryStore(Mutex<std::collections::HashMap<String, Vec<u8>>>);
 impl SecretStore for MemoryStore {
     fn get(&self, name: &str) -> Result<Option<Vec<u8>>> {
         check_name(name)?;
-        Ok(self.0.lock().map_err(|_| Error::Invalid("a lock was poisoned".into()))?.get(name).cloned())
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| Error::Invalid("a lock was poisoned".into()))?
+            .get(name)
+            .cloned())
     }
     fn put(&self, name: &str, value: &[u8]) -> Result<()> {
         check_name(name)?;
-        self.0.lock().map_err(|_| Error::Invalid("a lock was poisoned".into()))?.insert(name.to_string(), value.to_vec());
+        self.0
+            .lock()
+            .map_err(|_| Error::Invalid("a lock was poisoned".into()))?
+            .insert(name.to_string(), value.to_vec());
         Ok(())
     }
     fn delete(&self, name: &str) -> Result<()> {
         check_name(name)?;
-        self.0.lock().map_err(|_| Error::Invalid("a lock was poisoned".into()))?.remove(name);
+        self.0
+            .lock()
+            .map_err(|_| Error::Invalid("a lock was poisoned".into()))?
+            .remove(name);
         Ok(())
     }
     fn kind(&self) -> &'static str {
@@ -165,13 +199,18 @@ pub use dpapi::DpapiStore;
 mod dpapi {
     use super::*;
     use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB};
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
 
     /// Mixed into every blob: a different program running as the same user does not decrypt the Manager's secrets by accident.
     const ENTROPY: &[u8] = b"coa-server-manager/secret-store/v1";
 
     fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
-        CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 }
+        CRYPT_INTEGER_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_ptr() as *mut u8,
+        }
     }
 
     fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
@@ -183,8 +222,21 @@ mod dpapi {
     pub fn protect(plain: &[u8]) -> Result<Vec<u8>> {
         let input = blob(plain);
         let entropy = blob(ENTROPY);
-        let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
-        let ok = unsafe { CryptProtectData(&input, std::ptr::null(), &entropy, std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out) };
+        let mut out = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
+        let ok = unsafe {
+            CryptProtectData(
+                &input,
+                std::ptr::null(),
+                &entropy,
+                std::ptr::null(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out,
+            )
+        };
         if ok == 0 {
             return Err(Error::Invalid("Windows could not protect a secret".into()));
         }
@@ -194,8 +246,21 @@ mod dpapi {
     pub fn unprotect(sealed: &[u8]) -> Result<Vec<u8>> {
         let input = blob(sealed);
         let entropy = blob(ENTROPY);
-        let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
-        let ok = unsafe { CryptUnprotectData(&input, std::ptr::null_mut(), &entropy, std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut out) };
+        let mut out = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
+        let ok = unsafe {
+            CryptUnprotectData(
+                &input,
+                std::ptr::null_mut(),
+                &entropy,
+                std::ptr::null(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out,
+            )
+        };
         if ok == 0 {
             return Err(Error::Invalid("a secret could not be unlocked (it was made by another Windows user or on another computer)".into()));
         }
@@ -218,7 +283,9 @@ mod dpapi {
     impl SecretStore for DpapiStore {
         fn get(&self, name: &str) -> Result<Option<Vec<u8>>> {
             check_name(name)?;
-            read_file(&self.path(name))?.map(|b| unprotect(&b)).transpose()
+            read_file(&self.path(name))?
+                .map(|b| unprotect(&b))
+                .transpose()
         }
         fn put(&self, name: &str, value: &[u8]) -> Result<()> {
             check_name(name)?;
@@ -241,14 +308,24 @@ mod tests {
     fn round_trip(store: &dyn SecretStore) {
         assert_eq!(store.get("realm-abc").unwrap(), None);
         store.put("realm-abc", b"hunter2-secret").unwrap();
-        assert_eq!(store.get("realm-abc").unwrap().as_deref(), Some(b"hunter2-secret".as_slice()));
+        assert_eq!(
+            store.get("realm-abc").unwrap().as_deref(),
+            Some(b"hunter2-secret".as_slice())
+        );
         store.put("realm-abc", b"another").unwrap();
-        assert_eq!(store.get("realm-abc").unwrap().as_deref(), Some(b"another".as_slice()), "replaced");
+        assert_eq!(
+            store.get("realm-abc").unwrap().as_deref(),
+            Some(b"another".as_slice()),
+            "replaced"
+        );
         store.delete("realm-abc").unwrap();
         store.delete("realm-abc").unwrap();
         assert_eq!(store.get("realm-abc").unwrap(), None);
         for bad in ["", "../x", "a/b", "a b", ".hidden", &"x".repeat(97)] {
-            assert!(store.put(bad, b"x").is_err() && store.get(bad).is_err(), "{bad:?}");
+            assert!(
+                store.put(bad, b"x").is_err() && store.get(bad).is_err(),
+                "{bad:?}"
+            );
         }
     }
 
@@ -266,15 +343,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = DpapiStore::new(dir.path().join("secrets"));
         round_trip(&store);
-        store.put("player-key", b"VERY-SECRET-PLAYER-KEY-0123456789").unwrap();
+        store
+            .put("player-key", b"VERY-SECRET-PLAYER-KEY-0123456789")
+            .unwrap();
         let raw = fs::read(dir.path().join("secrets").join("player-key.dpapi")).unwrap();
-        assert!(!raw.windows(11).any(|w| w == b"VERY-SECRET"), "the file holds no plaintext");
+        assert!(
+            !raw.windows(11).any(|w| w == b"VERY-SECRET"),
+            "the file holds no plaintext"
+        );
         assert!(raw.len() > 40);
         let mut tampered = raw.clone();
         let last = tampered.len() - 1;
         tampered[last] ^= 1;
-        fs::write(dir.path().join("secrets").join("player-key.dpapi"), tampered).unwrap();
-        assert!(store.get("player-key").is_err(), "a damaged blob is an error, not garbage");
+        fs::write(
+            dir.path().join("secrets").join("player-key.dpapi"),
+            tampered,
+        )
+        .unwrap();
+        assert!(
+            store.get("player-key").is_err(),
+            "a damaged blob is an error, not garbage"
+        );
         assert_eq!(store.kind(), "dpapi");
     }
 }

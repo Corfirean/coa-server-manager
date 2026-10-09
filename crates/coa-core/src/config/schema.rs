@@ -166,12 +166,18 @@ impl Setting {
                 _ => Err("must be a number".into()),
             },
             SettingType::String => match value.as_str() {
-                Some(s) if s.contains(['"', '\n', '\r']) => Err("must not contain quotes or line breaks".into()),
+                Some(s) if s.contains(['"', '\n', '\r']) => {
+                    Err("must not contain quotes or line breaks".into())
+                }
                 Some(s) => Ok(format!("\"{s}\"")),
                 None => Err("must be text".into()),
             },
             SettingType::Enum => {
-                let opt = self.options.iter().find(|o| o.value == *value).ok_or("is not one of the allowed choices")?;
+                let opt = self
+                    .options
+                    .iter()
+                    .find(|o| o.value == *value)
+                    .ok_or("is not one of the allowed choices")?;
                 Ok(match &opt.value {
                     Value::String(s) => format!("\"{s}\""),
                     other => other.to_string(),
@@ -190,7 +196,10 @@ impl Setting {
                 "0" | "false" | "no" | "off" => Ok(Value::Bool(false)),
                 _ => Err(format!("{t:?} is not on/off")),
             },
-            SettingType::Int => unq.parse::<i64>().map(Value::from).map_err(|_| format!("{t:?} is not a whole number")),
+            SettingType::Int => unq
+                .parse::<i64>()
+                .map(Value::from)
+                .map_err(|_| format!("{t:?} is not a whole number")),
             SettingType::Float => unq
                 .parse::<f64>()
                 .ok()
@@ -253,7 +262,12 @@ mod tests {
         assert_eq!(f.to_raw(&json!(1.5)).unwrap(), "1.5");
         assert_eq!(f.to_raw(&json!(2.0)).unwrap(), "2");
         assert!(f.to_raw(&json!(-0.1)).is_err());
-        assert_eq!(s(SettingType::Bool, None, None).to_raw(&json!(true)).unwrap(), "1");
+        assert_eq!(
+            s(SettingType::Bool, None, None)
+                .to_raw(&json!(true))
+                .unwrap(),
+            "1"
+        );
         assert!(s(SettingType::Bool, None, None).to_raw(&json!(1)).is_err());
         let st = s(SettingType::String, None, None);
         assert_eq!(st.to_raw(&json!("a b")).unwrap(), "\"a b\"");
@@ -264,14 +278,34 @@ mod tests {
     #[test]
     fn enum_and_decode() {
         let mut e = s(SettingType::Enum, None, None);
-        e.options = vec![EnumOption { value: json!(0), label: "A".into() }, EnumOption { value: json!(2), label: "B".into() }];
+        e.options = vec![
+            EnumOption {
+                value: json!(0),
+                label: "A".into(),
+            },
+            EnumOption {
+                value: json!(2),
+                label: "B".into(),
+            },
+        ];
         assert_eq!(e.to_raw(&json!(2)).unwrap(), "2");
         assert!(e.to_raw(&json!(1)).is_err());
         assert_eq!(e.from_raw("2").unwrap(), json!(2));
         assert!(e.from_raw("9").is_err());
-        assert_eq!(s(SettingType::Bool, None, None).from_raw(" 1 ").unwrap(), json!(true));
-        assert_eq!(s(SettingType::String, None, None).from_raw("\"x y\"").unwrap(), json!("x y"));
-        assert_eq!(s(SettingType::Float, None, None).from_raw("1.5").unwrap(), json!(1.5));
+        assert_eq!(
+            s(SettingType::Bool, None, None).from_raw(" 1 ").unwrap(),
+            json!(true)
+        );
+        assert_eq!(
+            s(SettingType::String, None, None)
+                .from_raw("\"x y\"")
+                .unwrap(),
+            json!("x y")
+        );
+        assert_eq!(
+            s(SettingType::Float, None, None).from_raw("1.5").unwrap(),
+            json!(1.5)
+        );
         assert!(s(SettingType::Int, None, None).from_raw("abc").is_err());
     }
 }

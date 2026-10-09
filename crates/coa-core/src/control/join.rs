@@ -32,9 +32,17 @@ pub struct RealmTarget {
 impl RealmTarget {
     /// From the Registry's public record of the realm; the key published there is what the Host must prove it holds.
     pub fn from_detail(registry_url: &str, detail: &RealmDetail) -> Result<RealmTarget> {
-        let key = coord::decode_public_key(&detail.public_key).map_err(|e| Error::Invalid(e.to_string()))?;
-        let coordinator = transport::coordinator_url(registry_url, "/coord/v1/player").ok_or_else(|| Error::Invalid("the Registry address is not usable for a connection".into()))?;
-        Ok(RealmTarget { realm_id: detail.realm_id, key, coordinator })
+        let key = coord::decode_public_key(&detail.public_key)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let coordinator =
+            transport::coordinator_url(registry_url, "/coord/v1/player").ok_or_else(|| {
+                Error::Invalid("the Registry address is not usable for a connection".into())
+            })?;
+        Ok(RealmTarget {
+            realm_id: detail.realm_id,
+            key,
+            coordinator,
+        })
     }
 }
 
@@ -49,7 +57,10 @@ impl ControlFail {
     pub fn code(&self) -> String {
         match self {
             ControlFail::Link(e) => e.code().to_string(),
-            ControlFail::App { code, .. } => serde_json::to_value(code).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "error".into()),
+            ControlFail::App { code, .. } => serde_json::to_value(code)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_else(|| "error".into()),
             ControlFail::Local(_) => "local".into(),
         }
     }
@@ -120,21 +131,33 @@ fn secret_name(realm: &RealmId) -> String {
 }
 
 fn clock() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
-fn expect<T>(response: Response, ok: impl FnOnce(Response) -> std::result::Result<T, Response>) -> R<T> {
+fn expect<T>(
+    response: Response,
+    ok: impl FnOnce(Response) -> std::result::Result<T, Response>,
+) -> R<T> {
     match ok(response) {
         Ok(v) => Ok(v),
         Err(Response::Error { code, message }) => Err(ControlFail::App { code, message }),
-        Err(_) => Err(ControlFail::Link(LinkError::Protocol("the answer does not match the question".into()))),
+        Err(_) => Err(ControlFail::Link(LinkError::Protocol(
+            "the answer does not match the question".into(),
+        ))),
     }
 }
 
 impl PlayerControl {
     pub fn open(dir: &Path, secrets: Arc<dyn SecretStore>) -> Result<Self> {
         let identity = PlayerIdentity::load_or_create(secrets.as_ref())?;
-        Ok(Self { identity, secrets, store: Mutex::new(ControlStore::open(dir)?) })
+        Ok(Self {
+            identity,
+            secrets,
+            store: Mutex::new(ControlStore::open(dir)?),
+        })
     }
 
     pub fn secret_store_kind(&self) -> &'static str {
@@ -142,21 +165,30 @@ impl PlayerControl {
     }
 
     fn store(&self) -> R<std::sync::MutexGuard<'_, ControlStore>> {
-        self.store.lock().map_err(|_| ControlFail::Local("the control database is busy".into()))
+        self.store
+            .lock()
+            .map_err(|_| ControlFail::Local("the control database is busy".into()))
     }
 
     /// The credentials the realm has confirmed (a password still waiting for the realm's confirmation is not one).
     pub fn credentials(&self, realm: &RealmId) -> Result<Option<Credentials>> {
-        Ok(self.raw_credentials(realm)?.filter(|c| !c.username.is_empty()))
+        Ok(self
+            .raw_credentials(realm)?
+            .filter(|c| !c.username.is_empty()))
     }
 
     fn raw_credentials(&self, realm: &RealmId) -> Result<Option<Credentials>> {
-        let Some(bytes) = self.secrets.get(&secret_name(realm))? else { return Ok(None) };
-        serde_json::from_slice(&bytes).map(Some).map_err(|_| Error::Invalid("the saved credentials for this server are damaged".into()))
+        let Some(bytes) = self.secrets.get(&secret_name(realm))? else {
+            return Ok(None);
+        };
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|_| Error::Invalid("the saved credentials for this server are damaged".into()))
     }
 
     fn save_credentials(&self, realm: &RealmId, c: &Credentials) -> Result<()> {
-        self.secrets.put(&secret_name(realm), &serde_json::to_vec(c)?)
+        self.secrets
+            .put(&secret_name(realm), &serde_json::to_vec(c)?)
     }
 
     /// Forget the account on a realm (the saved password and the name). The account itself stays on the realm.
@@ -167,7 +199,10 @@ impl PlayerControl {
     }
 
     pub fn known_account(&self, realm: &RealmId) -> R<Option<(String, AccountKind)>> {
-        Ok(self.store()?.player_realm(&realm.to_string())?.map(|r| (r.username, r.kind)))
+        Ok(self
+            .store()?
+            .player_realm(&realm.to_string())?
+            .map(|r| (r.username, r.kind)))
     }
 
     /// Open a verified channel to the realm's Host. The realm's key is pinned the first time: the Registry says which key a realm id has, and a Registry (or anything between) that later
@@ -176,35 +211,75 @@ impl PlayerControl {
         let id = target.realm_id.to_string();
         let key = coord::encode_public_key(&target.key);
         match self.store()?.realm_pin(&id)? {
-            Some(pinned) if pinned != key => return Err(ControlFail::Link(LinkError::Auth("this realm's key is not the one it had when you first joined it".into()))),
+            Some(pinned) if pinned != key => {
+                return Err(ControlFail::Link(LinkError::Auth(
+                    "this realm's key is not the one it had when you first joined it".into(),
+                )))
+            }
             _ => {}
         }
-        let channel = PlayerChannel::connect(&target.coordinator, &target.realm_id, &target.key, &self.identity, &clock)?;
+        let channel = PlayerChannel::connect(
+            &target.coordinator,
+            &target.realm_id,
+            &target.key,
+            &self.identity,
+            &clock,
+        )?;
         self.store()?.realm_pin_set(&id, &key)?;
         Ok(channel)
     }
 
     pub fn welcome(&self, ch: &mut PlayerChannel) -> R<(bool, bool, Option<String>)> {
-        let r = ch.request(&Request::Hello { protocol: coa_control_proto::CONTROL_PROTOCOL_VERSION, client: "coa-manager".into() })?;
+        let r = ch.request(&Request::Hello {
+            protocol: coa_control_proto::CONTROL_PROTOCOL_VERSION,
+            client: "coa-manager".into(),
+        })?;
         expect(r, |r| match r {
-            Response::Welcome { automatic, existing_only, route, .. } => Ok((automatic, existing_only, route)),
+            Response::Welcome {
+                automatic,
+                existing_only,
+                route,
+                ..
+            } => Ok((automatic, existing_only, route)),
             other => Err(other),
         })
     }
 
     /// The account on this realm: reused when the player has one, created otherwise (on realms that create accounts). The generated password is saved *before* it is
     /// sent, so a crash between the Host creating the account and the player learning of it leaves a password that the next call sets again.
-    pub fn ensure_account(&self, ch: &mut PlayerChannel, realm: &RealmId, preferred: Option<&str>) -> R<AccountOutcome> {
+    pub fn ensure_account(
+        &self,
+        ch: &mut PlayerChannel,
+        realm: &RealmId,
+        preferred: Option<&str>,
+    ) -> R<AccountOutcome> {
         let saved = self.raw_credentials(realm)?;
         // saved credentials with no account name are a password that was made but never confirmed by the realm: it is sent again, as a new one
         let have = saved.as_ref().is_some_and(|c| !c.username.is_empty());
-        let password = saved.as_ref().map(|c| c.password.clone()).unwrap_or_else(app::generate_password);
+        let password = saved
+            .as_ref()
+            .map(|c| c.password.clone())
+            .unwrap_or_else(app::generate_password);
         if saved.is_none() {
-            self.save_credentials(realm, &Credentials { username: String::new(), password: password.clone() })?;
+            self.save_credentials(
+                realm,
+                &Credentials {
+                    username: String::new(),
+                    password: password.clone(),
+                },
+            )?;
         }
-        let r = ch.request(&Request::Provision { desired: preferred.map(str::to_string), password: password.clone(), have_credentials: have })?;
+        let r = ch.request(&Request::Provision {
+            desired: preferred.map(str::to_string),
+            password: password.clone(),
+            have_credentials: have,
+        })?;
         let (username, created, reset) = expect(r, |r| match r {
-            Response::Provisioned { username, created, reset } => Ok((username, created, reset)),
+            Response::Provisioned {
+                username,
+                created,
+                reset,
+            } => Ok((username, created, reset)),
             other => Err(other),
         })
         .inspect_err(|e| {
@@ -213,25 +288,52 @@ impl PlayerControl {
                 let _ = self.secrets.delete(&secret_name(realm));
             }
         })?;
-        self.save_credentials(realm, &Credentials { username: username.clone(), password })?;
+        self.save_credentials(
+            realm,
+            &Credentials {
+                username: username.clone(),
+                password,
+            },
+        )?;
         // an account the player linked stays a linked one when the realm confirms it again
         let kind = match self.store()?.player_realm(&realm.to_string())? {
             Some(known) if known.username == username => known.kind,
             _ => AccountKind::Generated,
         };
-        self.store()?.player_realm_set(&realm.to_string(), &username, kind)?;
-        Ok(AccountOutcome { username, created, password_reset: reset })
+        self.store()?
+            .player_realm_set(&realm.to_string(), &username, kind)?;
+        Ok(AccountOutcome {
+            username,
+            created,
+            password_reset: reset,
+        })
     }
 
     /// One-time link of an account the realm already has.
-    pub fn link_existing(&self, ch: &mut PlayerChannel, realm: &RealmId, login: &str, password: &str) -> R<String> {
-        let r = ch.request(&Request::Link { login: login.to_string(), password: password.to_string() })?;
+    pub fn link_existing(
+        &self,
+        ch: &mut PlayerChannel,
+        realm: &RealmId,
+        login: &str,
+        password: &str,
+    ) -> R<String> {
+        let r = ch.request(&Request::Link {
+            login: login.to_string(),
+            password: password.to_string(),
+        })?;
         let username = expect(r, |r| match r {
             Response::Linked { username } => Ok(username),
             other => Err(other),
         })?;
-        self.save_credentials(realm, &Credentials { username: username.clone(), password: password.to_string() })?;
-        self.store()?.player_realm_set(&realm.to_string(), &username, AccountKind::Linked)?;
+        self.save_credentials(
+            realm,
+            &Credentials {
+                username: username.clone(),
+                password: password.to_string(),
+            },
+        )?;
+        self.store()?
+            .player_realm_set(&realm.to_string(), &username, AccountKind::Linked)?;
         Ok(username)
     }
 
@@ -246,17 +348,47 @@ impl PlayerControl {
     pub fn claim(&self, ch: &mut PlayerChannel, token: u32) -> R<Claimed> {
         let r = ch.request(&Request::Claim { token })?;
         let (character_id, sha256, payload, collections) = expect(r, |r| match r {
-            Response::Claimed { character_id, sha256, payload, collections } => Ok((character_id, sha256, payload, collections)),
+            Response::Claimed {
+                character_id,
+                sha256,
+                payload,
+                collections,
+            } => Ok((character_id, sha256, payload, collections)),
             other => Err(other),
         })?;
-        let payload = base64::engine::general_purpose::STANDARD.decode(payload).map_err(|_| ControlFail::Link(LinkError::Protocol("the character data is not valid".into())))?;
-        let hash: [u8; 32] = hex::decode(&sha256).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| ControlFail::Link(LinkError::Protocol("the character hash is not valid".into())))?;
-        Ok(Claimed { character_id, payload, sha256: hash, collections })
+        let payload = base64::engine::general_purpose::STANDARD
+            .decode(payload)
+            .map_err(|_| {
+                ControlFail::Link(LinkError::Protocol(
+                    "the character data is not valid".into(),
+                ))
+            })?;
+        let hash: [u8; 32] = hex::decode(&sha256)
+            .ok()
+            .and_then(|b| b.try_into().ok())
+            .ok_or_else(|| {
+                ControlFail::Link(LinkError::Protocol(
+                    "the character hash is not valid".into(),
+                ))
+            })?;
+        Ok(Claimed {
+            character_id,
+            payload,
+            sha256: hash,
+            collections,
+        })
     }
 
     /// Tell the Host the character is safely stored here; only then is the claim final.
-    pub fn acknowledge(&self, ch: &mut PlayerChannel, character_id: Uuid, realm: &RealmId, name: &str) -> R<()> {
-        self.store()?.player_claim_add(&realm.to_string(), &character_id, name)?;
+    pub fn acknowledge(
+        &self,
+        ch: &mut PlayerChannel,
+        character_id: Uuid,
+        realm: &RealmId,
+        name: &str,
+    ) -> R<()> {
+        self.store()?
+            .player_claim_add(&realm.to_string(), &character_id, name)?;
         let r = ch.request(&Request::ClaimAck { character_id })?;
         expect(r, |r| match r {
             Response::Done => Ok(()),
@@ -298,19 +430,40 @@ impl PlayerControl {
         };
         let r = ch.request(&offer)?;
         let mut offset = match r {
-            Response::TransferReady { received_offset, .. } => received_offset,
-            Response::TransferCommitted { local_guid, session_id, projected_level, notes, .. } => {
-                let _ = ch.request(&Request::TransferAck { transfer_id, character_id });
-                return Ok(RemoteTransferOutcome { local_guid, session_id, projected_level, notes });
+            Response::TransferReady {
+                received_offset, ..
+            } => received_offset,
+            Response::TransferCommitted {
+                local_guid,
+                session_id,
+                projected_level,
+                notes,
+                ..
+            } => {
+                let _ = ch.request(&Request::TransferAck {
+                    transfer_id,
+                    character_id,
+                });
+                return Ok(RemoteTransferOutcome {
+                    local_guid,
+                    session_id,
+                    projected_level,
+                    notes,
+                });
             }
             Response::Error { code, message } => return Err(ControlFail::App { code, message }),
-            _ => return Err(ControlFail::Link(LinkError::Protocol("unexpected response to transfer offer".into()))),
+            _ => {
+                return Err(ControlFail::Link(LinkError::Protocol(
+                    "unexpected response to transfer offer".into(),
+                )))
+            }
         };
 
         const CHUNK_SIZE: usize = 128 * 1024;
         while offset < payload.len() {
             let end = (offset + CHUNK_SIZE).min(payload.len());
-            let chunk_data = base64::engine::general_purpose::STANDARD.encode(&payload[offset..end]);
+            let chunk_data =
+                base64::engine::general_purpose::STANDARD.encode(&payload[offset..end]);
             let chunk_req = Request::TransferChunk {
                 transfer_id,
                 offset,
@@ -318,24 +471,44 @@ impl PlayerControl {
             };
             let cr = ch.request(&chunk_req)?;
             match cr {
-                Response::TransferChunkAck { received_offset, .. } => {
+                Response::TransferChunkAck {
+                    received_offset, ..
+                } => {
                     offset = received_offset;
                 }
-                Response::Error { code, message } => return Err(ControlFail::App { code, message }),
-                _ => return Err(ControlFail::Link(LinkError::Protocol("unexpected response to transfer chunk".into()))),
+                Response::Error { code, message } => {
+                    return Err(ControlFail::App { code, message })
+                }
+                _ => {
+                    return Err(ControlFail::Link(LinkError::Protocol(
+                        "unexpected response to transfer chunk".into(),
+                    )))
+                }
             }
         }
 
         let commit_req = Request::TransferCommit { transfer_id };
         let commit_resp = ch.request(&commit_req)?;
         let outcome = expect(commit_resp, |r| match r {
-            Response::TransferCommitted { local_guid, session_id, projected_level, notes, .. } => {
-                Ok(RemoteTransferOutcome { local_guid, session_id, projected_level, notes })
-            }
+            Response::TransferCommitted {
+                local_guid,
+                session_id,
+                projected_level,
+                notes,
+                ..
+            } => Ok(RemoteTransferOutcome {
+                local_guid,
+                session_id,
+                projected_level,
+                notes,
+            }),
             other => Err(other),
         })?;
 
-        let _ = ch.request(&Request::TransferAck { transfer_id, character_id });
+        let _ = ch.request(&Request::TransferAck {
+            transfer_id,
+            character_id,
+        });
         Ok(outcome)
     }
 
@@ -344,23 +517,28 @@ impl PlayerControl {
         &self,
         ch: &mut PlayerChannel,
     ) -> R<crate::control::relay_link::RelayAllocationInfo> {
-        let req = Request::AllocateRelay { player_id: self.identity.player_id };
+        let req = Request::AllocateRelay {
+            player_id: self.identity.player_id,
+        };
         let resp = ch.request(&req)?;
         expect(resp, |r| match r {
-            Response::RelayAllocated { relay_host, auth_port, world_port, token, expires_at } => {
-                Ok(crate::control::relay_link::RelayAllocationInfo {
-                    relay_host,
-                    auth_port,
-                    world_port,
-                    token,
-                    expires_at,
-                })
-            }
+            Response::RelayAllocated {
+                relay_host,
+                auth_port,
+                world_port,
+                token,
+                expires_at,
+            } => Ok(crate::control::relay_link::RelayAllocationInfo {
+                relay_host,
+                auth_port,
+                world_port,
+                token,
+                expires_at,
+            }),
             other => Err(other),
         })
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteTransferOutcome {

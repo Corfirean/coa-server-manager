@@ -48,7 +48,10 @@ impl Log {
 }
 
 fn fail<T>(code: ErrorCode, output: impl Into<String>) -> Step<T> {
-    Err(Failure { code, output: output.into() })
+    Err(Failure {
+        code,
+        output: output.into(),
+    })
 }
 
 pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
@@ -59,16 +62,32 @@ pub fn run_with(d: &dyn Docker, root: &Path, verb: Verb) -> Result<DriverOutcome
     let cfg = Config::load(root)?;
     let mut log = Log::default();
     let result = match verb {
-        Verb::StartWorld => return Err(crate::Error::Invalid("Starting a secondary world is not supported for Docker servers.".into())),
+        Verb::StartWorld => {
+            return Err(crate::Error::Invalid(
+                "Starting a secondary world is not supported for Docker servers.".into(),
+            ))
+        }
         Verb::StartAll => start(d, root, &cfg, true, &mut log),
         Verb::StartMysql => start(d, root, &cfg, false, &mut log),
         Verb::StopAll => stop(d, &cfg, &mut log),
     };
     Ok(match result {
-        Ok(()) => DriverOutcome { ok: true, exit_code: Some(0), code: None, human: None, output: log.0.join("\n") },
+        Ok(()) => DriverOutcome {
+            ok: true,
+            exit_code: Some(0),
+            code: None,
+            human: None,
+            output: log.0.join("\n"),
+        },
         Err(f) => {
             log.say(f.output);
-            DriverOutcome { ok: false, exit_code: None, code: Some(f.code), human: Some(f.code.human()), output: log.0.join("\n") }
+            DriverOutcome {
+                ok: false,
+                exit_code: None,
+                code: Some(f.code),
+                human: Some(f.code.human()),
+                output: log.0.join("\n"),
+            }
         }
     })
 }
@@ -77,7 +96,8 @@ pub fn run_with(d: &dyn Docker, root: &Path, verb: Verb) -> Result<DriverOutcome
 
 /// Run docker; only "docker cannot be started" is an error here, a non-zero exit is returned for the caller to judge.
 fn docker(d: &dyn Docker, args: &[&str], timeout: Duration) -> Step<super::cli::Output> {
-    d.run(&Call::new(args, timeout)).or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))
+    d.run(&Call::new(args, timeout))
+        .or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))
 }
 
 /// Is docker usable by this user? Returns its version, or the reason in docker's own words.
@@ -85,7 +105,11 @@ pub fn check_docker(d: &dyn Docker) -> Result<String> {
     let mut log = Log::default();
     match preflight(d, &mut log) {
         Ok(()) => Ok(log.0.join(" ")),
-        Err(f) => Err(crate::error::Error::Invalid(format!("{} {}", f.code.human().message, f.output.trim()).trim().to_string())),
+        Err(f) => Err(crate::error::Error::Invalid(
+            format!("{} {}", f.code.human().message, f.output.trim())
+                .trim()
+                .to_string(),
+        )),
     }
 }
 
@@ -134,14 +158,20 @@ fn inspect(d: &dyn Docker, names: &[&str]) -> Step<HashMap<String, Container>> {
     let o = docker(d, &args, QUICK)?;
     // docker prints what it found and complains about the rest with a non-zero exit code.
     let found = parse_inspect(&o.stdout);
-    if !o.ok() && found.is_empty() && !o.stderr.contains("No such object") && !o.stderr.contains("no such object") {
+    if !o.ok()
+        && found.is_empty()
+        && !o.stderr.contains("No such object")
+        && !o.stderr.contains("no such object")
+    {
         return fail(ErrorCode::DockerUnavailable, o.text());
     }
     Ok(found)
 }
 
 pub(crate) fn parse_inspect(json: &str) -> HashMap<String, Container> {
-    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json) else { return HashMap::new() };
+    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json) else {
+        return HashMap::new();
+    };
     items
         .iter()
         .filter_map(|v| {
@@ -181,8 +211,14 @@ fn strip_ansi(s: &str) -> String {
 
 /// Last lines a container wrote, as the technical details of a failure, and the cause they point to.
 fn why_stopped(d: &dyn Docker, name: &str) -> (ErrorCode, String) {
-    let text = d.run(&Call::new(&["logs", "--tail", "60", name], QUICK)).map(|o| strip_ansi(&o.text())).unwrap_or_default();
-    (crate::health::diagnose(&text).unwrap_or(ErrorCode::StartupFailed), format!("--- last lines of {name}\n{text}"))
+    let text = d
+        .run(&Call::new(&["logs", "--tail", "60", name], QUICK))
+        .map(|o| strip_ansi(&o.text()))
+        .unwrap_or_default();
+    (
+        crate::health::diagnose(&text).unwrap_or(ErrorCode::StartupFailed),
+        format!("--- last lines of {name}\n{text}"),
+    )
 }
 
 // ------------------------------------------------------------------------------------------------------------ start
@@ -195,7 +231,9 @@ struct Secrets {
 fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut Log) -> Step<()> {
     preflight(d, log)?;
     let n = cfg.names();
-    let secrets = crate::db::credentials(root).map(|(root, app)| Secrets { root, app }).or_else(|e| fail(ErrorCode::ServerFilesIncomplete, e.to_string()))?;
+    let secrets = crate::db::credentials(root)
+        .map(|(root, app)| Secrets { root, app })
+        .or_else(|e| fail(ErrorCode::ServerFilesIncomplete, e.to_string()))?;
     let ports = read_ports(root);
     let state = inspect(d, &[&n.db, &n.world, &n.auth])?;
 
@@ -212,7 +250,9 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         let mut call = Call::new(&[], Duration::from_secs(120));
         call.args = db_args(cfg, &n, owner_of(root).as_deref());
         call.env = vec![("MYSQL_ROOT_PASSWORD".into(), secrets.root.clone())];
-        let o = d.run(&call).or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))?;
+        let o = d
+            .run(&call)
+            .or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))?;
         if !o.ok() {
             return fail(ErrorCode::StartupFailed, o.text());
         }
@@ -224,8 +264,14 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
     }
 
     ensure_image(d, log)?;
-    super::ensure_main_configs(root).map_err(|e| Failure { code: ErrorCode::ServerFilesIncomplete, output: e.to_string() })?;
-    std::fs::create_dir_all(root.join("Core/Logs")).map_err(|e| Failure { code: ErrorCode::ServerFilesIncomplete, output: e.to_string() })?;
+    super::ensure_main_configs(root).map_err(|e| Failure {
+        code: ErrorCode::ServerFilesIncomplete,
+        output: e.to_string(),
+    })?;
+    std::fs::create_dir_all(root.join("Core/Logs")).map_err(|e| Failure {
+        code: ErrorCode::ServerFilesIncomplete,
+        output: e.to_string(),
+    })?;
     let owner = owner_of(root);
     let host = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let host = crate::fsx::canonicalize_lenient(&host).unwrap_or(host);
@@ -233,7 +279,16 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
     if !state.get(&n.world).is_some_and(Container::running) {
         remove(d, &n.world);
         let mut call = Call::new(&[], Duration::from_secs(60));
-        call.args = game_args(cfg, &n, GameKind::World, &host, &cfg.data_path(&host), ports.world, ports.ra, owner.as_deref());
+        call.args = game_args(
+            cfg,
+            &n,
+            GameKind::World,
+            &host,
+            &cfg.data_path(&host),
+            ports.world,
+            ports.ra,
+            owner.as_deref(),
+        );
         call.env = database_env(&secrets, true);
         run_container(d, &call, &n.world, log)?;
     }
@@ -242,7 +297,16 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
     if !state.get(&n.auth).is_some_and(Container::running) {
         remove(d, &n.auth);
         let mut call = Call::new(&[], Duration::from_secs(60));
-        call.args = game_args(cfg, &n, GameKind::Auth, &host, &cfg.data_path(&host), ports.auth, 0, owner.as_deref());
+        call.args = game_args(
+            cfg,
+            &n,
+            GameKind::Auth,
+            &host,
+            &cfg.data_path(&host),
+            ports.auth,
+            0,
+            owner.as_deref(),
+        );
         call.env = database_env(&secrets, false);
         run_container(d, &call, &n.auth, log)?;
     }
@@ -256,10 +320,18 @@ fn remove(d: &dyn Docker, name: &str) {
 }
 
 fn run_container(d: &dyn Docker, call: &Call, name: &str, log: &mut Log) -> Step<()> {
-    let o = d.run(call).or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))?;
+    let o = d
+        .run(call)
+        .or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))?;
     if !o.ok() {
         let text = o.text();
-        let code = if text.contains("port is already allocated") || text.contains("address already in use") { ErrorCode::PortInUse } else { ErrorCode::StartupFailed };
+        let code = if text.contains("port is already allocated")
+            || text.contains("address already in use")
+        {
+            ErrorCode::PortInUse
+        } else {
+            ErrorCode::StartupFailed
+        };
         return fail(code, text);
     }
     log.say(format!("started {name}"));
@@ -274,7 +346,9 @@ fn ensure_image(d: &dyn Docker, log: &mut Log) -> Step<()> {
     log.say(format!("building {image} (first start only)"));
     let mut call = Call::new(&["build", "--tag", &image, "-"], Duration::from_secs(900));
     call.stdin = Some(RUNTIME_DOCKERFILE.as_bytes());
-    let o = d.run(&call).or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))?;
+    let o = d
+        .run(&call)
+        .or_else(|e| fail(ErrorCode::DockerUnavailable, e.to_string()))?;
     if !o.ok() {
         return fail(ErrorCode::StartupFailed, o.text());
     }
@@ -291,17 +365,39 @@ fn wait_database(d: &dyn Docker, n: &Names, log: &mut Log) -> Step<()> {
             }
             Some(c) if !c.running() => {
                 let (code, text) = why_stopped(d, &n.db);
-                return fail(if code == ErrorCode::StartupFailed { ErrorCode::DatabaseNotRunning } else { code }, text);
+                return fail(
+                    if code == ErrorCode::StartupFailed {
+                        ErrorCode::DatabaseNotRunning
+                    } else {
+                        code
+                    },
+                    text,
+                );
             }
-            None => return fail(ErrorCode::DatabaseNotRunning, "the database container does not exist"),
+            None => {
+                return fail(
+                    ErrorCode::DatabaseNotRunning,
+                    "the database container does not exist",
+                )
+            }
             _ => d.pause(POLL),
         }
     }
-    fail(ErrorCode::DatabaseNotRunning, "the database did not become ready in time")
+    fail(
+        ErrorCode::DatabaseNotRunning,
+        "the database did not become ready in time",
+    )
 }
 
 /// Wait until the container accepts connections on its published port; give up when it stops or on timeout.
-fn wait_listening(d: &dyn Docker, cfg: &Config, name: &str, port: u16, seconds: u32, log: &mut Log) -> Step<()> {
+fn wait_listening(
+    d: &dyn Docker,
+    cfg: &Config,
+    name: &str,
+    port: u16,
+    seconds: u32,
+    log: &mut Log,
+) -> Step<()> {
     let addr = SocketAddr::new(connect_ip(cfg), port);
     for _ in 0..seconds {
         let state = inspect(d, &[name])?;
@@ -320,7 +416,10 @@ fn wait_listening(d: &dyn Docker, cfg: &Config, name: &str, port: u16, seconds: 
         }
     }
     let (code, text) = why_stopped(d, name);
-    fail(code, format!("{name} was not listening on port {port} after {seconds} seconds\n{text}"))
+    fail(
+        code,
+        format!("{name} was not listening on port {port} after {seconds} seconds\n{text}"),
+    )
 }
 
 /// Address to test a published port on from this computer.
@@ -334,9 +433,17 @@ fn connect_ip(cfg: &Config) -> IpAddr {
 // ------------------------------------------------------------------------------------------------- argument lists
 
 fn db_args(cfg: &Config, n: &Names, owner: Option<&str>) -> Vec<String> {
-    let mut a: Vec<String> = ["run", "--detach", "--name"].iter().map(|s| s.to_string()).collect();
+    let mut a: Vec<String> = ["run", "--detach", "--name"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     a.push(n.db.clone());
-    a.extend(["--network".into(), n.network.clone(), "--network-alias".into(), "db".into()]);
+    a.extend([
+        "--network".into(),
+        n.network.clone(),
+        "--network-alias".into(),
+        "db".into(),
+    ]);
     a.extend(["--label".into(), format!("coa.project={}", cfg.project)]);
     match &cfg.mysql_data {
         Some(dir) => {
@@ -355,8 +462,18 @@ fn db_args(cfg: &Config, n: &Names, owner: Option<&str>) -> Vec<String> {
     // everything the Manager sends: while a new database initialises, the image first runs a temporary server that
     // answers on its socket but takes no network connection, and a socket ping would call the container healthy for a few
     // seconds in which every TCP connection is still refused.
-    a.extend(["--health-cmd".into(), "mysqladmin ping --protocol=tcp --host=127.0.0.1 --silent".into()]);
-    a.extend(["--health-interval".into(), "5s".into(), "--health-timeout".into(), "5s".into(), "--health-retries".into(), "40".into()]);
+    a.extend([
+        "--health-cmd".into(),
+        "mysqladmin ping --protocol=tcp --host=127.0.0.1 --silent".into(),
+    ]);
+    a.extend([
+        "--health-interval".into(),
+        "5s".into(),
+        "--health-timeout".into(),
+        "5s".into(),
+        "--health-retries".into(),
+        "40".into(),
+    ]);
     a.extend(["--stop-timeout".into(), "60".into()]);
     a.push(cfg.mysql_image.clone());
     if cfg.mysql_data.is_some() {
@@ -377,31 +494,78 @@ fn database_env(s: &Secrets, world: bool) -> Vec<(String, String)> {
     let mut env = vec![("AC_LOGIN_DATABASE_INFO".to_string(), info("acore_auth"))];
     if world {
         env.push(("AC_WORLD_DATABASE_INFO".into(), info("acore_world")));
-        env.push(("AC_CHARACTER_DATABASE_INFO".into(), info("acore_characters")));
+        env.push((
+            "AC_CHARACTER_DATABASE_INFO".into(),
+            info("acore_characters"),
+        ));
     }
     env
 }
 
-fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, data: &Path, port: u16, ra_port: u16, owner: Option<&str>) -> Vec<String> {
+fn game_args(
+    cfg: &Config,
+    n: &Names,
+    kind: GameKind,
+    host: &Path,
+    data: &Path,
+    port: u16,
+    ra_port: u16,
+    owner: Option<&str>,
+) -> Vec<String> {
     let (name, alias, binary, conf, inner_port) = match kind {
-        GameKind::World => (&n.world, "world", "./worldserver", "configs/worldserver.conf", WORLD_PORT),
-        GameKind::Auth => (&n.auth, "auth", "./authserver", "configs/authserver.conf", AUTH_PORT),
+        GameKind::World => (
+            &n.world,
+            "world",
+            "./worldserver",
+            "configs/worldserver.conf",
+            WORLD_PORT,
+        ),
+        GameKind::Auth => (
+            &n.auth,
+            "auth",
+            "./authserver",
+            "configs/authserver.conf",
+            AUTH_PORT,
+        ),
     };
-    let mut a: Vec<String> = vec!["run".into(), "--detach".into(), "--name".into(), name.clone()];
-    a.extend(["--network".into(), n.network.clone(), "--network-alias".into(), alias.into()]);
+    let mut a: Vec<String> = vec![
+        "run".into(),
+        "--detach".into(),
+        "--name".into(),
+        name.clone(),
+    ];
+    a.extend([
+        "--network".into(),
+        n.network.clone(),
+        "--network-alias".into(),
+        alias.into(),
+    ]);
     a.extend(["--label".into(), format!("coa.project={}", cfg.project)]);
     if let Some(o) = owner {
         // The server writes logs and configuration into the folder: do it as the person who owns it.
         a.extend(["--user".into(), o.into()]);
     }
     a.extend(["--workdir".into(), CORE.into()]);
-    a.extend(["--volume".into(), format!("{}:{CORE}", host.join("Core").display())]);
-    a.extend(["--publish".into(), format!("{}:{port}:{inner_port}", cfg.bind_address)]);
+    a.extend([
+        "--volume".into(),
+        format!("{}:{CORE}", host.join("Core").display()),
+    ]);
+    a.extend([
+        "--publish".into(),
+        format!("{}:{port}:{inner_port}", cfg.bind_address),
+    ]);
     // Settings that must not depend on the configuration files: where things are inside the container, and listening
     // on every interface of the container (the published address decides who can connect).
     let env = |k: &str, v: &str| ["--env".to_string(), format!("{k}={v}")];
     a.extend(env("AC_BIND_IP", "0.0.0.0"));
-    a.extend(env(if kind == GameKind::World { "AC_WORLD_SERVER_PORT" } else { "AC_REALM_SERVER_PORT" }, &inner_port.to_string()));
+    a.extend(env(
+        if kind == GameKind::World {
+            "AC_WORLD_SERVER_PORT"
+        } else {
+            "AC_REALM_SERVER_PORT"
+        },
+        &inner_port.to_string(),
+    ));
     a.extend(env("AC_LOGS_DIR", &format!("{CORE}/Logs")));
     // The Manager applies database updates itself. The server's own updater would need a `mysql` client program inside
     // the container and stops the server when it cannot find one.
@@ -416,9 +580,19 @@ fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, data: &Path, 
         a.extend(env("AC_RA_PORT", &RA_PORT.to_string()));
         // Saving every character can take a while.
         a.extend(["--stop-timeout".into(), "180".into()]);
-        a.extend(["--env".into(), "AC_WORLD_DATABASE_INFO".into(), "--env".into(), "AC_CHARACTER_DATABASE_INFO".into()]);
+        a.extend([
+            "--env".into(),
+            "AC_WORLD_DATABASE_INFO".into(),
+            "--env".into(),
+            "AC_CHARACTER_DATABASE_INFO".into(),
+        ]);
     } else {
-        a.extend(["--restart".into(), "on-failure:3".into(), "--stop-timeout".into(), "30".into()]);
+        a.extend([
+            "--restart".into(),
+            "on-failure:3".into(),
+            "--stop-timeout".into(),
+            "30".into(),
+        ]);
     }
     a.extend(["--env".into(), "AC_LOGIN_DATABASE_INFO".into()]);
     a.push(runtime_image());
@@ -448,7 +622,11 @@ fn stop(d: &dyn Docker, cfg: &Config, log: &mut Log) -> Step<()> {
     for (name, seconds) in [(&n.world, 180u64), (&n.auth, 30), (&n.db, 60)] {
         if state.get(name).is_some_and(Container::running) {
             let t = seconds.to_string();
-            let o = docker(d, &["stop", "--time", &t, name], Duration::from_secs(seconds + 30))?;
+            let o = docker(
+                d,
+                &["stop", "--time", &t, name],
+                Duration::from_secs(seconds + 30),
+            )?;
             if !o.ok() {
                 return fail(ErrorCode::StartupFailed, o.text());
             }
@@ -465,33 +643,83 @@ pub fn observe(root: &Path, ports: &Ports) -> Observed {
 }
 
 pub fn observe_with(d: &dyn Docker, root: &Path, ports: &Ports) -> Observed {
-    let unknown = |name: &'static str, port: u16| ServiceStatus { name, state: ServiceState::Unknown, pid: None, port, port_ready: false, conflict: None, uptime_secs: None };
+    let unknown = |name: &'static str, port: u16| ServiceStatus {
+        name,
+        state: ServiceState::Unknown,
+        pid: None,
+        port,
+        port_ready: false,
+        conflict: None,
+        uptime_secs: None,
+    };
     let Ok(cfg) = Config::load(root) else {
-        return Observed { mysql: unknown("mysql", ports.mysql), auth: unknown("auth", ports.auth), world: unknown("world", ports.world), secondary_world: None };
+        return Observed {
+            mysql: unknown("mysql", ports.mysql),
+            auth: unknown("auth", ports.auth),
+            world: unknown("world", ports.world),
+            secondary_world: None,
+        };
     };
     let n = cfg.names();
     let Ok(state) = inspect(d, &[&n.db, &n.world, &n.auth]) else {
-        return Observed { mysql: unknown("mysql", ports.mysql), auth: unknown("auth", ports.auth), world: unknown("world", ports.world), secondary_world: None };
+        return Observed {
+            mysql: unknown("mysql", ports.mysql),
+            auth: unknown("auth", ports.auth),
+            world: unknown("world", ports.world),
+            secondary_world: None,
+        };
     };
     let ip = connect_ip(&cfg);
-    let listening = |c: Option<&Container>, port: u16| c.is_some_and(Container::running) && d.port_open(SocketAddr::new(ip, port));
+    let listening = |c: Option<&Container>, port: u16| {
+        c.is_some_and(Container::running) && d.port_open(SocketAddr::new(ip, port))
+    };
     Observed {
-        mysql: status("mysql", state.get(&n.db), ports.mysql, state.get(&n.db).is_some_and(|c| c.health.as_deref() == Some("healthy"))),
-        auth: status("auth", state.get(&n.auth), ports.auth, listening(state.get(&n.auth), ports.auth)),
-        world: status("world", state.get(&n.world), ports.world, listening(state.get(&n.world), ports.world)),
+        mysql: status(
+            "mysql",
+            state.get(&n.db),
+            ports.mysql,
+            state
+                .get(&n.db)
+                .is_some_and(|c| c.health.as_deref() == Some("healthy")),
+        ),
+        auth: status(
+            "auth",
+            state.get(&n.auth),
+            ports.auth,
+            listening(state.get(&n.auth), ports.auth),
+        ),
+        world: status(
+            "world",
+            state.get(&n.world),
+            ports.world,
+            listening(state.get(&n.world), ports.world),
+        ),
         secondary_world: None,
     }
 }
 
 fn status(name: &'static str, c: Option<&Container>, port: u16, ready: bool) -> ServiceStatus {
     let Some(c) = c else {
-        return ServiceStatus { name, state: ServiceState::Stopped, pid: None, port, port_ready: false, conflict: None, uptime_secs: None };
+        return ServiceStatus {
+            name,
+            state: ServiceState::Stopped,
+            pid: None,
+            port,
+            port_ready: false,
+            conflict: None,
+            uptime_secs: None,
+        };
     };
     let state = match c.status.as_str() {
         "running" if ready => ServiceState::Running,
         "running" | "created" | "restarting" => ServiceState::Starting,
         // Stopped by `docker stop` (SIGTERM, then SIGKILL after the grace period) is a normal stop; anything else is a crash.
-        "exited" if c.exit_code == 0 || ((c.exit_code == 137 || c.exit_code == 143) && !c.oom_killed) => ServiceState::Stopped,
+        "exited"
+            if c.exit_code == 0
+                || ((c.exit_code == 137 || c.exit_code == 143) && !c.oom_killed) =>
+        {
+            ServiceState::Stopped
+        }
         "exited" => ServiceState::Crashed,
         _ => ServiceState::Unknown,
     };
@@ -503,7 +731,11 @@ fn status(name: &'static str, c: Option<&Container>, port: u16, ready: bool) -> 
         port,
         port_ready: running && ready,
         conflict: None,
-        uptime_secs: if running { c.started_at.as_deref().and_then(uptime_since) } else { None },
+        uptime_secs: if running {
+            c.started_at.as_deref().and_then(uptime_since)
+        } else {
+            None
+        },
     }
 }
 
@@ -565,11 +797,20 @@ mod tests {
         }
 
         fn verbs(&self) -> Vec<String> {
-            self.calls.borrow().iter().map(|c| c.args.iter().take(2).cloned().collect::<Vec<_>>().join(" ")).collect()
+            self.calls
+                .borrow()
+                .iter()
+                .map(|c| c.args.iter().take(2).cloned().collect::<Vec<_>>().join(" "))
+                .collect()
         }
 
         fn calls_of(&self, verb: &str) -> Vec<Call2> {
-            self.calls.borrow().iter().filter(|c| c.args[0] == verb).cloned().collect()
+            self.calls
+                .borrow()
+                .iter()
+                .filter(|c| c.args[0] == verb)
+                .cloned()
+                .collect()
         }
 
         fn inspect_json(&self, names: &[String]) -> (String, bool) {
@@ -577,7 +818,11 @@ mod tests {
             let mut missing = false;
             for n in names {
                 if self.running.borrow().contains(n) {
-                    let health = if n.ends_with("-db") { r#","Health":{"Status":"healthy"}"# } else { "" };
+                    let health = if n.ends_with("-db") {
+                        r#","Health":{"Status":"healthy"}"#
+                    } else {
+                        ""
+                    };
                     items.push(format!(
                         r#"{{"Name":"/{n}","State":{{"Status":"running","Running":true,"ExitCode":0,"OOMKilled":false,"Pid":4242,"StartedAt":"2026-10-02T12:27:26.892949316Z"{health}}}}}"#
                     ));
@@ -594,14 +839,24 @@ mod tests {
     }
 
     fn out(code: i32, stdout: &str, stderr: &str) -> Output {
-        Output { code: Some(code), stdout: stdout.into(), stderr: stderr.into() }
+        Output {
+            code: Some(code),
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+        }
     }
 
     impl Docker for Sim {
         fn run(&self, call: &Call) -> Result<Output> {
-            self.calls.borrow_mut().push(Call2 { args: call.args.clone(), env: call.env.clone(), stdin: call.stdin.is_some() });
+            self.calls.borrow_mut().push(Call2 {
+                args: call.args.clone(),
+                env: call.env.clone(),
+                stdin: call.stdin.is_some(),
+            });
             if self.unavailable {
-                return Err(crate::error::Error::Invalid("docker could not be started: No such file or directory".into()));
+                return Err(crate::error::Error::Invalid(
+                    "docker could not be started: No such file or directory".into(),
+                ));
             }
             let a: Vec<&str> = call.args.iter().map(String::as_str).collect();
             Ok(match a.as_slice() {
@@ -609,12 +864,24 @@ mod tests {
                     Some(e) => out(1, "", e),
                     None => out(0, "27.3.1\n", ""),
                 },
-                ["network", "inspect", ..] => if *self.network.borrow() { out(0, "[]", "") } else { out(1, "[]", "Error: No such network") },
+                ["network", "inspect", ..] => {
+                    if *self.network.borrow() {
+                        out(0, "[]", "")
+                    } else {
+                        out(1, "[]", "Error: No such network")
+                    }
+                }
                 ["network", "create", ..] => {
                     *self.network.borrow_mut() = true;
                     out(0, "id\n", "")
                 }
-                ["image", "inspect", ..] => if *self.image.borrow() { out(0, "[]", "") } else { out(1, "[]", "Error: No such image") },
+                ["image", "inspect", ..] => {
+                    if *self.image.borrow() {
+                        out(0, "[]", "")
+                    } else {
+                        out(1, "[]", "Error: No such image")
+                    }
+                }
                 ["build", ..] => {
                     *self.image.borrow_mut() = true;
                     out(0, "built", "")
@@ -622,7 +889,11 @@ mod tests {
                 ["inspect", names @ ..] => {
                     let names: Vec<String> = names.iter().map(|s| s.to_string()).collect();
                     let (json, missing) = self.inspect_json(&names);
-                    if missing { out(1, &json, "Error: No such object: x") } else { out(0, &json, "") }
+                    if missing {
+                        out(1, &json, "Error: No such object: x")
+                    } else {
+                        out(0, &json, "")
+                    }
                 }
                 ["rm", "-f", name] => {
                     self.running.borrow_mut().remove(*name);
@@ -630,7 +901,8 @@ mod tests {
                     out(0, "", "")
                 }
                 ["run", ..] => {
-                    let name = call.args[call.args.iter().position(|x| x == "--name").unwrap() + 1].clone();
+                    let name = call.args[call.args.iter().position(|x| x == "--name").unwrap() + 1]
+                        .clone();
                     if let Some((n, e)) = &self.run_error {
                         if *n == name {
                             return Ok(out(125, "", e));
@@ -648,7 +920,9 @@ mod tests {
                 }
                 ["stop", "--time", _, name] => {
                     self.running.borrow_mut().remove(*name);
-                    self.exited.borrow_mut().insert(name.to_string(), (0, false));
+                    self.exited
+                        .borrow_mut()
+                        .insert(name.to_string(), (0, false));
                     out(0, "", "")
                 }
                 ["logs", ..] => out(0, &self.logs.borrow(), ""),
@@ -667,8 +941,16 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let root = d.path().join("srv");
         fs::create_dir_all(root.join("Settings")).unwrap();
-        fs::write(root.join("Settings/docker.json"), format!(r#"{{"project":"{project}"}}"#)).unwrap();
-        fs::write(root.join("Settings/database.json"), format!(r#"{{"rootPassword":"{ROOT_PW}","appPassword":"{APP_PW}"}}"#)).unwrap();
+        fs::write(
+            root.join("Settings/docker.json"),
+            format!(r#"{{"project":"{project}"}}"#),
+        )
+        .unwrap();
+        fs::write(
+            root.join("Settings/database.json"),
+            format!(r#"{{"rootPassword":"{ROOT_PW}","appPassword":"{APP_PW}"}}"#),
+        )
+        .unwrap();
         (d, root)
     }
 
@@ -683,13 +965,35 @@ mod tests {
         let o = start_all(&sim, &root);
         assert!(o.ok, "{}", o.output);
         let verbs = sim.verbs();
-        let at = |needle: &str| verbs.iter().position(|v| v.starts_with(needle)).unwrap_or_else(|| panic!("{needle} not called: {verbs:?}"));
+        let at = |needle: &str| {
+            verbs
+                .iter()
+                .position(|v| v.starts_with(needle))
+                .unwrap_or_else(|| panic!("{needle} not called: {verbs:?}"))
+        };
         assert!(at("version") < at("network create"));
-        assert!(at("network create") < at("run --detach"), "database comes first");
-        let runs: Vec<String> = sim.calls_of("run").iter().map(|c| c.args[c.args.iter().position(|x| x == "--name").unwrap() + 1].clone()).collect();
-        assert_eq!(runs, ["coa-t1-db", "coa-t1-world", "coa-t1-auth"], "database, then world, then auth");
-        assert!(at("build") < verbs.iter().rposition(|v| v.starts_with("run")).unwrap(), "the runtime image exists before the game servers");
-        assert!(sim.calls_of("build")[0].stdin, "the Dockerfile travels on stdin");
+        assert!(
+            at("network create") < at("run --detach"),
+            "database comes first"
+        );
+        let runs: Vec<String> = sim
+            .calls_of("run")
+            .iter()
+            .map(|c| c.args[c.args.iter().position(|x| x == "--name").unwrap() + 1].clone())
+            .collect();
+        assert_eq!(
+            runs,
+            ["coa-t1-db", "coa-t1-world", "coa-t1-auth"],
+            "database, then world, then auth"
+        );
+        assert!(
+            at("build") < verbs.iter().rposition(|v| v.starts_with("run")).unwrap(),
+            "the runtime image exists before the game servers"
+        );
+        assert!(
+            sim.calls_of("build")[0].stdin,
+            "the Dockerfile travels on stdin"
+        );
     }
 
     #[test]
@@ -699,16 +1003,43 @@ mod tests {
         assert!(start_all(&sim, &root).ok);
         for c in sim.calls.borrow().iter() {
             for arg in &c.args {
-                assert!(!arg.contains(ROOT_PW) && !arg.contains(APP_PW), "secret on a command line: {arg}");
+                assert!(
+                    !arg.contains(ROOT_PW) && !arg.contains(APP_PW),
+                    "secret on a command line: {arg}"
+                );
             }
         }
         let runs = sim.calls_of("run");
-        assert!(runs[0].env.contains(&("MYSQL_ROOT_PASSWORD".into(), ROOT_PW.into())));
-        assert!(runs[1].env.iter().any(|(k, v)| k == "AC_LOGIN_DATABASE_INFO" && v == &format!("db;3306;acore;{APP_PW};acore_auth")));
-        assert!(runs[1].env.iter().any(|(k, _)| k == "AC_CHARACTER_DATABASE_INFO"));
-        assert!(runs[2].env.iter().any(|(k, _)| k == "AC_LOGIN_DATABASE_INFO"));
-        assert!(!runs[2].env.iter().any(|(k, _)| k == "AC_WORLD_DATABASE_INFO"), "auth does not need the world database");
-        assert!(runs[1].args.windows(2).any(|w| w == ["--env", "AC_WORLD_DATABASE_INFO"]), "name only, the value is in the environment");
+        assert!(runs[0]
+            .env
+            .contains(&("MYSQL_ROOT_PASSWORD".into(), ROOT_PW.into())));
+        assert!(runs[1]
+            .env
+            .iter()
+            .any(|(k, v)| k == "AC_LOGIN_DATABASE_INFO"
+                && v == &format!("db;3306;acore;{APP_PW};acore_auth")));
+        assert!(runs[1]
+            .env
+            .iter()
+            .any(|(k, _)| k == "AC_CHARACTER_DATABASE_INFO"));
+        assert!(runs[2]
+            .env
+            .iter()
+            .any(|(k, _)| k == "AC_LOGIN_DATABASE_INFO"));
+        assert!(
+            !runs[2]
+                .env
+                .iter()
+                .any(|(k, _)| k == "AC_WORLD_DATABASE_INFO"),
+            "auth does not need the world database"
+        );
+        assert!(
+            runs[1]
+                .args
+                .windows(2)
+                .any(|w| w == ["--env", "AC_WORLD_DATABASE_INFO"]),
+            "name only, the value is in the environment"
+        );
     }
 
     // Unix only: the folder is a Linux path (a Windows path has a colon, which a Docker folder may not).
@@ -716,21 +1047,46 @@ mod tests {
     #[test]
     fn a_release_fixture_runs_its_database_on_the_package_data_directory_not_on_a_volume() {
         let (_d, root) = server("t1");
-        fs::write(root.join("Settings/docker.json"), r#"{"project":"t1","mysqlData":"/work/fixture/mysql/data"}"#).unwrap();
+        fs::write(
+            root.join("Settings/docker.json"),
+            r#"{"project":"t1","mysqlData":"/work/fixture/mysql/data"}"#,
+        )
+        .unwrap();
         let sim = Sim::new();
         assert!(run_with(&sim, &root, Verb::StartMysql).unwrap().ok);
         let db = &sim.calls_of("run")[0].args;
-        assert!(db.windows(2).any(|w| w == ["--volume", "/work/fixture/mysql/data:/var/lib/mysql"]), "{db:?}");
-        assert!(!db.iter().any(|a| a.starts_with("coa-t1-db:")), "no named volume: {db:?}");
-        assert!(db.iter().any(|a| a == "--user"), "the folder is written by its owner");
-        assert_eq!(db.last().map(String::as_str), Some("--lower-case-table-names=1"), "a server option, so after the image name");
+        assert!(
+            db.windows(2)
+                .any(|w| w == ["--volume", "/work/fixture/mysql/data:/var/lib/mysql"]),
+            "{db:?}"
+        );
+        assert!(
+            !db.iter().any(|a| a.starts_with("coa-t1-db:")),
+            "no named volume: {db:?}"
+        );
+        assert!(
+            db.iter().any(|a| a == "--user"),
+            "the folder is written by its owner"
+        );
+        assert_eq!(
+            db.last().map(String::as_str),
+            Some("--lower-case-table-names=1"),
+            "a server option, so after the image name"
+        );
         // An installation never gets any of it.
         let (_d2, root2) = server("t2");
         let sim2 = Sim::new();
         assert!(run_with(&sim2, &root2, Verb::StartMysql).unwrap().ok);
         let plain = &sim2.calls_of("run")[0].args;
-        assert!(plain.windows(2).any(|w| w == ["--volume", "coa-t2-db:/var/lib/mysql"]), "{plain:?}");
-        assert!(!plain.iter().any(|a| a == "--lower-case-table-names=1" || a == "--user"));
+        assert!(
+            plain
+                .windows(2)
+                .any(|w| w == ["--volume", "coa-t2-db:/var/lib/mysql"]),
+            "{plain:?}"
+        );
+        assert!(!plain
+            .iter()
+            .any(|a| a == "--lower-case-table-names=1" || a == "--user"));
     }
 
     #[test]
@@ -739,9 +1095,16 @@ mod tests {
         let sim = Sim::new();
         assert!(start_all(&sim, &root).ok);
         let db = &sim.calls_of("run")[0].args;
-        let i = db.iter().position(|a| a == "--health-cmd").expect("the database has a health check");
+        let i = db
+            .iter()
+            .position(|a| a == "--health-cmd")
+            .expect("the database has a health check");
         // Found on a new volume: a socket-only ping reported healthy about four seconds before TCP worked.
-        assert!(db[i + 1].contains("--protocol=tcp") && db[i + 1].contains("--host=127.0.0.1"), "{}", db[i + 1]);
+        assert!(
+            db[i + 1].contains("--protocol=tcp") && db[i + 1].contains("--host=127.0.0.1"),
+            "{}",
+            db[i + 1]
+        );
     }
 
     #[test]
@@ -751,31 +1114,61 @@ mod tests {
         assert!(start_all(&sim, &root).ok);
         let world = &sim.calls_of("run")[1].args;
         let has = |s: &str| world.iter().any(|a| a == s);
-        assert!(has("127.0.0.1:8085:8085"), "game port on this computer only by default");
-        assert!(has("127.0.0.1:3443:3443"), "the remote console is never exposed beyond this computer");
+        assert!(
+            has("127.0.0.1:8085:8085"),
+            "game port on this computer only by default"
+        );
+        assert!(
+            has("127.0.0.1:3443:3443"),
+            "the remote console is never exposed beyond this computer"
+        );
         assert!(has("AC_BIND_IP=0.0.0.0") && has("AC_RA_ENABLE=1") && has("AC_RA_IP=0.0.0.0"));
-        assert!(has("AC_UPDATES_ENABLE_DATABASES=0"), "the server's own database updater needs a mysql client the image does not have");
-        assert!(sim.calls_of("run")[2].args.iter().any(|a| a == "AC_UPDATES_ENABLE_DATABASES=0"));
+        assert!(
+            has("AC_UPDATES_ENABLE_DATABASES=0"),
+            "the server's own database updater needs a mysql client the image does not have"
+        );
+        assert!(sim.calls_of("run")[2]
+            .args
+            .iter()
+            .any(|a| a == "AC_UPDATES_ENABLE_DATABASES=0"));
         assert!(has("AC_DATA_DIR=/srv/data") && has("AC_LOGS_DIR=/srv/core/Logs"));
-        assert!(world.iter().any(|a| a.ends_with(":/srv/data:ro")), "game data is read-only");
-        assert!(world.iter().any(|a| a.ends_with(":/srv/core") && a.contains("Core")));
+        assert!(
+            world.iter().any(|a| a.ends_with(":/srv/data:ro")),
+            "game data is read-only"
+        );
+        assert!(world
+            .iter()
+            .any(|a| a.ends_with(":/srv/core") && a.contains("Core")));
         assert!(world.windows(2).any(|w| w == ["--workdir", "/srv/core"]));
         assert!(world.windows(2).any(|w| w == ["--stop-timeout", "180"]));
         let n = world.len();
-        assert_eq!(&world[n - 3..], ["./worldserver", "-c", "configs/worldserver.conf"]);
+        assert_eq!(
+            &world[n - 3..],
+            ["./worldserver", "-c", "configs/worldserver.conf"]
+        );
         assert!(world[n - 4].starts_with("coa-runtime:"));
-        assert!(root.join("Core/Logs").is_dir(), "created by the Manager so it belongs to the user");
+        assert!(
+            root.join("Core/Logs").is_dir(),
+            "created by the Manager so it belongs to the user"
+        );
     }
 
     #[test]
     fn the_published_address_follows_the_setting() {
         let (_d, root) = server("t1");
-        fs::write(root.join("Settings/docker.json"), r#"{"project":"t1","bindAddress":"0.0.0.0"}"#).unwrap();
+        fs::write(
+            root.join("Settings/docker.json"),
+            r#"{"project":"t1","bindAddress":"0.0.0.0"}"#,
+        )
+        .unwrap();
         let sim = Sim::new();
         assert!(start_all(&sim, &root).ok);
         let runs = sim.calls_of("run");
         assert!(runs[1].args.iter().any(|a| a == "0.0.0.0:8085:8085"));
-        assert!(runs[1].args.iter().any(|a| a == "127.0.0.1:3443:3443"), "the console stays private");
+        assert!(
+            runs[1].args.iter().any(|a| a == "127.0.0.1:3443:3443"),
+            "the console stays private"
+        );
         assert!(runs[2].args.iter().any(|a| a == "0.0.0.0:3724:3724"));
     }
 
@@ -784,8 +1177,26 @@ mod tests {
         let (_d, root) = server("ports");
         let cfg = Config::load(&root).unwrap();
         let n = cfg.names();
-        let world = game_args(&cfg, &n, GameKind::World, &root, &root.join("Data"), 18085, 13443, None);
-        let auth = game_args(&cfg, &n, GameKind::Auth, &root, &root.join("Data"), 13724, 0, None);
+        let world = game_args(
+            &cfg,
+            &n,
+            GameKind::World,
+            &root,
+            &root.join("Data"),
+            18085,
+            13443,
+            None,
+        );
+        let auth = game_args(
+            &cfg,
+            &n,
+            GameKind::Auth,
+            &root,
+            &root.join("Data"),
+            13724,
+            0,
+            None,
+        );
         assert!(world.iter().any(|a| a == "127.0.0.1:18085:8085"));
         assert!(world.iter().any(|a| a == "127.0.0.1:13443:3443"));
         assert!(world.iter().any(|a| a == "AC_WORLD_SERVER_PORT=8085"));
@@ -829,8 +1240,19 @@ mod tests {
         sim.calls.borrow_mut().clear();
         let o = run_with(&sim, &root, Verb::StopAll).unwrap();
         assert!(o.ok, "{}", o.output);
-        let stops: Vec<(String, String)> = sim.calls_of("stop").iter().map(|c| (c.args[3].clone(), c.args[2].clone())).collect();
-        assert_eq!(stops, [("coa-t1-world".into(), "180".into()), ("coa-t1-auth".into(), "30".into()), ("coa-t1-db".into(), "60".into())]);
+        let stops: Vec<(String, String)> = sim
+            .calls_of("stop")
+            .iter()
+            .map(|c| (c.args[3].clone(), c.args[2].clone()))
+            .collect();
+        assert_eq!(
+            stops,
+            [
+                ("coa-t1-world".into(), "180".into()),
+                ("coa-t1-auth".into(), "30".into()),
+                ("coa-t1-db".into(), "60".into())
+            ]
+        );
         assert!(sim.running.borrow().is_empty());
         // Stopping what is already stopped is fine.
         sim.calls.borrow_mut().clear();
@@ -853,11 +1275,15 @@ mod tests {
     fn a_refused_connection_to_the_docker_service_shows_docker_own_words() {
         let (_d, root) = server("t1");
         let mut sim = Sim::new();
-        sim.daemon_error = Some("permission denied while trying to connect to the Docker daemon socket".into());
+        sim.daemon_error =
+            Some("permission denied while trying to connect to the Docker daemon socket".into());
         let o = start_all(&sim, &root);
         assert_eq!(o.code, Some(ErrorCode::DockerUnavailable));
         assert!(o.output.contains("permission denied"), "{}", o.output);
-        assert!(sim.calls_of("run").is_empty(), "nothing is started when docker is not usable");
+        assert!(
+            sim.calls_of("run").is_empty(),
+            "nothing is started when docker is not usable"
+        );
     }
 
     #[test]
@@ -869,16 +1295,26 @@ mod tests {
         let o = start_all(&sim, &root);
         assert!(!o.ok);
         assert_eq!(o.code, Some(ErrorCode::DatabaseNotRunning));
-        assert!(o.output.contains("Can't connect to MySQL server"), "{}", o.output);
+        assert!(
+            o.output.contains("Can't connect to MySQL server"),
+            "{}",
+            o.output
+        );
         assert!(!o.output.contains('\u{1b}'), "colour codes are removed");
-        assert!(sim.calls_of("run").len() == 2, "auth is not started after a failed world");
+        assert!(
+            sim.calls_of("run").len() == 2,
+            "auth is not started after a failed world"
+        );
     }
 
     #[test]
     fn a_port_that_is_taken_is_reported_as_such() {
         let (_d, root) = server("t1");
         let mut sim = Sim::new();
-        sim.run_error = Some(("coa-t1-world".into(), "Bind for 127.0.0.1:8085 failed: port is already allocated".into()));
+        sim.run_error = Some((
+            "coa-t1-world".into(),
+            "Bind for 127.0.0.1:8085 failed: port is already allocated".into(),
+        ));
         let o = start_all(&sim, &root);
         assert_eq!(o.code, Some(ErrorCode::PortInUse));
     }
@@ -891,16 +1327,36 @@ mod tests {
         *sim.logs.borrow_mut() = "still loading".into();
         let o = start_all(&sim, &root);
         assert!(!o.ok);
-        assert!(o.output.contains("was not listening on port 8085") && o.output.contains("still loading"), "{}", o.output);
+        assert!(
+            o.output.contains("was not listening on port 8085")
+                && o.output.contains("still loading"),
+            "{}",
+            o.output
+        );
     }
 
     #[test]
     fn invalid_settings_are_refused_before_anything_runs() {
-        for (project, bind, image) in [("Bad Name", "127.0.0.1", "mysql:8.4"), ("", "127.0.0.1", "mysql:8.4"), ("ok", "not-an-ip", "mysql:8.4"), ("ok", "127.0.0.1", "mysql:8.4; rm -rf /"), ("-lead", "127.0.0.1", "mysql:8.4")] {
+        for (project, bind, image) in [
+            ("Bad Name", "127.0.0.1", "mysql:8.4"),
+            ("", "127.0.0.1", "mysql:8.4"),
+            ("ok", "not-an-ip", "mysql:8.4"),
+            ("ok", "127.0.0.1", "mysql:8.4; rm -rf /"),
+            ("-lead", "127.0.0.1", "mysql:8.4"),
+        ] {
             let (_d, root) = server("t1");
-            fs::write(root.join("Settings/docker.json"), format!(r#"{{"project":"{project}","bindAddress":"{bind}","mysqlImage":"{image}"}}"#)).unwrap();
+            fs::write(
+                root.join("Settings/docker.json"),
+                format!(
+                    r#"{{"project":"{project}","bindAddress":"{bind}","mysqlImage":"{image}"}}"#
+                ),
+            )
+            .unwrap();
             let sim = Sim::new();
-            assert!(run_with(&sim, &root, Verb::StartAll).is_err(), "{project} / {bind} / {image}");
+            assert!(
+                run_with(&sim, &root, Verb::StartAll).is_err(),
+                "{project} / {bind} / {image}"
+            );
             assert!(sim.calls.borrow().is_empty());
         }
     }
@@ -915,7 +1371,11 @@ mod tests {
         assert_eq!(m["coa-t1-db"].health.as_deref(), Some("healthy"));
         assert_eq!(m["coa-t1-world"].exit_code, 137);
         assert_eq!(m["coa-t1-world"].pid, None);
-        assert!(parse_inspect("[]").is_empty() && parse_inspect("").is_empty() && parse_inspect("nonsense").is_empty());
+        assert!(
+            parse_inspect("[]").is_empty()
+                && parse_inspect("").is_empty()
+                && parse_inspect("nonsense").is_empty()
+        );
     }
 
     #[test]
@@ -926,12 +1386,21 @@ mod tests {
         // Nothing created yet.
         let sim = Sim::new();
         let o = observe_with(&sim, &root, &ports);
-        assert!([o.mysql.state, o.auth.state, o.world.state].iter().all(|s| *s == ServiceState::Stopped));
+        assert!([o.mysql.state, o.auth.state, o.world.state]
+            .iter()
+            .all(|s| *s == ServiceState::Stopped));
 
         // Everything up.
         assert!(start_all(&sim, &root).ok);
         let o = observe_with(&sim, &root, &ports);
-        assert_eq!((o.mysql.state, o.auth.state, o.world.state), (ServiceState::Running, ServiceState::Running, ServiceState::Running));
+        assert_eq!(
+            (o.mysql.state, o.auth.state, o.world.state),
+            (
+                ServiceState::Running,
+                ServiceState::Running,
+                ServiceState::Running
+            )
+        );
         assert!(o.world.port_ready && o.world.pid == Some(4242) && o.world.uptime_secs.is_some());
         assert_eq!(o.world.port, ports.world);
 
@@ -945,29 +1414,62 @@ mod tests {
 
         // Stopped cleanly, killed after the grace period, crashed, killed for lack of memory.
         let mut sim = Sim::new();
-        for (name, code, oom) in [("coa-t1-db", 0, false), ("coa-t1-auth", 137, false), ("coa-t1-world", 1, false)] {
+        for (name, code, oom) in [
+            ("coa-t1-db", 0, false),
+            ("coa-t1-auth", 137, false),
+            ("coa-t1-world", 1, false),
+        ] {
             sim.exited.borrow_mut().insert(name.into(), (code, oom));
         }
         let o = observe_with(&sim, &root, &ports);
-        assert_eq!((o.mysql.state, o.auth.state, o.world.state), (ServiceState::Stopped, ServiceState::Stopped, ServiceState::Crashed));
-        sim.exited.borrow_mut().insert("coa-t1-auth".into(), (137, true));
-        assert_eq!(observe_with(&sim, &root, &ports).auth.state, ServiceState::Crashed);
+        assert_eq!(
+            (o.mysql.state, o.auth.state, o.world.state),
+            (
+                ServiceState::Stopped,
+                ServiceState::Stopped,
+                ServiceState::Crashed
+            )
+        );
+        sim.exited
+            .borrow_mut()
+            .insert("coa-t1-auth".into(), (137, true));
+        assert_eq!(
+            observe_with(&sim, &root, &ports).auth.state,
+            ServiceState::Crashed
+        );
         sim.unavailable = true;
-        assert_eq!(observe_with(&sim, &root, &ports).world.state, ServiceState::Unknown, "docker unreachable: unknown, not stopped");
+        assert_eq!(
+            observe_with(&sim, &root, &ports).world.state,
+            ServiceState::Unknown,
+            "docker unreachable: unknown, not stopped"
+        );
     }
 
     #[test]
     fn the_runtime_image_is_named_after_its_dockerfile() {
         let name = runtime_image();
-        assert!(name.starts_with("coa-runtime:") && name.len() == "coa-runtime:".len() + 12, "{name}");
-        assert!(RUNTIME_DOCKERFILE.contains("libmysqlclient24") && RUNTIME_DOCKERFILE.contains("libreadline8t64"));
+        assert!(
+            name.starts_with("coa-runtime:") && name.len() == "coa-runtime:".len() + 12,
+            "{name}"
+        );
+        assert!(
+            RUNTIME_DOCKERFILE.contains("libmysqlclient24")
+                && RUNTIME_DOCKERFILE.contains("libreadline8t64")
+        );
     }
 
     #[test]
     fn a_docker_folder_is_scanned_without_the_repack_files() {
         let (_d, root) = server("t1");
         assert!(crate::docker::is_docker(&root));
-        for f in ["Core/worldserver", "Core/authserver", "Core/configs/worldserver.conf", "Core/configs/authserver.conf", "Data/dbc/x", "Data/maps/x"] {
+        for f in [
+            "Core/worldserver",
+            "Core/authserver",
+            "Core/configs/worldserver.conf",
+            "Core/configs/authserver.conf",
+            "Data/dbc/x",
+            "Data/maps/x",
+        ] {
             let p = root.join(f);
             fs::create_dir_all(p.parent().unwrap()).unwrap();
             fs::write(p, "x").unwrap();
@@ -976,8 +1478,14 @@ mod tests {
         assert_eq!(r.classification, crate::layout::Classification::Healthy);
         assert!(r.worldserver.is_some() && r.authserver.is_some() && !r.modifies_files);
         fs::remove_file(root.join("Core/authserver")).unwrap();
-        assert_eq!(crate::layout::scan(&root).unwrap().classification, crate::layout::Classification::Partial);
+        assert_eq!(
+            crate::layout::scan(&root).unwrap().classification,
+            crate::layout::Classification::Partial
+        );
         fs::remove_file(root.join("Settings/docker.json")).unwrap();
-        assert!(!crate::docker::is_docker(&root), "without the marker it is scanned as a repack");
+        assert!(
+            !crate::docker::is_docker(&root),
+            "without the marker it is scanned as a repack"
+        );
     }
 }

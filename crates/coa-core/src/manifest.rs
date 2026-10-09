@@ -120,7 +120,8 @@ pub fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
 
 impl Manifest {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
-        let m: Manifest = serde_json::from_slice(bytes).map_err(|e| Error::InvalidManifest(e.to_string()))?;
+        let m: Manifest =
+            serde_json::from_slice(bytes).map_err(|e| Error::InvalidManifest(e.to_string()))?;
         m.validate()?;
         Ok(m)
     }
@@ -134,17 +135,30 @@ impl Manifest {
             return bad(format!("bad version {:?}", self.version));
         }
         if parse_version(&self.min_manager_version).is_none() {
-            return bad(format!("bad minManagerVersion {:?}", self.min_manager_version));
+            return bad(format!(
+                "bad minManagerVersion {:?}",
+                self.min_manager_version
+            ));
         }
         for migration in &self.migrations {
-            if !is_sha256(&migration.sha256) || migration.compatible_sha256.iter().any(|h| !is_sha256(h) || h == &"0".repeat(64)) {
-                return bad(format!("{}: invalid migration checksum compatibility", migration.id));
+            if !is_sha256(&migration.sha256)
+                || migration
+                    .compatible_sha256
+                    .iter()
+                    .any(|h| !is_sha256(h) || h == &"0".repeat(64))
+            {
+                return bad(format!(
+                    "{}: invalid migration checksum compatibility",
+                    migration.id
+                ));
             }
         }
         for (label, rev) in [("core", Some(&self.core)), ("bots", self.bots.as_ref())] {
             if let Some(Revision { commit: Some(c) }) = rev {
                 if !is_commit(c) {
-                    return bad(format!("{label} commit must be a full 40-hex SHA, got {c:?}"));
+                    return bad(format!(
+                        "{label} commit must be a full 40-hex SHA, got {c:?}"
+                    ));
                 }
             }
         }
@@ -164,14 +178,19 @@ impl Manifest {
                 return bad(format!("unsupported archive format {:?}", a.format));
             }
             for p in &a.parts {
-                if !is_sha256(&p.sha256) || p.name.contains(['/', '\\']) || p.name.is_empty() || p.name.starts_with('.') {
+                if !is_sha256(&p.sha256)
+                    || p.name.contains(['/', '\\'])
+                    || p.name.is_empty()
+                    || p.name.starts_with('.')
+                {
                     return bad(format!("archive part {:?} is invalid", p.name));
                 }
             }
         }
         let mut ids = HashSet::new();
         for m in &self.migrations {
-            if m.id.is_empty() || !is_sha256(&m.sha256) || !ids.insert((m.db.clone(), m.id.clone())) {
+            if m.id.is_empty() || !is_sha256(&m.sha256) || !ids.insert((m.db.clone(), m.id.clone()))
+            {
                 return bad(format!("migration {:?} invalid or duplicated", m.id));
             }
         }
@@ -180,7 +199,10 @@ impl Manifest {
 
     /// True if this Manager build may apply the manifest.
     pub fn compatible_with_manager(&self, manager_version: &str) -> bool {
-        match (parse_version(manager_version), parse_version(&self.min_manager_version)) {
+        match (
+            parse_version(manager_version),
+            parse_version(&self.min_manager_version),
+        ) {
             (Some(have), Some(need)) => have >= need,
             _ => false,
         }
@@ -203,7 +225,11 @@ pub fn verify_file(path: &Path, entry: &FileEntry) -> Result<()> {
     }
     let actual = fsx::sha256_file(path)?;
     if !actual.eq_ignore_ascii_case(&entry.sha256) {
-        return Err(Error::HashMismatch { path: entry.path.clone(), expected: entry.sha256.clone(), actual });
+        return Err(Error::HashMismatch {
+            path: entry.path.clone(),
+            expected: entry.sha256.clone(),
+            actual,
+        });
     }
     Ok(())
 }
@@ -221,12 +247,15 @@ mod tests {
     }
 
     fn file(path: &str, sha: &str) -> String {
-        format!(r#"{{"path":"{path}","sha256":"{sha}","size":3,"owner":"core","policy":"replace"}}"#)
+        format!(
+            r#"{{"path":"{path}","sha256":"{sha}","size":3,"owner":"core","policy":"replace"}}"#
+        )
     }
 
     #[test]
     fn parses_valid_manifest() {
-        let m = Manifest::parse(sample(&file("Core/worldserver.exe", &"b".repeat(64))).as_bytes()).unwrap();
+        let m = Manifest::parse(sample(&file("Core/worldserver.exe", &"b".repeat(64))).as_bytes())
+            .unwrap();
         assert_eq!(m.files.len(), 1);
         assert!(m.compatible_with_manager("0.1.0"));
         assert!(!m.compatible_with_manager("0.0.9"));
@@ -257,7 +286,10 @@ mod tests {
         };
         verify_file(&p, &entry).unwrap();
         std::fs::write(&p, b"abd").unwrap();
-        assert!(matches!(verify_file(&p, &entry), Err(Error::HashMismatch { .. })));
+        assert!(matches!(
+            verify_file(&p, &entry),
+            Err(Error::HashMismatch { .. })
+        ));
         std::fs::write(&p, b"abcd").unwrap();
         assert!(verify_file(&p, &entry).is_err());
     }

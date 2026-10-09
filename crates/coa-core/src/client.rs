@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::fsx;
@@ -25,26 +25,41 @@ pub fn is_running(client: &Path) -> bool {
 }
 
 fn realm_config(old: &[u8], realm: &str) -> Vec<u8> {
-    let eol: &[u8] = if old.windows(2).any(|w| w == b"\r\n") { b"\r\n" } else { b"\n" };
+    let eol: &[u8] = if old.windows(2).any(|w| w == b"\r\n") {
+        b"\r\n"
+    } else {
+        b"\n"
+    };
     let mut out = Vec::new();
     let mut replaced = false;
     for line in old.split_inclusive(|b| *b == b'\n') {
         let body = line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(line);
-        let mut words = body.split(|b| b.is_ascii_whitespace()).filter(|w| !w.is_empty());
+        let mut words = body
+            .split(|b| b.is_ascii_whitespace())
+            .filter(|w| !w.is_empty());
         let matches = words.next().is_some_and(|w| w.eq_ignore_ascii_case(b"SET"))
-            && words.next().is_some_and(|w| w.eq_ignore_ascii_case(b"realmName"));
+            && words
+                .next()
+                .is_some_and(|w| w.eq_ignore_ascii_case(b"realmName"));
         if matches {
-            if line.starts_with(b"\xef\xbb\xbf") { out.extend_from_slice(b"\xef\xbb\xbf"); }
+            if line.starts_with(b"\xef\xbb\xbf") {
+                out.extend_from_slice(b"\xef\xbb\xbf");
+            }
             out.extend_from_slice(format!("SET realmName \"{realm}\"").as_bytes());
-            if line.ends_with(b"\r\n") { out.extend_from_slice(b"\r\n"); }
-            else if line.ends_with(b"\n") { out.push(b'\n'); }
+            if line.ends_with(b"\r\n") {
+                out.extend_from_slice(b"\r\n");
+            } else if line.ends_with(b"\n") {
+                out.push(b'\n');
+            }
             replaced = true;
         } else {
             out.extend_from_slice(line);
         }
     }
     if !replaced {
-        if !out.is_empty() && !out.ends_with(b"\n") { out.extend_from_slice(eol); }
+        if !out.is_empty() && !out.ends_with(b"\n") {
+            out.extend_from_slice(eol);
+        }
         out.extend_from_slice(format!("SET realmName \"{realm}\"").as_bytes());
         out.extend_from_slice(eol);
     }
@@ -55,8 +70,15 @@ pub fn sync_realm(client: &Path, meta: &Path, mode: crate::realms::Mode) -> Resu
     sync_realm_when_closed(client, meta, mode, is_running(client))
 }
 
-fn sync_realm_when_closed(client: &Path, meta: &Path, mode: crate::realms::Mode, running: bool) -> Result<bool> {
-    if running { return Ok(false); }
+fn sync_realm_when_closed(
+    client: &Path,
+    meta: &Path,
+    mode: crate::realms::Mode,
+    running: bool,
+) -> Result<bool> {
+    if running {
+        return Ok(false);
+    }
     let file = client.join("WTF/Config.wtf");
     let old = match fs::read(&file) {
         Ok(bytes) => bytes,
@@ -68,7 +90,9 @@ fn sync_realm_when_closed(client: &Path, meta: &Path, mode: crate::realms::Mode,
         crate::realms::Mode::Wildcard => "Wildcard",
     };
     let new = realm_config(&old, realm);
-    if new == old { return Ok(true); }
+    if new == old {
+        return Ok(true);
+    }
     if file.exists() {
         let saved = backup_dir(meta).join(format!("config-realm-{}.wtf", uuid::Uuid::new_v4()));
         fsx::atomic_write(&saved, &old)?;
@@ -107,7 +131,12 @@ fn find_exe(dir: &Path) -> Option<&'static str> {
 /// `Data/<locale>/realmlist.wtf` files (a client may have several locales).
 pub fn realmlist_files(client: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = fs::read_dir(client.join("Data"))
-        .map(|rd| rd.flatten().map(|e| e.path().join("realmlist.wtf")).filter(|p| p.is_file()).collect())
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path().join("realmlist.wtf"))
+                .filter(|p| p.is_file())
+                .collect()
+        })
         .unwrap_or_default();
     v.sort();
     v
@@ -116,13 +145,25 @@ pub fn realmlist_files(client: &Path) -> Vec<PathBuf> {
 fn parse_host(text: &str) -> Option<String> {
     text.lines().find_map(|l| {
         let l = l.trim();
-        let rest = l.get(..3).filter(|p| p.eq_ignore_ascii_case("set")).and_then(|_| l[3..].trim_start().get(..9).filter(|w| w.eq_ignore_ascii_case("realmlist")).map(|_| l[3..].trim_start()[9..].trim()))?;
+        let rest = l
+            .get(..3)
+            .filter(|p| p.eq_ignore_ascii_case("set"))
+            .and_then(|_| {
+                l[3..]
+                    .trim_start()
+                    .get(..9)
+                    .filter(|w| w.eq_ignore_ascii_case("realmlist"))
+                    .map(|_| l[3..].trim_start()[9..].trim())
+            })?;
         Some(rest.trim_matches('"').to_string())
     })
 }
 
 fn toc_version(toc: &Path) -> Option<String> {
-    fs::read_to_string(toc).ok()?.lines().find_map(|l| l.strip_prefix("## Version:").map(|v| v.trim().to_string()))
+    fs::read_to_string(toc)
+        .ok()?
+        .lines()
+        .find_map(|l| l.strip_prefix("## Version:").map(|v| v.trim().to_string()))
 }
 
 fn tree_hashes(dir: &Path) -> BTreeMap<String, String> {
@@ -170,10 +211,25 @@ pub fn detect(path: &Path, addon_package: Option<&Path>) -> Option<ClientInfo> {
     let exe = find_exe(path)?;
     let realmlists = realmlist_files(path)
         .into_iter()
-        .map(|p| Realmlist { host: fs::read_to_string(&p).ok().and_then(|t| parse_host(&t)), path: p.to_string_lossy().into_owned() })
+        .map(|p| Realmlist {
+            host: fs::read_to_string(&p).ok().and_then(|t| parse_host(&t)),
+            path: p.to_string_lossy().into_owned(),
+        })
         .collect();
-    let other = fs::read_dir(path.join("Interface/AddOns")).map(|rd| rd.flatten().filter(|e| e.path().is_dir() && e.file_name() != ADDON_NAME).count()).unwrap_or(0);
-    Some(ClientInfo { path: path.to_string_lossy().into_owned(), executable: exe.into(), realmlists, addon: addon_state(path, addon_package), other_addons: other })
+    let other = fs::read_dir(path.join("Interface/AddOns"))
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().is_dir() && e.file_name() != ADDON_NAME)
+                .count()
+        })
+        .unwrap_or(0);
+    Some(ClientInfo {
+        path: path.to_string_lossy().into_owned(),
+        executable: exe.into(),
+        realmlists,
+        addon: addon_state(path, addon_package),
+        other_addons: other,
+    })
 }
 
 fn backup_dir(meta: &Path) -> PathBuf {
@@ -181,7 +237,11 @@ fn backup_dir(meta: &Path) -> PathBuf {
 }
 
 pub fn host_ok(h: &str) -> bool {
-    !h.is_empty() && h.len() <= 253 && h.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':')) && !h.starts_with('-')
+    !h.is_empty()
+        && h.len() <= 253
+        && h.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':'))
+        && !h.starts_with('-')
 }
 
 /// Locales a client has game data for (`Data/<locale>/locale-<locale>.MPQ`), e.g. `enUS`.
@@ -191,8 +251,18 @@ fn installed_locales(client: &Path) -> Vec<String> {
             rd.flatten()
                 .filter(|e| e.path().is_dir())
                 .filter_map(|e| e.file_name().into_string().ok())
-                .filter(|n| n.len() == 4 && n[..2].bytes().all(|b| b.is_ascii_lowercase()) && n[2..].bytes().all(|b| b.is_ascii_uppercase()))
-                .filter(|n| client.join("Data").join(n).join(format!("locale-{n}.MPQ")).is_file())
+                .filter(|n| {
+                    n.len() == 4
+                        && n[..2].bytes().all(|b| b.is_ascii_lowercase())
+                        && n[2..].bytes().all(|b| b.is_ascii_uppercase())
+                })
+                .filter(|n| {
+                    client
+                        .join("Data")
+                        .join(n)
+                        .join(format!("locale-{n}.MPQ"))
+                        .is_file()
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -210,8 +280,14 @@ pub fn set_realmlist(client: &Path, meta: &Path, host: &str) -> Result<Vec<Strin
     if realmlist_files(client).is_empty() {
         for loc in installed_locales(client) {
             let file = client.join("Data").join(&loc).join("realmlist.wtf");
-            fsx::atomic_write(&file, format!("set realmlist {host}
-").as_bytes())?;
+            fsx::atomic_write(
+                &file,
+                format!(
+                    "set realmlist {host}
+"
+                )
+                .as_bytes(),
+            )?;
             changed.push(file.to_string_lossy().into_owned());
         }
         if !changed.is_empty() {
@@ -221,7 +297,8 @@ pub fn set_realmlist(client: &Path, meta: &Path, host: &str) -> Result<Vec<Strin
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     for file in realmlist_files(client) {
         let old = fs::read(&file)?;
-        let text = String::from_utf8(old.clone()).map_err(|_| Error::Invalid("realmlist.wtf is not text".into()))?;
+        let text = String::from_utf8(old.clone())
+            .map_err(|_| Error::Invalid("realmlist.wtf is not text".into()))?;
         if parse_host(&text).as_deref() == Some(host) {
             continue;
         }
@@ -242,7 +319,11 @@ pub fn set_realmlist(client: &Path, meta: &Path, host: &str) -> Result<Vec<Strin
             lines.push(format!("set realmlist {host}"));
         }
         let new = lines.join(eol) + eol;
-        let locale = file.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let locale = file
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let saved = backup_dir(meta).join(format!("realmlist-{locale}-{stamp}.wtf"));
         fsx::atomic_write(&saved, &old)?;
         fsx::atomic_write(&file, new.as_bytes())?;
@@ -255,10 +336,19 @@ pub fn set_realmlist(client: &Path, meta: &Path, host: &str) -> Result<Vec<Strin
 /// is saved to the backup folder first; files that already hold the same lines are left alone. A client without one gets a
 /// file for each installed locale. Returns the files that changed.
 pub fn write_realmlist(client: &Path, meta: &Path, content: &str) -> Result<Vec<String>> {
-    let compact = |t: &str| t.lines().map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n");
+    let compact = |t: &str| {
+        t.lines()
+            .map(|l| l.trim().to_ascii_lowercase())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     let mut files = realmlist_files(client);
     if files.is_empty() {
-        files = installed_locales(client).into_iter().map(|loc| client.join("Data").join(loc).join("realmlist.wtf")).collect();
+        files = installed_locales(client)
+            .into_iter()
+            .map(|loc| client.join("Data").join(loc).join("realmlist.wtf"))
+            .collect();
     }
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let mut changed = Vec::new();
@@ -268,8 +358,15 @@ pub fn write_realmlist(client: &Path, meta: &Path, content: &str) -> Result<Vec<
             if compact(&String::from_utf8_lossy(old)) == compact(content) {
                 continue;
             }
-            let locale = file.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            fsx::atomic_write(&backup_dir(meta).join(format!("realmlist-{locale}-{stamp}.wtf")), old)?;
+            let locale = file
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            fsx::atomic_write(
+                &backup_dir(meta).join(format!("realmlist-{locale}-{stamp}.wtf")),
+                old,
+            )?;
         }
         fsx::atomic_write(&file, content.as_bytes())?;
         changed.push(file.to_string_lossy().into_owned());
@@ -290,8 +387,11 @@ pub fn install_addon(client: &Path, meta: &Path, source: &Path) -> Result<()> {
         if want.iter().all(|(k, v)| have.get(k) == Some(v)) {
             return Ok(());
         }
-        let keep = backup_dir(meta).join(format!("{ADDON_NAME}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S")));
-        for (rel, _) in &have {
+        let keep = backup_dir(meta).join(format!(
+            "{ADDON_NAME}-{}",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S")
+        ));
+        for rel in have.keys() {
             let to = fsx::safe_join(&keep, rel)?;
             fs::create_dir_all(to.parent().unwrap())?;
             fs::copy(fsx::safe_join(&dest, rel)?, to)?;
@@ -306,9 +406,122 @@ pub fn install_addon(client: &Path, meta: &Path, source: &Path) -> Result<()> {
 
 /// Start the game client. The caller is responsible for making sure the server is ready first.
 pub fn launch(client: &Path) -> Result<u32> {
-    let exe = find_exe(client).ok_or_else(|| Error::Invalid("The game client was not found.".into()))?;
+    let exe =
+        find_exe(client).ok_or_else(|| Error::Invalid("The game client was not found.".into()))?;
     let child = Command::new(client.join(exe)).current_dir(client).spawn()?;
     Ok(child.id())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RealmlistOverrideEntry {
+    pub file_path: PathBuf,
+    pub original_bytes: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RealmlistOverrideJournal {
+    pub client_path: PathBuf,
+    pub target_host: String,
+    pub entries: Vec<RealmlistOverrideEntry>,
+    pub created_at: i64,
+}
+
+pub fn journal_path(meta: &Path) -> PathBuf {
+    meta.join("realmlist_override_journal.json")
+}
+
+/// Begins a crash-safe temporary realmlist redirection for PLAY.
+/// The exact original bytes (or absence) of every realmlist file are journaled atomically before any file is touched.
+pub fn begin_realmlist_override(
+    client: &Path,
+    meta: &Path,
+    host: &str,
+) -> Result<RealmlistOverrideJournal> {
+    if !host_ok(host) {
+        return Err(Error::Invalid("That address is not valid.".into()));
+    }
+    let jpath = journal_path(meta);
+    let mut files = realmlist_files(client);
+    if files.is_empty() {
+        files = installed_locales(client)
+            .into_iter()
+            .map(|loc| client.join("Data").join(loc).join("realmlist.wtf"))
+            .collect();
+    }
+    let mut entries = Vec::new();
+    for file in &files {
+        let original_bytes = fs::read(file).ok();
+        entries.push(RealmlistOverrideEntry {
+            file_path: file.clone(),
+            original_bytes,
+        });
+    }
+
+    let journal = RealmlistOverrideJournal {
+        client_path: client.to_path_buf(),
+        target_host: host.to_string(),
+        entries,
+        created_at: chrono::Utc::now().timestamp(),
+    };
+
+    if !jpath.exists() {
+        let json = serde_json::to_vec_pretty(&journal)
+            .map_err(|e| Error::Invalid(format!("Failed to serialize override journal: {e}")))?;
+        fsx::atomic_write(&jpath, &json)?;
+    }
+
+    for file in &files {
+        let dir = file
+            .parent()
+            .ok_or_else(|| Error::Invalid("file has no parent".into()))?;
+        fs::create_dir_all(dir)?;
+        let content = format!("set realmlist {host}\r\n");
+        fsx::atomic_write(file, content.as_bytes())?;
+    }
+
+    Ok(journal)
+}
+
+/// Restores the client's original realmlist bytes or absence from the journal.
+/// Removes the journal upon clean completion. Returns true if an override was recovered/reverted.
+pub fn revert_realmlist_override(meta: &Path) -> Result<bool> {
+    let jpath = journal_path(meta);
+    if !jpath.exists() {
+        return Ok(false);
+    }
+    let bytes = match fs::read(&jpath) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
+    let journal: RealmlistOverrideJournal = serde_json::from_slice(&bytes)
+        .map_err(|e| Error::Invalid(format!("Corrupt override journal: {e}")))?;
+
+    for entry in &journal.entries {
+        match &entry.original_bytes {
+            Some(orig) => {
+                let _ = fsx::atomic_write(&entry.file_path, orig);
+            }
+            None => {
+                if entry.file_path.exists() {
+                    let _ = fs::remove_file(&entry.file_path);
+                }
+            }
+        }
+    }
+    let _ = fs::remove_file(&jpath);
+    Ok(true)
+}
+
+/// Recovers any unfinished realmlist overrides across known client metadata folders.
+pub fn recover_all_realmlist_overrides(meta_roots: &[PathBuf]) -> usize {
+    let mut recovered = 0;
+    for meta in meta_roots {
+        if revert_realmlist_override(meta).unwrap_or(false) {
+            recovered += 1;
+        }
+    }
+    recovered
 }
 
 #[cfg(test)]
@@ -320,7 +533,10 @@ mod tests {
         let old = b"\xef\xbb\xbfSET realmName \"Wildcard\"\r\nSET accountName \"\xff\"\r\nset REALMNAME \"old\"\r\nSET realmList \"127.0.0.1\"";
         let expected = b"\xef\xbb\xbfSET realmName \"Conquest of Azeroth\"\r\nSET accountName \"\xff\"\r\nSET realmName \"Conquest of Azeroth\"\r\nSET realmList \"127.0.0.1\"";
         assert_eq!(realm_config(old, "Conquest of Azeroth"), expected);
-        assert_eq!(realm_config(b"SET sound 1", "Wildcard"), b"SET sound 1\nSET realmName \"Wildcard\"\n");
+        assert_eq!(
+            realm_config(b"SET sound 1", "Wildcard"),
+            b"SET sound 1\nSET realmName \"Wildcard\"\n"
+        );
     }
 
     #[test]
@@ -351,7 +567,10 @@ mod tests {
         assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), original);
         assert!(!backup_dir(&meta).exists());
         assert!(sync_realm_when_closed(&c, &meta, crate::realms::Mode::Coa, false).unwrap());
-        assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), b"SET realmName \"Conquest of Azeroth\"\n");
+        assert_eq!(
+            fs::read(c.join("WTF/Config.wtf")).unwrap(),
+            b"SET realmName \"Conquest of Azeroth\"\n"
+        );
     }
 
     fn fake_client(d: &Path) -> PathBuf {
@@ -361,8 +580,16 @@ mod tests {
         fs::create_dir_all(c.join("Interface/AddOns/ElvUI")).unwrap();
         fs::create_dir_all(c.join("WTF")).unwrap();
         fs::write(c.join("Ascension.exe"), b"exe").unwrap();
-        fs::write(c.join("Data/enUS/realmlist.wtf"), "set realmlist old.example.com\r\nset patchlist x\r\n").unwrap();
-        fs::write(c.join("Data/ruRU/realmlist.wtf"), "set realmlist 127.0.0.1\n").unwrap();
+        fs::write(
+            c.join("Data/enUS/realmlist.wtf"),
+            "set realmlist old.example.com\r\nset patchlist x\r\n",
+        )
+        .unwrap();
+        fs::write(
+            c.join("Data/ruRU/realmlist.wtf"),
+            "set realmlist 127.0.0.1\n",
+        )
+        .unwrap();
         fs::write(c.join("WTF/Config.wtf"), "SET x 1").unwrap();
         fs::write(c.join("Interface/AddOns/ElvUI/ElvUI.toc"), "## Title: Elv").unwrap();
         c
@@ -371,7 +598,11 @@ mod tests {
     fn package(d: &Path, version: &str) -> PathBuf {
         let p = d.join("pkg").join(ADDON_NAME);
         fs::create_dir_all(&p).unwrap();
-        fs::write(p.join("CoABotUI.toc"), format!("## Version: {version}\nCoABotUI.lua\n")).unwrap();
+        fs::write(
+            p.join("CoABotUI.toc"),
+            format!("## Version: {version}\nCoABotUI.lua\n"),
+        )
+        .unwrap();
         fs::write(p.join("CoABotUI.lua"), format!("-- v{version}")).unwrap();
         p
     }
@@ -390,9 +621,15 @@ mod tests {
         assert_eq!(info.realmlists[0].host.as_deref(), Some("old.example.com"));
         assert_eq!(info.other_addons, 1);
         assert!(!info.addon.installed);
-        assert!(detect(d.path(), None).is_none(), "a plain folder is not a client");
+        assert!(
+            detect(d.path(), None).is_none(),
+            "a plain folder is not a client"
+        );
         fs::create_dir_all(d.path().join("srv/Data")).unwrap();
-        assert!(detect(&d.path().join("srv"), None).is_none(), "Data without an executable is not a client");
+        assert!(
+            detect(&d.path().join("srv"), None).is_none(),
+            "Data without an executable is not a client"
+        );
     }
 
     #[test]
@@ -403,16 +640,51 @@ mod tests {
         let before = snapshot(&c);
         let changed = set_realmlist(&c, &meta, "192.168.0.5").unwrap();
         assert_eq!(changed.len(), 2);
-        assert_eq!(fs::read_to_string(c.join("Data/enUS/realmlist.wtf")).unwrap(), "set realmlist 192.168.0.5\r\nset patchlist x\r\n", "other lines and line endings preserved");
-        assert_eq!(fs::read_to_string(c.join("Data/ruRU/realmlist.wtf")).unwrap(), "set realmlist 192.168.0.5\n");
-        let saved: Vec<_> = fs::read_dir(meta.join("backups/client")).unwrap().flatten().collect();
+        assert_eq!(
+            fs::read_to_string(c.join("Data/enUS/realmlist.wtf")).unwrap(),
+            "set realmlist 192.168.0.5\r\nset patchlist x\r\n",
+            "other lines and line endings preserved"
+        );
+        assert_eq!(
+            fs::read_to_string(c.join("Data/ruRU/realmlist.wtf")).unwrap(),
+            "set realmlist 192.168.0.5\n"
+        );
+        let saved: Vec<_> = fs::read_dir(meta.join("backups/client"))
+            .unwrap()
+            .flatten()
+            .collect();
         assert_eq!(saved.len(), 2, "each changed file was backed up");
-        assert_eq!(fs::read_to_string(saved.iter().find(|e| e.file_name().to_string_lossy().contains("enUS")).unwrap().path()).unwrap(), "set realmlist old.example.com\r\nset patchlist x\r\n");
+        assert_eq!(
+            fs::read_to_string(
+                saved
+                    .iter()
+                    .find(|e| e.file_name().to_string_lossy().contains("enUS"))
+                    .unwrap()
+                    .path()
+            )
+            .unwrap(),
+            "set realmlist old.example.com\r\nset patchlist x\r\n"
+        );
         // nothing else in the client changed
         let after = snapshot(&c);
-        let diff: Vec<_> = after.iter().filter(|(k, v)| before.get(*k) != Some(*v)).map(|(k, _)| k.clone()).collect();
-        assert_eq!(diff, ["Data/ruRU/realmlist.wtf", "Data/enUS/realmlist.wtf"].iter().map(|s| s.to_string()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
-        assert!(set_realmlist(&c, &meta, "192.168.0.5").unwrap().is_empty(), "already set: no write, no new backup");
+        let diff: Vec<_> = after
+            .iter()
+            .filter(|(k, v)| before.get(*k) != Some(*v))
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(
+            diff,
+            ["Data/ruRU/realmlist.wtf", "Data/enUS/realmlist.wtf"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            set_realmlist(&c, &meta, "192.168.0.5").unwrap().is_empty(),
+            "already set: no write, no new backup"
+        );
         assert!(set_realmlist(&c, &meta, "bad host; rm -rf").is_err());
     }
 
@@ -426,10 +698,16 @@ mod tests {
         fs::write(c.join("Ascension.exe"), b"exe").unwrap();
         let changed = set_realmlist(&c, &d.path().join("meta"), "127.0.0.1").unwrap();
         assert_eq!(changed.len(), 1);
-        assert_eq!(fs::read_to_string(c.join("Data/enUS/realmlist.wtf")).unwrap(), "set realmlist 127.0.0.1
-");
+        assert_eq!(
+            fs::read_to_string(c.join("Data/enUS/realmlist.wtf")).unwrap(),
+            "set realmlist 127.0.0.1
+"
+        );
         assert!(!c.join("Data/Content/realmlist.wtf").exists());
-        assert_eq!(detect(&c, None).unwrap().realmlists[0].host.as_deref(), Some("127.0.0.1"));
+        assert_eq!(
+            detect(&c, None).unwrap().realmlists[0].host.as_deref(),
+            Some("127.0.0.1")
+        );
     }
 
     #[test]
@@ -440,7 +718,14 @@ mod tests {
         let v1 = package(d.path(), "1");
         install_addon(&c, &meta, &v1).unwrap();
         assert_eq!(addon_state(&c, Some(&v1)).up_to_date, Some(true));
-        assert!(!meta.join("backups/client").exists() || fs::read_dir(meta.join("backups/client")).unwrap().next().is_none(), "first install has nothing to back up");
+        assert!(
+            !meta.join("backups/client").exists()
+                || fs::read_dir(meta.join("backups/client"))
+                    .unwrap()
+                    .next()
+                    .is_none(),
+            "first install has nothing to back up"
+        );
 
         let before = snapshot(&c);
         install_addon(&c, &meta, &v1).unwrap();
@@ -449,14 +734,36 @@ mod tests {
         // user tweaks their copy, then a newer package arrives
         fs::write(c.join("Interface/AddOns/CoABotUI/notes.txt"), "mine").unwrap();
         let v2 = package(d.path(), "2");
-        let outside_before: BTreeMap<_, _> = snapshot(&c).into_iter().filter(|(k, _)| !k.starts_with("Interface/AddOns/CoABotUI")).collect();
+        let outside_before: BTreeMap<_, _> = snapshot(&c)
+            .into_iter()
+            .filter(|(k, _)| !k.starts_with("Interface/AddOns/CoABotUI"))
+            .collect();
         install_addon(&c, &meta, &v2).unwrap();
         assert_eq!(addon_state(&c, Some(&v2)).version.as_deref(), Some("2"));
-        assert_eq!(fs::read_to_string(c.join("Interface/AddOns/CoABotUI/notes.txt")).unwrap(), "mine", "the user's extra file survives");
-        let outside_after: BTreeMap<_, _> = snapshot(&c).into_iter().filter(|(k, _)| !k.starts_with("Interface/AddOns/CoABotUI")).collect();
-        assert_eq!(outside_before, outside_after, "other addons, WTF, Data untouched");
-        let kept = fs::read_dir(meta.join("backups/client")).unwrap().flatten().find(|e| e.file_name().to_string_lossy().starts_with(ADDON_NAME)).unwrap().path();
-        assert_eq!(fs::read_to_string(kept.join("CoABotUI.lua")).unwrap(), "-- v1", "the previous version and the user's copy are backed up");
+        assert_eq!(
+            fs::read_to_string(c.join("Interface/AddOns/CoABotUI/notes.txt")).unwrap(),
+            "mine",
+            "the user's extra file survives"
+        );
+        let outside_after: BTreeMap<_, _> = snapshot(&c)
+            .into_iter()
+            .filter(|(k, _)| !k.starts_with("Interface/AddOns/CoABotUI"))
+            .collect();
+        assert_eq!(
+            outside_before, outside_after,
+            "other addons, WTF, Data untouched"
+        );
+        let kept = fs::read_dir(meta.join("backups/client"))
+            .unwrap()
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().starts_with(ADDON_NAME))
+            .unwrap()
+            .path();
+        assert_eq!(
+            fs::read_to_string(kept.join("CoABotUI.lua")).unwrap(),
+            "-- v1",
+            "the previous version and the user's copy are backed up"
+        );
         assert!(kept.join("notes.txt").is_file());
     }
 
@@ -468,5 +775,63 @@ mod tests {
         fs::create_dir_all(&empty).unwrap();
         assert!(install_addon(&c, &d.path().join("meta"), &empty).is_err());
         assert!(launch(d.path()).is_err());
+    }
+
+    #[test]
+    fn realmlist_override_crash_safety_and_byte_for_byte_recovery() {
+        let d = tempfile::tempdir().unwrap();
+        let c = fake_client(d.path());
+        let meta = d.path().join("meta");
+        fs::create_dir_all(&meta).unwrap();
+
+        let orig_bytes = b"set realmlist custom-auth.game.org\nset patchlist patch.game.org\r\n";
+        let target_file = c.join("Data/enUS/realmlist.wtf");
+        fs::write(&target_file, orig_bytes).unwrap();
+
+        let journal = begin_realmlist_override(&c, &meta, "198.51.100.1").unwrap();
+        assert_eq!(journal.target_host, "198.51.100.1");
+        assert_eq!(
+            fs::read_to_string(&target_file).unwrap(),
+            "set realmlist 198.51.100.1\r\n"
+        );
+        assert!(
+            journal_path(&meta).exists(),
+            "journal file must exist while playing"
+        );
+
+        let recovered = revert_realmlist_override(&meta).unwrap();
+        assert!(recovered, "must report successful recovery");
+        assert!(
+            !journal_path(&meta).exists(),
+            "journal must be deleted after recovery"
+        );
+
+        let restored_bytes = fs::read(&target_file).unwrap();
+        assert_eq!(
+            restored_bytes, orig_bytes,
+            "Must restore exact original bytes"
+        );
+    }
+
+    #[test]
+    fn realmlist_override_restores_absence_if_file_did_not_exist() {
+        let d = tempfile::tempdir().unwrap();
+        let c = d.path().join("wow_fresh");
+        fs::create_dir_all(c.join("Data/enUS")).unwrap();
+        fs::write(c.join("Data/enUS/locale-enUS.MPQ"), b"x").unwrap();
+        let meta = d.path().join("meta");
+        fs::create_dir_all(&meta).unwrap();
+
+        let target_file = c.join("Data/enUS/realmlist.wtf");
+        assert!(!target_file.exists());
+
+        begin_realmlist_override(&c, &meta, "198.51.100.1").unwrap();
+        assert!(target_file.exists());
+
+        revert_realmlist_override(&meta).unwrap();
+        assert!(
+            !target_file.exists(),
+            "Originally absent file must be deleted upon reversion"
+        );
     }
 }

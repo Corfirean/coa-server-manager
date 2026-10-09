@@ -78,7 +78,11 @@ impl std::error::Error for ServiceError {}
 type Res<T> = std::result::Result<T, ServiceError>;
 
 fn fail(code: &str, message: impl Into<String>) -> ServiceError {
-    ServiceError { code: code.into(), message: message.into(), notes: vec![] }
+    ServiceError {
+        code: code.into(),
+        message: message.into(),
+        notes: vec![],
+    }
 }
 
 impl From<PortableError> for ServiceError {
@@ -171,7 +175,11 @@ fn now_text() -> String {
 }
 
 pub fn class_name(class: &str) -> String {
-    let id: u32 = class.rsplit(':').next().and_then(|n| n.parse().ok()).unwrap_or(0);
+    let id: u32 = class
+        .rsplit(':')
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
     match id {
         12 => "Barbarian",
         13 => "Witch Doctor",
@@ -225,18 +233,39 @@ pub fn notes_of(report: &CompatibilityReport) -> Vec<Note> {
                 params.insert("to".to_string(), to.to_string());
                 (topic, "projection".to_string(), outcome.to_string())
             }
-            Outcome::Held { topic, held, applicable, reason } => {
+            Outcome::Held {
+                topic,
+                held,
+                applicable,
+                reason,
+            } => {
                 params.insert("held".into(), held.to_string());
                 params.insert("applicable".into(), applicable.to_string());
-                (topic, format!("held_{}", topic_code(topic).0), reason.clone())
+                (
+                    topic,
+                    format!("held_{}", topic_code(topic).0),
+                    reason.clone(),
+                )
             }
-            Outcome::Unsupported { topic, reason } => (topic, format!("unsupported_{}", topic_code(topic).0), reason.clone()),
-            Outcome::Blocking { topic, reason } => (topic, format!("blocked_{}", topic_code(topic).0), reason.clone()),
+            Outcome::Unsupported { topic, reason } => (
+                topic,
+                format!("unsupported_{}", topic_code(topic).0),
+                reason.clone(),
+            ),
+            Outcome::Blocking { topic, reason } => (
+                topic,
+                format!("blocked_{}", topic_code(topic).0),
+                reason.clone(),
+            ),
         };
         if let Some((k, v)) = topic_code(topic).1 {
             params.insert(k.to_string(), v);
         }
-        out.push(Note { code, params, detail });
+        out.push(Note {
+            code,
+            params,
+            detail,
+        });
     }
     out
 }
@@ -257,18 +286,28 @@ fn projection_of(report: &CompatibilityReport) -> Option<(u32, u32)> {
 }
 
 fn valid_account_name(name: &str) -> bool {
-    !name.is_empty() && name.len() <= 32 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-.@".contains(&b))
+    !name.is_empty()
+        && name.len() <= 32
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-.@".contains(&b))
 }
 
 impl PortableService {
     /// Open the stores in `dir` (`owner/`, `host/`) and read the realms: the descriptors in `dir/realms` and the installations given.
-    pub fn open(dir: &Path, installs: Vec<(String, PathBuf)>) -> Result<PortableService, ServiceError> {
+    pub fn open(
+        dir: &Path,
+        installs: Vec<(String, PathBuf)>,
+    ) -> Result<PortableService, ServiceError> {
         std::fs::create_dir_all(dir).map_err(|e| fail("storage", e.to_string()))?;
         let mut owner = Store::open(&dir.join("owner"))?;
         let mut host = Store::open(&dir.join("host"))?;
         let owner_profile = owner.default_profile()?;
         let host_profile = host.default_profile()?;
-        let settings = std::fs::read(dir.join("settings.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let settings = std::fs::read(dir.join("settings.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
         let mut s = PortableService {
             dir: dir.to_path_buf(),
             owner,
@@ -287,7 +326,10 @@ impl PortableService {
             saved: HashMap::new(),
             verdicts: HashMap::new(),
             control: None,
-            host_config: HostConfig { checkpoint_interval_secs: 30, collection_interval_secs: 300 },
+            host_config: HostConfig {
+                checkpoint_interval_secs: 30,
+                collection_interval_secs: 300,
+            },
             started: Instant::now(),
             last_tick: None,
             published: None,
@@ -321,7 +363,11 @@ impl PortableService {
     pub fn reload_realms(&mut self) {
         let (descriptors, broken) = access::load_descriptors(&self.dir.join("realms"));
         self.broken_descriptors = broken;
-        let mut realms: Vec<RealmAccess> = self.installs.iter().map(|(id, root)| RealmAccess::from_install(id, root)).collect();
+        let mut realms: Vec<RealmAccess> = self
+            .installs
+            .iter()
+            .map(|(id, root)| RealmAccess::from_install(id, root))
+            .collect();
         for d in descriptors {
             match RealmAccess::from_descriptor(d) {
                 Ok(a) if !realms.iter().any(|r| r.id == a.id) => realms.push(a),
@@ -345,10 +391,22 @@ impl PortableService {
     pub fn remove_prepared_realm(&mut self, id: &str) -> Res<()> {
         let access = self.access(id)?;
         if access.kind != Kind::Prepared {
-            return Err(fail("not_prepared", "Only a realm that was added from a file can be removed here."));
+            return Err(fail(
+                "not_prepared",
+                "Only a realm that was added from a file can be removed here.",
+            ));
         }
-        if self.host.host_live_sessions(id).map_err(ServiceError::from)?.iter().any(|s| s.state != HostState::Closed) {
-            return Err(fail("session_open", "A character is in play on this realm."));
+        if self
+            .host
+            .host_live_sessions(id)
+            .map_err(ServiceError::from)?
+            .iter()
+            .any(|s| s.state != HostState::Closed)
+        {
+            return Err(fail(
+                "session_open",
+                "A character is in play on this realm.",
+            ));
         }
         access::remove_descriptor(&self.dir.join("realms"), id)?;
         self.reload_realms();
@@ -356,12 +414,21 @@ impl PortableService {
     }
 
     fn access(&self, id: &str) -> Res<RealmAccess> {
-        self.realms.iter().find(|r| r.id == id).cloned().ok_or_else(|| fail("realm_missing", "That realm is not known to this Manager."))
+        self.realms
+            .iter()
+            .find(|r| r.id == id)
+            .cloned()
+            .ok_or_else(|| fail("realm_missing", "That realm is not known to this Manager."))
     }
 
     fn cid(&self, id: &str) -> Res<CharacterId> {
-        let cid: CharacterId = id.parse().map_err(|_| fail("character_missing", "That character is not known."))?;
-        self.owner.character(cid).map(|_| cid).map_err(|_| fail("character_missing", "That character is not known."))
+        let cid: CharacterId = id
+            .parse()
+            .map_err(|_| fail("character_missing", "That character is not known."))?;
+        self.owner
+            .character(cid)
+            .map(|_| cid)
+            .map_err(|_| fail("character_missing", "That character is not known."))
     }
 
     fn note_error(&mut self, realm: Option<&str>, message: String) {
@@ -369,10 +436,18 @@ impl PortableService {
             self.errors.pop_front();
         }
         // a flood of the same message is one entry
-        if self.errors.back().is_some_and(|e| e.message == message && e.realm.as_deref() == realm) {
+        if self
+            .errors
+            .back()
+            .is_some_and(|e| e.message == message && e.realm.as_deref() == realm)
+        {
             return;
         }
-        self.errors.push_back(ErrorEntry { at: now_text(), realm: realm.map(str::to_string), message });
+        self.errors.push_back(ErrorEntry {
+            at: now_text(),
+            realm: realm.map(str::to_string),
+            message,
+        });
     }
 
     fn save_settings(&self) {
@@ -383,7 +458,11 @@ impl PortableService {
 
     fn refresh_obs(&mut self, id: &str, force: bool) {
         let Ok(access) = self.access(id) else { return };
-        let due = self.obs.get(id).and_then(|o| o.seen).is_none_or(|t| t.elapsed() >= OBS_EVERY);
+        let due = self
+            .obs
+            .get(id)
+            .and_then(|o| o.seen)
+            .is_none_or(|t| t.elapsed() >= OBS_EVERY);
         if !due && !force {
             return;
         }
@@ -399,7 +478,13 @@ impl PortableService {
     }
 
     /// The realm's capabilities as its core reports them now (at most once a minute), remembered by the Host's store.
-    fn capabilities(&mut self, access: &RealmAccess, db: &Db, ra: &mut Ra, force: bool) -> Res<RealmCapabilities> {
+    fn capabilities(
+        &mut self,
+        access: &RealmAccess,
+        db: &Db,
+        ra: &mut Ra,
+        force: bool,
+    ) -> Res<RealmCapabilities> {
         if !force {
             if let Some(o) = self.obs.get(&access.id) {
                 if let (Some(c), Some(at)) = (&o.caps, o.caps_at) {
@@ -409,11 +494,16 @@ impl PortableService {
                 }
             }
         }
-        let data = access.data_dir.is_dir().then_some(access.data_dir.as_path());
-        let caps = probe_capabilities(db, data, Some(ra), &self.registry).map_err(|e| fail("realm_unreadable", e.to_string()))?;
+        let data = access
+            .data_dir
+            .is_dir()
+            .then_some(access.data_dir.as_path());
+        let caps = probe_capabilities(db, data, Some(ra), &self.registry)
+            .map_err(|e| fail("realm_unreadable", e.to_string()))?;
         let o = self.obs.entry(access.id.clone()).or_default();
         let memory = std::mem::take(&mut o.memory);
-        let mut host = HostService::resume(&mut self.host, &access.id, self.host_config.clone(), memory);
+        let mut host =
+            HostService::resume(&mut self.host, &access.id, self.host_config.clone(), memory);
         let observed = host.observe_profile(&caps, "live");
         let memory = host.into_memory();
         let o = self.obs.entry(access.id.clone()).or_default();
@@ -428,15 +518,29 @@ impl PortableService {
     /// The profile of a realm that is not running: what its core last said, with its progression.
     fn remembered(&self, access: &RealmAccess, db: &Db) -> Option<RealmCapabilities> {
         let stored = self.host.realm_profile(&access.id).ok().flatten()?;
-        let data = access.data_dir.is_dir().then_some(access.data_dir.as_path());
+        let data = access
+            .data_dir
+            .is_dir()
+            .then_some(access.data_dir.as_path());
         let schema = realm::probe(db).ok()?;
         let offline = realm::profile::assemble(db, &schema, data, None, &self.registry).ok()?;
         with_remembered_progression(offline, Some(&stored)).ok()
     }
 
     fn options(&self, access: &RealmAccess, caps: &RealmCapabilities) -> ImportOptions {
-        let knowledge = access.data_dir.is_dir().then(|| RealmKnowledge::from_data_dir(&access.data_dir).ok()).flatten().map(Arc::new);
-        ImportOptions { game_server_users: access.game_server_users.clone(), knowledge, capabilities: Some(Arc::new(caps.clone())), extensions: Some(self.registry.clone()), ..ImportOptions::default() }
+        let knowledge = access
+            .data_dir
+            .is_dir()
+            .then(|| RealmKnowledge::from_data_dir(&access.data_dir).ok())
+            .flatten()
+            .map(Arc::new);
+        ImportOptions {
+            game_server_users: access.game_server_users.clone(),
+            knowledge,
+            capabilities: Some(Arc::new(caps.clone())),
+            extensions: Some(self.registry.clone()),
+            ..ImportOptions::default()
+        }
     }
 
     fn account_id(&self, db: &Db, name: &str) -> Res<u32> {
@@ -444,8 +548,20 @@ impl PortableService {
             return Err(fail("account_missing", "That is not a game account name."));
         }
         let upper = realm::sqlenc::Val::text(name.to_ascii_uppercase()).sql();
-        let out = db.query(&format!("SELECT id FROM acore_auth.account WHERE username = {upper}")).map_err(|e| fail("realm_unreadable", e.to_string()))?;
-        out.lines().next().and_then(|l| l.trim().parse().ok()).ok_or_else(|| fail("account_missing", format!("The realm has no game account named {name}.")))
+        let out = db
+            .query(&format!(
+                "SELECT id FROM acore_auth.account WHERE username = {upper}"
+            ))
+            .map_err(|e| fail("realm_unreadable", e.to_string()))?;
+        out.lines()
+            .next()
+            .and_then(|l| l.trim().parse().ok())
+            .ok_or_else(|| {
+                fail(
+                    "account_missing",
+                    format!("The realm has no game account named {name}."),
+                )
+            })
     }
 
     // ---- views --------------------------------------------------------------------------------------------------------------------
@@ -455,9 +571,17 @@ impl PortableService {
         let o = self.obs.get(id);
         let caps = o.and_then(|o| o.caps.as_ref());
         let stored = self.host.realm_profile(id).ok().flatten();
-        let cap = caps.or(stored.as_ref()).and_then(|c| c.progression.as_ref()).map(|p| p.max_player_level);
+        let cap = caps
+            .or(stored.as_ref())
+            .and_then(|c| c.progression.as_ref())
+            .map(|p| p.max_player_level);
         let portable = match caps.or(stored.as_ref()) {
-            Some(c) if c.content.supports(super::super::capabilities::Feature::RuntimeSessions) => "ready",
+            Some(c)
+                if c.content
+                    .supports(super::super::capabilities::Feature::RuntimeSessions) =>
+            {
+                "ready"
+            }
             Some(_) if o.is_some_and(|o| o.ra_ok) => "setup",
             _ => "unknown",
         };
@@ -475,35 +599,71 @@ impl PortableService {
         })
     }
 
-    fn copy_status(&self, character: CharacterId, record_revision: u64, realm_id: &str) -> (PlayStatus, bool, Option<u32>, u64, String) {
-        let mapping = self.host.server_mappings(character).ok().and_then(|m| m.into_iter().find(|m| m.server_id == realm_id));
-        let Some(m) = mapping else { return (PlayStatus::Ready, false, None, 0, String::new()) };
-        let projected = self.host.projection_context(character, realm_id).ok().flatten().map(|c| c.projected_level);
+    fn copy_status(
+        &self,
+        character: CharacterId,
+        record_revision: u64,
+        realm_id: &str,
+    ) -> (PlayStatus, bool, Option<u32>, u64, String) {
+        let mapping = self
+            .host
+            .server_mappings(character)
+            .ok()
+            .and_then(|m| m.into_iter().find(|m| m.server_id == realm_id));
+        let Some(m) = mapping else {
+            return (PlayStatus::Ready, false, None, 0, String::new());
+        };
+        let projected = self
+            .host
+            .projection_context(character, realm_id)
+            .ok()
+            .flatten()
+            .map(|c| c.projected_level);
         let behind = m.last_revision < record_revision;
         let obs = self.obs.get(realm_id);
-        let live = self.host.host_live_sessions(realm_id).unwrap_or_default().into_iter().find(|s| s.character_id == character);
+        let live = self
+            .host
+            .host_live_sessions(realm_id)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|s| s.character_id == character);
         let stale = self.reproject.contains(&(character, realm_id.to_string()));
-        let status = if self.op.as_ref().is_some_and(|o| o.character_id == character.to_string() && o.realm_id == realm_id) {
-            self.op.as_ref().map(|o| o.status).unwrap_or(PlayStatus::Preparing)
+        let status = if self
+            .op
+            .as_ref()
+            .is_some_and(|o| o.character_id == character.to_string() && o.realm_id == realm_id)
+        {
+            self.op
+                .as_ref()
+                .map(|o| o.status)
+                .unwrap_or(PlayStatus::Preparing)
         } else if self.conflicts.contains(&(character, realm_id.to_string())) {
             PlayStatus::Conflict
         } else if !obs.is_some_and(|o| o.db_ok) {
             PlayStatus::Offline
         } else if let Some(s) = &live {
             let row = s.local_guid.and_then(|g| obs.and_then(|o| o.rows.get(&g)));
-            let pending = self.host.host_outbox_pending(realm_id).map(|p| p.iter().any(|m| m.session_id == s.session_id)).unwrap_or(false);
+            let pending = self
+                .host
+                .host_outbox_pending(realm_id)
+                .map(|p| p.iter().any(|m| m.session_id == s.session_id))
+                .unwrap_or(false);
             match (s.state, row.map(|r| r.state)) {
                 _ if stale || s.reproject => PlayStatus::UpdateRequired,
                 (HostState::Armed, _) => PlayStatus::WaitingLogin,
                 (_, Some(RowState::Ended)) => PlayStatus::Saving,
-                (_, Some(RowState::Active | RowState::BaselineReady)) if pending => PlayStatus::Syncing,
+                (_, Some(RowState::Active | RowState::BaselineReady)) if pending => {
+                    PlayStatus::Syncing
+                }
                 (_, Some(RowState::Active | RowState::BaselineReady)) => PlayStatus::Playing,
                 _ if !obs.is_some_and(|o| o.ra_ok) => PlayStatus::Offline,
                 _ => PlayStatus::Playing,
             }
         } else if behind || stale {
             PlayStatus::UpdateRequired
-        } else if projected.is_some() || self.verdicts.get(&(character, realm_id.to_string())) == Some(&Verdict::Degraded) {
+        } else if projected.is_some()
+            || self.verdicts.get(&(character, realm_id.to_string())) == Some(&Verdict::Degraded)
+        {
             PlayStatus::CompatWarning
         } else {
             PlayStatus::Ready
@@ -513,17 +673,58 @@ impl PortableService {
 
     pub fn state(&self) -> PortableState {
         let mut characters = Vec::new();
-        let list = self.owner.list_characters(self.owner_profile).unwrap_or_default();
+        let list = self
+            .owner
+            .list_characters(self.owner_profile)
+            .unwrap_or_default();
         for c in list.into_iter().filter(|c| !c.archived) {
             let mut copies = Vec::new();
-            for m in self.host.server_mappings(c.character_id).unwrap_or_default() {
-                let Some(realm) = self.realms.iter().find(|r| r.id == m.server_id) else { continue };
-                let (status, behind, projected_level, rev, at) = self.copy_status(c.character_id, c.revision, &m.server_id);
-                let degraded = projected_level.is_some() || self.verdicts.get(&(c.character_id, m.server_id.clone())) == Some(&Verdict::Degraded);
-                copies.push(CopyView { realm_id: m.server_id.clone(), realm_name: realm.name.clone(), status, synced_revision: rev, behind, projected_level, degraded, updated_at: at });
+            for m in self
+                .host
+                .server_mappings(c.character_id)
+                .unwrap_or_default()
+            {
+                let Some(realm) = self.realms.iter().find(|r| r.id == m.server_id) else {
+                    continue;
+                };
+                let (status, behind, projected_level, rev, at) =
+                    self.copy_status(c.character_id, c.revision, &m.server_id);
+                let degraded = projected_level.is_some()
+                    || self.verdicts.get(&(c.character_id, m.server_id.clone()))
+                        == Some(&Verdict::Degraded);
+                copies.push(CopyView {
+                    realm_id: m.server_id.clone(),
+                    realm_name: realm.name.clone(),
+                    status,
+                    synced_revision: rev,
+                    behind,
+                    projected_level,
+                    degraded,
+                    updated_at: at,
+                });
             }
-            let active = copies.iter().find(|x| matches!(x.status, PlayStatus::Playing | PlayStatus::Saving | PlayStatus::WaitingLogin | PlayStatus::Syncing)).cloned();
-            let status = active.as_ref().map(|a| a.status).or_else(|| copies.iter().map(|c| c.status).find(|s| matches!(s, PlayStatus::Conflict | PlayStatus::UpdateRequired))).unwrap_or(PlayStatus::Ready);
+            let active = copies
+                .iter()
+                .find(|x| {
+                    matches!(
+                        x.status,
+                        PlayStatus::Playing
+                            | PlayStatus::Saving
+                            | PlayStatus::WaitingLogin
+                            | PlayStatus::Syncing
+                    )
+                })
+                .cloned();
+            let status = active
+                .as_ref()
+                .map(|a| a.status)
+                .or_else(|| {
+                    copies
+                        .iter()
+                        .map(|c| c.status)
+                        .find(|s| matches!(s, PlayStatus::Conflict | PlayStatus::UpdateRequired))
+                })
+                .unwrap_or(PlayStatus::Ready);
             characters.push(CharacterView {
                 id: c.character_id.to_string(),
                 name: c.name,
@@ -537,13 +738,31 @@ impl PortableService {
                 copies,
             });
         }
-        let realms = self.realms.iter().filter_map(|r| self.realm_view(&r.id).ok()).collect();
-        let sessions_open = self.realms.iter().map(|r| self.host.host_live_sessions(&r.id).map(|v| v.len() as u32).unwrap_or(0)).sum();
+        let realms = self
+            .realms
+            .iter()
+            .filter_map(|r| self.realm_view(&r.id).ok())
+            .collect();
+        let sessions_open = self
+            .realms
+            .iter()
+            .map(|r| {
+                self.host
+                    .host_live_sessions(&r.id)
+                    .map(|v| v.len() as u32)
+                    .unwrap_or(0)
+            })
+            .sum();
         PortableState {
             characters,
             realms,
             operation: self.op.clone(),
-            runtime: RuntimeView { running: self.last_tick.is_some(), last_tick_secs: self.last_tick.map(|t| t.elapsed().as_secs()), sessions_open, errors: self.errors.iter().cloned().collect() },
+            runtime: RuntimeView {
+                running: self.last_tick.is_some(),
+                last_tick_secs: self.last_tick.map(|t| t.elapsed().as_secs()),
+                sessions_open,
+                errors: self.errors.iter().cloned().collect(),
+            },
         }
     }
 
@@ -556,7 +775,11 @@ impl PortableService {
     }
 
     fn set_op(&mut self, character: CharacterId, realm: &str, status: PlayStatus) {
-        self.op = Some(OperationView { character_id: character.to_string(), realm_id: realm.to_string(), status });
+        self.op = Some(OperationView {
+            character_id: character.to_string(),
+            realm_id: realm.to_string(),
+            status,
+        });
         self.publish();
     }
 
@@ -567,10 +790,25 @@ impl PortableService {
 
     // ---- compatibility -----------------------------------------------------------------------------------------------------------
 
-    fn report(&self, character: &super::super::model::PortableCharacter, caps: &RealmCapabilities, opts: &ImportOptions, ops: &[Operation], live: bool) -> CompatibilityReport {
+    fn report(
+        &self,
+        character: &super::super::model::PortableCharacter,
+        caps: &RealmCapabilities,
+        opts: &ImportOptions,
+        ops: &[Operation],
+        live: bool,
+    ) -> CompatibilityReport {
         let mut merged: Option<CompatibilityReport> = None;
         for op in ops {
-            let r = compat::evaluate(&Inputs { operation: *op, model: character, capabilities: caps, knowledge: opts.knowledge.as_deref(), collections: &[], extensions: opts.extensions.as_deref(), projection_decider: live || opts.projection.is_some() });
+            let r = compat::evaluate(&Inputs {
+                operation: *op,
+                model: character,
+                capabilities: caps,
+                knowledge: opts.knowledge.as_deref(),
+                collections: &[],
+                extensions: opts.extensions.as_deref(),
+                projection_decider: live || opts.projection.is_some(),
+            });
             merged = Some(match merged {
                 None => r,
                 Some(mut m) => {
@@ -588,17 +826,42 @@ impl PortableService {
 
     /// The same compatibility check for a realm that is only known by what it advertises (a row of the public list): the Phase 7/8 rules evaluated against the
     /// advertised capabilities, with nothing written anywhere. What cannot be known from an advertisement (the realm's client tables) is not assumed.
-    pub fn preflight_advert(&mut self, character: &str, capabilities: &serde_json::Value) -> Res<PreflightView> {
+    pub fn preflight_advert(
+        &mut self,
+        character: &str,
+        capabilities: &serde_json::Value,
+    ) -> Res<PreflightView> {
         let cid = self.cid(character)?;
-        let caps = RealmCapabilities::from_json(capabilities.to_string().as_bytes()).map_err(|e| fail("realm_unreadable", e.to_string()))?;
+        let caps = RealmCapabilities::from_json(capabilities.to_string().as_bytes())
+            .map_err(|e| fail("realm_unreadable", e.to_string()))?;
         let canonical = self.owner.load_current(cid)?;
-        let opts = ImportOptions { capabilities: Some(Arc::new(caps.clone())), extensions: Some(self.registry.clone()), ..ImportOptions::default() };
-        let report = self.report(&canonical, &caps, &opts, &[Operation::OnlineImport, Operation::RuntimeSession], true);
+        let opts = ImportOptions {
+            capabilities: Some(Arc::new(caps.clone())),
+            extensions: Some(self.registry.clone()),
+            ..ImportOptions::default()
+        };
+        let report = self.report(
+            &canonical,
+            &caps,
+            &opts,
+            &[Operation::OnlineImport, Operation::RuntimeSession],
+            true,
+        );
         let verdict = verdict_of(report.verdict());
         let notes = notes_of(&report);
         let projection = projection_of(&report);
-        let step = if verdict == Verdict::Incompatible { Step::Blocked } else { Step::Prepare };
-        Ok(PreflightView { verdict, step, projection, notes, needs_account: false })
+        let step = if verdict == Verdict::Incompatible {
+            Step::Blocked
+        } else {
+            Step::Prepare
+        };
+        Ok(PreflightView {
+            verdict,
+            step,
+            projection,
+            notes,
+            needs_account: false,
+        })
     }
 
     /// What pressing Play would do, found by looking only: nothing is written to a realm or to a store.
@@ -606,16 +869,38 @@ impl PortableService {
         let cid = self.cid(character)?;
         let access = self.access(realm_id)?;
         self.refresh_obs(realm_id, true);
-        let obs_ok = self.obs.get(realm_id).map(|o| (o.db_ok, o.ra_ok)).unwrap_or((false, false));
+        let obs_ok = self
+            .obs
+            .get(realm_id)
+            .map(|o| (o.db_ok, o.ra_ok))
+            .unwrap_or((false, false));
         if !obs_ok.0 {
-            return Ok(PreflightView { verdict: Verdict::Compatible, step: Step::Offline, projection: None, notes: vec![Note { code: "realm_offline".into(), params: BTreeMap::new(), detail: "the realm's database cannot be reached".into() }], needs_account: false });
+            return Ok(PreflightView {
+                verdict: Verdict::Compatible,
+                step: Step::Offline,
+                projection: None,
+                notes: vec![Note {
+                    code: "realm_offline".into(),
+                    params: BTreeMap::new(),
+                    detail: "the realm's database cannot be reached".into(),
+                }],
+                needs_account: false,
+            });
         }
         let db = access.db()?;
         let canonical = self.owner.load_current(cid)?;
         let record = self.owner.character(cid)?;
-        let mapping = self.host.server_mappings(cid)?.into_iter().find(|m| m.server_id == realm_id);
+        let mapping = self
+            .host
+            .server_mappings(cid)?
+            .into_iter()
+            .find(|m| m.server_id == realm_id);
         let needs_account = mapping.is_none() && !self.settings.accounts.contains_key(realm_id);
-        let live_session = self.host.host_live_sessions(realm_id)?.into_iter().any(|s| s.character_id == cid);
+        let live_session = self
+            .host
+            .host_live_sessions(realm_id)?
+            .into_iter()
+            .any(|s| s.character_id == cid);
 
         let (caps, running) = if obs_ok.1 {
             let mut ra = access.ra()?;
@@ -623,11 +908,27 @@ impl PortableService {
         } else {
             match self.remembered(&access, &db) {
                 Some(c) => (c, false),
-                None => return Ok(PreflightView { verdict: Verdict::Compatible, step: Step::Offline, projection: None, notes: vec![Note { code: "realm_unknown".into(), params: BTreeMap::new(), detail: "the realm has never been seen running".into() }], needs_account }),
+                None => {
+                    return Ok(PreflightView {
+                        verdict: Verdict::Compatible,
+                        step: Step::Offline,
+                        projection: None,
+                        notes: vec![Note {
+                            code: "realm_unknown".into(),
+                            params: BTreeMap::new(),
+                            detail: "the realm has never been seen running".into(),
+                        }],
+                        needs_account,
+                    })
+                }
             }
         };
         let opts = self.options(&access, &caps);
-        let ops: &[Operation] = if mapping.is_none() { &[Operation::OnlineImport, Operation::RuntimeSession] } else { &[Operation::Update, Operation::RuntimeSession] };
+        let ops: &[Operation] = if mapping.is_none() {
+            &[Operation::OnlineImport, Operation::RuntimeSession]
+        } else {
+            &[Operation::Update, Operation::RuntimeSession]
+        };
         let report = self.report(&canonical, &caps, &opts, ops, running);
         let verdict = verdict_of(report.verdict());
         self.verdicts.insert((cid, realm_id.to_string()), verdict);
@@ -642,7 +943,9 @@ impl PortableService {
         } else if live_session && !self.reproject.contains(&(cid, realm_id.to_string())) {
             Step::Resume
         } else {
-            let behind = mapping.as_ref().is_some_and(|m| m.last_revision < record.revision);
+            let behind = mapping
+                .as_ref()
+                .is_some_and(|m| m.last_revision < record.revision);
             let pin_stale = self.reproject.contains(&(cid, realm_id.to_string()));
             if !behind && !pin_stale && !self.pin_moved(cid, realm_id, &caps) {
                 Step::Arm
@@ -650,26 +953,46 @@ impl PortableService {
                 match realm::preview_update(&db, &self.host, cid, realm_id, &opts) {
                     Ok(p) if !p.conflicts.is_empty() => {
                         self.conflicts.insert((cid, realm_id.to_string()));
-                        notes.push(Note { code: "conflict".into(), params: BTreeMap::new(), detail: p.conflicts.join("; ") });
+                        notes.push(Note {
+                            code: "conflict".into(),
+                            params: BTreeMap::new(),
+                            detail: p.conflicts.join("; "),
+                        });
                         Step::Resolve
                     }
                     Ok(_) => Step::Restart,
                     Err(PortableError::RealmRead(_)) => Step::Restart,
                     Err(e) => {
-                        notes.push(Note { code: "unreadable".into(), params: BTreeMap::new(), detail: e.to_string() });
+                        notes.push(Note {
+                            code: "unreadable".into(),
+                            params: BTreeMap::new(),
+                            detail: e.to_string(),
+                        });
                         Step::Restart
                     }
                 }
             }
         };
         self.publish();
-        Ok(PreflightView { verdict, step, projection, notes, needs_account })
+        Ok(PreflightView {
+            verdict,
+            step,
+            projection,
+            notes,
+            needs_account,
+        })
     }
 
     fn pin_moved(&self, character: CharacterId, realm_id: &str, caps: &RealmCapabilities) -> bool {
-        let Some(p) = &caps.progression else { return false };
+        let Some(p) = &caps.progression else {
+            return false;
+        };
         match self.host.character_pin(character, realm_id).ok().flatten() {
-            Some(pin) => pin.progression_signature != p.progression_signature || pin.max_player_level != p.max_player_level || pin.policy_version != p.projection_policy_version,
+            Some(pin) => {
+                pin.progression_signature != p.progression_signature
+                    || pin.max_player_level != p.max_player_level
+                    || pin.policy_version != p.projection_policy_version
+            }
             None => true,
         }
     }
@@ -677,10 +1000,18 @@ impl PortableService {
     // ---- Play --------------------------------------------------------------------------------------------------------------------
 
     /// Prepare everything for a session of this character on this realm. Afterwards the game's login is the only step left.
-    pub fn play(&mut self, character: &str, realm_id: &str, account: Option<&str>) -> Res<PlayView> {
+    pub fn play(
+        &mut self,
+        character: &str,
+        realm_id: &str,
+        account: Option<&str>,
+    ) -> Res<PlayView> {
         let cid = self.cid(character)?;
         let access = self.access(realm_id)?;
-        let account = account.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string);
+        let account = account
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_string);
         if account.as_deref().is_some_and(|n| !valid_account_name(n)) {
             return Err(fail("account_missing", "That is not a game account name."));
         }
@@ -691,7 +1022,9 @@ impl PortableService {
         let result = self.play_inner(cid, &access, account.as_deref());
         if result.is_ok() {
             if let Some(name) = &account {
-                self.settings.accounts.insert(realm_id.to_string(), name.clone());
+                self.settings
+                    .accounts
+                    .insert(realm_id.to_string(), name.clone());
                 self.save_settings();
             }
         }
@@ -702,42 +1035,103 @@ impl PortableService {
         result
     }
 
-    fn play_inner(&mut self, cid: CharacterId, access: &RealmAccess, account: Option<&str>) -> Res<PlayView> {
+    fn play_inner(
+        &mut self,
+        cid: CharacterId,
+        access: &RealmAccess,
+        account: Option<&str>,
+    ) -> Res<PlayView> {
         self.refresh_obs(&access.id, true);
-        let o = self.obs.get(&access.id).map(|o| (o.db_ok, o.ra_ok)).unwrap_or((false, false));
+        let o = self
+            .obs
+            .get(&access.id)
+            .map(|o| (o.db_ok, o.ra_ok))
+            .unwrap_or((false, false));
         if !o.0 {
-            return Err(fail("realm_offline", "The realm's database cannot be reached."));
+            return Err(fail(
+                "realm_offline",
+                "The realm's database cannot be reached.",
+            ));
         }
         if !o.1 {
             return Err(fail("realm_offline", "The realm is not running."));
         }
         let pre = self.preflight(&cid.to_string(), &access.id)?;
         match pre.step {
-            Step::Blocked => return Err(ServiceError { code: "incompatible".into(), message: "This realm cannot take this character; nothing was changed.".into(), notes: pre.notes }),
+            Step::Blocked => {
+                return Err(ServiceError {
+                    code: "incompatible".into(),
+                    message: "This realm cannot take this character; nothing was changed.".into(),
+                    notes: pre.notes,
+                })
+            }
             Step::Offline => return Err(fail("realm_offline", "The realm is not running.")),
-            Step::Resolve => return Err(ServiceError { code: "conflict".into(), message: "The realm's copy and the saved character both changed.".into(), notes: pre.notes }),
+            Step::Resolve => {
+                return Err(ServiceError {
+                    code: "conflict".into(),
+                    message: "The realm's copy and the saved character both changed.".into(),
+                    notes: pre.notes,
+                })
+            }
             Step::Restart => self.restart_update(cid, access)?,
             Step::Prepare => self.prepare(cid, access, account)?,
             Step::Arm => self.arm(cid, access)?,
             Step::Resume => {}
         }
         self.conflicts.remove(&(cid, access.id.clone()));
-        let status = if pre.verdict == Verdict::Degraded { PlayStatus::CompatWarning } else { PlayStatus::WaitingLogin };
-        Ok(PlayView { status, projection: pre.projection, notes: pre.notes, realm_address: access.address.clone(), realm_id: access.id.clone() })
+        let status = if pre.verdict == Verdict::Degraded {
+            PlayStatus::CompatWarning
+        } else {
+            PlayStatus::WaitingLogin
+        };
+        Ok(PlayView {
+            status,
+            projection: pre.projection,
+            notes: pre.notes,
+            realm_address: access.address.clone(),
+            realm_id: access.id.clone(),
+        })
     }
 
     /// The character is not on the realm: offer it, put it there (projected when it is above the cap) and bind the session.
-    fn prepare(&mut self, cid: CharacterId, access: &RealmAccess, account: Option<&str>) -> Res<()> {
-        let account = account.map(str::to_string).or_else(|| self.settings.accounts.get(&access.id).cloned()).ok_or_else(|| fail("needs_account", "Tell the Manager which game account on this realm plays this character."))?;
+    fn prepare(
+        &mut self,
+        cid: CharacterId,
+        access: &RealmAccess,
+        account: Option<&str>,
+    ) -> Res<()> {
+        let account = account
+            .map(str::to_string)
+            .or_else(|| self.settings.accounts.get(&access.id).cloned())
+            .ok_or_else(|| {
+                fail(
+                    "needs_account",
+                    "Tell the Manager which game account on this realm plays this character.",
+                )
+            })?;
         let db = access.db()?;
-        let mut ra = access.ra().map_err(|e| fail("realm_offline", e.to_string()))?;
+        let mut ra = access
+            .ra()
+            .map_err(|e| fail("realm_offline", e.to_string()))?;
         let caps = self.capabilities(access, &db, &mut ra, true)?;
         let account_id = self.account_id(&db, &account)?;
         let opts = self.options(access, &caps);
         let offer = OwnerService::new(&mut self.owner).offer(cid, &access.id)?;
-        HostService::new(&mut self.host, &access.id, self.host_config.clone()).accept_offer(self.host_profile, &offer)?;
-        let imported = import_character_online_on(Some(&db), &mut ra, &mut self.host, cid, &access.id, account_id, &opts, &access.job_dir, Some(offer.session_id))?;
-        HostService::new(&mut self.host, &access.id, self.host_config.clone()).bind(offer.session_id, imported.local_guid)?;
+        HostService::new(&mut self.host, &access.id, self.host_config.clone())
+            .accept_offer(self.host_profile, &offer)?;
+        let imported = import_character_online_on(
+            Some(&db),
+            &mut ra,
+            &mut self.host,
+            cid,
+            &access.id,
+            account_id,
+            &opts,
+            &access.job_dir,
+            Some(offer.session_id),
+        )?;
+        HostService::new(&mut self.host, &access.id, self.host_config.clone())
+            .bind(offer.session_id, imported.local_guid)?;
         self.reproject.remove(&(cid, access.id.clone()));
         Ok(())
     }
@@ -745,25 +1139,43 @@ impl PortableService {
     /// The character is on the realm and up to date: arm a session on the copy that is there.
     fn arm(&mut self, cid: CharacterId, access: &RealmAccess) -> Res<()> {
         let db = access.db()?;
-        let ra = access.ra().map_err(|e| fail("realm_offline", e.to_string()))?;
-        let mapping = self.host.server_mappings(cid)?.into_iter().find(|m| m.server_id == access.id).ok_or_else(|| fail("other", "The character is not on this realm."))?;
+        let ra = access
+            .ra()
+            .map_err(|e| fail("realm_offline", e.to_string()))?;
+        let mapping = self
+            .host
+            .server_mappings(cid)?
+            .into_iter()
+            .find(|m| m.server_id == access.id)
+            .ok_or_else(|| fail("other", "The character is not on this realm."))?;
         let offer = OwnerService::new(&mut self.owner).offer(cid, &access.id)?;
-        HostService::new(&mut self.host, &access.id, self.host_config.clone()).accept_offer(self.host_profile, &offer)?;
+        HostService::new(&mut self.host, &access.id, self.host_config.clone())
+            .accept_offer(self.host_profile, &offer)?;
         let mut bridge = LiveBridge::new(&db, ra);
-        bridge.arm(mapping.local_guid, offer.session_id, cid, offer.canonical_revision, 1)?;
-        HostService::new(&mut self.host, &access.id, self.host_config.clone()).bind(offer.session_id, mapping.local_guid)?;
+        bridge.arm(
+            mapping.local_guid,
+            offer.session_id,
+            cid,
+            offer.canonical_revision,
+            1,
+        )?;
+        HostService::new(&mut self.host, &access.id, self.host_config.clone())
+            .bind(offer.session_id, mapping.local_guid)?;
         Ok(())
     }
 
     /// The realm's copy is behind the canonical character (or the realm's progression moved): the realm is stopped, the copy is updated in place
     /// with the next session armed in the same transaction, and the realm is started again. Possible only when this Manager runs the server.
     fn restart_update(&mut self, cid: CharacterId, access: &RealmAccess) -> Res<()> {
-        let (Some(control), Some(install)) = (self.control.as_ref(), access.install_id.clone()) else {
+        let (Some(control), Some(install)) = (self.control.as_ref(), access.install_id.clone())
+        else {
             return Err(fail("update_required", "This realm has to be stopped and started again to receive your latest progress; the realm's owner has to do it."));
         };
         let _ = control;
         let db = access.db()?;
-        let mut ra = access.ra().map_err(|e| fail("realm_offline", e.to_string()))?;
+        let mut ra = access
+            .ra()
+            .map_err(|e| fail("realm_offline", e.to_string()))?;
         let caps = self.capabilities(access, &db, &mut ra, true)?;
         let mut opts = self.options(access, &caps);
         let canonical = self.owner.load_current(cid)?;
@@ -777,13 +1189,32 @@ impl PortableService {
         control.start_database(&install)?;
         let outcome = (|| -> Res<SessionId> {
             let offer = OwnerService::new(&mut self.owner).offer(cid, &access.id)?;
-            HostService::new(&mut self.host, &access.id, self.host_config.clone()).accept_offer(self.host_profile, &offer)?;
-            realm::update_realm_character_in_session(&db, &mut self.host, cid, &access.id, &opts, Some(offer.session_id))?;
-            let guid = self.host.server_mappings(cid)?.into_iter().find(|m| m.server_id == access.id).map(|m| m.local_guid).ok_or_else(|| fail("other", "The character is not on this realm."))?;
-            HostService::new(&mut self.host, &access.id, self.host_config.clone()).bind(offer.session_id, guid)?;
+            HostService::new(&mut self.host, &access.id, self.host_config.clone())
+                .accept_offer(self.host_profile, &offer)?;
+            realm::update_realm_character_in_session(
+                &db,
+                &mut self.host,
+                cid,
+                &access.id,
+                &opts,
+                Some(offer.session_id),
+            )?;
+            let guid = self
+                .host
+                .server_mappings(cid)?
+                .into_iter()
+                .find(|m| m.server_id == access.id)
+                .map(|m| m.local_guid)
+                .ok_or_else(|| fail("other", "The character is not on this realm."))?;
+            HostService::new(&mut self.host, &access.id, self.host_config.clone())
+                .bind(offer.session_id, guid)?;
             Ok(offer.session_id)
         })();
-        let started = self.control.as_ref().expect("checked above").start_all(&install);
+        let started = self
+            .control
+            .as_ref()
+            .expect("checked above")
+            .start_all(&install);
         outcome?;
         started?;
         self.reproject.remove(&(cid, access.id.clone()));
@@ -823,7 +1254,11 @@ impl PortableService {
         let now = self.started.elapsed().as_secs();
         let db = access.db()?;
         // the realm's progression, looked at on its own console (the bridge keeps another)
-        let probe_due = self.obs.get(&access.id).and_then(|o| o.profile_at).is_none_or(|t| t.elapsed() >= CAPS_EVERY);
+        let probe_due = self
+            .obs
+            .get(&access.id)
+            .and_then(|o| o.profile_at)
+            .is_none_or(|t| t.elapsed() >= CAPS_EVERY);
         if probe_due {
             if let Ok(mut ra) = access.ra() {
                 if let Err(e) = self.capabilities(access, &db, &mut ra, true) {
@@ -831,15 +1266,25 @@ impl PortableService {
                 }
             }
         }
-        let knowledge = access.data_dir.is_dir().then(|| RealmKnowledge::from_data_dir(&access.data_dir).ok()).flatten().map(Arc::new);
+        let knowledge = access
+            .data_dir
+            .is_dir()
+            .then(|| RealmKnowledge::from_data_dir(&access.data_dir).ok())
+            .flatten()
+            .map(Arc::new);
         let ra = access.ra().ok();
         let mut bridge = match ra {
             Some(ra) => LiveBridge::new(&db, ra),
             None => LiveBridge::without_console(&db),
         }
         .with_knowledge(knowledge);
-        let memory = self.obs.get_mut(&access.id).map(|o| std::mem::take(&mut o.memory)).unwrap_or_default();
-        let mut host = HostService::resume(&mut self.host, &access.id, self.host_config.clone(), memory);
+        let memory = self
+            .obs
+            .get_mut(&access.id)
+            .map(|o| std::mem::take(&mut o.memory))
+            .unwrap_or_default();
+        let mut host =
+            HostService::resume(&mut self.host, &access.id, self.host_config.clone(), memory);
         let events = host.tick(&mut bridge, now);
         let mut finished: Vec<(SessionId, u64)> = Vec::new();
         let mut delivery: std::result::Result<(), PortableError> = Ok(());
@@ -847,8 +1292,14 @@ impl PortableService {
             delivery = (|| {
                 for m in host.outbox()? {
                     let mut owner = OwnerService::new(&mut self.owner);
-                    let ack: OwnerAck = if m.started { owner.handle_started(&m.bytes)? } else { owner.handle_checkpoint(&m.bytes)? };
-                    if let AckEffect::Finished { next_revision, .. } = host.receive_ack(&mut bridge, &ack)? {
+                    let ack: OwnerAck = if m.started {
+                        owner.handle_started(&m.bytes)?
+                    } else {
+                        owner.handle_checkpoint(&m.bytes)?
+                    };
+                    if let AckEffect::Finished { next_revision, .. } =
+                        host.receive_ack(&mut bridge, &ack)?
+                    {
                         finished.push((m.session_id, next_revision));
                     }
                 }
@@ -877,7 +1328,13 @@ impl PortableService {
         delivery?;
         for (session, revision) in finished {
             if let Ok(Some(s)) = self.host.host_session(session) {
-                self.saved.insert((s.character_id, access.id.clone()), Saved { revision, at: now_text() });
+                self.saved.insert(
+                    (s.character_id, access.id.clone()),
+                    Saved {
+                        revision,
+                        at: now_text(),
+                    },
+                );
             }
         }
         for e in &events {
@@ -894,8 +1351,11 @@ impl PortableService {
 
     pub fn local_characters(&mut self, realm_id: &str) -> Res<Vec<LocalCharacterView>> {
         let access = self.access(realm_id)?;
-        let db = access.db().map_err(|e| fail("realm_offline", e.to_string()))?;
-        let list = realm::inspect_characters(&db).map_err(|e| fail("realm_offline", e.to_string()))?;
+        let db = access
+            .db()
+            .map_err(|e| fail("realm_offline", e.to_string()))?;
+        let list =
+            realm::inspect_characters(&db).map_err(|e| fail("realm_offline", e.to_string()))?;
         let mut out = Vec::new();
         for c in list {
             if self.host.find_by_local(realm_id, c.local_guid)?.is_some() {
@@ -917,22 +1377,35 @@ impl PortableService {
     /// Make a character that exists on a realm portable: it is read (offline characters only) and registered, here and as the canonical one.
     pub fn make_portable(&mut self, realm_id: &str, token: u32) -> Res<CharacterView> {
         let access = self.access(realm_id)?;
-        let db = access.db().map_err(|e| fail("realm_offline", e.to_string()))?;
+        let db = access
+            .db()
+            .map_err(|e| fail("realm_offline", e.to_string()))?;
         let made = realm::make_portable(&db, &mut self.host, self.host_profile, realm_id, token)?;
         let model = self.host.load_current(made.character_id)?;
-        if let Err(e) = self.owner.create_character_with_id(self.owner_profile, model, realm_id) {
+        if let Err(e) = self
+            .owner
+            .create_character_with_id(self.owner_profile, model, realm_id)
+        {
             let _ = self.host.detach_realm_copy(made.character_id, realm_id);
             return Err(e.into());
         }
         if let Ok(mut ra) = access.ra() {
             if let Ok(caps) = self.capabilities(&access, &db, &mut ra, true) {
                 if let Some(p) = &caps.progression {
-                    let _ = self.host.set_mapping_pin(made.character_id, realm_id, Some(&ProgressionPin::native(p, &caps.content_profile_hash)));
+                    let _ = self.host.set_mapping_pin(
+                        made.character_id,
+                        realm_id,
+                        Some(&ProgressionPin::native(p, &caps.content_profile_hash)),
+                    );
                 }
             }
         }
         self.publish();
-        self.state().characters.into_iter().find(|c| c.id == made.character_id.to_string()).ok_or_else(|| fail("other", "The character was not registered."))
+        self.state()
+            .characters
+            .into_iter()
+            .find(|c| c.id == made.character_id.to_string())
+            .ok_or_else(|| fail("other", "The character was not registered."))
     }
 
     // ---- remote claims (Phase 12) --------------------------------------------------------------------------------------------------
@@ -952,10 +1425,15 @@ impl PortableService {
     /// already registered is read from the store again (a retried claim returns the same character).
     pub fn export_for_claim(&mut self, realm_id: &str, local_guid: u32) -> Res<ClaimBundle> {
         let access = self.access(realm_id)?;
-        let db = access.db().map_err(|e| fail("realm_offline", e.to_string()))?;
+        let db = access
+            .db()
+            .map_err(|e| fail("realm_offline", e.to_string()))?;
         let character_id = match self.host.find_by_local(realm_id, local_guid)? {
             Some(c) => c,
-            None => realm::make_portable(&db, &mut self.host, self.host_profile, realm_id, local_guid)?.character_id,
+            None => {
+                realm::make_portable(&db, &mut self.host, self.host_profile, realm_id, local_guid)?
+                    .character_id
+            }
         };
         let model = self.host.load_current(character_id)?;
         let encoded = super::super::snapshot::encode(&model)?;
@@ -970,28 +1448,49 @@ impl PortableService {
             }
         }
         self.publish();
-        Ok(ClaimBundle { character_id, payload: encoded.payload, content_hash: encoded.content_hash, collections })
+        Ok(ClaimBundle {
+            character_id,
+            payload: encoded.payload,
+            content_hash: encoded.content_hash,
+            collections,
+        })
     }
 
     /// Store a character claimed on a remote realm as this player's canonical one (revision 1), with the account collections that came with it. The payload is verified
     /// against the hash and the character id before anything is written; a character that is already here is left alone.
-    pub fn adopt_claim(&mut self, realm_id: &str, character_id: CharacterId, payload: &[u8], content_hash: &[u8; 32], collections: &BTreeMap<String, Vec<u32>>) -> Res<CharacterView> {
+    pub fn adopt_claim(
+        &mut self,
+        realm_id: &str,
+        character_id: CharacterId,
+        payload: &[u8],
+        content_hash: &[u8; 32],
+        collections: &BTreeMap<String, Vec<u32>>,
+    ) -> Res<CharacterView> {
         let model = super::super::snapshot::decode(payload, Some(content_hash))?;
         if model.character_id != character_id {
-            return Err(fail("other", "The character data does not belong to the character that was claimed."));
+            return Err(fail(
+                "other",
+                "The character data does not belong to the character that was claimed.",
+            ));
         }
         if self.owner.character(character_id).is_err() {
-            self.owner.create_character_with_id(self.owner_profile, model, realm_id)?;
+            self.owner
+                .create_character_with_id(self.owner_profile, model, realm_id)?;
         }
         for (kind, ids) in collections {
             if !matches!(kind.as_str(), "coa:appearance" | "coa:vanity") {
                 continue;
             }
             let set = super::super::collection::IdSet::from_ids(ids.iter().copied())?;
-            self.owner.merge_collection(self.owner_profile, kind, &set)?;
+            self.owner
+                .merge_collection(self.owner_profile, kind, &set)?;
         }
         self.publish();
-        self.state().characters.into_iter().find(|c| c.id == character_id.to_string()).ok_or_else(|| fail("other", "The character was not registered."))
+        self.state()
+            .characters
+            .into_iter()
+            .find(|c| c.id == character_id.to_string())
+            .ok_or_else(|| fail("other", "The character was not registered."))
     }
 
     /// Export a canonical character and collections for transfer to a remote realm (Phase 12.1).
@@ -1014,12 +1513,27 @@ impl PortableService {
     }
 
     /// Preflight check for remote transfer before receiving payload chunks (Phase 12.1).
-    pub fn check_remote_transfer(&mut self, realm_id: &str, character_id: CharacterId, _revision: u64) -> Res<crate::control::service::PreflightVerdict> {
+    pub fn check_remote_transfer(
+        &mut self,
+        realm_id: &str,
+        character_id: CharacterId,
+        _revision: u64,
+    ) -> Res<crate::control::service::PreflightVerdict> {
         let access = self.access(realm_id)?;
+        if access.worker_threads().is_some_and(|w| w != 1) {
+            return Ok(crate::control::service::PreflightVerdict::Incompatible);
+        }
         self.refresh_obs(realm_id, false);
-        let obs = self.obs.get(realm_id).map(|o| (o.db_ok, o.ra_ok)).unwrap_or((false, false));
+        let obs = self
+            .obs
+            .get(realm_id)
+            .map(|o| (o.db_ok, o.ra_ok))
+            .unwrap_or((false, false));
         if !obs.0 {
-            return Err(fail("realm_offline", "The realm's database cannot be reached."));
+            return Err(fail(
+                "realm_offline",
+                "The realm's database cannot be reached.",
+            ));
         }
         if let Ok(model) = self.host.load_current(character_id) {
             let db = access.db()?;
@@ -1031,25 +1545,48 @@ impl PortableService {
             let ops = [Operation::OnlineImport, Operation::RuntimeSession];
             let report = self.report(&model, &caps, &opts, &ops, obs.1);
             match verdict_of(report.verdict()) {
-                Verdict::Incompatible => return Ok(crate::control::service::PreflightVerdict::Incompatible),
-                Verdict::Degraded => return Ok(crate::control::service::PreflightVerdict::Degraded),
-                Verdict::Compatible => return Ok(crate::control::service::PreflightVerdict::Compatible),
+                Verdict::Incompatible => {
+                    return Ok(crate::control::service::PreflightVerdict::Incompatible)
+                }
+                Verdict::Degraded => {
+                    return Ok(crate::control::service::PreflightVerdict::Degraded)
+                }
+                Verdict::Compatible => {
+                    return Ok(crate::control::service::PreflightVerdict::Compatible)
+                }
             }
         }
         Ok(crate::control::service::PreflightVerdict::Compatible)
     }
 
     /// Import or update a transferred character into the remote realm and arm a session (Phase 12.1).
-    pub fn import_remote_character(&mut self, realm_id: &str, params: crate::control::service::RemoteImportParams) -> Res<crate::control::service::RemoteImportOutcome> {
+    pub fn import_remote_character(
+        &mut self,
+        realm_id: &str,
+        params: crate::control::service::RemoteImportParams,
+    ) -> Res<crate::control::service::RemoteImportOutcome> {
         let cid = CharacterId::from_uuid(params.character_id)?;
         let model = super::super::snapshot::decode(&params.payload, Some(&params.content_hash))?;
         if model.character_id != cid {
-            return Err(fail("other", "The character data does not belong to the character that was transferred."));
+            return Err(fail(
+                "other",
+                "The character data does not belong to the character that was transferred.",
+            ));
         }
 
         let access = self.access(realm_id)?;
+        if let Some(threads) = access.worker_threads() {
+            if threads != 1 {
+                return Err(fail(
+                    "incompatible_worker_threads",
+                    format!("CharacterDatabase.WorkerThreads is set to {threads}. Portable sessions strictly require CharacterDatabase.WorkerThreads = 1 in worldserver.conf to prevent database race conditions. Please set CharacterDatabase.WorkerThreads = 1 in Core/configs/worldserver.conf and restart worldserver.")
+                ));
+            }
+        }
         let db = access.db()?;
-        let mut ra = access.ra().map_err(|e| fail("realm_offline", e.to_string()))?;
+        let mut ra = access
+            .ra()
+            .map_err(|e| fail("realm_offline", e.to_string()))?;
         let caps = self.capabilities(&access, &db, &mut ra, true)?;
         let opts = self.options(&access, &caps);
 
@@ -1057,11 +1594,15 @@ impl PortableService {
         let ops = [Operation::OnlineImport, Operation::RuntimeSession];
         let report = self.report(&model, &caps, &opts, &ops, true);
         if verdict_of(report.verdict()) == Verdict::Incompatible {
-            return Err(fail("incompatible", "Character is incompatible with this realm; nothing was changed."));
+            return Err(fail(
+                "incompatible",
+                "Character is incompatible with this realm; nothing was changed.",
+            ));
         }
 
         // Install or advance copy in host store
-        self.host.host_install_copy(self.host_profile, &model, params.revision, "remote")?;
+        self.host
+            .host_install_copy(self.host_profile, &model, params.revision, "remote")?;
 
         // Monotonic union of collections
         for (kind, ids) in &params.collections {
@@ -1072,10 +1613,16 @@ impl PortableService {
             }
         }
 
-        let existing_mapping = self.host.server_mappings(cid)?.into_iter().find(|m| m.server_id == realm_id);
+        let existing_mapping = self
+            .host
+            .server_mappings(cid)?
+            .into_iter()
+            .find(|m| m.server_id == realm_id);
 
         let session_id = SessionId::new();
-        let envelope = super::super::session::protocol::Envelope::from_encoded(&super::super::snapshot::encode(&model)?);
+        let envelope = super::super::session::protocol::Envelope::from_encoded(
+            &super::super::snapshot::encode(&model)?,
+        );
         let offer = super::super::session::protocol::SessionOffer {
             protocol_version: super::super::session::protocol::PROTOCOL_VERSION,
             session_id,
@@ -1084,25 +1631,42 @@ impl PortableService {
             canonical_revision: params.revision,
             snapshot: envelope,
         };
-        HostService::new(&mut self.host, realm_id, self.host_config.clone()).accept_offer(self.host_profile, &offer)?;
+        HostService::new(&mut self.host, realm_id, self.host_config.clone())
+            .accept_offer(self.host_profile, &offer)?;
 
         let local_guid = if let Some(m) = existing_mapping {
             // Already exists on realm: arm session on existing copy
             let mut bridge = LiveBridge::new(&db, ra);
             bridge.arm(m.local_guid, offer.session_id, cid, params.revision, 1)?;
-            HostService::new(&mut self.host, realm_id, self.host_config.clone()).bind(offer.session_id, m.local_guid)?;
+            HostService::new(&mut self.host, realm_id, self.host_config.clone())
+                .bind(offer.session_id, m.local_guid)?;
             m.local_guid
         } else {
             // Import online into running realm
-            let imported = import_character_online_on(Some(&db), &mut ra, &mut self.host, cid, realm_id, params.account_id, &opts, &access.job_dir, Some(offer.session_id))?;
-            HostService::new(&mut self.host, realm_id, self.host_config.clone()).bind(offer.session_id, imported.local_guid)?;
+            let imported = import_character_online_on(
+                Some(&db),
+                &mut ra,
+                &mut self.host,
+                cid,
+                realm_id,
+                params.account_id,
+                &opts,
+                &access.job_dir,
+                Some(offer.session_id),
+            )?;
+            HostService::new(&mut self.host, realm_id, self.host_config.clone())
+                .bind(offer.session_id, imported.local_guid)?;
             imported.local_guid
         };
 
         self.reproject.remove(&(cid, realm_id.to_string()));
         self.publish();
 
-        let projected_level = caps.progression.as_ref().filter(|p| u32::from(model.progression.level) > p.max_player_level).map(|p| p.max_player_level);
+        let projected_level = caps
+            .progression
+            .as_ref()
+            .filter(|p| u32::from(model.progression.level) > p.max_player_level)
+            .map(|p| p.max_player_level);
         let notes = notes_of(&report).into_iter().map(|n| n.detail).collect();
 
         Ok(crate::control::service::RemoteImportOutcome {
@@ -1122,15 +1686,20 @@ impl PortableService {
                 self.host.detach_realm_copy(cid, realm_id)?;
             }
             Resolve::UseCanonical => {
-                let Some(install) = access.install_id.clone().filter(|_| self.control.is_some()) else {
+                let Some(install) = access.install_id.clone().filter(|_| self.control.is_some())
+                else {
                     return Err(fail("update_required", "The realm has to be stopped to overwrite its copy; the realm's owner has to do it."));
                 };
                 let db = access.db()?;
-                let mut ra = access.ra().map_err(|e| fail("realm_offline", e.to_string()))?;
+                let mut ra = access
+                    .ra()
+                    .map_err(|e| fail("realm_offline", e.to_string()))?;
                 let caps = self.capabilities(&access, &db, &mut ra, true)?;
                 let mut opts = self.options(&access, &caps);
                 let canonical = self.owner.load_current(cid)?;
-                if let Decision::Projected(hold) = decide_with_core(&mut ra, &access.job_dir, &canonical)? {
+                if let Decision::Projected(hold) =
+                    decide_with_core(&mut ra, &access.job_dir, &canonical)?
+                {
                     opts.projection = Some(Oracle(Arc::new(SuppliedDecision(hold))));
                 }
                 drop(ra);
@@ -1139,13 +1708,32 @@ impl PortableService {
                 control.start_database(&install)?;
                 let outcome = (|| -> Res<()> {
                     let offer = OwnerService::new(&mut self.owner).offer(cid, realm_id)?;
-                    HostService::new(&mut self.host, realm_id, self.host_config.clone()).accept_offer(self.host_profile, &offer)?;
-                    realm::update_realm_character_to_canonical(&db, &mut self.host, cid, realm_id, &opts, Some(offer.session_id))?;
-                    let guid = self.host.server_mappings(cid)?.into_iter().find(|m| m.server_id == realm_id).map(|m| m.local_guid).ok_or_else(|| fail("other", "The character is not on this realm."))?;
-                    HostService::new(&mut self.host, realm_id, self.host_config.clone()).bind(offer.session_id, guid)?;
+                    HostService::new(&mut self.host, realm_id, self.host_config.clone())
+                        .accept_offer(self.host_profile, &offer)?;
+                    realm::update_realm_character_to_canonical(
+                        &db,
+                        &mut self.host,
+                        cid,
+                        realm_id,
+                        &opts,
+                        Some(offer.session_id),
+                    )?;
+                    let guid = self
+                        .host
+                        .server_mappings(cid)?
+                        .into_iter()
+                        .find(|m| m.server_id == realm_id)
+                        .map(|m| m.local_guid)
+                        .ok_or_else(|| fail("other", "The character is not on this realm."))?;
+                    HostService::new(&mut self.host, realm_id, self.host_config.clone())
+                        .bind(offer.session_id, guid)?;
                     Ok(())
                 })();
-                let started = self.control.as_ref().expect("checked above").start_all(&install);
+                let started = self
+                    .control
+                    .as_ref()
+                    .expect("checked above")
+                    .start_all(&install);
                 outcome?;
                 started?;
             }
@@ -1158,12 +1746,24 @@ impl PortableService {
 
     pub fn history(&self, character: &str) -> Res<Vec<HistoryEntry>> {
         let cid = self.cid(character)?;
-        let names: HashMap<&str, &str> = self.realms.iter().map(|r| (r.id.as_str(), r.name.as_str())).collect();
+        let names: HashMap<&str, &str> = self
+            .realms
+            .iter()
+            .map(|r| (r.id.as_str(), r.name.as_str()))
+            .collect();
         let mut out: Vec<HistoryEntry> = self
             .owner
             .list_revisions(cid)?
             .into_iter()
-            .map(|r| HistoryEntry { revision: r.revision, at: r.created_at, source_realm: names.get(r.source_server_id.as_str()).map(|n| n.to_string()).unwrap_or(r.source_server_id), kind: HistoryKind::of(r.note.as_deref()) })
+            .map(|r| HistoryEntry {
+                revision: r.revision,
+                at: r.created_at,
+                source_realm: names
+                    .get(r.source_server_id.as_str())
+                    .map(|n| n.to_string())
+                    .unwrap_or(r.source_server_id),
+                kind: HistoryKind::of(r.note.as_deref()),
+            })
             .collect();
         out.sort_by(|a, b| b.revision.cmp(&a.revision));
         Ok(out)
@@ -1176,7 +1776,11 @@ impl PortableService {
             .iter()
             .map(|r| {
                 let stored = self.host.realm_profile(&r.id).ok().flatten();
-                let caps = self.obs.get(&r.id).and_then(|o| o.caps.as_ref()).or(stored.as_ref());
+                let caps = self
+                    .obs
+                    .get(&r.id)
+                    .and_then(|o| o.caps.as_ref())
+                    .or(stored.as_ref());
                 RealmDiagnostics {
                     server_id: r.id.clone(),
                     name: r.name.clone(),
@@ -1184,32 +1788,71 @@ impl PortableService {
                     online: self.obs.get(&r.id).is_some_and(|o| o.ra_ok),
                     capability_profile_hash: caps.map(|c| c.content_profile_hash.clone()),
                     core_commit: caps.and_then(|c| c.core.as_ref()).map(|c| c.commit.clone()),
-                    level_cap: caps.and_then(|c| c.progression.as_ref()).map(|p| p.max_player_level),
-                    progression_signature: caps.and_then(|c| c.progression.as_ref()).map(|p| p.progression_signature.clone()),
+                    level_cap: caps
+                        .and_then(|c| c.progression.as_ref())
+                        .map(|p| p.max_player_level),
+                    progression_signature: caps
+                        .and_then(|c| c.progression.as_ref())
+                        .map(|p| p.progression_signature.clone()),
                     session_protocol: caps.map(|c| c.content.session_protocol),
                 }
             })
             .collect();
         let mut characters = Vec::new();
-        for c in self.owner.list_characters(self.owner_profile).unwrap_or_default() {
+        for c in self
+            .owner
+            .list_characters(self.owner_profile)
+            .unwrap_or_default()
+        {
             let mut copies = Vec::new();
-            for m in self.host.server_mappings(c.character_id).unwrap_or_default() {
-                let live = self.host.host_live_sessions(&m.server_id).unwrap_or_default().into_iter().find(|s| s.character_id == c.character_id);
-                let ctx = self.host.projection_context(c.character_id, &m.server_id).ok().flatten();
+            for m in self
+                .host
+                .server_mappings(c.character_id)
+                .unwrap_or_default()
+            {
+                let live = self
+                    .host
+                    .host_live_sessions(&m.server_id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|s| s.character_id == c.character_id);
+                let ctx = self
+                    .host
+                    .projection_context(c.character_id, &m.server_id)
+                    .ok()
+                    .flatten();
                 copies.push(CopyDiagnostics {
                     server_id: m.server_id.clone(),
                     synced_revision: m.last_revision,
                     session_id: live.as_ref().map(|s| s.session_id.to_string()),
                     session_state: live.as_ref().map(|s| format!("{:?}", s.state)),
                     last_checkpoint: live.as_ref().map(|s| s.acked_sequence),
-                    progression_pin: live.as_ref().and_then(|s| s.pin.clone()).or_else(|| self.host.character_pin(c.character_id, &m.server_id).ok().flatten()),
+                    progression_pin: live.as_ref().and_then(|s| s.pin.clone()).or_else(|| {
+                        self.host
+                            .character_pin(c.character_id, &m.server_id)
+                            .ok()
+                            .flatten()
+                    }),
                     projected: ctx.is_some(),
-                    compatibility: self.verdicts.get(&(c.character_id, m.server_id.clone())).copied(),
+                    compatibility: self
+                        .verdicts
+                        .get(&(c.character_id, m.server_id.clone()))
+                        .copied(),
                 });
             }
-            characters.push(CharacterDiagnostics { character_id: c.character_id.to_string(), canonical_revision: c.revision, copies });
+            characters.push(CharacterDiagnostics {
+                character_id: c.character_id.to_string(),
+                canonical_revision: c.revision,
+                copies,
+            });
         }
-        DiagnosticsReport { generated_at: now_text(), manager_version: env!("CARGO_PKG_VERSION").to_string(), realms, characters, errors: self.errors.iter().cloned().collect() }
+        DiagnosticsReport {
+            generated_at: now_text(),
+            manager_version: env!("CARGO_PKG_VERSION").to_string(),
+            realms,
+            characters,
+            errors: self.errors.iter().cloned().collect(),
+        }
     }
 
     /// What the interface needs to start the game for a realm: the installation id (when this Manager runs the server) and the address.
@@ -1220,7 +1863,9 @@ impl PortableService {
 
     pub fn saved(&self, character: &str, realm_id: &str) -> Option<(u64, String)> {
         let cid: CharacterId = character.parse().ok()?;
-        self.saved.get(&(cid, realm_id.to_string())).map(|s| (s.revision, s.at.clone()))
+        self.saved
+            .get(&(cid, realm_id.to_string()))
+            .map(|s| (s.revision, s.at.clone()))
     }
 
     pub fn owner(&self) -> &Store {

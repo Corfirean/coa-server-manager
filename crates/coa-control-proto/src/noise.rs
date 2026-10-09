@@ -50,7 +50,10 @@ impl Initiator {
     pub fn start() -> Result<(Self, Vec<u8>)> {
         let b = builder()?;
         let key = b.generate_keypair().map_err(channel_err)?;
-        let mut hs = b.local_private_key(&key.private).build_initiator().map_err(channel_err)?;
+        let mut hs = b
+            .local_private_key(&key.private)
+            .build_initiator()
+            .map_err(channel_err)?;
         let mut buf = vec![0u8; MAX_HANDSHAKE_BYTES];
         let n = hs.write_message(&[], &mut buf).map_err(channel_err)?;
         buf.truncate(n);
@@ -60,7 +63,9 @@ impl Initiator {
     /// Read the Host's answer; returns the third message to send and the open channel.
     pub fn finish(mut self, msg2: &[u8]) -> Result<(Vec<u8>, Channel)> {
         if msg2.len() > MAX_HANDSHAKE_BYTES {
-            return Err(ControlError::Limit("a handshake message is too long".into()));
+            return Err(ControlError::Limit(
+                "a handshake message is too long".into(),
+            ));
         }
         let mut buf = vec![0u8; MAX_HANDSHAKE_BYTES];
         self.hs.read_message(msg2, &mut buf).map_err(channel_err)?;
@@ -82,11 +87,16 @@ impl Responder {
     /// Read the first message; returns the state and the second message to send.
     pub fn start(msg1: &[u8]) -> Result<(Self, Vec<u8>)> {
         if msg1.len() > MAX_HANDSHAKE_BYTES {
-            return Err(ControlError::Limit("a handshake message is too long".into()));
+            return Err(ControlError::Limit(
+                "a handshake message is too long".into(),
+            ));
         }
         let b = builder()?;
         let key = b.generate_keypair().map_err(channel_err)?;
-        let mut hs = b.local_private_key(&key.private).build_responder().map_err(channel_err)?;
+        let mut hs = b
+            .local_private_key(&key.private)
+            .build_responder()
+            .map_err(channel_err)?;
         let mut buf = vec![0u8; MAX_HANDSHAKE_BYTES];
         hs.read_message(msg1, &mut buf).map_err(channel_err)?;
         let n = hs.write_message(&[], &mut buf).map_err(channel_err)?;
@@ -96,7 +106,9 @@ impl Responder {
 
     pub fn finish(mut self, msg3: &[u8]) -> Result<Channel> {
         if msg3.len() > MAX_HANDSHAKE_BYTES {
-            return Err(ControlError::Limit("a handshake message is too long".into()));
+            return Err(ControlError::Limit(
+                "a handshake message is too long".into(),
+            ));
         }
         let mut buf = vec![0u8; MAX_HANDSHAKE_BYTES];
         self.hs.read_message(msg3, &mut buf).map_err(channel_err)?;
@@ -117,7 +129,11 @@ pub struct Channel {
 impl Channel {
     fn from(hs: HandshakeState) -> Result<Self> {
         let hash = hs.get_handshake_hash().to_vec();
-        Ok(Self { transport: hs.into_transport_mode().map_err(channel_err)?, hash, partial: Vec::new() })
+        Ok(Self {
+            transport: hs.into_transport_mode().map_err(channel_err)?,
+            hash,
+            partial: Vec::new(),
+        })
     }
 
     /// The handshake hash: unique to this channel, the same on both ends.
@@ -130,14 +146,21 @@ impl Channel {
         if message.len() > MAX_MESSAGE_BYTES {
             return Err(ControlError::Limit("a message is too long".into()));
         }
-        let chunks: Vec<&[u8]> = if message.is_empty() { vec![&[][..]] } else { message.chunks(CHUNK).collect() };
+        let chunks: Vec<&[u8]> = if message.is_empty() {
+            vec![&[][..]]
+        } else {
+            message.chunks(CHUNK).collect()
+        };
         let mut frames = Vec::with_capacity(chunks.len());
         for (i, chunk) in chunks.iter().enumerate() {
             let mut plain = Vec::with_capacity(chunk.len() + 1);
             plain.push(u8::from(i + 1 < chunks.len()));
             plain.extend_from_slice(chunk);
             let mut out = vec![0u8; plain.len() + 16];
-            let n = self.transport.write_message(&plain, &mut out).map_err(channel_err)?;
+            let n = self
+                .transport
+                .write_message(&plain, &mut out)
+                .map_err(channel_err)?;
             out.truncate(n);
             frames.push(out);
         }
@@ -147,12 +170,19 @@ impl Channel {
     /// Decrypt one frame. `Some(message)` when it completed a message; `None` when more frames follow. A frame that does not authenticate ends the channel.
     pub fn open_frame(&mut self, frame: &[u8]) -> Result<Option<Vec<u8>>> {
         if frame.len() < 17 || frame.len() > CHUNK + 17 {
-            return Err(ControlError::Limit("a frame is too short or too long".into()));
+            return Err(ControlError::Limit(
+                "a frame is too short or too long".into(),
+            ));
         }
         let mut plain = vec![0u8; frame.len()];
-        let n = self.transport.read_message(frame, &mut plain).map_err(channel_err)?;
+        let n = self
+            .transport
+            .read_message(frame, &mut plain)
+            .map_err(channel_err)?;
         plain.truncate(n);
-        let (&more, chunk) = plain.split_first().ok_or_else(|| ControlError::Channel("an empty frame".into()))?;
+        let (&more, chunk) = plain
+            .split_first()
+            .ok_or_else(|| ControlError::Channel("an empty frame".into()))?;
         if self.partial.len() + chunk.len() > MAX_MESSAGE_BYTES {
             self.partial.clear();
             return Err(ControlError::Limit("a message is too long".into()));
@@ -161,7 +191,10 @@ impl Channel {
         match more {
             0 => Ok(Some(std::mem::take(&mut self.partial))),
             1 => Ok(None),
-            _ => Err(ControlError::Channel("a frame has an unknown flag".into())),
+            _ => {
+                self.partial.clear();
+                Err(ControlError::Channel("a frame has an unknown flag".into()))
+            }
         }
     }
 }
@@ -199,30 +232,72 @@ pub struct PlayerProof {
 }
 
 fn decode_sig(sig: &str) -> Result<Signature> {
-    let bytes: [u8; 64] = B64.decode(sig).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| ControlError::Auth("a signature is not 64 bytes of base64url".into()))?;
+    let bytes: [u8; 64] = B64
+        .decode(sig)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| ControlError::Auth("a signature is not 64 bytes of base64url".into()))?;
     Ok(Signature::from_bytes(&bytes))
 }
 
 pub fn host_proof(key: &SigningKey, realm: &RealmId, channel: &Channel) -> HostProof {
-    HostProof { realm_id: *realm, sig: B64.encode(key.sign(&host_input(channel.handshake_hash(), realm)).to_bytes()) }
+    HostProof {
+        realm_id: *realm,
+        sig: B64.encode(
+            key.sign(&host_input(channel.handshake_hash(), realm))
+                .to_bytes(),
+        ),
+    }
 }
 
 /// The Player checks that the peer holds the key the Registry publishes for the realm it asked for, on this very channel.
-pub fn verify_host_proof(proof: &HostProof, realm_key: &VerifyingKey, expected_realm: &RealmId, channel: &Channel) -> Result<()> {
+pub fn verify_host_proof(
+    proof: &HostProof,
+    realm_key: &VerifyingKey,
+    expected_realm: &RealmId,
+    channel: &Channel,
+) -> Result<()> {
     if proof.realm_id != *expected_realm {
-        return Err(ControlError::Auth("the peer answers for another realm".into()));
+        return Err(ControlError::Auth(
+            "the peer answers for another realm".into(),
+        ));
     }
-    realm_key.verify_strict(&host_input(channel.handshake_hash(), expected_realm), &decode_sig(&proof.sig)?).map_err(|_| ControlError::Auth("the peer is not the realm's Host".into()))
+    realm_key
+        .verify_strict(
+            &host_input(channel.handshake_hash(), expected_realm),
+            &decode_sig(&proof.sig)?,
+        )
+        .map_err(|_| ControlError::Auth("the peer is not the realm's Host".into()))
 }
 
-pub fn player_proof(key: &SigningKey, realm: &RealmId, player: &Uuid, channel: &Channel) -> PlayerProof {
-    PlayerProof { player_id: *player, public_key: crate::coord::encode_public_key(&key.verifying_key()), sig: B64.encode(key.sign(&player_input(channel.handshake_hash(), realm, player)).to_bytes()) }
+pub fn player_proof(
+    key: &SigningKey,
+    realm: &RealmId,
+    player: &Uuid,
+    channel: &Channel,
+) -> PlayerProof {
+    PlayerProof {
+        player_id: *player,
+        public_key: crate::coord::encode_public_key(&key.verifying_key()),
+        sig: B64.encode(
+            key.sign(&player_input(channel.handshake_hash(), realm, player))
+                .to_bytes(),
+        ),
+    }
 }
 
 /// The Host learns which player key signed this channel; whether that key is the one it knows for the player id is the Host's decision.
-pub fn verify_player_proof(proof: &PlayerProof, realm: &RealmId, channel: &Channel) -> Result<VerifyingKey> {
+pub fn verify_player_proof(
+    proof: &PlayerProof,
+    realm: &RealmId,
+    channel: &Channel,
+) -> Result<VerifyingKey> {
     let key = crate::coord::decode_public_key(&proof.public_key)?;
-    key.verify_strict(&player_input(channel.handshake_hash(), realm, &proof.player_id), &decode_sig(&proof.sig)?).map_err(|_| ControlError::Auth("the player's proof does not match this channel".into()))?;
+    key.verify_strict(
+        &player_input(channel.handshake_hash(), realm, &proof.player_id),
+        &decode_sig(&proof.sig)?,
+    )
+    .map_err(|_| ControlError::Auth("the player's proof does not match this channel".into()))?;
     Ok(key)
 }
 
@@ -241,11 +316,27 @@ mod tests {
     #[test]
     fn the_channel_carries_messages_of_any_size_in_both_directions() {
         let (mut player, mut host) = pair();
-        assert_eq!(player.handshake_hash(), host.handshake_hash(), "both ends hold the same channel binding");
-        for len in [0usize, 1, 100, CHUNK - 1, CHUNK, CHUNK + 1, 5 * CHUNK + 7, 600_000] {
+        assert_eq!(
+            player.handshake_hash(),
+            host.handshake_hash(),
+            "both ends hold the same channel binding"
+        );
+        for len in [
+            0usize,
+            1,
+            100,
+            CHUNK - 1,
+            CHUNK,
+            CHUNK + 1,
+            5 * CHUNK + 7,
+            600_000,
+        ] {
             let msg: Vec<u8> = (0..len).map(|i| (i * 31 % 251) as u8).collect();
             let frames = player.seal(&msg).unwrap();
-            assert!(frames.iter().all(|f| f.len() <= CHUNK + 17), "every frame fits the coordinator's limit");
+            assert!(
+                frames.iter().all(|f| f.len() <= CHUNK + 17),
+                "every frame fits the coordinator's limit"
+            );
             let mut got = None;
             for f in &frames {
                 got = host.open_frame(f).unwrap();
@@ -265,18 +356,32 @@ mod tests {
         let (mut player, mut host) = pair();
         let secret = b"the password of this account is HUNTER2HUNTER2";
         let frames = player.seal(secret).unwrap();
-        assert!(!frames[0].windows(7).any(|w| w == b"HUNTER2" || w == b"account"), "ciphertext carries no plaintext");
+        assert!(
+            !frames[0]
+                .windows(7)
+                .any(|w| w == b"HUNTER2" || w == b"account"),
+            "ciphertext carries no plaintext"
+        );
         let mut tampered = frames[0].clone();
         tampered[20] ^= 1;
-        assert!(host.open_frame(&tampered).is_err(), "a changed frame does not authenticate");
+        assert!(
+            host.open_frame(&tampered).is_err(),
+            "a changed frame does not authenticate"
+        );
         let (mut p2, mut h2) = pair();
         let f = p2.seal(b"x").unwrap();
         assert!(h2.open_frame(&f[0]).is_ok());
-        assert!(h2.open_frame(&f[0]).is_err(), "a replayed frame is refused (the nonce moved on)");
+        assert!(
+            h2.open_frame(&f[0]).is_err(),
+            "a replayed frame is refused (the nonce moved on)"
+        );
         let (mut p3, mut h3) = pair();
         let (mut p4, _h4) = pair();
         let foreign = p4.seal(b"x").unwrap();
-        assert!(h3.open_frame(&foreign[0]).is_err(), "a frame of another channel is refused");
+        assert!(
+            h3.open_frame(&foreign[0]).is_err(),
+            "a frame of another channel is refused"
+        );
         let _ = &mut p3;
     }
 
@@ -294,21 +399,60 @@ mod tests {
         let (player_ch, host_ch) = pair();
         let (other_player_ch, _other_host_ch) = pair();
         let realm = RealmId::new();
-        let (realm_key, player_key) = (SigningKey::from_bytes(&[5; 32]), SigningKey::from_bytes(&[6; 32]));
+        let (realm_key, player_key) = (
+            SigningKey::from_bytes(&[5; 32]),
+            SigningKey::from_bytes(&[6; 32]),
+        );
         let player_id = Uuid::now_v7();
 
         let proof = host_proof(&realm_key, &realm, &host_ch);
         verify_host_proof(&proof, &realm_key.verifying_key(), &realm, &player_ch).unwrap();
-        assert!(verify_host_proof(&proof, &SigningKey::from_bytes(&[9; 32]).verifying_key(), &realm, &player_ch).is_err(), "an impostor with another key");
-        assert!(verify_host_proof(&proof, &realm_key.verifying_key(), &RealmId::new(), &player_ch).is_err(), "another realm");
-        assert!(verify_host_proof(&proof, &realm_key.verifying_key(), &realm, &other_player_ch).is_err(), "a proof captured on another channel is useless (no relay can replay it)");
+        assert!(
+            verify_host_proof(
+                &proof,
+                &SigningKey::from_bytes(&[9; 32]).verifying_key(),
+                &realm,
+                &player_ch
+            )
+            .is_err(),
+            "an impostor with another key"
+        );
+        assert!(
+            verify_host_proof(
+                &proof,
+                &realm_key.verifying_key(),
+                &RealmId::new(),
+                &player_ch
+            )
+            .is_err(),
+            "another realm"
+        );
+        assert!(
+            verify_host_proof(&proof, &realm_key.verifying_key(), &realm, &other_player_ch)
+                .is_err(),
+            "a proof captured on another channel is useless (no relay can replay it)"
+        );
 
         let pp = player_proof(&player_key, &realm, &player_id, &player_ch);
         let key = verify_player_proof(&pp, &realm, &host_ch).unwrap();
         assert_eq!(key.to_bytes(), player_key.verifying_key().to_bytes());
         assert!(verify_player_proof(&pp, &RealmId::new(), &host_ch).is_err());
-        assert!(verify_player_proof(&PlayerProof { player_id: Uuid::now_v7(), ..pp.clone() }, &realm, &host_ch).is_err(), "another player id under the same signature");
+        assert!(
+            verify_player_proof(
+                &PlayerProof {
+                    player_id: Uuid::now_v7(),
+                    ..pp.clone()
+                },
+                &realm,
+                &host_ch
+            )
+            .is_err(),
+            "another player id under the same signature"
+        );
         let (_, third_host) = pair();
-        assert!(verify_player_proof(&pp, &realm, &third_host).is_err(), "another channel");
+        assert!(
+            verify_player_proof(&pp, &realm, &third_host).is_err(),
+            "another channel"
+        );
     }
 }

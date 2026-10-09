@@ -35,7 +35,20 @@ impl OwnerRow {
 }
 
 fn read_owner_row(conn: &Connection, session: SessionId) -> Result<Option<OwnerRow>> {
-    type Raw = (String, String, String, i64, Vec<u8>, Vec<u8>, Option<i64>, Option<Vec<u8>>, Option<Vec<u8>>, i64, i64, Option<String>);
+    type Raw = (
+        String,
+        String,
+        String,
+        i64,
+        Vec<u8>,
+        Vec<u8>,
+        Option<i64>,
+        Option<Vec<u8>>,
+        Option<Vec<u8>>,
+        i64,
+        i64,
+        Option<String>,
+    );
     let raw: Option<Raw> = conn
         .query_row(
             "SELECT character_id, server_id, state, c0_revision, c0_hash, c0_payload, baseline_generation, b0_hash, b0_payload, head_revision, last_sequence, progression FROM owner_session WHERE session_id = ?1",
@@ -43,8 +56,32 @@ fn read_owner_row(conn: &Connection, session: SessionId) -> Result<Option<OwnerR
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?)),
         )
         .optional()?;
-    let Some((character, server_id, state, c0_revision, c0_hash, c0_payload, generation, b0_hash, b0_payload, head, last, progression)) = raw else { return Ok(None) };
-    let progression: Option<SessionProgression> = progression.map(|j| serde_json::from_str(&j).map_err(|e| PortableError::CorruptSnapshot(format!("a stored session progression is not valid: {e}")))).transpose()?;
+    let Some((
+        character,
+        server_id,
+        state,
+        c0_revision,
+        c0_hash,
+        c0_payload,
+        generation,
+        b0_hash,
+        b0_payload,
+        head,
+        last,
+        progression,
+    )) = raw
+    else {
+        return Ok(None);
+    };
+    let progression: Option<SessionProgression> = progression
+        .map(|j| {
+            serde_json::from_str(&j).map_err(|e| {
+                PortableError::CorruptSnapshot(format!(
+                    "a stored session progression is not valid: {e}"
+                ))
+            })
+        })
+        .transpose()?;
     Ok(Some(OwnerRow {
         session_id: session,
         character_id: character.parse()?,
@@ -66,11 +103,34 @@ fn head_hash(conn: &Connection, id: CharacterId, revision: u64) -> Result<[u8; 3
     head_semantic_hash(conn, id, revision)
 }
 
-fn ack(session: SessionId, sequence: u64, outcome: AckOutcome, revision: u64, hash: [u8; 32]) -> OwnerAck {
-    OwnerAck { protocol_version: PROTOCOL_VERSION, session_id: session, sequence, outcome, canonical_revision: revision, canonical_hash: hex::encode(hash), owned_items: vec![], owned_pets: vec![], canonical: None, next_session: None, pin: None }
+fn ack(
+    session: SessionId,
+    sequence: u64,
+    outcome: AckOutcome,
+    revision: u64,
+    hash: [u8; 32],
+) -> OwnerAck {
+    OwnerAck {
+        protocol_version: PROTOCOL_VERSION,
+        session_id: session,
+        sequence,
+        outcome,
+        canonical_revision: revision,
+        canonical_hash: hex::encode(hash),
+        owned_items: vec![],
+        owned_pets: vec![],
+        canonical: None,
+        next_session: None,
+        pin: None,
+    }
 }
 
-fn owned_ids(model: &PortableCharacter) -> (Vec<PortableItemId>, Vec<crate::portable::ids::PortablePetId>) {
+fn owned_ids(
+    model: &PortableCharacter,
+) -> (
+    Vec<PortableItemId>,
+    Vec<crate::portable::ids::PortablePetId>,
+) {
     let items: Vec<_> = model.items.iter().map(|i| i.id).take(MAX_ACK_IDS).collect();
     let pets: Vec<_> = model.pets.iter().map(|p| p.id).take(MAX_ACK_IDS).collect();
     (items, pets)
@@ -83,7 +143,11 @@ fn offer_from_row(row: &OwnerRow) -> SessionOffer {
         character_id: row.character_id,
         server_id: row.server_id.clone(),
         canonical_revision: row.c0_revision,
-        snapshot: Envelope::from_encoded(&EncodedSnapshot { content_hash: row.c0_hash, uncompressed_size: 0, payload: row.c0_payload.clone() }),
+        snapshot: Envelope::from_encoded(&EncodedSnapshot {
+            content_hash: row.c0_hash,
+            uncompressed_size: 0,
+            payload: row.c0_payload.clone(),
+        }),
     }
 }
 
@@ -97,13 +161,19 @@ fn open_offer(tx: &Transaction<'_>, id: CharacterId, server_id: &str) -> Result<
          VALUES (?1, ?2, ?3, 'offered', ?4, ?5, ?6, ?4, 0, ?7, ?7)",
         params![session.to_string(), id.to_string(), server_id, record.revision as i64, enc.content_hash.as_slice(), enc.payload, at],
     )?;
-    Ok(offer_from_row(&read_owner_row(tx, session)?.expect("just inserted")))
+    Ok(offer_from_row(
+        &read_owner_row(tx, session)?.expect("just inserted"),
+    ))
 }
 
 impl Store {
     /// Offer the character's current canonical revision to a realm and open the session that will follow it. An offer that was
     /// made and not yet started is repeated as it was; one made against an older revision is superseded by a fresh one.
-    pub fn owner_offer_session(&mut self, id: CharacterId, server_id: &str) -> Result<SessionOffer> {
+    pub fn owner_offer_session(
+        &mut self,
+        id: CharacterId,
+        server_id: &str,
+    ) -> Result<SessionOffer> {
         check_server_id(server_id)?;
         let tx = self.write_tx()?;
         let record = read_character(&tx, id)?;
@@ -129,15 +199,31 @@ impl Store {
     pub fn owner_session_started(&mut self, msg: &PortableSessionStarted) -> Result<OwnerAck> {
         let tx = self.write_tx()?;
         let Some(row) = read_owner_row(&tx, msg.session_id)? else {
-            return Ok(ack(msg.session_id, 0, AckOutcome::Rejected("unknown session".into()), 0, [0; 32]));
+            return Ok(ack(
+                msg.session_id,
+                0,
+                AckOutcome::Rejected("unknown session".into()),
+                0,
+                [0; 32],
+            ));
         };
         let current_hash = head_hash(&tx, row.character_id, row.head_revision)?;
-        let reject = |why: &str| ack(msg.session_id, 0, AckOutcome::Rejected(why.into()), row.head_revision, current_hash);
+        let reject = |why: &str| {
+            ack(
+                msg.session_id,
+                0,
+                AckOutcome::Rejected(why.into()),
+                row.head_revision,
+                current_hash,
+            )
+        };
         if msg.character_id != row.character_id || msg.server_id != row.server_id {
             return Ok(reject("the message does not belong to this session"));
         }
         if msg.base_canonical_revision != row.c0_revision {
-            return Ok(reject("the baseline was taken against another canonical revision"));
+            return Ok(reject(
+                "the baseline was taken against another canonical revision",
+            ));
         }
         let b0_hash = match msg.b0.hash() {
             Ok(h) if hex::encode(h) == msg.content_hash => h,
@@ -145,44 +231,80 @@ impl Store {
         };
         match row.state.as_str() {
             "open" => {
-                return Ok(if row.b0_hash == Some(b0_hash) && row.generation == Some(msg.baseline_generation) && row.progression == msg.progression {
-                    let mut a = ack(msg.session_id, 0, AckOutcome::Duplicate, row.head_revision, current_hash);
-                    a.pin = row.pin();
-                    a
-                } else {
-                    reject("this session already has a different baseline")
-                })
+                return Ok(
+                    if row.b0_hash == Some(b0_hash)
+                        && row.generation == Some(msg.baseline_generation)
+                        && row.progression == msg.progression
+                    {
+                        let mut a = ack(
+                            msg.session_id,
+                            0,
+                            AckOutcome::Duplicate,
+                            row.head_revision,
+                            current_hash,
+                        );
+                        a.pin = row.pin();
+                        a
+                    } else {
+                        reject("this session already has a different baseline")
+                    },
+                )
             }
             "offered" => {}
-            _ => return Ok(ack(msg.session_id, 0, AckOutcome::StaleSession, row.head_revision, current_hash)),
+            _ => {
+                return Ok(ack(
+                    msg.session_id,
+                    0,
+                    AckOutcome::StaleSession,
+                    row.head_revision,
+                    current_hash,
+                ))
+            }
         }
         let b0 = match msg.b0.open() {
             Ok(m) => m,
             Err(e) => return Ok(reject(&format!("the baseline cannot be read: {e}"))),
         };
         let c0 = snapshot::decode(&row.c0_payload, Some(&row.c0_hash))?;
-        if b0.character_id != row.character_id || b0.ruleset != c0.ruleset || b0.content_namespace != c0.content_namespace {
+        if b0.character_id != row.character_id
+            || b0.ruleset != c0.ruleset
+            || b0.content_namespace != c0.content_namespace
+        {
             return Ok(reject("the baseline is another character or ruleset"));
         }
         if let Some(p) = &msg.progression {
             if let Err(e) = p.validate() {
-                return Ok(reject(&format!("the progression of the session is not valid: {e}")));
+                return Ok(reject(&format!(
+                    "the progression of the session is not valid: {e}"
+                )));
             }
             if let Some(ctx) = &p.projection {
-                if ctx.canonical_level != c0.progression.level as u32 || ctx.canonical_revision != row.c0_revision {
+                if ctx.canonical_level != c0.progression.level as u32
+                    || ctx.canonical_revision != row.c0_revision
+                {
                     return Ok(reject("the projection was made for another canonical level or revision than this session's"));
                 }
             } else if p.pin.projected {
                 return Ok(reject("a projected session must carry its projection"));
             }
         }
-        let progression_json = msg.progression.as_ref().map(serde_json::to_string).transpose()?;
+        let progression_json = msg
+            .progression
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         tx.execute(
             "UPDATE owner_session SET state = 'open', baseline_generation = ?2, b0_hash = ?3, b0_payload = ?4, progression = ?6, updated_at = ?5 WHERE session_id = ?1",
             params![msg.session_id.to_string(), msg.baseline_generation, b0_hash.as_slice(), msg.b0.bytes()?, now(), progression_json],
         )?;
         tx.commit()?;
-        let mut a = ack(msg.session_id, 0, AckOutcome::Applied, row.head_revision, current_hash);
+        let mut a = ack(
+            msg.session_id,
+            0,
+            AckOutcome::Applied,
+            row.head_revision,
+            current_hash,
+        );
         a.pin = msg.progression.as_ref().map(|p| p.pin.clone());
         Ok(a)
     }
@@ -192,18 +314,27 @@ impl Store {
         let keep = self.history_keep()?;
         let tx = self.write_tx()?;
         let Some(row) = read_owner_row(&tx, msg.session_id)? else {
-            return Ok(ack(msg.session_id, msg.sequence, AckOutcome::Rejected("unknown session".into()), 0, [0; 32]));
+            return Ok(ack(
+                msg.session_id,
+                msg.sequence,
+                AckOutcome::Rejected("unknown session".into()),
+                0,
+                [0; 32],
+            ));
         };
         let record = read_character(&tx, row.character_id)?;
         let seen_hash = head_hash(&tx, row.character_id, record.revision)?;
-        let outcome = |o: AckOutcome| ack(msg.session_id, msg.sequence, o, record.revision, seen_hash);
+        let outcome =
+            |o: AckOutcome| ack(msg.session_id, msg.sequence, o, record.revision, seen_hash);
         let reject = |why: &str| outcome(AckOutcome::Rejected(why.into()));
 
         if msg.character_id != row.character_id || msg.server_id != row.server_id {
             return Ok(reject("the message does not belong to this session"));
         }
         if msg.base_canonical_revision != row.c0_revision {
-            return Ok(reject("the checkpoint was taken against another canonical revision"));
+            return Ok(reject(
+                "the checkpoint was taken against another canonical revision",
+            ));
         }
         let b1_hash = match msg.realm_snapshot.hash() {
             Ok(h) if hex::encode(h) == msg.content_hash => h,
@@ -222,14 +353,23 @@ impl Store {
                 return Ok(reject("this sequence was applied with different content"));
             }
             let revision = revision as u64;
-            let mut a = ack(msg.session_id, msg.sequence, AckOutcome::Duplicate, revision, head_hash(&tx, row.character_id, revision)?);
+            let mut a = ack(
+                msg.session_id,
+                msg.sequence,
+                AckOutcome::Duplicate,
+                revision,
+                head_hash(&tx, row.character_id, revision)?,
+            );
             a.pin = row.pin();
             if let Ok((model, _)) = read_snapshot_row(&tx, row.character_id, revision) {
                 (a.owned_items, a.owned_pets) = owned_ids(&model);
                 if was_final == 1 {
                     a.canonical = Some(Envelope::seal(&model)?);
                     if let Some(next) = next {
-                        a.next_session = Some(NextSession { session_id: next.parse()?, canonical_revision: revision });
+                        a.next_session = Some(NextSession {
+                            session_id: next.parse()?,
+                            canonical_revision: revision,
+                        });
                     }
                 }
             }
@@ -249,18 +389,41 @@ impl Store {
         if record.revision != row.head_revision {
             tx.execute("UPDATE owner_session SET state = 'superseded', updated_at = ?2 WHERE session_id = ?1", params![msg.session_id.to_string(), now()])?;
             tx.commit()?;
-            return Ok(ack(msg.session_id, msg.sequence, AckOutcome::StaleSession, record.revision, head_hash(&self.conn, row.character_id, record.revision)?));
+            return Ok(ack(
+                msg.session_id,
+                msg.sequence,
+                AckOutcome::StaleSession,
+                record.revision,
+                head_hash(&self.conn, row.character_id, record.revision)?,
+            ));
         }
 
         let b1 = match msg.realm_snapshot.open() {
             Ok(m) => m,
             Err(e) => return Ok(reject(&format!("the snapshot cannot be read: {e}"))),
         };
-        let (c0, b0) = (snapshot::decode(&row.c0_payload, Some(&row.c0_hash))?, snapshot::decode(row.b0_payload.as_deref().expect("an open session has B0"), row.b0_hash.as_ref())?);
-        if b1.character_id != row.character_id || b1.ruleset != c0.ruleset || b1.content_namespace != c0.content_namespace {
+        let (c0, b0) = (
+            snapshot::decode(&row.c0_payload, Some(&row.c0_hash))?,
+            snapshot::decode(
+                row.b0_payload.as_deref().expect("an open session has B0"),
+                row.b0_hash.as_ref(),
+            )?,
+        );
+        if b1.character_id != row.character_id
+            || b1.ruleset != c0.ruleset
+            || b1.content_namespace != c0.content_namespace
+        {
             return Ok(reject("the snapshot is another character or ruleset"));
         }
-        let projection = row.progression.as_ref().and_then(|p| p.projection.as_ref()).map(|ctx| MergeProjection { freeze_progression: true, adopt_progression: false, blocked: ctx.hold.blocked_settings.iter().cloned().collect() });
+        let projection = row
+            .progression
+            .as_ref()
+            .and_then(|p| p.projection.as_ref())
+            .map(|ctx| MergeProjection {
+                freeze_progression: true,
+                adopt_progression: false,
+                blocked: ctx.hold.blocked_settings.iter().cloned().collect(),
+            });
         let merged = match merge3_with(&c0, &b0, &b1, Mode::Lenient, projection.as_ref()) {
             Ok(m) => m.model,
             Err(e) => return Ok(reject(&format!("the checkpoint cannot be merged: {e}"))),
@@ -276,13 +439,30 @@ impl Store {
             record.revision
         } else {
             let revision = record.revision + 1;
-            insert_snapshot(&tx, row.character_id, revision, &encoded, &row.server_id, Some(&format!("session {} checkpoint {}", msg.session_id, msg.sequence)), &at)?;
+            insert_snapshot(
+                &tx,
+                row.character_id,
+                revision,
+                &encoded,
+                &row.server_id,
+                Some(&format!(
+                    "session {} checkpoint {}",
+                    msg.session_id, msg.sequence
+                )),
+                &at,
+            )?;
             update_character(&tx, row.character_id, &merged, revision, &at)?;
             prune_tx(&tx, row.character_id, revision, keep)?;
             revision
         };
 
-        let mut a = ack(msg.session_id, msg.sequence, AckOutcome::Applied, revision, encoded.content_hash);
+        let mut a = ack(
+            msg.session_id,
+            msg.sequence,
+            AckOutcome::Applied,
+            revision,
+            encoded.content_hash,
+        );
         a.pin = row.pin();
         (a.owned_items, a.owned_pets) = owned_ids(&merged);
         let mut next_id = None;
@@ -290,7 +470,10 @@ impl Store {
             tx.execute("UPDATE owner_session SET state = 'closed', last_sequence = ?2, head_revision = ?3, updated_at = ?4 WHERE session_id = ?1", params![msg.session_id.to_string(), msg.sequence as i64, revision as i64, at])?;
             let offer = open_offer(&tx, row.character_id, &row.server_id)?;
             a.canonical = Some(Envelope::from_encoded(&encoded));
-            a.next_session = Some(NextSession { session_id: offer.session_id, canonical_revision: revision });
+            a.next_session = Some(NextSession {
+                session_id: offer.session_id,
+                canonical_revision: revision,
+            });
             next_id = Some(offer.session_id.to_string());
         } else {
             tx.execute("UPDATE owner_session SET last_sequence = ?2, head_revision = ?3, updated_at = ?4 WHERE session_id = ?1", params![msg.session_id.to_string(), msg.sequence as i64, revision as i64, at])?;
@@ -305,6 +488,7 @@ impl Store {
 
     /// What the Owner knows of one session: (state, last applied sequence, head revision).
     pub fn owner_session_info(&self, session: SessionId) -> Result<Option<(String, u64, u64)>> {
-        Ok(read_owner_row(&self.conn, session)?.map(|r| (r.state, r.last_sequence, r.head_revision)))
+        Ok(read_owner_row(&self.conn, session)?
+            .map(|r| (r.state, r.last_sequence, r.head_revision)))
     }
 }

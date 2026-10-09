@@ -76,18 +76,37 @@ impl std::fmt::Display for Topic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Compatible(Topic),
-    Held { topic: Topic, held: usize, applicable: usize, reason: String },
+    Held {
+        topic: Topic,
+        held: usize,
+        applicable: usize,
+        reason: String,
+    },
     /// The character is above the realm's level cap and is given to the realm as a working copy at the cap; what the copy cannot hold stays
     /// canonical. The core decides what that is when the operation runs.
-    Projected { topic: Topic, from: u32, to: u32 },
-    Unsupported { topic: Topic, reason: String },
-    Blocking { topic: Topic, reason: String },
+    Projected {
+        topic: Topic,
+        from: u32,
+        to: u32,
+    },
+    Unsupported {
+        topic: Topic,
+        reason: String,
+    },
+    Blocking {
+        topic: Topic,
+        reason: String,
+    },
 }
 
 impl Outcome {
     pub fn topic(&self) -> &Topic {
         match self {
-            Outcome::Compatible(t) | Outcome::Held { topic: t, .. } | Outcome::Projected { topic: t, .. } | Outcome::Unsupported { topic: t, .. } | Outcome::Blocking { topic: t, .. } => t,
+            Outcome::Compatible(t)
+            | Outcome::Held { topic: t, .. }
+            | Outcome::Projected { topic: t, .. }
+            | Outcome::Unsupported { topic: t, .. }
+            | Outcome::Blocking { topic: t, .. } => t,
         }
     }
 }
@@ -123,9 +142,17 @@ pub struct CompatibilityReport {
 
 impl CompatibilityReport {
     pub fn verdict(&self) -> Verdict {
-        if self.outcomes.iter().any(|o| matches!(o, Outcome::Blocking { .. })) {
+        if self
+            .outcomes
+            .iter()
+            .any(|o| matches!(o, Outcome::Blocking { .. }))
+        {
             Verdict::Incompatible
-        } else if self.outcomes.iter().any(|o| !matches!(o, Outcome::Compatible(_))) {
+        } else if self
+            .outcomes
+            .iter()
+            .any(|o| !matches!(o, Outcome::Compatible(_)))
+        {
             Verdict::Degraded
         } else {
             Verdict::Compatible
@@ -133,7 +160,10 @@ impl CompatibilityReport {
     }
 
     pub fn blocking(&self) -> Vec<&Outcome> {
-        self.outcomes.iter().filter(|o| matches!(o, Outcome::Blocking { .. })).collect()
+        self.outcomes
+            .iter()
+            .filter(|o| matches!(o, Outcome::Blocking { .. }))
+            .collect()
     }
 
     pub fn outcome(&self, topic: &Topic) -> Option<&Outcome> {
@@ -142,7 +172,11 @@ impl CompatibilityReport {
 
     /// What was not applied completely, one line each (what an operation reports back).
     pub fn held_lines(&self) -> Vec<String> {
-        self.outcomes.iter().filter(|o| !matches!(o, Outcome::Compatible(_))).map(|o| o.to_string()).collect()
+        self.outcomes
+            .iter()
+            .filter(|o| !matches!(o, Outcome::Compatible(_)))
+            .map(|o| o.to_string())
+            .collect()
     }
 }
 
@@ -167,17 +201,36 @@ pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
     if i.model.ruleset == content.ruleset {
         out.push(Outcome::Compatible(Topic::Ruleset));
     } else {
-        out.push(Outcome::Blocking { topic: Topic::Ruleset, reason: format!("the character is {} and the realm is {}", i.model.ruleset, content.ruleset) });
+        out.push(Outcome::Blocking {
+            topic: Topic::Ruleset,
+            reason: format!(
+                "the character is {} and the realm is {}",
+                i.model.ruleset, content.ruleset
+            ),
+        });
     }
 
-    if content.character_formats.readable.contains(i.model.format_version) {
+    if content
+        .character_formats
+        .readable
+        .contains(i.model.format_version)
+    {
         out.push(Outcome::Compatible(Topic::CharacterFormat));
     } else {
-        out.push(Outcome::Blocking { topic: Topic::CharacterFormat, reason: format!("the character is format {} and the realm reads {}", i.model.format_version, content.character_formats.readable) });
+        out.push(Outcome::Blocking {
+            topic: Topic::CharacterFormat,
+            reason: format!(
+                "the character is format {} and the realm reads {}",
+                i.model.format_version, content.character_formats.readable
+            ),
+        });
     }
 
     if i.operation == Operation::OnlineImport {
-        if content.online_import_job_formats.contains(&ONLINE_IMPORT_JOB_FORMAT_VERSION) {
+        if content
+            .online_import_job_formats
+            .contains(&ONLINE_IMPORT_JOB_FORMAT_VERSION)
+        {
             out.push(Outcome::Compatible(Topic::OnlineImport));
         } else if content.online_import_job_formats.is_empty() {
             out.push(Outcome::Blocking { topic: Topic::OnlineImport, reason: "the realm's core did not report an import job format (it was not asked, or it is too old to answer)".into() });
@@ -187,7 +240,9 @@ pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
     }
 
     if i.operation == Operation::RuntimeSession {
-        if content.supports(Feature::RuntimeSessions) && content.session_protocol != super::session::protocol::PROTOCOL_VERSION {
+        if content.supports(Feature::RuntimeSessions)
+            && content.session_protocol != super::session::protocol::PROTOCOL_VERSION
+        {
             out.push(Outcome::Blocking { topic: Topic::RuntimeSessions, reason: format!("the realm's Host speaks session protocol {} and this Owner speaks {}: neither reads the other's messages", content.session_protocol, super::session::protocol::PROTOCOL_VERSION) });
         } else if content.supports(Feature::RuntimeSessions) {
             out.push(Outcome::Compatible(Topic::RuntimeSessions));
@@ -200,7 +255,10 @@ pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
 
     if let Some(k) = i.knowledge {
         if let Some(why) = catalog_mismatch(k, i.capabilities) {
-            out.push(Outcome::Blocking { topic: Topic::ClientData, reason: why });
+            out.push(Outcome::Blocking {
+                topic: Topic::ClientData,
+                reason: why,
+            });
         }
     }
 
@@ -212,7 +270,11 @@ pub fn evaluate(i: &Inputs<'_>) -> CompatibilityReport {
         out.extend(extension_outcomes(i));
     }
 
-    CompatibilityReport { operation: i.operation, content_profile_hash: i.capabilities.content_profile_hash.clone(), outcomes: out }
+    CompatibilityReport {
+        operation: i.operation,
+        content_profile_hash: i.capabilities.content_profile_hash.clone(),
+        outcomes: out,
+    }
 }
 
 fn progression_outcome(i: &Inputs<'_>) -> Outcome {
@@ -223,15 +285,24 @@ fn progression_outcome(i: &Inputs<'_>) -> Outcome {
     };
     match activation(i.model.progression.level, p) {
         Activation::None => Outcome::Compatible(topic),
-        Activation::Active { canonical_level, projected_level } => {
+        Activation::Active {
+            canonical_level,
+            projected_level,
+        } => {
             if !i.capabilities.content.supports(Feature::LevelProjection) {
                 Outcome::Blocking { topic, reason: format!("the character is level {canonical_level} and the realm's cap is {projected_level}, and its core cannot project") }
-            } else if p.projection_protocol != PROTOCOL || p.projection_policy_version != POLICY_VERSION {
+            } else if p.projection_protocol != PROTOCOL
+                || p.projection_policy_version != POLICY_VERSION
+            {
                 Outcome::Blocking { topic, reason: format!("the core projects with protocol {} / policy {}; this Manager speaks {PROTOCOL} / {POLICY_VERSION}", p.projection_protocol, p.projection_policy_version) }
             } else if !i.projection_decider {
                 Outcome::Blocking { topic, reason: format!("the character is level {canonical_level} and the realm's cap is {projected_level}: only a running core can say what a projection holds (start the realm, or supply a projection made by its core)") }
             } else {
-                Outcome::Projected { topic, from: canonical_level, to: projected_level }
+                Outcome::Projected {
+                    topic,
+                    from: canonical_level,
+                    to: projected_level,
+                }
             }
         }
     }
@@ -242,8 +313,16 @@ fn catalog_mismatch(knowledge: &RealmKnowledge, caps: &RealmCapabilities) -> Opt
     for (name, mine) in knowledge.catalog() {
         match caps.content.client_catalog.get(name) {
             Some(theirs) if theirs == mine => {}
-            Some(_) => return Some(format!("{name} as the Manager reads it is not the {name} the realm loaded")),
-            None => return Some(format!("the Manager read {name}, which the realm's profile does not list")),
+            Some(_) => {
+                return Some(format!(
+                    "{name} as the Manager reads it is not the {name} the realm loaded"
+                ))
+            }
+            None => {
+                return Some(format!(
+                    "the Manager read {name}, which the realm's profile does not list"
+                ))
+            }
         }
     }
     None
@@ -255,16 +334,32 @@ fn wardrobe_outcome(i: &Inputs<'_>) -> Outcome {
         return Outcome::Compatible(Topic::Wardrobe);
     }
     if !i.capabilities.content.supports(Feature::Wardrobe) {
-        return Outcome::Unsupported { topic: Topic::Wardrobe, reason: "the realm has no appearance tables or no Appearances.dbc".into() };
+        return Outcome::Unsupported {
+            topic: Topic::Wardrobe,
+            reason: "the realm has no appearance tables or no Appearances.dbc".into(),
+        };
     }
     let Some(knowledge) = i.knowledge else {
-        return Outcome::Held { topic: Topic::Wardrobe, held: ids.len(), applicable: 0, reason: "the Manager has not read the realm's client data".into() };
+        return Outcome::Held {
+            topic: Topic::Wardrobe,
+            held: ids.len(),
+            applicable: 0,
+            reason: "the Manager has not read the realm's client data".into(),
+        };
     };
-    let applicable = ids.iter().filter(|id| knowledge.knows_appearance(**id)).count();
+    let applicable = ids
+        .iter()
+        .filter(|id| knowledge.knows_appearance(**id))
+        .count();
     if applicable == ids.len() {
         Outcome::Compatible(Topic::Wardrobe)
     } else {
-        Outcome::Held { topic: Topic::Wardrobe, held: ids.len() - applicable, applicable, reason: "the realm's client data does not know these appearances".into() }
+        Outcome::Held {
+            topic: Topic::Wardrobe,
+            held: ids.len() - applicable,
+            applicable,
+            reason: "the realm's client data does not know these appearances".into(),
+        }
     }
 }
 
@@ -272,23 +367,38 @@ fn collection_outcome(i: &Inputs<'_>, kind: &str, set: &IdSet) -> Outcome {
     let topic = Topic::Collection(kind.to_string());
     let content = &i.capabilities.content;
     if !content.supports(Feature::Collections) || !content.collection_kinds.contains(kind) {
-        return Outcome::Unsupported { topic, reason: "the realm does not carry this collection".into() };
+        return Outcome::Unsupported {
+            topic,
+            reason: "the realm does not carry this collection".into(),
+        };
     }
     let Some(knowledge) = i.knowledge else {
-        return Outcome::Held { topic, held: set.len(), applicable: 0, reason: "the Manager has not read the realm's client data".into() };
+        return Outcome::Held {
+            topic,
+            held: set.len(),
+            applicable: 0,
+            reason: "the Manager has not read the realm's client data".into(),
+        };
     };
     let applicable = set
         .ids()
         .iter()
         .filter(|id| match kind {
             "coa:appearance" => knowledge.knows_appearance(**id),
-            _ => knowledge.knows_vanity(**id) && !super::realm::knowledge::is_bank_vanity_item(**id),
+            _ => {
+                knowledge.knows_vanity(**id) && !super::realm::knowledge::is_bank_vanity_item(**id)
+            }
         })
         .count();
     if applicable == set.len() {
         Outcome::Compatible(topic)
     } else {
-        Outcome::Held { topic, held: set.len() - applicable, applicable, reason: "the realm's client data does not know these ids".into() }
+        Outcome::Held {
+            topic,
+            held: set.len() - applicable,
+            applicable,
+            reason: "the realm's client data does not know these ids".into(),
+        }
     }
 }
 
@@ -302,10 +412,22 @@ fn extension_outcomes(i: &Inputs<'_>) -> Vec<Outcome> {
         .map(|o| {
             let topic = Topic::Extension(o.namespace.clone());
             match o.disposition {
-                ExtensionDisposition::Applied | ExtensionDisposition::AlreadyApplied => Outcome::Compatible(topic),
+                ExtensionDisposition::Applied | ExtensionDisposition::AlreadyApplied => {
+                    Outcome::Compatible(topic)
+                }
                 ExtensionDisposition::CanonicalOnly => Outcome::Compatible(topic),
-                ExtensionDisposition::Deferred(why) => Outcome::Held { topic, held: 1, applicable: 0, reason: why.to_string() },
-                ExtensionDisposition::Failed(why) => Outcome::Held { topic, held: 1, applicable: 0, reason: why },
+                ExtensionDisposition::Deferred(why) => Outcome::Held {
+                    topic,
+                    held: 1,
+                    applicable: 0,
+                    reason: why.to_string(),
+                },
+                ExtensionDisposition::Failed(why) => Outcome::Held {
+                    topic,
+                    held: 1,
+                    applicable: 0,
+                    reason: why,
+                },
             }
         })
         .collect()
@@ -321,7 +443,13 @@ mod tests {
 
     fn profile(features: &[Feature], jobs: &[u32]) -> RealmCapabilities {
         let mut catalog = ClientCatalog::new();
-        catalog.insert("Appearances.dbc".into(), CatalogEntry { sha256: "ab".repeat(32), records: 3 });
+        catalog.insert(
+            "Appearances.dbc".into(),
+            CatalogEntry {
+                sha256: "ab".repeat(32),
+                records: 3,
+            },
+        );
         RealmCapabilities::build(
             None,
             ContentProfile {
@@ -331,11 +459,19 @@ mod tests {
                 session_protocol: 2,
                 collection_protocol: 2,
                 features: features.iter().copied().collect(),
-                collection_kinds: ["coa:appearance".to_string(), "coa:vanity".to_string()].into_iter().collect(),
+                collection_kinds: ["coa:appearance".to_string(), "coa:vanity".to_string()]
+                    .into_iter()
+                    .collect(),
                 extensions: vec![],
                 client_catalog: catalog,
             },
-            Some(Progression { max_player_level: 80, projection_protocol: 1, projection_policy_version: 1, progression_signature: "cd".repeat(32), scaling_enabled: true }),
+            Some(Progression {
+                max_player_level: 80,
+                projection_protocol: 1,
+                projection_policy_version: 1,
+                progression_signature: "cd".repeat(32),
+                scaling_enabled: true,
+            }),
         )
         .unwrap()
     }
@@ -344,31 +480,69 @@ mod tests {
     fn a_host_of_another_session_protocol_is_refused_before_a_character_is_armed() {
         let model = geared_level_eighty();
         let mut content = profile(&all(), &[2]).content;
-        let ok = RealmCapabilities::build(None, content.clone(), profile(&all(), &[2]).progression).unwrap();
-        assert_eq!(run(Operation::RuntimeSession, &model, &ok, None, &[], None).verdict(), Verdict::Compatible);
+        let ok = RealmCapabilities::build(None, content.clone(), profile(&all(), &[2]).progression)
+            .unwrap();
+        assert_eq!(
+            run(Operation::RuntimeSession, &model, &ok, None, &[], None).verdict(),
+            Verdict::Compatible
+        );
         content.session_protocol = 1;
-        let old = RealmCapabilities::build(None, content, profile(&all(), &[2]).progression).unwrap();
+        let old =
+            RealmCapabilities::build(None, content, profile(&all(), &[2]).progression).unwrap();
         let r = run(Operation::RuntimeSession, &model, &old, None, &[], None);
         assert_eq!(r.verdict(), Verdict::Incompatible);
         assert!(r.blocking()[0].to_string().contains("session protocol 1"));
-        assert_eq!(run(Operation::Update, &model, &old, None, &[], None).verdict(), Verdict::Compatible, "only sessions depend on it");
+        assert_eq!(
+            run(Operation::Update, &model, &old, None, &[], None).verdict(),
+            Verdict::Compatible,
+            "only sessions depend on it"
+        );
     }
 
     fn all() -> Vec<Feature> {
-        vec![Feature::RuntimeSessions, Feature::Wardrobe, Feature::Collections]
+        vec![
+            Feature::RuntimeSessions,
+            Feature::Wardrobe,
+            Feature::Collections,
+        ]
     }
 
     fn knows(a: &[u32]) -> RealmKnowledge {
-        RealmKnowledge::new(IdSet::from_ids(a.iter().copied()).unwrap(), IdSet::from_ids([50_001]).unwrap())
+        RealmKnowledge::new(
+            IdSet::from_ids(a.iter().copied()).unwrap(),
+            IdSet::from_ids([50_001]).unwrap(),
+        )
     }
 
-    fn run(op: Operation, model: &PortableCharacter, caps: &RealmCapabilities, k: Option<&RealmKnowledge>, collections: &[(&str, &IdSet)], reg: Option<&ExtensionRegistry>) -> CompatibilityReport {
-        evaluate(&Inputs { operation: op, model, capabilities: caps, knowledge: k, collections, extensions: reg, projection_decider: true })
+    fn run(
+        op: Operation,
+        model: &PortableCharacter,
+        caps: &RealmCapabilities,
+        k: Option<&RealmKnowledge>,
+        collections: &[(&str, &IdSet)],
+        reg: Option<&ExtensionRegistry>,
+    ) -> CompatibilityReport {
+        evaluate(&Inputs {
+            operation: op,
+            model,
+            capabilities: caps,
+            knowledge: k,
+            collections,
+            extensions: reg,
+            projection_decider: true,
+        })
     }
 
     #[test]
     fn a_plain_character_on_a_matching_realm_is_compatible() {
-        let r = run(Operation::OnlineImport, &geared_level_eighty(), &profile(&all(), &[2]), None, &[], None);
+        let r = run(
+            Operation::OnlineImport,
+            &geared_level_eighty(),
+            &profile(&all(), &[2]),
+            None,
+            &[],
+            None,
+        );
         assert_eq!(r.verdict(), Verdict::Compatible, "{:#?}", r.outcomes);
         assert!(r.held_lines().is_empty());
     }
@@ -377,44 +551,159 @@ mod tests {
     fn what_cannot_be_done_on_a_realm_is_refused_with_a_reason_before_anything_is_written() {
         let model = geared_level_eighty();
         // a core that reads another job format, one that was not asked, a realm without sessions, another ruleset
-        let r = run(Operation::OnlineImport, &model, &profile(&all(), &[3]), None, &[], None);
+        let r = run(
+            Operation::OnlineImport,
+            &model,
+            &profile(&all(), &[3]),
+            None,
+            &[],
+            None,
+        );
         assert_eq!(r.verdict(), Verdict::Incompatible);
-        assert!(matches!(r.outcome(&Topic::OnlineImport), Some(Outcome::Blocking { reason, .. }) if reason.contains("[3]")));
-        let r = run(Operation::OnlineImport, &model, &profile(&all(), &[]), None, &[], None);
-        assert!(matches!(r.outcome(&Topic::OnlineImport), Some(Outcome::Blocking { reason, .. }) if reason.contains("did not report")));
+        assert!(
+            matches!(r.outcome(&Topic::OnlineImport), Some(Outcome::Blocking { reason, .. }) if reason.contains("[3]"))
+        );
+        let r = run(
+            Operation::OnlineImport,
+            &model,
+            &profile(&all(), &[]),
+            None,
+            &[],
+            None,
+        );
+        assert!(
+            matches!(r.outcome(&Topic::OnlineImport), Some(Outcome::Blocking { reason, .. }) if reason.contains("did not report"))
+        );
         // the same character through the offline importer does not need the core's job format
-        assert_eq!(run(Operation::OfflineImport, &model, &profile(&all(), &[]), None, &[], None).verdict(), Verdict::Compatible);
-        let r = run(Operation::RuntimeSession, &model, &profile(&[Feature::Wardrobe], &[2]), None, &[], None);
-        assert!(matches!(r.outcome(&Topic::RuntimeSessions), Some(Outcome::Blocking { .. })));
+        assert_eq!(
+            run(
+                Operation::OfflineImport,
+                &model,
+                &profile(&all(), &[]),
+                None,
+                &[],
+                None
+            )
+            .verdict(),
+            Verdict::Compatible
+        );
+        let r = run(
+            Operation::RuntimeSession,
+            &model,
+            &profile(&[Feature::Wardrobe], &[2]),
+            None,
+            &[],
+            None,
+        );
+        assert!(matches!(
+            r.outcome(&Topic::RuntimeSessions),
+            Some(Outcome::Blocking { .. })
+        ));
         let mut wildcard = model.clone();
         wildcard.ruleset = Ruleset::Wildcard;
-        assert!(matches!(run(Operation::Update, &wildcard, &profile(&all(), &[2]), None, &[], None).outcome(&Topic::Ruleset), Some(Outcome::Blocking { .. })));
+        assert!(matches!(
+            run(
+                Operation::Update,
+                &wildcard,
+                &profile(&all(), &[2]),
+                None,
+                &[],
+                None
+            )
+            .outcome(&Topic::Ruleset),
+            Some(Outcome::Blocking { .. })
+        ));
         // a realm whose Manager side only reads format 1 cannot take a format 2 character
         let mut old = profile(&all(), &[2]).content;
         old.character_formats.readable = FormatRange::single(1);
         let old = RealmCapabilities::new(None, old).unwrap();
-        assert!(matches!(run(Operation::Update, &model, &old, None, &[], None).outcome(&Topic::CharacterFormat), Some(Outcome::Blocking { .. })));
+        assert!(matches!(
+            run(Operation::Update, &model, &old, None, &[], None).outcome(&Topic::CharacterFormat),
+            Some(Outcome::Blocking { .. })
+        ));
     }
 
     #[test]
-    fn a_wardrobe_the_realm_cannot_fully_show_is_held_back_by_count_and_one_it_cannot_show_at_all_is_unsupported() {
+    fn a_wardrobe_the_realm_cannot_fully_show_is_held_back_by_count_and_one_it_cannot_show_at_all_is_unsupported(
+    ) {
         let mut model = geared_level_eighty();
         model.wardrobe.active.insert(1, 100);
         model.wardrobe.active.insert(2, 200);
-        model.wardrobe.outfits.insert("Set".into(), vec![100, 300, 0]);
+        model
+            .wardrobe
+            .outfits
+            .insert("Set".into(), vec![100, 300, 0]);
         let caps = profile(&all(), &[2]);
-        let r = run(Operation::Update, &model, &caps, Some(&knows(&[100, 200])), &[], None);
+        let r = run(
+            Operation::Update,
+            &model,
+            &caps,
+            Some(&knows(&[100, 200])),
+            &[],
+            None,
+        );
         assert_eq!(r.verdict(), Verdict::Degraded);
-        assert_eq!(r.outcome(&Topic::Wardrobe), Some(&Outcome::Held { topic: Topic::Wardrobe, held: 1, applicable: 2, reason: "the realm's client data does not know these appearances".into() }));
-        assert_eq!(run(Operation::Update, &model, &caps, Some(&knows(&[100, 200, 300])), &[], None).verdict(), Verdict::Compatible);
+        assert_eq!(
+            r.outcome(&Topic::Wardrobe),
+            Some(&Outcome::Held {
+                topic: Topic::Wardrobe,
+                held: 1,
+                applicable: 2,
+                reason: "the realm's client data does not know these appearances".into()
+            })
+        );
+        assert_eq!(
+            run(
+                Operation::Update,
+                &model,
+                &caps,
+                Some(&knows(&[100, 200, 300])),
+                &[],
+                None
+            )
+            .verdict(),
+            Verdict::Compatible
+        );
         // the Manager has not read the data: everything is held, nothing is guessed
-        assert!(matches!(run(Operation::Update, &model, &caps, None, &[], None).outcome(&Topic::Wardrobe), Some(Outcome::Held { applicable: 0, held: 3, .. })));
+        assert!(matches!(
+            run(Operation::Update, &model, &caps, None, &[], None).outcome(&Topic::Wardrobe),
+            Some(Outcome::Held {
+                applicable: 0,
+                held: 3,
+                ..
+            })
+        ));
         // the realm has no wardrobe feature: nothing is applied, nothing is lost
-        let r = run(Operation::Update, &model, &profile(&[Feature::RuntimeSessions], &[2]), Some(&knows(&[100])), &[], None);
-        assert!(matches!(r.outcome(&Topic::Wardrobe), Some(Outcome::Unsupported { .. })));
-        assert_eq!(r.verdict(), Verdict::Degraded, "an unsupported feature degrades; it does not block");
+        let r = run(
+            Operation::Update,
+            &model,
+            &profile(&[Feature::RuntimeSessions], &[2]),
+            Some(&knows(&[100])),
+            &[],
+            None,
+        );
+        assert!(matches!(
+            r.outcome(&Topic::Wardrobe),
+            Some(Outcome::Unsupported { .. })
+        ));
+        assert_eq!(
+            r.verdict(),
+            Verdict::Degraded,
+            "an unsupported feature degrades; it does not block"
+        );
         // a character that wears nothing has nothing to hold
-        assert_eq!(run(Operation::Update, &geared_level_eighty(), &profile(&[], &[2]), None, &[], None).verdict(), Verdict::Compatible);
+        assert_eq!(
+            run(
+                Operation::Update,
+                &geared_level_eighty(),
+                &profile(&[], &[2]),
+                None,
+                &[],
+                None
+            )
+            .verdict(),
+            Verdict::Compatible
+        );
     }
 
     #[test]
@@ -422,34 +711,86 @@ mod tests {
         let appearances = IdSet::from_ids([100, 200, 300]).unwrap();
         let vanity = IdSet::from_ids([50_001, 50_002, 110_000]).unwrap();
         let caps = profile(&all(), &[2]);
-        let k = RealmKnowledge::new(IdSet::from_ids([100, 200]).unwrap(), IdSet::from_ids([50_001, 110_000]).unwrap());
-        let r = run(Operation::Update, &geared_level_eighty(), &caps, Some(&k), &[("coa:appearance", &appearances), ("coa:vanity", &vanity)], None);
-        assert!(matches!(r.outcome(&Topic::Collection("coa:appearance".into())), Some(Outcome::Held { held: 1, applicable: 2, .. })));
-        assert!(matches!(r.outcome(&Topic::Collection("coa:vanity".into())), Some(Outcome::Held { held: 2, applicable: 1, .. })), "50002 is unknown and the bank item is not carried");
-        let r = run(Operation::Update, &geared_level_eighty(), &profile(&[Feature::Wardrobe], &[2]), Some(&k), &[("coa:appearance", &appearances)], None);
-        assert!(matches!(r.outcome(&Topic::Collection("coa:appearance".into())), Some(Outcome::Unsupported { .. })));
+        let k = RealmKnowledge::new(
+            IdSet::from_ids([100, 200]).unwrap(),
+            IdSet::from_ids([50_001, 110_000]).unwrap(),
+        );
+        let r = run(
+            Operation::Update,
+            &geared_level_eighty(),
+            &caps,
+            Some(&k),
+            &[("coa:appearance", &appearances), ("coa:vanity", &vanity)],
+            None,
+        );
+        assert!(matches!(
+            r.outcome(&Topic::Collection("coa:appearance".into())),
+            Some(Outcome::Held {
+                held: 1,
+                applicable: 2,
+                ..
+            })
+        ));
+        assert!(
+            matches!(
+                r.outcome(&Topic::Collection("coa:vanity".into())),
+                Some(Outcome::Held {
+                    held: 2,
+                    applicable: 1,
+                    ..
+                })
+            ),
+            "50002 is unknown and the bank item is not carried"
+        );
+        let r = run(
+            Operation::Update,
+            &geared_level_eighty(),
+            &profile(&[Feature::Wardrobe], &[2]),
+            Some(&k),
+            &[("coa:appearance", &appearances)],
+            None,
+        );
+        assert!(matches!(
+            r.outcome(&Topic::Collection("coa:appearance".into())),
+            Some(Outcome::Unsupported { .. })
+        ));
     }
 
     #[test]
     fn extensions_are_applicable_deferred_or_canonical_only_and_never_block() {
         let mut model = geared_level_eighty();
         model.extensions.insert("mod:fake".into(), payload(2, b"x"));
-        model.extensions.insert("mod:other".into(), payload(1, b"y"));
-        model.extensions.insert("coa:unlisted-settings".into(), payload(1, b"{}"));
+        model
+            .extensions
+            .insert("mod:other".into(), payload(1, b"y"));
+        model
+            .extensions
+            .insert("coa:unlisted-settings".into(), payload(1, b"{}"));
         let mut reg = ExtensionRegistry::new();
         reg.register(FakeAdapter::new(2, 3)).unwrap();
         let mut caps = profile(&all(), &[2]).content;
-        caps.extensions = vec![ExtensionSupport { namespace: "mod:fake".into(), module_version: "1.0.0".into(), formats: FormatRange::new(2, 3) }];
+        caps.extensions = vec![ExtensionSupport {
+            namespace: "mod:fake".into(),
+            module_version: "1.0.0".into(),
+            formats: FormatRange::new(2, 3),
+        }];
         let caps = RealmCapabilities::build(None, caps, profile(&all(), &[2]).progression).unwrap();
         let r = run(Operation::Update, &model, &caps, None, &[], Some(&reg));
-        assert_eq!(r.outcome(&Topic::Extension("mod:fake".into())), Some(&Outcome::Compatible(Topic::Extension("mod:fake".into()))));
-        assert!(matches!(r.outcome(&Topic::Extension("mod:other".into())), Some(Outcome::Held { reason, .. }) if reason.contains("does not have this module")));
+        assert_eq!(
+            r.outcome(&Topic::Extension("mod:fake".into())),
+            Some(&Outcome::Compatible(Topic::Extension("mod:fake".into())))
+        );
+        assert!(
+            matches!(r.outcome(&Topic::Extension("mod:other".into())), Some(Outcome::Held { reason, .. }) if reason.contains("does not have this module"))
+        );
         assert_eq!(r.verdict(), Verdict::Degraded);
         assert!(r.blocking().is_empty());
         // the same payload in a format the realm does not read
         model.extensions.insert("mod:fake".into(), payload(4, b"x"));
         let r = run(Operation::Update, &model, &caps, None, &[], Some(&reg));
-        assert!(matches!(r.outcome(&Topic::Extension("mod:fake".into())), Some(Outcome::Held { reason, .. }) if reason.contains("newer")));
+        assert!(
+            matches!(r.outcome(&Topic::Extension("mod:fake".into())), Some(Outcome::Held { reason, .. }) if reason.contains("newer"))
+        );
     }
 
     #[test]
@@ -457,12 +798,35 @@ mod tests {
         let caps = profile(&all(), &[2]);
         let mut k = knows(&[100]);
         k.set_catalog_for_test("Appearances.dbc", &"ab".repeat(32), 3);
-        assert_eq!(run(Operation::Update, &geared_level_eighty(), &caps, Some(&k), &[], None).verdict(), Verdict::Compatible);
+        assert_eq!(
+            run(
+                Operation::Update,
+                &geared_level_eighty(),
+                &caps,
+                Some(&k),
+                &[],
+                None
+            )
+            .verdict(),
+            Verdict::Compatible
+        );
         k.set_catalog_for_test("Appearances.dbc", &"cd".repeat(32), 3);
-        let r = run(Operation::Update, &geared_level_eighty(), &caps, Some(&k), &[], None);
-        assert!(matches!(r.outcome(&Topic::ClientData), Some(Outcome::Blocking { .. })));
+        let r = run(
+            Operation::Update,
+            &geared_level_eighty(),
+            &caps,
+            Some(&k),
+            &[],
+            None,
+        );
+        assert!(matches!(
+            r.outcome(&Topic::ClientData),
+            Some(Outcome::Blocking { .. })
+        ));
         let mut k = knows(&[100]);
         k.set_catalog_for_test("VanityCollection.dbc", &"ab".repeat(32), 3);
-        assert!(matches!(run(Operation::Update, &geared_level_eighty(), &caps, Some(&k), &[], None).outcome(&Topic::ClientData), Some(Outcome::Blocking { reason, .. }) if reason.contains("does not list")));
+        assert!(
+            matches!(run(Operation::Update, &geared_level_eighty(), &caps, Some(&k), &[], None).outcome(&Topic::ClientData), Some(Outcome::Blocking { reason, .. }) if reason.contains("does not list"))
+        );
     }
 }

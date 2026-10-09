@@ -116,7 +116,11 @@ pub struct ContentId {
 const MAX_SEGMENT: usize = 48;
 
 fn valid_segment(s: &str) -> bool {
-    !s.is_empty() && s.len() <= MAX_SEGMENT && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-' || b == b'.')
+    !s.is_empty()
+        && s.len() <= MAX_SEGMENT
+        && s.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-' || b == b'.'
+        })
 }
 
 /// A namespace is one or more segments joined by colons.
@@ -127,9 +131,15 @@ pub fn valid_namespace(ns: &str) -> bool {
 impl ContentId {
     pub fn new(namespace: &str, kind: &str, id: u64) -> Result<Self> {
         if !valid_namespace(namespace) || !valid_segment(kind) {
-            return Err(PortableError::Invalid(format!("invalid content id {namespace}:{kind}:{id}")));
+            return Err(PortableError::Invalid(format!(
+                "invalid content id {namespace}:{kind}:{id}"
+            )));
         }
-        Ok(Self { namespace: namespace.to_string(), kind: kind.to_string(), id })
+        Ok(Self {
+            namespace: namespace.to_string(),
+            kind: kind.to_string(),
+            id,
+        })
     }
 
     pub fn namespace(&self) -> &str {
@@ -158,7 +168,8 @@ impl fmt::Debug for ContentId {
 impl FromStr for ContentId {
     type Err = PortableError;
     fn from_str(s: &str) -> Result<Self> {
-        let bad = || PortableError::Invalid(format!("{s:?} is not a content id (namespace:kind:id)"));
+        let bad =
+            || PortableError::Invalid(format!("{s:?} is not a content id (namespace:kind:id)"));
         let (rest, id) = s.rsplit_once(':').ok_or_else(bad)?;
         let (namespace, kind) = rest.rsplit_once(':').ok_or_else(bad)?;
         // `u64::from_str` accepts a leading '+', which would make two spellings of one id.
@@ -191,7 +202,10 @@ mod tests {
     fn ids_are_uuid_v7_and_strictly_time_ordered() {
         let ids: Vec<CharacterId> = (0..2000).map(|_| CharacterId::new()).collect();
         assert!(ids.iter().all(|id| id.as_uuid().get_version_num() == 7));
-        assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids generated in sequence must sort in sequence");
+        assert!(
+            ids.windows(2).all(|w| w[0] < w[1]),
+            "ids generated in sequence must sort in sequence"
+        );
         let mut unique = ids.clone();
         unique.sort();
         unique.dedup();
@@ -202,27 +216,56 @@ mod tests {
     fn only_uuid_v7_is_accepted_from_text() {
         let good = CharacterId::new();
         assert_eq!(good.to_string().parse::<CharacterId>().unwrap(), good);
-        assert!(Uuid::new_v4().to_string().parse::<CharacterId>().is_err(), "a v4 UUID is not a portable id");
+        assert!(
+            Uuid::new_v4().to_string().parse::<CharacterId>().is_err(),
+            "a v4 UUID is not a portable id"
+        );
         assert!(Uuid::nil().to_string().parse::<CharacterId>().is_err());
         assert!("not-a-uuid".parse::<CharacterId>().is_err());
     }
 
     #[test]
     fn content_ids_keep_their_namespace() {
-        for text in ["core:wotlk:item:19019", "coa:wardrobe:10581", "mod:craftsmans-codex:item:7", "coa:class:12"] {
+        for text in [
+            "core:wotlk:item:19019",
+            "coa:wardrobe:10581",
+            "mod:craftsmans-codex:item:7",
+            "coa:class:12",
+        ] {
             let id: ContentId = text.parse().unwrap();
             assert_eq!(id.to_string(), text);
         }
         let id: ContentId = "core:wotlk:item:19019".parse().unwrap();
-        assert_eq!((id.namespace(), id.kind(), id.id()), ("core:wotlk", "item", 19019));
+        assert_eq!(
+            (id.namespace(), id.kind(), id.id()),
+            ("core:wotlk", "item", 19019)
+        );
         let other: ContentId = "mod:x:item:19019".parse().unwrap();
-        assert_ne!(id, other, "the same number in another namespace is a different thing");
+        assert_ne!(
+            id, other,
+            "the same number in another namespace is a different thing"
+        );
     }
 
     #[test]
     fn malformed_content_ids_are_refused() {
-        for text in ["", "item:1", "a:b", "a:b:c", "a:b:-1", "a:b:+1", "A:b:1", "a b:c:1", "a::1", ":b:1", "a:b:18446744073709551616"] {
-            assert!(text.parse::<ContentId>().is_err(), "{text:?} must not parse");
+        for text in [
+            "",
+            "item:1",
+            "a:b",
+            "a:b:c",
+            "a:b:-1",
+            "a:b:+1",
+            "A:b:1",
+            "a b:c:1",
+            "a::1",
+            ":b:1",
+            "a:b:18446744073709551616",
+        ] {
+            assert!(
+                text.parse::<ContentId>().is_err(),
+                "{text:?} must not parse"
+            );
         }
     }
 

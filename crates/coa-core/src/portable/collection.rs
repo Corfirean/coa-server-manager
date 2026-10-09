@@ -33,7 +33,9 @@ impl IdSet {
         v.sort_unstable();
         v.dedup();
         if v.len() > MAX_SET_IDS {
-            return Err(PortableError::LimitExceeded(format!("a collection cannot hold more than {MAX_SET_IDS} ids")));
+            return Err(PortableError::LimitExceeded(format!(
+                "a collection cannot hold more than {MAX_SET_IDS} ids"
+            )));
         }
         Ok(Self(v))
     }
@@ -91,7 +93,14 @@ impl IdSet {
         put_varint(&mut out, self.0.len() as u64);
         let mut previous = 0u32;
         for (index, id) in self.0.iter().enumerate() {
-            put_varint(&mut out, if index == 0 { *id as u64 } else { (*id - previous) as u64 });
+            put_varint(
+                &mut out,
+                if index == 0 {
+                    *id as u64
+                } else {
+                    (*id - previous) as u64
+                },
+            );
             previous = *id;
         }
         out
@@ -99,19 +108,26 @@ impl IdSet {
 
     pub fn decode(bytes: &[u8]) -> Result<IdSet> {
         if bytes.len() > MAX_ENCODED_BYTES {
-            return Err(PortableError::LimitExceeded("an encoded collection is too large".into()));
+            return Err(PortableError::LimitExceeded(
+                "an encoded collection is too large".into(),
+            ));
         }
         let bad = |what: &str| PortableError::CorruptSnapshot(format!("collection: {what}"));
         let (&version, mut rest) = bytes.split_first().ok_or_else(|| bad("empty"))?;
         if version as u32 > PORTABLE_COLLECTION_FORMAT_VERSION {
-            return Err(PortableError::UnsupportedFormat { found: version as u32, supported: PORTABLE_COLLECTION_FORMAT_VERSION });
+            return Err(PortableError::UnsupportedFormat {
+                found: version as u32,
+                supported: PORTABLE_COLLECTION_FORMAT_VERSION,
+            });
         }
         if version == 0 {
             return Err(bad("version 0"));
         }
         let count = take_varint(&mut rest).ok_or_else(|| bad("truncated count"))?;
         if count > MAX_SET_IDS as u64 {
-            return Err(PortableError::LimitExceeded(format!("a collection cannot hold more than {MAX_SET_IDS} ids")));
+            return Err(PortableError::LimitExceeded(format!(
+                "a collection cannot hold more than {MAX_SET_IDS} ids"
+            )));
         }
         let mut ids = Vec::with_capacity(count as usize);
         let mut previous = 0u64;
@@ -188,12 +204,23 @@ mod tests {
 
     #[test]
     fn roundtrip_and_size_at_realistic_and_extreme_sizes() {
-        for (count, spread) in [(0usize, 1u32), (1, 10), (2_000, 40_000), (10_000, 200_000), (50_000, 1_000_000)] {
+        for (count, spread) in [
+            (0usize, 1u32),
+            (1, 10),
+            (2_000, 40_000),
+            (10_000, 200_000),
+            (50_000, 1_000_000),
+        ] {
             let set = IdSet::from_ids(pseudo_random_ids(count, spread)).unwrap();
             let encoded = set.encode();
             assert_eq!(IdSet::decode(&encoded).unwrap(), set);
             // a compact binary form: well under 3 bytes per id even for scattered ids, never a JSON array
-            assert!(encoded.len() <= 8 + set.len() * 3, "{} ids -> {} bytes", set.len(), encoded.len());
+            assert!(
+                encoded.len() <= 8 + set.len() * 3,
+                "{} ids -> {} bytes",
+                set.len(),
+                encoded.len()
+            );
         }
     }
 
@@ -203,7 +230,10 @@ mod tests {
         let b = IdSet::from_ids([2, 9, 11]).unwrap();
         let u = a.union(&b);
         assert_eq!(u.ids(), &[1, 2, 5, 9, 11]);
-        assert!(a.ids().iter().all(|id| u.contains(*id)), "nothing of the old set may disappear");
+        assert!(
+            a.ids().iter().all(|id| u.contains(*id)),
+            "nothing of the old set may disappear"
+        );
         assert_eq!(u.union(&b), u);
         assert_eq!(u.union(&IdSet::new()), u);
         assert_eq!(a.count_new(&b), 2);
@@ -214,7 +244,10 @@ mod tests {
     fn hash_changes_with_content_and_kind() {
         let a = IdSet::from_ids([1, 2, 3]).unwrap();
         let b = IdSet::from_ids([1, 2, 4]).unwrap();
-        assert_eq!(a.hash("coa:wardrobe"), IdSet::from_ids([3, 2, 1]).unwrap().hash("coa:wardrobe"));
+        assert_eq!(
+            a.hash("coa:wardrobe"),
+            IdSet::from_ids([3, 2, 1]).unwrap().hash("coa:wardrobe")
+        );
         assert_ne!(a.hash("coa:wardrobe"), b.hash("coa:wardrobe"));
         assert_ne!(a.hash("coa:wardrobe"), a.hash("coa:vanity"));
     }
@@ -227,19 +260,28 @@ mod tests {
         let mut trailing = good.clone();
         trailing.push(0);
         assert!(IdSet::decode(&trailing).is_err());
-        assert!(IdSet::decode(&[1, 3, 10, 0, 5]).is_err(), "a zero gap means a duplicate");
+        assert!(
+            IdSet::decode(&[1, 3, 10, 0, 5]).is_err(),
+            "a zero gap means a duplicate"
+        );
         assert!(IdSet::decode(&[9, 0]).is_err(), "newer format");
         assert!(IdSet::decode(&[0, 0]).is_err(), "version zero");
         // count far beyond the limit
         let mut huge = vec![1];
         put_varint(&mut huge, MAX_SET_IDS as u64 + 1);
-        assert!(matches!(IdSet::decode(&huge), Err(PortableError::LimitExceeded(_))));
+        assert!(matches!(
+            IdSet::decode(&huge),
+            Err(PortableError::LimitExceeded(_))
+        ));
         // an id above u32
         let mut big = vec![1, 1];
         put_varint(&mut big, u32::MAX as u64 + 1);
         assert!(IdSet::decode(&big).is_err());
         // an over-long varint must not loop or overflow
-        assert!(IdSet::decode(&[1, 1, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80]).is_err());
+        assert!(IdSet::decode(&[
+            1, 1, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
+        ])
+        .is_err());
     }
 
     #[test]

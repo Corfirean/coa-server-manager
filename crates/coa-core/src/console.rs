@@ -42,7 +42,11 @@ pub struct Line {
 
 fn classify(l: &str) -> Level {
     let u = l.to_ascii_uppercase();
-    if u.contains(" FATAL ") || u.contains(" ERROR ") || u.contains("[ERROR]") || u.contains("ERROR:") {
+    if u.contains(" FATAL ")
+        || u.contains(" ERROR ")
+        || u.contains("[ERROR]")
+        || u.contains("ERROR:")
+    {
         Level::Error
     } else if u.contains(" WARN ") || u.contains("[WARNING]") || u.contains(" WARNING ") {
         Level::Warn
@@ -54,7 +58,8 @@ fn classify(l: &str) -> Level {
 /// The last `max_lines` lines (after filtering) from the last ~512 KB of a log. Works on multi-gigabyte files.
 pub fn tail(path: &Path, filter: Option<&str>, max_lines: usize) -> Result<Vec<Line>> {
     const WINDOW: u64 = 512 * 1024;
-    let mut f = File::open(path).map_err(|_| Error::Invalid("This log does not exist yet.".into()))?;
+    let mut f =
+        File::open(path).map_err(|_| Error::Invalid("This log does not exist yet.".into()))?;
     let len = f.metadata()?.len();
     let start = len.saturating_sub(WINDOW);
     f.seek(SeekFrom::Start(start))?;
@@ -68,8 +73,16 @@ pub fn tail(path: &Path, filter: Option<&str>, max_lines: usize) -> Result<Vec<L
     let needle = filter.map(str::to_lowercase).filter(|n| !n.is_empty());
     let out: Vec<Line> = lines
         .into_iter()
-        .filter(|l| needle.as_ref().map(|n| l.to_lowercase().contains(n)).unwrap_or(true))
-        .map(|l| Line { level: classify(l), text: crate::diag::redact(l) })
+        .filter(|l| {
+            needle
+                .as_ref()
+                .map(|n| l.to_lowercase().contains(n))
+                .unwrap_or(true)
+        })
+        .map(|l| Line {
+            level: classify(l),
+            text: crate::diag::redact(l),
+        })
         .collect();
     let skip = out.len().saturating_sub(max_lines);
     Ok(out.into_iter().skip(skip).collect())
@@ -87,7 +100,20 @@ pub enum Risk {
 pub fn risk(command: &str) -> Risk {
     let c = command.trim().trim_start_matches('.').to_lowercase();
     const DANGEROUS: [&str; 14] = [
-        "server shutdown", "server exit", "server restart", "account delete", "character delete", "character erase", "reset ", "ban ", "unban ", "deleted ", "server idlerestart", "server idleshutdown", "account set password", "reload ",
+        "server shutdown",
+        "server exit",
+        "server restart",
+        "account delete",
+        "character delete",
+        "character erase",
+        "reset ",
+        "ban ",
+        "unban ",
+        "deleted ",
+        "server idlerestart",
+        "server idleshutdown",
+        "account set password",
+        "reload ",
     ];
     if DANGEROUS.iter().any(|d| c.starts_with(d)) {
         Risk::Dangerous
@@ -122,7 +148,10 @@ mod tests {
         let all = tail(&p, None, 5).unwrap();
         assert_eq!(all.len(), 5);
         assert_eq!(all[3].level, Level::Error);
-        assert!(!all[3].text.contains("abc"), "secret-looking lines are redacted");
+        assert!(
+            !all[3].text.contains("abc"),
+            "secret-looking lines are redacted"
+        );
         assert_eq!(all[4].level, Level::Warn);
         let f = tail(&p, Some("CAREFUL"), 100).unwrap();
         assert_eq!(f.len(), 1);
@@ -131,7 +160,14 @@ mod tests {
 
     #[test]
     fn dangerous_commands_are_recognised_and_input_is_validated() {
-        for c in ["server shutdown 10", ".account delete bob", "character delete x", "reset talents", "ban account x 1d y", "reload all"] {
+        for c in [
+            "server shutdown 10",
+            ".account delete bob",
+            "character delete x",
+            "reset talents",
+            "ban account x 1d y",
+            "reload all",
+        ] {
             assert_eq!(risk(c), Risk::Dangerous, "{c}");
         }
         for c in ["server info", ".account onlinelist", "lookup item sword"] {

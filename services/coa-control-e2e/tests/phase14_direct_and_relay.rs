@@ -148,6 +148,9 @@ fn test_phase14_direct_verified_route_connects_and_rewrites_realm_list() {
                 Ok(0) | Err(_) => continue,
                 Ok(_) => {
                     let _ = stream.write_all(&fake_pkt);
+                    let _ = stream.flush();
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                    std::thread::sleep(Duration::from_millis(50));
                     break;
                 }
             }
@@ -382,6 +385,9 @@ fn test_phase14_security_direct_ingress_strictly_forbids_mysql_and_ra() {
                 Ok(n) => {
                     assert_eq!(&buf[..n], b"TEST_AUTH");
                     let _ = stream.write_all(b"AUTH_OK");
+                    let _ = stream.flush();
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                    std::thread::sleep(Duration::from_millis(50));
                     break;
                 }
             }

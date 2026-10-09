@@ -23,7 +23,9 @@ impl Output {
 
     /// stdout and stderr, trimmed, for the technical details shown to the user.
     pub fn text(&self) -> String {
-        format!("{}\n{}", self.stdout.trim(), self.stderr.trim()).trim().to_string()
+        format!("{}\n{}", self.stdout.trim(), self.stderr.trim())
+            .trim()
+            .to_string()
     }
 }
 
@@ -38,7 +40,12 @@ pub struct Call<'a> {
 
 impl<'a> Call<'a> {
     pub fn new(args: &[&str], timeout: Duration) -> Call<'a> {
-        Call { args: args.iter().map(|a| a.to_string()).collect(), env: Vec::new(), stdin: None, timeout }
+        Call {
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: Vec::new(),
+            stdin: None,
+            timeout,
+        }
     }
 }
 
@@ -50,12 +57,17 @@ pub trait Docker {
     /// when nothing listens inside the container, and closes them at once; so a connection that stays open (or gets
     /// data, as the world server's greeting) is the proof, a connect alone is not.
     fn port_open(&self, addr: SocketAddr) -> bool {
-        let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(400)) else { return false };
+        let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(400)) else {
+            return false;
+        };
         let _ = s.set_read_timeout(Some(Duration::from_millis(300)));
         match s.read(&mut [0u8; 1]) {
             Ok(0) => false,
             Ok(_) => true,
-            Err(e) => matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+            Err(e) => matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ),
         }
     }
 
@@ -69,14 +81,23 @@ pub struct SystemDocker;
 impl Docker for SystemDocker {
     fn run(&self, call: &Call) -> Result<Output> {
         let mut cmd = Command::new("docker");
-        cmd.args(&call.args).envs(call.env.iter().map(|(k, v)| (k, v))).stdout(Stdio::piped()).stderr(Stdio::piped());
-        cmd.stdin(if call.stdin.is_some() { Stdio::piped() } else { Stdio::null() });
+        cmd.args(&call.args)
+            .envs(call.env.iter().map(|(k, v)| (k, v)))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        cmd.stdin(if call.stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
-        let mut child = cmd.spawn().map_err(|e| Error::Invalid(format!("docker could not be started: {e}")))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| Error::Invalid(format!("docker could not be started: {e}")))?;
         if let (Some(data), Some(mut stdin)) = (call.stdin, child.stdin.take()) {
             // Closing stdin at the end of this block tells docker the input is complete.
             let _ = stdin.write_all(data);
@@ -106,7 +127,11 @@ impl Docker for SystemDocker {
             }
             std::thread::sleep(Duration::from_millis(50));
         };
-        Ok(Output { code, stdout: out_t.join().unwrap_or_default(), stderr: err_t.join().unwrap_or_default() })
+        Ok(Output {
+            code,
+            stdout: out_t.join().unwrap_or_default(),
+            stderr: err_t.join().unwrap_or_default(),
+        })
     }
 }
 

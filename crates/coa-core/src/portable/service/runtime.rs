@@ -30,7 +30,11 @@ pub struct PortableRuntime {
 pub type Installs = Box<dyn Fn() -> Vec<(String, PathBuf)> + Send>;
 
 impl PortableRuntime {
-    pub fn start(dir: &Path, installs: Installs, control: Option<Box<dyn ServerControl>>) -> Result<PortableRuntime, ServiceError> {
+    pub fn start(
+        dir: &Path,
+        installs: Installs,
+        control: Option<Box<dyn ServerControl>>,
+    ) -> Result<PortableRuntime, ServiceError> {
         let mut service = PortableService::open(dir, installs())?;
         if let Some(c) = control {
             service.set_control(c);
@@ -59,8 +63,16 @@ impl PortableRuntime {
                     }
                 }
             })
-            .map_err(|e| ServiceError { code: "storage".into(), message: e.to_string(), notes: vec![] })?;
-        Ok(PortableRuntime { tx, state, thread: Mutex::new(Some(thread)) })
+            .map_err(|e| ServiceError {
+                code: "storage".into(),
+                message: e.to_string(),
+                notes: vec![],
+            })?;
+        Ok(PortableRuntime {
+            tx,
+            state,
+            thread: Mutex::new(Some(thread)),
+        })
     }
 
     /// The state as the thread last published it. Never waits for an operation.
@@ -69,14 +81,25 @@ impl PortableRuntime {
     }
 
     /// Run something on the thread and wait for its answer.
-    pub fn call<R: Send + 'static>(&self, f: impl FnOnce(&mut PortableService) -> R + Send + 'static) -> Result<R, ServiceError> {
+    pub fn call<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut PortableService) -> R + Send + 'static,
+    ) -> Result<R, ServiceError> {
         let (back, answer) = mpsc::channel();
         self.tx
             .send(Message::Run(Box::new(move |s| {
                 let _ = back.send(f(s));
             })))
-            .map_err(|_| ServiceError { code: "stopped".into(), message: "The portable play service is not running.".into(), notes: vec![] })?;
-        answer.recv().map_err(|_| ServiceError { code: "stopped".into(), message: "The portable play service stopped while it was working.".into(), notes: vec![] })
+            .map_err(|_| ServiceError {
+                code: "stopped".into(),
+                message: "The portable play service is not running.".into(),
+                notes: vec![],
+            })?;
+        answer.recv().map_err(|_| ServiceError {
+            code: "stopped".into(),
+            message: "The portable play service stopped while it was working.".into(),
+            notes: vec![],
+        })
     }
 
     /// Stop the thread and wait for it. What it was doing is finished first; nothing is cut off mid-write.

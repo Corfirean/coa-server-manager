@@ -115,20 +115,49 @@ pub enum Decision {
 impl ProjectionAnswer {
     /// Parse the single JSON line of the console's answer (or the result file) strictly.
     pub fn parse(text: &str, subject: &str) -> Result<Decision> {
-        let line = text.lines().map(str::trim).find(|l| l.starts_with('{')).ok_or_else(|| PortableError::Invalid("the core did not answer a projection query".into()))?;
+        let line = text
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with('{'))
+            .ok_or_else(|| {
+                PortableError::Invalid("the core did not answer a projection query".into())
+            })?;
         if line.len() > 8 * 1024 * 1024 {
-            return Err(PortableError::LimitExceeded("the core's projection answer is too large".into()));
+            return Err(PortableError::LimitExceeded(
+                "the core's projection answer is too large".into(),
+            ));
         }
         if let Ok(refused) = serde_json::from_str::<serde_json::Value>(line) {
             if refused.get("status").and_then(|s| s.as_str()) == Some("refused") {
-                let why = refused["problems"].as_array().map(|p| p.iter().map(|x| format!("{}: {}", x["code"].as_str().unwrap_or("?"), x["detail"].as_str().unwrap_or(""))).collect::<Vec<_>>().join("; ")).unwrap_or_default();
-                return Err(PortableError::Invalid(format!("the core refused the projection query ({why})")));
+                let why = refused["problems"]
+                    .as_array()
+                    .map(|p| {
+                        p.iter()
+                            .map(|x| {
+                                format!(
+                                    "{}: {}",
+                                    x["code"].as_str().unwrap_or("?"),
+                                    x["detail"].as_str().unwrap_or("")
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    })
+                    .unwrap_or_default();
+                return Err(PortableError::Invalid(format!(
+                    "the core refused the projection query ({why})"
+                )));
             }
         }
-        let answer: ProjectionAnswer = serde_json::from_str(line).map_err(|e| PortableError::Invalid(format!("the core's projection answer is not valid: {e}")))?;
+        let answer: ProjectionAnswer = serde_json::from_str(line).map_err(|e| {
+            PortableError::Invalid(format!("the core's projection answer is not valid: {e}"))
+        })?;
         let b = answer.projection;
         if answer.status != "ok" {
-            return Err(PortableError::Invalid(format!("the core's projection answer has status {:?}", answer.status)));
+            return Err(PortableError::Invalid(format!(
+                "the core's projection answer has status {:?}",
+                answer.status
+            )));
         }
         if b.protocol != PROTOCOL || b.policy_version != POLICY_VERSION {
             return Err(PortableError::Invalid(format!("the core projects with protocol {} / policy {}; this Manager speaks {PROTOCOL} / {POLICY_VERSION}", b.protocol, b.policy_version)));
@@ -137,7 +166,9 @@ impl ProjectionAnswer {
             return Ok(Decision::Native);
         }
         if b.projected_level != b.max_player_level || b.canonical_level <= b.max_player_level {
-            return Err(PortableError::Invalid("the core's projection is not from the character's level down to the cap".into()));
+            return Err(PortableError::Invalid(
+                "the core's projection is not from the character's level down to the cap".into(),
+            ));
         }
         Ok(Decision::Projected(ProjectionHold {
             protocol: b.protocol,
@@ -161,12 +192,18 @@ impl ProjectionAnswer {
 pub enum Activation {
     /// The character's level is within the cap.
     None,
-    Active { canonical_level: u32, projected_level: u32 },
+    Active {
+        canonical_level: u32,
+        projected_level: u32,
+    },
 }
 
 pub fn activation(canonical_level: u8, progression: &Progression) -> Activation {
     if (canonical_level as u32) > progression.max_player_level {
-        Activation::Active { canonical_level: canonical_level as u32, projected_level: progression.max_player_level }
+        Activation::Active {
+            canonical_level: canonical_level as u32,
+            projected_level: progression.max_player_level,
+        }
     } else {
         Activation::None
     }
@@ -183,17 +220,32 @@ impl ProjectionHold {
         if self.subject.is_empty() || self.subject == subject_of(model)? {
             Ok(())
         } else {
-            Err(PortableError::Invalid("the projection was made for another state of the character".into()))
+            Err(PortableError::Invalid(
+                "the projection was made for another state of the character".into(),
+            ))
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.held_items.is_empty() && self.held_spells.is_empty() && self.held_actions.is_empty() && self.settings.iter().all(|s| s.entries.is_empty() && s.buttons.is_empty()) && self.blocked_settings.is_empty()
+        self.held_items.is_empty()
+            && self.held_spells.is_empty()
+            && self.held_actions.is_empty()
+            && self
+                .settings
+                .iter()
+                .all(|s| s.entries.is_empty() && s.buttons.is_empty())
+            && self.blocked_settings.is_empty()
     }
 
     /// The pin of this projection (what a session is bound to).
     pub fn pin(&self, content_profile_hash: &str) -> ProgressionPin {
-        ProgressionPin { projected: true, max_player_level: self.max_player_level, policy_version: self.policy_version, progression_signature: self.progression_signature.clone(), content_profile_hash: content_profile_hash.to_string() }
+        ProgressionPin {
+            projected: true,
+            max_player_level: self.max_player_level,
+            policy_version: self.policy_version,
+            progression_signature: self.progression_signature.clone(),
+            content_profile_hash: content_profile_hash.to_string(),
+        }
     }
 }
 
@@ -204,7 +256,8 @@ pub fn apply(canonical: &PortableCharacter, hold: &ProjectionHold) -> PortableCh
     p.progression.level = hold.projected_level.min(u8::MAX as u32) as u8;
     p.progression.xp = 0;
     let held: BTreeSet<PortableItemId> = hold.held_items.iter().copied().collect();
-    p.items.retain(|i| !held.contains(&i.id) && !i.container.is_some_and(|c| held.contains(&c)));
+    p.items
+        .retain(|i| !held.contains(&i.id) && !i.container.is_some_and(|c| held.contains(&c)));
     let spells: BTreeSet<u32> = hold.held_spells.iter().copied().collect();
     p.build.spells.retain(|(s, _)| !spells.contains(s));
     let actions: BTreeSet<(u8, u8)> = hold.held_actions.iter().copied().collect();
@@ -213,7 +266,9 @@ pub fn apply(canonical: &PortableCharacter, hold: &ProjectionHold) -> PortableCh
         p.settings.remove(source);
     }
     for s in &hold.settings {
-        let Some(values) = p.settings.get(&s.source) else { continue };
+        let Some(values) = p.settings.get(&s.source) else {
+            continue;
+        };
         match settings::Record::parse(s.kind, values) {
             Some(record) => {
                 let projected = record.without(&s.entries, &s.buttons).write();
@@ -244,13 +299,21 @@ impl ProgressionPin {
     pub fn words(&self) -> Vec<u32> {
         let mut words = vec![self.policy_version, self.max_player_level];
         for chunk in self.progression_signature.as_bytes().chunks(8) {
-            words.push(u32::from_str_radix(std::str::from_utf8(chunk).unwrap_or("0"), 16).unwrap_or(0));
+            words.push(
+                u32::from_str_radix(std::str::from_utf8(chunk).unwrap_or("0"), 16).unwrap_or(0),
+            );
         }
         words
     }
 
     pub fn native(progression: &Progression, content_profile_hash: &str) -> Self {
-        Self { projected: false, max_player_level: progression.max_player_level, policy_version: progression.projection_policy_version, progression_signature: progression.progression_signature.clone(), content_profile_hash: content_profile_hash.to_string() }
+        Self {
+            projected: false,
+            max_player_level: progression.max_player_level,
+            policy_version: progression.projection_policy_version,
+            progression_signature: progression.progression_signature.clone(),
+            content_profile_hash: content_profile_hash.to_string(),
+        }
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -258,7 +321,11 @@ impl ProgressionPin {
         if self.max_player_level == 0 || self.max_player_level > 255 || self.policy_version == 0 {
             return Err(bad("a number is out of range"));
         }
-        let hex64 = |s: &str| s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        let hex64 = |s: &str| {
+            s.len() == 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        };
         if !hex64(&self.progression_signature) || !hex64(&self.content_profile_hash) {
             return Err(bad("a hash is not a SHA-256"));
         }
@@ -300,8 +367,13 @@ impl ProjectionContext {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.projected_level >= self.canonical_level || self.projected_level != self.max_player_level || self.hold.progression_signature != self.progression_signature {
-            return Err(PortableError::Invalid("the projection context is not consistent".into()));
+        if self.projected_level >= self.canonical_level
+            || self.projected_level != self.max_player_level
+            || self.hold.progression_signature != self.progression_signature
+        {
+            return Err(PortableError::Invalid(
+                "the projection context is not consistent".into(),
+            ));
         }
         self.pin().validate()
     }
@@ -332,7 +404,9 @@ impl ProjectionOracle for SuppliedDecision {
     fn decide(&self, canonical: &PortableCharacter) -> Result<Decision> {
         self.0.check_subject(canonical)?;
         if self.0.subject.is_empty() {
-            return Err(PortableError::Invalid("a supplied projection must name the snapshot it was made for".into()));
+            return Err(PortableError::Invalid(
+                "a supplied projection must name the snapshot it was made for".into(),
+            ));
         }
         Ok(Decision::Projected(self.0.clone()))
     }

@@ -29,8 +29,13 @@ impl Scope {
         static BOTS: OnceLock<Schema> = OnceLock::new();
         static SERVER: OnceLock<Schema> = OnceLock::new();
         match self {
-            Scope::Bots => BOTS.get_or_init(|| Schema::parse(include_str!("../../../../schemas/bots.json")).expect("bots schema")),
-            Scope::Server => SERVER.get_or_init(|| Schema::parse(include_str!("../../../../schemas/server.json")).expect("server schema")),
+            Scope::Bots => BOTS.get_or_init(|| {
+                Schema::parse(include_str!("../../../../schemas/bots.json")).expect("bots schema")
+            }),
+            Scope::Server => SERVER.get_or_init(|| {
+                Schema::parse(include_str!("../../../../schemas/server.json"))
+                    .expect("server schema")
+            }),
         }
     }
 
@@ -38,8 +43,14 @@ impl Scope {
         static BOTS: OnceLock<PresetFile> = OnceLock::new();
         static SERVER: OnceLock<PresetFile> = OnceLock::new();
         let f = match self {
-            Scope::Bots => BOTS.get_or_init(|| serde_json::from_str(include_str!("../../../../schemas/presets/bots.json")).expect("bots presets")),
-            Scope::Server => SERVER.get_or_init(|| serde_json::from_str(include_str!("../../../../schemas/presets/server.json")).expect("server presets")),
+            Scope::Bots => BOTS.get_or_init(|| {
+                serde_json::from_str(include_str!("../../../../schemas/presets/bots.json"))
+                    .expect("bots presets")
+            }),
+            Scope::Server => SERVER.get_or_init(|| {
+                serde_json::from_str(include_str!("../../../../schemas/presets/server.json"))
+                    .expect("server presets")
+            }),
         };
         &f.presets
     }
@@ -70,19 +81,37 @@ pub fn targets(root: &Path, scope: Scope) -> Result<Targets> {
                 // The server ships the documented defaults as `.dist` and uses them until an active file exists: make it.
                 let dist = root.join("Core/configs/modules/mod_coa_playerbots.conf.dist");
                 if !dist.is_file() {
-                    return Err(Error::Invalid("CoA Companions (bots) are not installed on this server.".into()));
+                    return Err(Error::Invalid(
+                        "CoA Companions (bots) are not installed on this server.".into(),
+                    ));
                 }
                 fsx::atomic_write(&conf, &fs::read(&dist)?)?;
             }
-            Ok(Targets { read: conf.clone(), writes: vec![conf], generated: None })
+            Ok(Targets {
+                read: conf.clone(),
+                writes: vec![conf],
+                generated: None,
+            })
         }
         Scope::Server => {
             let conf = root.join("Core/configs/worldserver.conf");
             let template = root.join("Settings/worldserver.conf.template");
             match (template.is_file(), conf.is_file()) {
-                (true, true) => Ok(Targets { read: template.clone(), writes: vec![template, conf.clone()], generated: Some(conf) }),
-                (true, false) => Ok(Targets { read: template.clone(), writes: vec![template], generated: None }),
-                (false, true) => Ok(Targets { read: conf.clone(), writes: vec![conf], generated: None }),
+                (true, true) => Ok(Targets {
+                    read: template.clone(),
+                    writes: vec![template, conf.clone()],
+                    generated: Some(conf),
+                }),
+                (true, false) => Ok(Targets {
+                    read: template.clone(),
+                    writes: vec![template],
+                    generated: None,
+                }),
+                (false, true) => Ok(Targets {
+                    read: conf.clone(),
+                    writes: vec![conf],
+                    generated: None,
+                }),
                 (false, false) => Err(Error::Invalid("worldserver.conf was not found.".into())),
             }
         }
@@ -144,10 +173,14 @@ pub fn create_missing_module_configs(root: &Path) -> Result<Vec<String>> {
 fn materialize(root: &Path, extend_existing: bool) -> Result<Vec<String>> {
     let dir = root.join("Core").join("configs").join("modules");
     let mut created = Vec::new();
-    let Ok(entries) = fs::read_dir(&dir) else { return Ok(created) };
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Ok(created);
+    };
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let Some(stem) = name.strip_suffix(".conf.dist") else { continue };
+        let Some(stem) = name.strip_suffix(".conf.dist") else {
+            continue;
+        };
         if stem == "coa_bugreport" || stem == "mod_ascension_compat" {
             continue; // written by the launcher at every start
         }
@@ -160,7 +193,11 @@ fn materialize(root: &Path, extend_existing: bool) -> Result<Vec<String>> {
                 // (friends over a private network) right after login.
                 if let Ok(bytes) = fs::read(&active) {
                     if let Ok(mut conf) = parser::ConfFile::parse_bytes(&bytes) {
-                        conf.set("CoA.AllowRemoteClients", "1", &["Set by CoA Server Manager: this server is built for CoA clients"]);
+                        conf.set(
+                            "CoA.AllowRemoteClients",
+                            "1",
+                            &["Set by CoA Server Manager: this server is built for CoA clients"],
+                        );
                         fsx::atomic_write(&active, conf.to_text().as_bytes())?;
                     }
                 }
@@ -169,7 +206,10 @@ fn materialize(root: &Path, extend_existing: bool) -> Result<Vec<String>> {
         } else if !extend_existing {
             continue;
         } else if let (Ok(have), Ok(dist)) = (fs::read(&active), fs::read(e.path())) {
-            if let (Ok(mut conf), Ok(dist)) = (parser::ConfFile::parse_bytes(&have), parser::ConfFile::parse_bytes(&dist)) {
+            if let (Ok(mut conf), Ok(dist)) = (
+                parser::ConfFile::parse_bytes(&have),
+                parser::ConfFile::parse_bytes(&dist),
+            ) {
                 let plan = merge::apply(&mut conf, &dist);
                 if !plan.added.is_empty() {
                     fsx::atomic_write(&active, conf.to_text().as_bytes())?;
@@ -184,7 +224,9 @@ fn materialize(root: &Path, extend_existing: bool) -> Result<Vec<String>> {
 
 pub fn drift(root: &Path) -> Result<Vec<String>> {
     let t = targets(root, Scope::Server)?;
-    let Some(generated) = &t.generated else { return Ok(Vec::new()) };
+    let Some(generated) = &t.generated else {
+        return Ok(Vec::new());
+    };
     let (template, conf) = (load_conf(&t.read)?, load_conf(generated)?);
     let mut keys = BTreeSet::new();
     // Compare what the server actually uses: the last occurrence of each key (a file may repeat a key).
@@ -209,7 +251,11 @@ pub fn load(root: &Path, scope: Scope) -> Result<SettingsView> {
     let schema = scope.schema();
     let t = targets(root, scope)?;
     let conf = load_conf(&t.read)?;
-    let drift_keys = if scope == Scope::Server { drift(root).unwrap_or_default() } else { Vec::new() };
+    let drift_keys = if scope == Scope::Server {
+        drift(root).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let known: BTreeSet<&str> = schema.settings.iter().map(|s| s.key.as_str()).collect();
     let unknown_keys = conf.entries().filter(|(k, _)| !known.contains(k)).count();
 
@@ -229,7 +275,7 @@ pub fn load(root: &Path, scope: Scope) -> Result<SettingsView> {
                 is_default: values_equal(&value, &s.default),
                 present: raw.is_some(),
                 problem,
-                drift: drift_keys.iter().any(|k| *k == s.key),
+                drift: drift_keys.contains(&s.key),
                 value,
                 meta: s.clone(),
             }
@@ -242,18 +288,37 @@ pub fn load(root: &Path, scope: Scope) -> Result<SettingsView> {
         settings,
         unknown_keys,
         drift_keys,
-        files: t.writes.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+        files: t
+            .writes
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
     })
 }
 
 /// Pairs that must satisfy `min <= max` after a save.
 const ORDERED_PAIRS: [(&str, &str); 6] = [
     ("CoaBots.Profile.IntentMinMs", "CoaBots.Profile.IntentMaxMs"),
-    ("CoaBots.WorldBrain.PlannerMinMs", "CoaBots.WorldBrain.PlannerMaxMs"),
-    ("CoaBots.WorldBrain.ScanMinMs", "CoaBots.WorldBrain.ScanMaxMs"),
-    ("CoaBots.WorldBrain.MountDistanceMin", "CoaBots.WorldBrain.MountDistanceMax"),
-    ("CoaBots.WorldBrain.PartyMinMinutes", "CoaBots.WorldBrain.PartyMaxMinutes"),
-    ("CoaBots.WorldBrain.QuestSuspendMs", "CoaBots.WorldBrain.QuestSuspendMaxMs"),
+    (
+        "CoaBots.WorldBrain.PlannerMinMs",
+        "CoaBots.WorldBrain.PlannerMaxMs",
+    ),
+    (
+        "CoaBots.WorldBrain.ScanMinMs",
+        "CoaBots.WorldBrain.ScanMaxMs",
+    ),
+    (
+        "CoaBots.WorldBrain.MountDistanceMin",
+        "CoaBots.WorldBrain.MountDistanceMax",
+    ),
+    (
+        "CoaBots.WorldBrain.PartyMinMinutes",
+        "CoaBots.WorldBrain.PartyMaxMinutes",
+    ),
+    (
+        "CoaBots.WorldBrain.QuestSuspendMs",
+        "CoaBots.WorldBrain.QuestSuspendMaxMs",
+    ),
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -275,25 +340,37 @@ pub struct SaveReport {
 }
 
 fn effective(view: &SettingsView, changes: &BTreeMap<String, Value>, key: &str) -> Option<f64> {
-    changes
-        .get(key)
-        .and_then(Value::as_f64)
-        .or_else(|| view.settings.iter().find(|s| s.meta.key == key).and_then(|s| s.value.as_f64()))
+    changes.get(key).and_then(Value::as_f64).or_else(|| {
+        view.settings
+            .iter()
+            .find(|s| s.meta.key == key)
+            .and_then(|s| s.value.as_f64())
+    })
 }
 
 /// Validate `changes` against the schema without writing anything.
-pub fn validate(root: &Path, scope: Scope, changes: &BTreeMap<String, Value>) -> Result<BTreeMap<String, String>> {
+pub fn validate(
+    root: &Path,
+    scope: Scope,
+    changes: &BTreeMap<String, Value>,
+) -> Result<BTreeMap<String, String>> {
     let schema = scope.schema();
     let mut errors = Vec::new();
     let mut raws = BTreeMap::new();
     for (key, value) in changes {
         match schema.get(key) {
-            None => errors.push(FieldError { key: key.clone(), message: "is not a setting the Manager can change".into() }),
+            None => errors.push(FieldError {
+                key: key.clone(),
+                message: "is not a setting the Manager can change".into(),
+            }),
             Some(s) => match s.to_raw(value) {
                 Ok(raw) => {
                     raws.insert(key.clone(), raw);
                 }
-                Err(m) => errors.push(FieldError { key: key.clone(), message: m }),
+                Err(m) => errors.push(FieldError {
+                    key: key.clone(),
+                    message: m,
+                }),
             },
         }
     }
@@ -303,10 +380,17 @@ pub fn validate(root: &Path, scope: Scope, changes: &BTreeMap<String, Value>) ->
             if !(changes.contains_key(lo) || changes.contains_key(hi)) {
                 continue;
             }
-            if let (Some(a), Some(b)) = (effective(&view, changes, lo), effective(&view, changes, hi)) {
+            if let (Some(a), Some(b)) =
+                (effective(&view, changes, lo), effective(&view, changes, hi))
+            {
                 if a > b {
                     let key = if changes.contains_key(lo) { lo } else { hi };
-                    errors.push(FieldError { key: key.into(), message: format!("the minimum ({lo}) cannot be larger than the maximum ({hi})") });
+                    errors.push(FieldError {
+                        key: key.into(),
+                        message: format!(
+                            "the minimum ({lo}) cannot be larger than the maximum ({hi})"
+                        ),
+                    });
                 }
             }
         }
@@ -340,15 +424,30 @@ pub struct SnapshotInfo {
     files: Vec<SnapshotFile>,
 }
 
-pub(crate) fn take_snapshot(meta_dir: &Path, scope: Scope, reason: &str, files: &[(PathBuf, Vec<u8>)]) -> Result<String> {
+pub(crate) fn take_snapshot(
+    meta_dir: &Path,
+    scope: Scope,
+    reason: &str,
+    files: &[(PathBuf, Vec<u8>)],
+) -> Result<String> {
     let root = snapshot_root(meta_dir);
     fs::create_dir_all(&root)?;
     // The id is a timestamp to the millisecond. Two snapshots of the same scope can land in the same one (a restore
     // snapshots the current state just before reading the snapshot it restores), and reusing the folder would overwrite
     // the files about to be restored. Take a fresh folder, with a numeric suffix when the name is already used.
-    let base = format!("{}-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S%3f"), scope.name());
+    let base = format!(
+        "{}-{}",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S%3f"),
+        scope.name()
+    );
     let (id, dir) = (1u32..)
-        .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
+        .map(|n| {
+            if n == 1 {
+                base.clone()
+            } else {
+                format!("{base}-{n}")
+            }
+        })
         .find_map(|id| {
             let dir = root.join(&id);
             match fs::create_dir(&dir) {
@@ -360,19 +459,39 @@ pub(crate) fn take_snapshot(meta_dir: &Path, scope: Scope, reason: &str, files: 
         .expect("the suffix range is unbounded")?;
     let mut entries = Vec::new();
     for (i, (path, bytes)) in files.iter().enumerate() {
-        let stored = format!("{i}_{}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+        let stored = format!(
+            "{i}_{}",
+            path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        );
         fsx::atomic_write(&dir.join(&stored), bytes)?;
-        entries.push(SnapshotFile { original: path.to_string_lossy().into_owned(), stored });
+        entries.push(SnapshotFile {
+            original: path.to_string_lossy().into_owned(),
+            stored,
+        });
     }
-    let info = SnapshotInfo { id: id.clone(), scope, reason: reason.into(), created_at: chrono::Utc::now().to_rfc3339(), files: entries };
+    let info = SnapshotInfo {
+        id: id.clone(),
+        scope,
+        reason: reason.into(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        files: entries,
+    };
     fsx::atomic_write_json(&dir.join("snapshot.json"), &info)?;
     prune_snapshots(meta_dir);
     Ok(id)
 }
 
 fn prune_snapshots(meta_dir: &Path) {
-    let Ok(rd) = fs::read_dir(snapshot_root(meta_dir)) else { return };
-    let mut dirs: Vec<_> = rd.filter_map(|e| e.ok()).filter(|e| e.path().join("snapshot.json").is_file()).map(|e| e.path()).collect();
+    let Ok(rd) = fs::read_dir(snapshot_root(meta_dir)) else {
+        return;
+    };
+    let mut dirs: Vec<_> = rd
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().join("snapshot.json").is_file())
+        .map(|e| e.path())
+        .collect();
     dirs.sort();
     while dirs.len() > KEEP_SNAPSHOTS {
         let _ = fs::remove_dir_all(dirs.remove(0));
@@ -381,7 +500,11 @@ fn prune_snapshots(meta_dir: &Path) {
 
 pub fn list_snapshots(meta_dir: &Path) -> Vec<SnapshotInfo> {
     let mut out: Vec<SnapshotInfo> = fs::read_dir(snapshot_root(meta_dir))
-        .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| fsx::read_json(&e.path().join("snapshot.json")).ok()).collect())
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| fsx::read_json(&e.path().join("snapshot.json")).ok())
+                .collect()
+        })
         .unwrap_or_default();
     out.sort_by(|a, b| b.id.cmp(&a.id));
     out
@@ -391,7 +514,9 @@ pub fn list_snapshots(meta_dir: &Path) -> Vec<SnapshotInfo> {
 /// Maps (continents, dungeons, battlegrounds) are updated in parallel, one thread per map, so more threads than the
 /// number of maps in use bring nothing.
 pub fn recommended_map_threads() -> u32 {
-    let cores = std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(4);
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(4);
     (cores / 2).clamp(2, 8)
 }
 
@@ -407,8 +532,13 @@ pub fn ensure_performance_defaults(root: &Path, meta_dir: &Path) -> Result<Optio
         return Ok(None);
     }
     let view = load(root, Scope::Server)?;
-    let current = view.settings.iter().find(|s| s.meta.key == "MapUpdate.Threads");
-    let already = current.map(|s| s.present && s.value.as_i64().unwrap_or(1) > 1).unwrap_or(false);
+    let current = view
+        .settings
+        .iter()
+        .find(|s| s.meta.key == "MapUpdate.Threads");
+    let already = current
+        .map(|s| s.present && s.value.as_i64().unwrap_or(1) > 1)
+        .unwrap_or(false);
     let threads = recommended_map_threads();
     let written = if already {
         None
@@ -418,7 +548,10 @@ pub fn ensure_performance_defaults(root: &Path, meta_dir: &Path) -> Result<Optio
         Some(threads)
     };
     let quieted = quiet_debug_loggers(root)?;
-    fsx::atomic_write(&marker, b"MapUpdate.Threads and logging levels set by the Manager\n")?;
+    fsx::atomic_write(
+        &marker,
+        b"MapUpdate.Threads and logging levels set by the Manager\n",
+    )?;
     tracing::info!(?written, ?quieted, "performance defaults applied");
     Ok(written)
 }
@@ -432,7 +565,9 @@ fn quiet_debug_loggers(root: &Path) -> Result<Vec<String>> {
         let mut conf = ConfFile::parse_bytes(&fs::read(&path)?)?;
         let mut touched = false;
         for key in ["Logger.network", "Logger.entities.player"] {
-            let Some(value) = conf.get(key).map(|v| v.trim().to_string()) else { continue };
+            let Some(value) = conf.get(key).map(|v| v.trim().to_string()) else {
+                continue;
+            };
             if let Some(rest) = value.strip_prefix("5,") {
                 conf.set(key, &format!("4,{rest}"), &["Lowered from debug by CoA Server Manager: it wrote a line for every packet and item check"]);
                 touched = true;
@@ -449,8 +584,15 @@ fn quiet_debug_loggers(root: &Path) -> Result<Vec<String>> {
 }
 
 /// Apply validated `changes`. Nothing is written unless every change is valid; previous contents are snapshotted first.
-pub fn save(root: &Path, meta_dir: &Path, scope: Scope, changes: &BTreeMap<String, Value>) -> Result<SaveReport> {
-    if scope == Scope::Bots { crate::realms::guard_module(root, "companions")?; }
+pub fn save(
+    root: &Path,
+    meta_dir: &Path,
+    scope: Scope,
+    changes: &BTreeMap<String, Value>,
+) -> Result<SaveReport> {
+    if scope == Scope::Bots {
+        crate::realms::guard_module(root, "companions")?;
+    }
     let raws = validate(root, scope, changes)?;
     let schema = scope.schema();
     let t = targets(root, scope)?;
@@ -467,8 +609,14 @@ pub fn save(root: &Path, meta_dir: &Path, scope: Scope, changes: &BTreeMap<Strin
     let mut changed = Vec::new();
     for (key, raw) in &raws {
         let setting = schema.get(key).expect("validated");
-        let view = current.settings.iter().find(|s| s.meta.key == *key).expect("in schema");
-        let same_everywhere = confs.iter().all(|c| c.get(key).map(str::trim) == Some(raw.as_str()));
+        let view = current
+            .settings
+            .iter()
+            .find(|s| s.meta.key == *key)
+            .expect("in schema");
+        let same_everywhere = confs
+            .iter()
+            .all(|c| c.get(key).map(str::trim) == Some(raw.as_str()));
         if same_everywhere {
             continue;
         }
@@ -485,7 +633,11 @@ pub fn save(root: &Path, meta_dir: &Path, scope: Scope, changes: &BTreeMap<Strin
         });
     }
     if changed.is_empty() {
-        return Ok(SaveReport { changed, restart: None, snapshot: None });
+        return Ok(SaveReport {
+            changed,
+            restart: None,
+            snapshot: None,
+        });
     }
 
     // Verify what we are about to write before touching the disk.
@@ -494,7 +646,10 @@ pub fn save(root: &Path, meta_dir: &Path, scope: Scope, changes: &BTreeMap<Strin
         let reread = ConfFile::parse(text);
         for c in &changed {
             if reread.get(&c.key).map(str::trim) != Some(raws[&c.key].as_str()) {
-                return Err(Error::Invalid(format!("internal check failed for {}", c.key)));
+                return Err(Error::Invalid(format!(
+                    "internal check failed for {}",
+                    c.key
+                )));
             }
         }
     }
@@ -514,7 +669,11 @@ pub fn save(root: &Path, meta_dir: &Path, scope: Scope, changes: &BTreeMap<Strin
     }
     let restart = changed.iter().map(|c| c.restart).max();
     tracing::info!(scope = scope.name(), changed = changed.len(), %snapshot, "configuration saved");
-    Ok(SaveReport { changed, restart, snapshot: Some(snapshot) })
+    Ok(SaveReport {
+        changed,
+        restart,
+        snapshot: Some(snapshot),
+    })
 }
 
 /// Put a snapshot's files back (after snapshotting the current state, so a restore is itself undoable).
@@ -531,7 +690,12 @@ pub fn restore_snapshot(meta_dir: &Path, id: &str) -> Result<()> {
             current.push((p, bytes));
         }
     }
-    take_snapshot(meta_dir, info.scope, "before restoring a snapshot", &current)?;
+    take_snapshot(
+        meta_dir,
+        info.scope,
+        "before restoring a snapshot",
+        &current,
+    )?;
     for f in &info.files {
         fsx::atomic_write(Path::new(&f.original), &fs::read(dir.join(&f.stored))?)?;
     }
@@ -559,7 +723,13 @@ fn diff(view: &SettingsView, wanted: impl Iterator<Item = (String, Value)>) -> V
     wanted
         .filter_map(|(key, to)| {
             let s = view.settings.iter().find(|s| s.meta.key == key)?;
-            (!values_equal(&s.value, &to) || !s.present).then(|| PresetChange { title: s.meta.title.clone(), from: s.value.clone(), dangerous: s.meta.dangerous, key, to })
+            (!values_equal(&s.value, &to) || !s.present).then(|| PresetChange {
+                title: s.meta.title.clone(),
+                from: s.value.clone(),
+                dangerous: s.meta.dangerous,
+                key,
+                to,
+            })
         })
         .filter(|c| !values_equal(&c.from, &c.to))
         .collect()
@@ -567,17 +737,39 @@ fn diff(view: &SettingsView, wanted: impl Iterator<Item = (String, Value)>) -> V
 
 /// What applying a preset would change. Nothing is written; the UI shows "This preset will change N settings".
 pub fn preview_preset(root: &Path, scope: Scope, preset_id: &str) -> Result<PresetPreview> {
-    let preset = scope.presets().iter().find(|p| p.id == preset_id).ok_or_else(|| Error::Invalid(format!("unknown preset {preset_id}")))?;
+    let preset = scope
+        .presets()
+        .iter()
+        .find(|p| p.id == preset_id)
+        .ok_or_else(|| Error::Invalid(format!("unknown preset {preset_id}")))?;
     let view = load(root, scope)?;
-    let changes = diff(&view, preset.values.iter().map(|(k, v)| (k.clone(), v.clone())));
-    Ok(PresetPreview { id: preset.id.clone(), title: preset.title.clone(), description: preset.description.clone(), changes })
+    let changes = diff(
+        &view,
+        preset.values.iter().map(|(k, v)| (k.clone(), v.clone())),
+    );
+    Ok(PresetPreview {
+        id: preset.id.clone(),
+        title: preset.title.clone(),
+        description: preset.description.clone(),
+        changes,
+    })
 }
 
 /// "Restore recommended defaults": every non-default setting back to its schema default.
 pub fn preview_defaults(root: &Path, scope: Scope) -> Result<PresetPreview> {
     let view = load(root, scope)?;
-    let changes = diff(&view, view.settings.iter().map(|s| (s.meta.key.clone(), s.meta.default.clone())));
-    Ok(PresetPreview { id: "defaults".into(), title: "Recommended defaults".into(), description: "Every setting returns to its default value.".into(), changes })
+    let changes = diff(
+        &view,
+        view.settings
+            .iter()
+            .map(|s| (s.meta.key.clone(), s.meta.default.clone())),
+    );
+    Ok(PresetPreview {
+        id: "defaults".into(),
+        title: "Recommended defaults".into(),
+        description: "Every setting returns to its default value.".into(),
+        changes,
+    })
 }
 
 #[cfg(test)]
@@ -593,13 +785,20 @@ mod tests {
         fs::create_dir_all(root.join("Settings")).unwrap();
         let world = "# Server\r\n[worldserver]\r\nRealmID = 1\r\nWorldServerPort = @WORLD_PORT@\r\n\r\n# XP\r\nRate.XP.Kill      = 1\r\nRate.Drop.Money = 1\r\nUnknown.Custom = \"keep me\"\r\nPlayerLimit = 0\r\n";
         fs::write(root.join("Settings/worldserver.conf.template"), world).unwrap();
-        fs::write(root.join("Core/configs/worldserver.conf"), world.replace("@WORLD_PORT@", "8085")).unwrap();
+        fs::write(
+            root.join("Core/configs/worldserver.conf"),
+            world.replace("@WORLD_PORT@", "8085"),
+        )
+        .unwrap();
         fs::create_dir_all(&meta).unwrap();
         (dir, root, meta)
     }
 
     fn set(pairs: &[(&str, Value)]) -> BTreeMap<String, Value> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]
@@ -607,31 +806,73 @@ mod tests {
         let (_d, root, meta) = fixture();
         let wanted = recommended_map_threads();
         assert!((2..=8).contains(&wanted));
-        for p in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+        for p in [
+            "Settings/worldserver.conf.template",
+            "Core/configs/worldserver.conf",
+        ] {
             let mut t = fs::read_to_string(root.join(p)).unwrap();
             t.push_str("Logger.network=5,Server\r\nLogger.entities.player=5,Server\r\nLogger.module=4,Console Server\r\n");
             fs::write(root.join(p), t).unwrap();
         }
-        assert_eq!(ensure_performance_defaults(&root, &meta).unwrap(), Some(wanted));
-        for p in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+        assert_eq!(
+            ensure_performance_defaults(&root, &meta).unwrap(),
+            Some(wanted)
+        );
+        for p in [
+            "Settings/worldserver.conf.template",
+            "Core/configs/worldserver.conf",
+        ] {
             let t = fs::read_to_string(root.join(p)).unwrap();
-            assert!(t.contains(&format!("MapUpdate.Threads = {wanted}")), "{p}: {t}");
-            assert!(t.contains("Unknown.Custom = \"keep me\""), "other settings untouched");
-            assert!(t.contains("Logger.network=4,Server") && t.contains("Logger.entities.player=4,Server"), "{p}: {t}");
-            assert!(t.contains("Logger.module=4,Console Server"), "info level loggers are left alone");
+            assert!(
+                t.contains(&format!("MapUpdate.Threads = {wanted}")),
+                "{p}: {t}"
+            );
+            assert!(
+                t.contains("Unknown.Custom = \"keep me\""),
+                "other settings untouched"
+            );
+            assert!(
+                t.contains("Logger.network=4,Server")
+                    && t.contains("Logger.entities.player=4,Server"),
+                "{p}: {t}"
+            );
+            assert!(
+                t.contains("Logger.module=4,Console Server"),
+                "info level loggers are left alone"
+            );
         }
         // the owner goes back to one thread: it stays that way
-        save(&root, &meta, Scope::Server, &set(&[("MapUpdate.Threads", json!(1))])).unwrap();
+        save(
+            &root,
+            &meta,
+            Scope::Server,
+            &set(&[("MapUpdate.Threads", json!(1))]),
+        )
+        .unwrap();
         assert_eq!(ensure_performance_defaults(&root, &meta).unwrap(), None);
-        assert!(fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("MapUpdate.Threads = 1"));
+        assert!(
+            fs::read_to_string(root.join("Core/configs/worldserver.conf"))
+                .unwrap()
+                .contains("MapUpdate.Threads = 1")
+        );
     }
 
     #[test]
     fn an_already_raised_value_is_respected_on_the_first_run() {
         let (_d, root, meta) = fixture();
-        save(&root, &meta, Scope::Server, &set(&[("MapUpdate.Threads", json!(6))])).unwrap();
+        save(
+            &root,
+            &meta,
+            Scope::Server,
+            &set(&[("MapUpdate.Threads", json!(6))]),
+        )
+        .unwrap();
         assert_eq!(ensure_performance_defaults(&root, &meta).unwrap(), None);
-        assert!(fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap().contains("MapUpdate.Threads = 6"));
+        assert!(
+            fs::read_to_string(root.join("Core/configs/worldserver.conf"))
+                .unwrap()
+                .contains("MapUpdate.Threads = 6")
+        );
     }
 
     #[test]
@@ -639,21 +880,52 @@ mod tests {
         let (_d, root, _m) = fixture();
         let m = root.join("Core/configs/modules");
         fs::create_dir_all(&m).unwrap();
-        fs::write(m.join("coa.conf.dist"), "CoA.Enable = 1
-").unwrap();
-        fs::write(m.join("spellbook.conf.dist"), "Spellbook.Enable = 1
+        fs::write(
+            m.join("coa.conf.dist"),
+            "CoA.Enable = 1
+",
+        )
+        .unwrap();
+        fs::write(
+            m.join("spellbook.conf.dist"),
+            "Spellbook.Enable = 1
 Spellbook.New = 5
-").unwrap();
-        fs::write(m.join("spellbook.conf"), "Spellbook.Enable = 0
-").unwrap();
-        fs::write(m.join("coa_bugreport.conf.dist"), "x = 1
-").unwrap();
-        assert_eq!(materialize_module_configs(&root).unwrap(), vec!["coa.conf".to_string(), "spellbook.conf (+1 keys)".to_string()]);
+",
+        )
+        .unwrap();
+        fs::write(
+            m.join("spellbook.conf"),
+            "Spellbook.Enable = 0
+",
+        )
+        .unwrap();
+        fs::write(
+            m.join("coa_bugreport.conf.dist"),
+            "x = 1
+",
+        )
+        .unwrap();
+        assert_eq!(
+            materialize_module_configs(&root).unwrap(),
+            vec![
+                "coa.conf".to_string(),
+                "spellbook.conf (+1 keys)".to_string()
+            ]
+        );
         let coa = fs::read_to_string(m.join("coa.conf")).unwrap();
-        assert!(coa.contains("CoA.Enable = 1") && coa.contains("CoA.AllowRemoteClients = 1"), "{coa}");
+        assert!(
+            coa.contains("CoA.Enable = 1") && coa.contains("CoA.AllowRemoteClients = 1"),
+            "{coa}"
+        );
         let sb = fs::read_to_string(m.join("spellbook.conf")).unwrap();
-        assert!(sb.contains("Spellbook.Enable = 0"), "existing values are never changed: {sb}");
-        assert!(sb.contains("Spellbook.New = 5"), "new documented key was added: {sb}");
+        assert!(
+            sb.contains("Spellbook.Enable = 0"),
+            "existing values are never changed: {sb}"
+        );
+        assert!(
+            sb.contains("Spellbook.New = 5"),
+            "new documented key was added: {sb}"
+        );
         assert!(!m.join("coa_bugreport.conf").exists());
         assert!(materialize_module_configs(&root).unwrap().is_empty());
     }
@@ -663,17 +935,38 @@ Spellbook.New = 5
         let (_d, root, _m) = fixture();
         let m = root.join("Core/configs/modules");
         fs::create_dir_all(&m).unwrap();
-        fs::write(m.join("dynamicxp.conf.dist"), "Dynamic.XP.Reminder.Interval = 40
-").unwrap();
-        fs::write(m.join("spellbook.conf.dist"), "Spellbook.Enable = 1
+        fs::write(
+            m.join("dynamicxp.conf.dist"),
+            "Dynamic.XP.Reminder.Interval = 40
+",
+        )
+        .unwrap();
+        fs::write(
+            m.join("spellbook.conf.dist"),
+            "Spellbook.Enable = 1
 Spellbook.New = 5
-").unwrap();
-        fs::write(m.join("spellbook.conf"), "Spellbook.Enable = 0
-").unwrap();
-        assert_eq!(create_missing_module_configs(&root).unwrap(), vec!["dynamicxp.conf".to_string()]);
-        assert!(fs::read_to_string(m.join("dynamicxp.conf")).unwrap().contains("Dynamic.XP.Reminder.Interval = 40"));
-        assert_eq!(fs::read_to_string(m.join("spellbook.conf")).unwrap(), "Spellbook.Enable = 0
-", "an existing file stays byte for byte");
+",
+        )
+        .unwrap();
+        fs::write(
+            m.join("spellbook.conf"),
+            "Spellbook.Enable = 0
+",
+        )
+        .unwrap();
+        assert_eq!(
+            create_missing_module_configs(&root).unwrap(),
+            vec!["dynamicxp.conf".to_string()]
+        );
+        assert!(fs::read_to_string(m.join("dynamicxp.conf"))
+            .unwrap()
+            .contains("Dynamic.XP.Reminder.Interval = 40"));
+        assert_eq!(
+            fs::read_to_string(m.join("spellbook.conf")).unwrap(),
+            "Spellbook.Enable = 0
+",
+            "an existing file stays byte for byte"
+        );
     }
 
     #[test]
@@ -683,8 +976,11 @@ Spellbook.New = 5
             assert!(!schema.settings.is_empty());
             for p in scope.presets() {
                 for (k, v) in &p.values {
-                    let s = schema.get(k).unwrap_or_else(|| panic!("preset {} references unknown {k}", p.id));
-                    s.to_raw(v).unwrap_or_else(|e| panic!("preset {} value for {k}: {e}", p.id));
+                    let s = schema
+                        .get(k)
+                        .unwrap_or_else(|| panic!("preset {} references unknown {k}", p.id));
+                    s.to_raw(v)
+                        .unwrap_or_else(|e| panic!("preset {} value for {k}: {e}", p.id));
                 }
             }
         }
@@ -694,37 +990,76 @@ Spellbook.New = 5
     fn load_reads_values_defaults_and_counts_unknowns() {
         let (_d, root, _m) = fixture();
         let v = load(&root, Scope::Server).unwrap();
-        let xp = v.settings.iter().find(|s| s.meta.key == "Rate.XP.Kill").unwrap();
+        let xp = v
+            .settings
+            .iter()
+            .find(|s| s.meta.key == "Rate.XP.Kill")
+            .unwrap();
         assert_eq!(xp.value, json!(1.0));
         assert!(xp.present && xp.is_default);
-        let quest = v.settings.iter().find(|s| s.meta.key == "Rate.XP.Quest").unwrap();
+        let quest = v
+            .settings
+            .iter()
+            .find(|s| s.meta.key == "Rate.XP.Quest")
+            .unwrap();
         assert!(!quest.present, "missing key falls back to default");
-        assert!(v.unknown_keys >= 3, "RealmID, WorldServerPort, Unknown.Custom are not curated");
+        assert!(
+            v.unknown_keys >= 3,
+            "RealmID, WorldServerPort, Unknown.Custom are not curated"
+        );
         assert!(v.drift_keys.is_empty());
     }
 
     #[test]
     fn save_changes_only_that_key_in_template_and_generated_conf() {
         let (_d, root, meta) = fixture();
-        let tpl_before = fs::read_to_string(root.join("Settings/worldserver.conf.template")).unwrap();
-        let r = save(&root, &meta, Scope::Server, &set(&[("Rate.XP.Kill", json!(2.5))])).unwrap();
+        let tpl_before =
+            fs::read_to_string(root.join("Settings/worldserver.conf.template")).unwrap();
+        let r = save(
+            &root,
+            &meta,
+            Scope::Server,
+            &set(&[("Rate.XP.Kill", json!(2.5))]),
+        )
+        .unwrap();
         assert_eq!(r.changed.len(), 1);
         assert_eq!(r.restart, Some(Restart::World));
-        for f in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+        for f in [
+            "Settings/worldserver.conf.template",
+            "Core/configs/worldserver.conf",
+        ] {
             let t = fs::read_to_string(root.join(f)).unwrap();
             assert!(t.contains("Rate.XP.Kill      = 2.5\r\n"), "{f}: {t:?}");
             assert!(t.contains("Unknown.Custom = \"keep me\"\r\n"));
         }
-        let tpl_after = fs::read_to_string(root.join("Settings/worldserver.conf.template")).unwrap();
-        assert_eq!(tpl_after.replace("= 2.5", "= 1"), tpl_before, "nothing but the one value changed");
-        assert!(tpl_after.contains("@WORLD_PORT@"), "template placeholders survive");
+        let tpl_after =
+            fs::read_to_string(root.join("Settings/worldserver.conf.template")).unwrap();
+        assert_eq!(
+            tpl_after.replace("= 2.5", "= 1"),
+            tpl_before,
+            "nothing but the one value changed"
+        );
+        assert!(
+            tpl_after.contains("@WORLD_PORT@"),
+            "template placeholders survive"
+        );
     }
 
     #[test]
     fn invalid_input_writes_nothing() {
         let (_d, root, meta) = fixture();
         let before = fs::read(root.join("Core/configs/worldserver.conf")).unwrap();
-        let e = save(&root, &meta, Scope::Server, &set(&[("Rate.XP.Kill", json!(3)), ("Rate.Drop.Money", json!(-4)), ("Nope.Key", json!(1))])).unwrap_err();
+        let e = save(
+            &root,
+            &meta,
+            Scope::Server,
+            &set(&[
+                ("Rate.XP.Kill", json!(3)),
+                ("Rate.Drop.Money", json!(-4)),
+                ("Nope.Key", json!(1)),
+            ]),
+        )
+        .unwrap_err();
         match e {
             Error::Validation(f) => {
                 assert_eq!(f.len(), 2);
@@ -732,19 +1067,40 @@ Spellbook.New = 5
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(fs::read(root.join("Core/configs/worldserver.conf")).unwrap(), before);
-        assert!(list_snapshots(&meta).is_empty(), "no snapshot for a rejected save");
+        assert_eq!(
+            fs::read(root.join("Core/configs/worldserver.conf")).unwrap(),
+            before
+        );
+        assert!(
+            list_snapshots(&meta).is_empty(),
+            "no snapshot for a rejected save"
+        );
     }
 
     #[test]
     fn missing_key_is_appended_and_noop_saves_do_nothing() {
         let (_d, root, meta) = fixture();
-        let r = save(&root, &meta, Scope::Server, &set(&[("Rate.XP.Quest", json!(2))])).unwrap();
+        let r = save(
+            &root,
+            &meta,
+            Scope::Server,
+            &set(&[("Rate.XP.Quest", json!(2))]),
+        )
+        .unwrap();
         assert_eq!(r.changed.len(), 1);
         assert!(r.changed[0].from.is_none());
         let t = fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap();
-        assert!(t.ends_with("# Added by CoA Server Manager\r\nRate.XP.Quest = 2\r\n"), "{t:?}");
-        let again = save(&root, &meta, Scope::Server, &set(&[("Rate.XP.Quest", json!(2))])).unwrap();
+        assert!(
+            t.ends_with("# Added by CoA Server Manager\r\nRate.XP.Quest = 2\r\n"),
+            "{t:?}"
+        );
+        let again = save(
+            &root,
+            &meta,
+            Scope::Server,
+            &set(&[("Rate.XP.Quest", json!(2))]),
+        )
+        .unwrap();
         assert!(again.changed.is_empty() && again.snapshot.is_none());
     }
 
@@ -753,12 +1109,21 @@ Spellbook.New = 5
         let (_d, root, meta) = fixture();
         let conf = root.join("Core/configs/worldserver.conf");
         let original = fs::read(&conf).unwrap();
-        save(&root, &meta, Scope::Server, &set(&[("PlayerLimit", json!(50))])).unwrap();
+        save(
+            &root,
+            &meta,
+            Scope::Server,
+            &set(&[("PlayerLimit", json!(50))]),
+        )
+        .unwrap();
         assert_ne!(fs::read(&conf).unwrap(), original);
         let snap = list_snapshots(&meta).remove(0);
         restore_snapshot(&meta, &snap.id).unwrap();
         assert_eq!(fs::read(&conf).unwrap(), original);
-        assert!(list_snapshots(&meta).len() >= 2, "restore took its own snapshot");
+        assert!(
+            list_snapshots(&meta).len() >= 2,
+            "restore took its own snapshot"
+        );
         assert!(restore_snapshot(&meta, "../evil").is_err());
     }
 
@@ -768,8 +1133,17 @@ Spellbook.New = 5
         let mut ids = std::collections::HashSet::new();
         for i in 0..40 {
             let path = dir.path().join("worldserver.conf");
-            let id = take_snapshot(dir.path(), Scope::Server, "test", &[(path, format!("version {i}").into_bytes())]).unwrap();
-            assert!(ids.insert(id.clone()), "snapshot id {id} was handed out twice");
+            let id = take_snapshot(
+                dir.path(),
+                Scope::Server,
+                "test",
+                &[(path, format!("version {i}").into_bytes())],
+            )
+            .unwrap();
+            assert!(
+                ids.insert(id.clone()),
+                "snapshot id {id} was handed out twice"
+            );
         }
         for info in list_snapshots(dir.path()) {
             assert_eq!(info.files.len(), 1);
@@ -780,12 +1154,17 @@ Spellbook.New = 5
     #[test]
     fn a_repeated_key_with_the_same_effective_value_is_not_drift() {
         let (_d, root, _m) = fixture();
-        for f in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+        for f in [
+            "Settings/worldserver.conf.template",
+            "Core/configs/worldserver.conf",
+        ] {
             let p = root.join(f);
             let mut t = fs::read_to_string(&p).unwrap();
-            t.push_str("Logger.x=6,Console Errors
+            t.push_str(
+                "Logger.x=6,Console Errors
 Logger.x=6,Console Server
-");
+",
+            );
             fs::write(&p, t).unwrap();
         }
         assert!(drift(&root).unwrap().is_empty());
@@ -795,27 +1174,54 @@ Logger.x=6,Console Server
     fn drift_detects_manual_edits_to_the_generated_conf_only() {
         let (_d, root, _m) = fixture();
         let conf = root.join("Core/configs/worldserver.conf");
-        let t = fs::read_to_string(&conf).unwrap().replace("PlayerLimit = 0", "PlayerLimit = 99");
+        let t = fs::read_to_string(&conf)
+            .unwrap()
+            .replace("PlayerLimit = 0", "PlayerLimit = 99");
         fs::write(&conf, t).unwrap();
         assert_eq!(drift(&root).unwrap(), ["PlayerLimit"]);
         let v = load(&root, Scope::Server).unwrap();
-        assert!(v.settings.iter().find(|s| s.meta.key == "PlayerLimit").unwrap().drift);
+        assert!(
+            v.settings
+                .iter()
+                .find(|s| s.meta.key == "PlayerLimit")
+                .unwrap()
+                .drift
+        );
     }
 
     #[test]
     fn bots_ordering_rule_and_preset_preview() {
         let (_d, root, meta) = fixture();
         fs::write(root.join("Core/configs/modules/mod_coa_playerbots.conf"), "[worldserver]\nCoaBots.WorldBrain.PlannerMinMs = 2000\nCoaBots.WorldBrain.PlannerMaxMs = 8000\nCoaBots.Combat.VerboseLog = 1\n").unwrap();
-        let e = save(&root, &meta, Scope::Bots, &set(&[("CoaBots.WorldBrain.PlannerMinMs", json!(9000))])).unwrap_err();
+        let e = save(
+            &root,
+            &meta,
+            Scope::Bots,
+            &set(&[("CoaBots.WorldBrain.PlannerMinMs", json!(9000))]),
+        )
+        .unwrap_err();
         assert!(matches!(e, Error::Validation(_)));
         let p = preview_preset(&root, Scope::Bots, "balanced").unwrap();
-        assert!(p.changes.iter().any(|c| c.key == "CoaBots.Combat.VerboseLog" && c.to == json!(false)));
+        assert!(p
+            .changes
+            .iter()
+            .any(|c| c.key == "CoaBots.Combat.VerboseLog" && c.to == json!(false)));
         let d = preview_defaults(&root, Scope::Bots).unwrap();
         assert!(d.changes.iter().all(|c| !values_equal(&c.from, &c.to)));
         // applying a preview through save() works end to end
-        let map: BTreeMap<_, _> = p.changes.iter().map(|c| (c.key.clone(), c.to.clone())).collect();
+        let map: BTreeMap<_, _> = p
+            .changes
+            .iter()
+            .map(|c| (c.key.clone(), c.to.clone()))
+            .collect();
         save(&root, &meta, Scope::Bots, &map).unwrap();
-        assert!(preview_preset(&root, Scope::Bots, "balanced").unwrap().changes.is_empty(), "idempotent");
+        assert!(
+            preview_preset(&root, Scope::Bots, "balanced")
+                .unwrap()
+                .changes
+                .is_empty(),
+            "idempotent"
+        );
     }
 
     #[test]
@@ -825,9 +1231,15 @@ Logger.x=6,Console Server
         let conf = modules.join("mod_coa_playerbots.conf");
         let text = fs::read(&conf).unwrap();
         fs::remove_file(&conf).unwrap();
-        assert!(load(&root, Scope::Bots).is_err(), "neither file: not installed");
+        assert!(
+            load(&root, Scope::Bots).is_err(),
+            "neither file: not installed"
+        );
         fs::write(modules.join("mod_coa_playerbots.conf.dist"), &text).unwrap();
-        assert!(load(&root, Scope::Bots).is_ok(), "only the default file: it is made");
+        assert!(
+            load(&root, Scope::Bots).is_ok(),
+            "only the default file: it is made"
+        );
         assert!(conf.is_file());
     }
 }

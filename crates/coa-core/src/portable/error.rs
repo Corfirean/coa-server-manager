@@ -16,22 +16,43 @@ pub enum PortableError {
     DuplicateCharacter(CharacterId),
     #[error("character {0} does not exist")]
     UnknownCharacter(CharacterId),
-    #[error("revision {revision} of character {character} does not exist (it may have been pruned)")]
-    UnknownRevision { character: CharacterId, revision: u64 },
-    #[error("stale revision: the caller expected {expected} but the canonical revision is {current}")]
+    #[error(
+        "revision {revision} of character {character} does not exist (it may have been pruned)"
+    )]
+    UnknownRevision {
+        character: CharacterId,
+        revision: u64,
+    },
+    #[error(
+        "stale revision: the caller expected {expected} but the canonical revision is {current}"
+    )]
     StaleRevision { expected: u64, current: u64 },
     #[error("a character's ruleset cannot change ({from} -> {to})")]
     RulesetChange { from: String, to: String },
     #[error("the snapshot belongs to character {found}, not {expected}")]
-    WrongCharacter { expected: CharacterId, found: CharacterId },
+    WrongCharacter {
+        expected: CharacterId,
+        found: CharacterId,
+    },
 
     #[error("local character {local_guid} on server {server_id} is already bound to another portable character")]
     LocalGuidTaken { server_id: String, local_guid: u32 },
-    #[error("local item {local_item_guid} on server {server_id} is mapped twice for one character")]
-    ItemGuidConflict { server_id: String, local_item_guid: u32 },
+    #[error(
+        "local item {local_item_guid} on server {server_id} is mapped twice for one character"
+    )]
+    ItemGuidConflict {
+        server_id: String,
+        local_item_guid: u32,
+    },
 
-    #[error("local character {local_guid} on server {server_id} is already portable ({character})")]
-    AlreadyPortable { server_id: String, local_guid: u32, character: CharacterId },
+    #[error(
+        "local character {local_guid} on server {server_id} is already portable ({character})"
+    )]
+    AlreadyPortable {
+        server_id: String,
+        local_guid: u32,
+        character: CharacterId,
+    },
 
     #[error("this character cannot be made portable: {}", .0.iter().map(|b| b.to_string()).collect::<Vec<_>>().join("; "))]
     NotExportable(Vec<Blocker>),
@@ -45,15 +66,23 @@ pub enum PortableError {
     WrongRealm { expected: String, found: String },
 
     #[error("character {character} is already on server {server_id}")]
-    AlreadyOnRealm { character: CharacterId, server_id: String },
-    #[error("import {import_id} of this character into this server has not finished; recover it first")]
+    AlreadyOnRealm {
+        character: CharacterId,
+        server_id: String,
+    },
+    #[error(
+        "import {import_id} of this character into this server has not finished; recover it first"
+    )]
     ImportInProgress { import_id: ImportId },
     #[error("import {0} does not exist")]
     UnknownImport(ImportId),
     #[error("import {import_id} is {state}, which does not allow this")]
     ImportState { import_id: ImportId, state: String },
     #[error("this realm cannot take the {operation}; nothing was written: {}", .reasons.join("; "))]
-    Incompatible { operation: String, reasons: Vec<String> },
+    Incompatible {
+        operation: String,
+        reasons: Vec<String>,
+    },
     #[error("this character is level {character_level} and the realm's cap is {cap}: it must be projected, and only a running core can say what a projection holds (start the realm, or supply a projection made by its core); nothing was written")]
     ProjectionNeedsRunningCore { character_level: u32, cap: u32 },
     #[error("the realm's progression profile is not the one this was projected for: {0}")]

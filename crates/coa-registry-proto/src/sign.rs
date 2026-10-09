@@ -38,7 +38,9 @@ impl RealmId {
 
     /// Only the canonical form (lower case, hyphenated) of a version-7 UUID is accepted, so one id has one spelling in the signed input.
     pub fn parse(text: &str) -> Result<Self> {
-        let Ok(uuid) = Uuid::parse_str(text) else { return invalid("the realm id is not a UUID") };
+        let Ok(uuid) = Uuid::parse_str(text) else {
+            return invalid("the realm id is not a UUID");
+        };
         if uuid.get_version_num() != 7 || uuid.get_variant() != uuid::Variant::RFC4122 {
             return invalid("the realm id is not a version-7 UUID");
         }
@@ -89,8 +91,19 @@ impl<'de> serde::Deserialize<'de> for RealmId {
 }
 
 /// The exact bytes that are signed.
-pub fn signature_input(method: &str, path: &str, realm: &RealmId, timestamp: i64, body: &[u8]) -> Vec<u8> {
-    format!("{SIGNATURE_DOMAIN}\n{REGISTRY_PROTOCOL_VERSION}\n{}\n{path}\n{realm}\n{timestamp}\n{}", method.to_ascii_uppercase(), hex::encode(Sha256::digest(body))).into_bytes()
+pub fn signature_input(
+    method: &str,
+    path: &str,
+    realm: &RealmId,
+    timestamp: i64,
+    body: &[u8],
+) -> Vec<u8> {
+    format!(
+        "{SIGNATURE_DOMAIN}\n{REGISTRY_PROTOCOL_VERSION}\n{}\n{path}\n{realm}\n{timestamp}\n{}",
+        method.to_ascii_uppercase(),
+        hex::encode(Sha256::digest(body))
+    )
+    .into_bytes()
 }
 
 /// The four headers of a signed request.
@@ -114,30 +127,68 @@ impl SignedHeaders {
 
     /// Read the headers from whatever the transport offers. A missing or malformed header is an error; the protocol version is checked by the caller.
     pub fn parse<'a>(get: impl Fn(&str) -> Option<&'a str>) -> Result<Self> {
-        let need = |name: &str| get(name).ok_or_else(|| crate::ProtoError::Invalid(format!("the {name} header is missing")));
-        let version: u32 = need(HEADER_VERSION)?.parse().map_err(|_| crate::ProtoError::Invalid("the protocol version header is not a number".into()))?;
+        let need = |name: &str| {
+            get(name)
+                .ok_or_else(|| crate::ProtoError::Invalid(format!("the {name} header is missing")))
+        };
+        let version: u32 = need(HEADER_VERSION)?.parse().map_err(|_| {
+            crate::ProtoError::Invalid("the protocol version header is not a number".into())
+        })?;
         let realm = RealmId::parse(need(HEADER_REALM)?)?;
-        let timestamp: i64 = need(HEADER_TIMESTAMP)?.parse().map_err(|_| crate::ProtoError::Invalid("the timestamp header is not a number".into()))?;
+        let timestamp: i64 = need(HEADER_TIMESTAMP)?.parse().map_err(|_| {
+            crate::ProtoError::Invalid("the timestamp header is not a number".into())
+        })?;
         let sig = need(HEADER_SIGNATURE)?;
         if sig.len() != 86 {
             return invalid("the signature header has the wrong length");
         }
-        let bytes = B64.decode(sig).map_err(|_| crate::ProtoError::Invalid("the signature header is not base64url".into()))?;
-        let signature: [u8; 64] = bytes.try_into().map_err(|_| crate::ProtoError::Invalid("the signature is not 64 bytes".into()))?;
-        Ok(Self { version, realm, timestamp, signature })
+        let bytes = B64.decode(sig).map_err(|_| {
+            crate::ProtoError::Invalid("the signature header is not base64url".into())
+        })?;
+        let signature: [u8; 64] = bytes
+            .try_into()
+            .map_err(|_| crate::ProtoError::Invalid("the signature is not 64 bytes".into()))?;
+        Ok(Self {
+            version,
+            realm,
+            timestamp,
+            signature,
+        })
     }
 }
 
 /// Sign a request. The caller chooses the timestamp (it must grow with every request of one realm).
-pub fn sign_request(key: &SigningKey, method: &str, path: &str, realm: &RealmId, timestamp: i64, body: &[u8]) -> SignedHeaders {
-    let signature = key.sign(&signature_input(method, path, realm, timestamp, body)).to_bytes();
-    SignedHeaders { version: REGISTRY_PROTOCOL_VERSION, realm: *realm, timestamp, signature }
+pub fn sign_request(
+    key: &SigningKey,
+    method: &str,
+    path: &str,
+    realm: &RealmId,
+    timestamp: i64,
+    body: &[u8],
+) -> SignedHeaders {
+    let signature = key
+        .sign(&signature_input(method, path, realm, timestamp, body))
+        .to_bytes();
+    SignedHeaders {
+        version: REGISTRY_PROTOCOL_VERSION,
+        realm: *realm,
+        timestamp,
+        signature,
+    }
 }
 
 /// Verify a request against a public key. Strict: a signature that merely validates under a weak key or a non-canonical encoding is refused.
-pub fn verify_request(public: &VerifyingKey, headers: &SignedHeaders, method: &str, path: &str, body: &[u8]) -> bool {
+pub fn verify_request(
+    public: &VerifyingKey,
+    headers: &SignedHeaders,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> bool {
     let input = signature_input(method, path, &headers.realm, headers.timestamp, body);
-    public.verify_strict(&input, &Signature::from_bytes(&headers.signature)).is_ok()
+    public
+        .verify_strict(&input, &Signature::from_bytes(&headers.signature))
+        .is_ok()
 }
 
 pub fn encode_public_key(key: &VerifyingKey) -> String {
@@ -148,9 +199,15 @@ pub fn decode_public_key(text: &str) -> Result<VerifyingKey> {
     if text.len() != 43 {
         return invalid("the public key has the wrong length");
     }
-    let bytes = B64.decode(text).map_err(|_| crate::ProtoError::Invalid("the public key is not base64url".into()))?;
-    let array: [u8; 32] = bytes.try_into().map_err(|_| crate::ProtoError::Invalid("the public key is not 32 bytes".into()))?;
-    let key = VerifyingKey::from_bytes(&array).map_err(|_| crate::ProtoError::Invalid("the public key is not a valid Ed25519 key".into()))?;
+    let bytes = B64
+        .decode(text)
+        .map_err(|_| crate::ProtoError::Invalid("the public key is not base64url".into()))?;
+    let array: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| crate::ProtoError::Invalid("the public key is not 32 bytes".into()))?;
+    let key = VerifyingKey::from_bytes(&array).map_err(|_| {
+        crate::ProtoError::Invalid("the public key is not a valid Ed25519 key".into())
+    })?;
     if key.is_weak() {
         return invalid("the public key is a weak key");
     }
@@ -170,10 +227,22 @@ mod tests {
     #[test]
     fn realm_ids_have_one_spelling() {
         assert!(RealmId::parse(REALM).is_ok());
-        assert!(RealmId::parse(&REALM.to_uppercase()).is_err(), "upper case is another spelling");
-        assert!(RealmId::parse(&REALM.replace('-', "")).is_err(), "so is the simple form");
-        assert!(RealmId::parse("018f2d9e-5c3a-4b21-8c4d-0e5f6a7b8c9d").is_err(), "version 4 is not an identity");
-        assert!(RealmId::parse("018f2d9e-5c3a-7b21-0c4d-0e5f6a7b8c9d").is_err(), "nor is a foreign variant");
+        assert!(
+            RealmId::parse(&REALM.to_uppercase()).is_err(),
+            "upper case is another spelling"
+        );
+        assert!(
+            RealmId::parse(&REALM.replace('-', "")).is_err(),
+            "so is the simple form"
+        );
+        assert!(
+            RealmId::parse("018f2d9e-5c3a-4b21-8c4d-0e5f6a7b8c9d").is_err(),
+            "version 4 is not an identity"
+        );
+        assert!(
+            RealmId::parse("018f2d9e-5c3a-7b21-0c4d-0e5f6a7b8c9d").is_err(),
+            "nor is a foreign variant"
+        );
         assert!(RealmId::parse("../../etc").is_err());
         assert!(RealmId::parse("").is_err());
         assert_eq!(RealmId::new().to_string().len(), 36);
@@ -186,24 +255,51 @@ mod tests {
         let key = key();
         assert_eq!(encode_public_key(&key.verifying_key()), VECTOR_PUBLIC_KEY);
         let body = br#"{"protocol_version":2}"#;
-        let input = signature_input("post", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", &realm, 1_790_000_000, body);
+        let input = signature_input(
+            "post",
+            "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat",
+            &realm,
+            1_790_000_000,
+            body,
+        );
         assert_eq!(String::from_utf8(input).unwrap(), VECTOR_INPUT);
-        let headers = sign_request(&key, "POST", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", &realm, 1_790_000_000, body);
+        let headers = sign_request(
+            &key,
+            "POST",
+            "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat",
+            &realm,
+            1_790_000_000,
+            body,
+        );
         assert_eq!(B64.encode(headers.signature), VECTOR_SIGNATURE);
-        assert!(verify_request(&key.verifying_key(), &headers, "POST", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat", body));
+        assert!(verify_request(
+            &key.verifying_key(),
+            &headers,
+            "POST",
+            "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat",
+            body
+        ));
     }
 
     /// The second documented vector: a GET has the empty body, whose SHA-256 is `e3b0c442...`.
     #[test]
     fn the_documented_vector_of_a_read() {
         let realm = RealmId::parse(REALM).unwrap();
-        let headers = sign_request(&key(), "GET", "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/self", &realm, 1_790_000_030, b"");
+        let headers = sign_request(
+            &key(),
+            "GET",
+            "/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/self",
+            &realm,
+            1_790_000_030,
+            b"",
+        );
         assert_eq!(B64.encode(headers.signature), "yqd_TFTooZcWb0GhLw3Tl9FwnBWCHo3Q2AYpoNn4CCJljENOgW9WaNlODoInEVglrCNKJmoYuahPyZfcEJk_AA");
     }
 
     const VECTOR_PUBLIC_KEY: &str = "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw";
     const VECTOR_INPUT: &str = "coa-registry-sig-v2\n2\nPOST\n/registry/v2/realms/018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d/heartbeat\n018f2d9e-5c3a-7b21-8c4d-0e5f6a7b8c9d\n1790000000\ne68cb099ab8a3557572bff7e669270ac75fe321c1920b12a2aa7a535d1d16155";
-    const VECTOR_SIGNATURE: &str = "MjXmYOIM1Bap5C5XNPspElOTNIAnKBN4pTfvhF6r29zq7A0elzXi7Qk8D3FyfL1CtVmpliUAr3MY1TGrGPyqAQ";
+    const VECTOR_SIGNATURE: &str =
+        "MjXmYOIM1Bap5C5XNPspElOTNIAnKBN4pTfvhF6r29zq7A0elzXi7Qk8D3FyfL1CtVmpliUAr3MY1TGrGPyqAQ";
 
     #[test]
     fn every_part_of_the_input_is_covered() {
@@ -214,12 +310,54 @@ mod tests {
         let h = sign_request(&key, "POST", path, &realm, 100, b"body");
         let public = key.verifying_key();
         assert!(verify_request(&public, &h, "POST", path, b"body"));
-        assert!(!verify_request(&public, &h, "POST", path, b"bodY"), "the body");
-        assert!(!verify_request(&public, &h, "POST", "/registry/v2/realms/y", b"body"), "the path");
-        assert!(!verify_request(&public, &h, "GET", path, b"body"), "the method");
-        assert!(!verify_request(&public, &SignedHeaders { realm: other, ..h.clone() }, "POST", path, b"body"), "the realm");
-        assert!(!verify_request(&public, &SignedHeaders { timestamp: 101, ..h.clone() }, "POST", path, b"body"), "the timestamp");
-        assert!(!verify_request(&SigningKey::from_bytes(&[8u8; 32]).verifying_key(), &h, "POST", path, b"body"), "the key");
+        assert!(
+            !verify_request(&public, &h, "POST", path, b"bodY"),
+            "the body"
+        );
+        assert!(
+            !verify_request(&public, &h, "POST", "/registry/v2/realms/y", b"body"),
+            "the path"
+        );
+        assert!(
+            !verify_request(&public, &h, "GET", path, b"body"),
+            "the method"
+        );
+        assert!(
+            !verify_request(
+                &public,
+                &SignedHeaders {
+                    realm: other,
+                    ..h.clone()
+                },
+                "POST",
+                path,
+                b"body"
+            ),
+            "the realm"
+        );
+        assert!(
+            !verify_request(
+                &public,
+                &SignedHeaders {
+                    timestamp: 101,
+                    ..h.clone()
+                },
+                "POST",
+                path,
+                b"body"
+            ),
+            "the timestamp"
+        );
+        assert!(
+            !verify_request(
+                &SigningKey::from_bytes(&[8u8; 32]).verifying_key(),
+                &h,
+                "POST",
+                path,
+                b"body"
+            ),
+            "the key"
+        );
     }
 
     #[test]
@@ -227,19 +365,44 @@ mod tests {
         let realm = RealmId::parse(REALM).unwrap();
         let h = sign_request(&key(), "POST", "/p", &realm, 5, b"");
         let pairs = h.pairs();
-        let get = |name: &str| pairs.iter().find(|(n, _)| *n == name).map(|(_, v)| v.as_str());
+        let get = |name: &str| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(SignedHeaders::parse(get).unwrap(), h);
-        assert!(SignedHeaders::parse(|n| if n == HEADER_SIGNATURE { None } else { get(n) }).is_err());
-        assert!(SignedHeaders::parse(|n| if n == HEADER_SIGNATURE { Some("AAAA") } else { get(n) }).is_err());
-        assert!(SignedHeaders::parse(|n| if n == HEADER_TIMESTAMP { Some("12x") } else { get(n) }).is_err());
-        assert!(SignedHeaders::parse(|n| if n == HEADER_REALM { Some("nope") } else { get(n) }).is_err());
+        assert!(
+            SignedHeaders::parse(|n| if n == HEADER_SIGNATURE { None } else { get(n) }).is_err()
+        );
+        assert!(SignedHeaders::parse(|n| if n == HEADER_SIGNATURE {
+            Some("AAAA")
+        } else {
+            get(n)
+        })
+        .is_err());
+        assert!(SignedHeaders::parse(|n| if n == HEADER_TIMESTAMP {
+            Some("12x")
+        } else {
+            get(n)
+        })
+        .is_err());
+        assert!(SignedHeaders::parse(|n| if n == HEADER_REALM {
+            Some("nope")
+        } else {
+            get(n)
+        })
+        .is_err());
     }
 
     #[test]
     fn public_keys_are_checked() {
         assert!(decode_public_key(&encode_public_key(&key().verifying_key())).is_ok());
         assert!(decode_public_key("short").is_err());
-        assert!(decode_public_key(&B64.encode([0u8; 32])).is_err(), "the identity point is a weak key");
+        assert!(
+            decode_public_key(&B64.encode([0u8; 32])).is_err(),
+            "the identity point is a weak key"
+        );
         assert!(decode_public_key(&"A".repeat(43)).is_err());
     }
 }

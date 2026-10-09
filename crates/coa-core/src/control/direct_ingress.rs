@@ -33,21 +33,45 @@ impl DirectIngress {
         local_auth_port: u16,
         local_world_port: u16,
     ) -> Result<Self> {
-        let auth_listener = TcpListener::bind(format!("0.0.0.0:{auth_bind_port}"))
-            .map_err(|e| Error::Invalid(format!("Cannot bind direct auth listener on port {auth_bind_port}: {e}")))?;
-        auth_listener.set_nonblocking(true).map_err(|e| Error::Invalid(e.to_string()))?;
-        let auth_actual_port = auth_listener.local_addr().map_err(|e| Error::Invalid(e.to_string()))?.port();
+        let auth_listener =
+            TcpListener::bind(format!("0.0.0.0:{auth_bind_port}")).map_err(|e| {
+                Error::Invalid(format!(
+                    "Cannot bind direct auth listener on port {auth_bind_port}: {e}"
+                ))
+            })?;
+        auth_listener
+            .set_nonblocking(true)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let auth_actual_port = auth_listener
+            .local_addr()
+            .map_err(|e| Error::Invalid(e.to_string()))?
+            .port();
 
-        let world_listener = TcpListener::bind(format!("0.0.0.0:{world_bind_port}"))
-            .map_err(|e| Error::Invalid(format!("Cannot bind direct world listener on port {world_bind_port}: {e}")))?;
-        world_listener.set_nonblocking(true).map_err(|e| Error::Invalid(e.to_string()))?;
-        let world_actual_port = world_listener.local_addr().map_err(|e| Error::Invalid(e.to_string()))?.port();
+        let world_listener =
+            TcpListener::bind(format!("0.0.0.0:{world_bind_port}")).map_err(|e| {
+                Error::Invalid(format!(
+                    "Cannot bind direct world listener on port {world_bind_port}: {e}"
+                ))
+            })?;
+        world_listener
+            .set_nonblocking(true)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let world_actual_port = world_listener
+            .local_addr()
+            .map_err(|e| Error::Invalid(e.to_string()))?
+            .port();
 
         let stop = Arc::new(AtomicBool::new(false));
         let mut threads = Vec::new();
 
-        let effective_world_port = if ext_world_port == 0 { world_actual_port } else { ext_world_port };
-        let world_target = Arc::new(std::sync::RwLock::new(format!("{public_ip}:{effective_world_port}")));
+        let effective_world_port = if ext_world_port == 0 {
+            world_actual_port
+        } else {
+            ext_world_port
+        };
+        let world_target = Arc::new(std::sync::RwLock::new(format!(
+            "{public_ip}:{effective_world_port}"
+        )));
 
         // Spawn Auth listener thread
         let stop_auth = stop.clone();
@@ -63,7 +87,8 @@ impl DirectIngress {
                             std::thread::Builder::new()
                                 .name("direct-auth-worker".into())
                                 .spawn(move || {
-                                    let _ = handle_auth_client(client_stream, local_auth_port, target);
+                                    let _ =
+                                        handle_auth_client(client_stream, local_auth_port, target);
                                 })
                                 .ok();
                         }
@@ -127,7 +152,10 @@ impl DirectIngress {
     }
 
     pub fn world_target(&self) -> String {
-        self.world_target.read().map(|s| s.clone()).unwrap_or_default()
+        self.world_target
+            .read()
+            .map(|s| s.clone())
+            .unwrap_or_default()
     }
 
     pub fn stop(&mut self) {
@@ -152,8 +180,12 @@ fn handle_auth_client(
     let _ = client.set_read_timeout(Some(Duration::from_millis(500)));
     let _ = server.set_read_timeout(Some(Duration::from_millis(500)));
 
-    let mut client_read = client.try_clone().map_err(|e| Error::Invalid(e.to_string()))?;
-    let mut server_write = server.try_clone().map_err(|e| Error::Invalid(e.to_string()))?;
+    let mut client_read = client
+        .try_clone()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    let mut server_write = server
+        .try_clone()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
 
     let done = Arc::new(AtomicBool::new(false));
     let done_c = done.clone();
@@ -170,7 +202,10 @@ fn handle_auth_client(
                         break;
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                Err(ref e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
                     continue;
                 }
                 Err(_) => break,
@@ -190,7 +225,10 @@ fn handle_auth_client(
             Ok(0) => break,
             Ok(n) => {
                 let chunk = &buf[..n];
-                let current_target = world_target.read().map(|s| s.clone()).unwrap_or_else(|_| "127.0.0.1:8085".to_string());
+                let current_target = world_target
+                    .read()
+                    .map(|s| s.clone())
+                    .unwrap_or_else(|_| "127.0.0.1:8085".to_string());
                 match coa_control_proto::relay::rewrite_realm_list_address(chunk, &current_target) {
                     Ok(Some(rewritten)) => {
                         if client.write_all(&rewritten).is_err() {
@@ -204,7 +242,10 @@ fn handle_auth_client(
                     }
                 }
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+            Err(ref e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
                 continue;
             }
             Err(_) => break,
@@ -219,18 +260,19 @@ fn handle_auth_client(
     Ok(())
 }
 
-fn handle_world_client(
-    mut client: TcpStream,
-    local_world_port: u16,
-) -> Result<()> {
+fn handle_world_client(mut client: TcpStream, local_world_port: u16) -> Result<()> {
     let mut server = TcpStream::connect(format!("127.0.0.1:{local_world_port}"))
         .map_err(|e| Error::Invalid(format!("Cannot connect to local worldserver: {e}")))?;
 
     let _ = client.set_read_timeout(Some(Duration::from_millis(500)));
     let _ = server.set_read_timeout(Some(Duration::from_millis(500)));
 
-    let mut client_read = client.try_clone().map_err(|e| Error::Invalid(e.to_string()))?;
-    let mut server_write = server.try_clone().map_err(|e| Error::Invalid(e.to_string()))?;
+    let mut client_read = client
+        .try_clone()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    let mut server_write = server
+        .try_clone()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
 
     let done = Arc::new(AtomicBool::new(false));
     let done_c = done.clone();
@@ -246,7 +288,10 @@ fn handle_world_client(
                         break;
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                Err(ref e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
                     continue;
                 }
                 Err(_) => break,
@@ -268,7 +313,10 @@ fn handle_world_client(
                     break;
                 }
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+            Err(ref e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
                 continue;
             }
             Err(_) => break,
@@ -360,7 +408,10 @@ mod tests {
         let mut auth_buf = [0u8; 512];
         let an = client_auth.read(&mut auth_buf).unwrap();
         let payload = String::from_utf8_lossy(&auth_buf[..an]);
-        assert!(payload.contains("198.51.100.1:8085"), "Expected rewritten world address, got: {payload}");
+        assert!(
+            payload.contains("198.51.100.1:8085"),
+            "Expected rewritten world address, got: {payload}"
+        );
         drop(client_auth);
         t_auth.join().unwrap();
 
@@ -384,10 +435,14 @@ mod tests {
             desired_world_port,
             mock_auth_port,
             mock_world_port,
-        ).unwrap();
+        )
+        .unwrap();
 
         let actual_ingress_world = ingress.world_port();
-        assert_ne!(actual_ingress_world, desired_world_port, "Actual ingress port must not be 8085");
+        assert_ne!(
+            actual_ingress_world, desired_world_port,
+            "Actual ingress port must not be 8085"
+        );
 
         // The router / NAT-PMP assigns an external mapped world port != 8085 and != actual ingress port
         let external_mapped_world_port = 48085;
@@ -426,7 +481,8 @@ mod tests {
             let _ = stream.shutdown(std::net::Shutdown::Write);
         });
 
-        let mut client_auth = TcpStream::connect(format!("127.0.0.1:{}", ingress.auth_port())).unwrap();
+        let mut client_auth =
+            TcpStream::connect(format!("127.0.0.1:{}", ingress.auth_port())).unwrap();
         client_auth.write_all(b"AUTH_HELLO").unwrap();
         let mut auth_buf = [0u8; 512];
         let an = client_auth.read(&mut auth_buf).unwrap();

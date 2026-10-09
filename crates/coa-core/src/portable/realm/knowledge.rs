@@ -40,13 +40,22 @@ pub struct RealmKnowledge {
 
 impl std::fmt::Debug for RealmKnowledge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "RealmKnowledge({} appearances, {} vanity items)", self.appearances.len(), self.vanity.len())
+        write!(
+            f,
+            "RealmKnowledge({} appearances, {} vanity items)",
+            self.appearances.len(),
+            self.vanity.len()
+        )
     }
 }
 
 impl RealmKnowledge {
     pub fn new(appearances: IdSet, vanity: IdSet) -> Self {
-        Self { appearances, vanity, catalog: ClientCatalog::new() }
+        Self {
+            appearances,
+            vanity,
+            catalog: ClientCatalog::new(),
+        }
     }
 
     pub fn catalog(&self) -> &ClientCatalog {
@@ -55,7 +64,13 @@ impl RealmKnowledge {
 
     #[cfg(test)]
     pub(crate) fn set_catalog_for_test(&mut self, table: &str, sha256: &str, records: u32) {
-        self.catalog.insert(table.to_string(), CatalogEntry { sha256: sha256.to_string(), records });
+        self.catalog.insert(
+            table.to_string(),
+            CatalogEntry {
+                sha256: sha256.to_string(),
+                records,
+            },
+        );
     }
 
     /// Read `<data_dir>/dbc/Appearances.dbc` and `VanityCollection.dbc`.
@@ -73,7 +88,11 @@ impl RealmKnowledge {
                 }
             }
         }
-        Ok(Self { appearances: IdSet::from_ids(appearances)?, vanity: IdSet::from_ids(vanity)?, catalog })
+        Ok(Self {
+            appearances: IdSet::from_ids(appearances)?,
+            vanity: IdSet::from_ids(vanity)?,
+            catalog,
+        })
     }
 
     pub fn knows_appearance(&self, id: u32) -> bool {
@@ -103,12 +122,21 @@ pub fn table_entry(path: &Path) -> Option<CatalogEntry> {
     if bytes.len() < HEADER || &bytes[..4] != b"WDBC" {
         return None;
     }
-    Some(CatalogEntry { sha256: hex::encode(Sha256::digest(&bytes)), records: u32::from_le_bytes(bytes[4..8].try_into().ok()?) })
+    Some(CatalogEntry {
+        sha256: hex::encode(Sha256::digest(&bytes)),
+        records: u32::from_le_bytes(bytes[4..8].try_into().ok()?),
+    })
 }
 
-fn read_table(path: &Path, id_dword: usize, minimum_dwords: usize) -> Result<(Vec<u32>, CatalogEntry)> {
+fn read_table(
+    path: &Path,
+    id_dword: usize,
+    minimum_dwords: usize,
+) -> Result<(Vec<u32>, CatalogEntry)> {
     let ids = read_ids(path, id_dword, minimum_dwords)?;
-    let entry = table_entry(path).ok_or_else(|| PortableError::SchemaMismatch(format!("{}: is not a client table", path.display())))?;
+    let entry = table_entry(path).ok_or_else(|| {
+        PortableError::SchemaMismatch(format!("{}: is not a client table", path.display()))
+    })?;
     Ok((ids, entry))
 }
 
@@ -116,7 +144,9 @@ fn read_table(path: &Path, id_dword: usize, minimum_dwords: usize) -> Result<(Ve
 /// Zero ids are not records of anything and are skipped, as the core does.
 fn read_ids(path: &Path, id_dword: usize, minimum_dwords: usize) -> Result<Vec<u32>> {
     let bad = |what: &str| PortableError::SchemaMismatch(format!("{}: {what}", path.display()));
-    let size = std::fs::metadata(path).map_err(|e| bad(&format!("cannot be read ({e})")))?.len();
+    let size = std::fs::metadata(path)
+        .map_err(|e| bad(&format!("cannot be read ({e})")))?
+        .len();
     if size > MAX_DBC_BYTES {
         return Err(bad("is unreasonably large"));
     }
@@ -124,7 +154,8 @@ fn read_ids(path: &Path, id_dword: usize, minimum_dwords: usize) -> Result<Vec<u
     if bytes.len() < HEADER || &bytes[..4] != b"WDBC" {
         return Err(bad("is not a WDBC file"));
     }
-    let field = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes")) as u64;
+    let field =
+        |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes")) as u64;
     let (records, record_size, strings) = (field(4), field(12), field(16));
     if HEADER as u64 + records * record_size + strings != bytes.len() as u64 {
         return Err(bad("header does not match the file size"));
@@ -169,8 +200,18 @@ mod tests {
     fn the_ids_of_the_two_client_tables_are_read_and_nothing_else_is_trusted() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("dbc")).unwrap();
-        write_test_dbc(&dir.path().join("dbc/Appearances.dbc"), &[5, 0, 9, 9, 100], 0, 9);
-        write_test_dbc(&dir.path().join("dbc/VanityCollection.dbc"), &[1000, 2000], 1, 77);
+        write_test_dbc(
+            &dir.path().join("dbc/Appearances.dbc"),
+            &[5, 0, 9, 9, 100],
+            0,
+            9,
+        );
+        write_test_dbc(
+            &dir.path().join("dbc/VanityCollection.dbc"),
+            &[1000, 2000],
+            1,
+            77,
+        );
         let k = RealmKnowledge::from_data_dir(dir.path()).unwrap();
         assert!(k.knows_appearance(5) && k.knows_appearance(9) && k.knows_appearance(100));
         assert!(!k.knows_appearance(0) && !k.knows_appearance(6));

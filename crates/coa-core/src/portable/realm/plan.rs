@@ -192,16 +192,23 @@ pub struct ImportPlan {
 /// The text stored in the realm's `character_settings` row `coa.portable.import` of an imported character: four random
 /// words and the canonical revision, all numbers. Recovery finds the character by this exact text.
 pub fn marker_data(nonce: [u32; 4], revision: u64) -> String {
-    format!("{} {} {} {} {} ", nonce[0], nonce[1], nonce[2], nonce[3], revision)
+    format!(
+        "{} {} {} {} {} ",
+        nonce[0], nonce[1], nonce[2], nonce[3], revision
+    )
 }
 
 pub(super) fn to_u32(what: &str, v: u64) -> Result<u32> {
-    u32::try_from(v).map_err(|_| PortableError::Invalid(format!("{what} {v} does not fit the realm's 32-bit column")))
+    u32::try_from(v).map_err(|_| {
+        PortableError::Invalid(format!("{what} {v} does not fit the realm's 32-bit column"))
+    })
 }
 
 pub(super) fn content_id(what: &str, id: &ContentId, ns: &str, kind: &str) -> Result<u32> {
     if id.namespace() != ns || id.kind() != kind {
-        return Err(PortableError::Invalid(format!("{what} {id} is not a {ns}:{kind} id and cannot be imported into a {ns} realm")));
+        return Err(PortableError::Invalid(format!(
+            "{what} {id} is not a {ns}:{kind} id and cannot be imported into a {ns} realm"
+        )));
     }
     to_u32(what, id.id())
 }
@@ -235,19 +242,32 @@ fn assert_count(table_sql: &str, expected: usize) -> String {
 pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<ImportPlan> {
     model.validate()?;
     if model.ruleset != ctx.ruleset {
-        return Err(PortableError::WrongRealm { expected: model.ruleset.to_string(), found: ctx.ruleset.to_string() });
+        return Err(PortableError::WrongRealm {
+            expected: model.ruleset.to_string(),
+            found: ctx.ruleset.to_string(),
+        });
     }
     let ns = ctx.ruleset.as_str();
     if model.content_namespace != ns {
-        return Err(PortableError::Invalid(format!("the character's content namespace {} is not {ns}", model.content_namespace)));
+        return Err(PortableError::Invalid(format!(
+            "the character's content namespace {} is not {ns}",
+            model.content_namespace
+        )));
     }
     if ctx.game_server_users.is_empty() {
-        return Err(PortableError::Invalid("internal: no game server user is named, the realm cannot be proven stopped".into()));
+        return Err(PortableError::Invalid(
+            "internal: no game server user is named, the realm cannot be proven stopped".into(),
+        ));
     }
 
     let race = content_id("race", &model.identity.race, ns, "race")?;
     let class = content_id("class", &model.identity.class, ns, "class")?;
-    let item_index: HashMap<PortableItemId, u32> = model.items.iter().enumerate().map(|(i, it)| (it.id, i as u32)).collect();
+    let item_index: HashMap<PortableItemId, u32> = model
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, it)| (it.id, i as u32))
+        .collect();
 
     // ---- rows -----------------------------------------------------------------------------------------------------
     let mut counts = PlanCounts::default();
@@ -257,12 +277,75 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     let mut characters = Insert::new(
         "characters",
         &[
-            "guid", "account", "name", "race", "class", "gender", "level", "xp", "money", "skin", "face", "hairStyle", "hairColor", "facialStyle", "bankSlots", "restState",
-            "playerFlags", "position_x", "position_y", "position_z", "map", "instance_id", "instance_mode_mask", "orientation", "taximask", "online", "cinematic", "totaltime",
-            "leveltime", "logout_time", "is_logout_resting", "rest_bonus", "resettalents_cost", "resettalents_time", "extra_flags", "stable_slots", "at_login", "zone",
-            "death_expire_time", "arenaPoints", "totalHonorPoints", "todayHonorPoints", "yesterdayHonorPoints", "totalKills", "todayKills", "yesterdayKills", "chosenTitle",
-            "knownCurrencies", "watchedFaction", "drunk", "health", "power1", "power2", "power3", "power4", "power5", "power6", "power7", "latency", "talentGroupsCount",
-            "activeTalentGroup", "exploredZones", "equipmentCache", "ammoId", "knownTitles", "actionBars", "grantableLevels", "innTriggerId", "extraBonusTalentCount",
+            "guid",
+            "account",
+            "name",
+            "race",
+            "class",
+            "gender",
+            "level",
+            "xp",
+            "money",
+            "skin",
+            "face",
+            "hairStyle",
+            "hairColor",
+            "facialStyle",
+            "bankSlots",
+            "restState",
+            "playerFlags",
+            "position_x",
+            "position_y",
+            "position_z",
+            "map",
+            "instance_id",
+            "instance_mode_mask",
+            "orientation",
+            "taximask",
+            "online",
+            "cinematic",
+            "totaltime",
+            "leveltime",
+            "logout_time",
+            "is_logout_resting",
+            "rest_bonus",
+            "resettalents_cost",
+            "resettalents_time",
+            "extra_flags",
+            "stable_slots",
+            "at_login",
+            "zone",
+            "death_expire_time",
+            "arenaPoints",
+            "totalHonorPoints",
+            "todayHonorPoints",
+            "yesterdayHonorPoints",
+            "totalKills",
+            "todayKills",
+            "yesterdayKills",
+            "chosenTitle",
+            "knownCurrencies",
+            "watchedFaction",
+            "drunk",
+            "health",
+            "power1",
+            "power2",
+            "power3",
+            "power4",
+            "power5",
+            "power6",
+            "power7",
+            "latency",
+            "talentGroupsCount",
+            "activeTalentGroup",
+            "exploredZones",
+            "equipmentCache",
+            "ammoId",
+            "knownTitles",
+            "actionBars",
+            "grantableLevels",
+            "innTriggerId",
+            "extraBonusTalentCount",
         ],
     );
     let a = &model.identity.appearance;
@@ -339,13 +422,38 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     ])?;
     inserts.push(characters);
 
-    let mut homebind = Insert::new("character_homebind", &["guid", "mapId", "zoneId", "posX", "posY", "posZ"]);
-    homebind.row(vec![Val::Expr("@char"), Val::Expr("@map"), Val::Expr("@zone"), Val::Expr("@x"), Val::Expr("@y"), Val::Expr("@z")])?;
+    let mut homebind = Insert::new(
+        "character_homebind",
+        &["guid", "mapId", "zoneId", "posX", "posY", "posZ"],
+    );
+    homebind.row(vec![
+        Val::Expr("@char"),
+        Val::Expr("@map"),
+        Val::Expr("@zone"),
+        Val::Expr("@x"),
+        Val::Expr("@y"),
+        Val::Expr("@z"),
+    ])?;
     inserts.push(homebind);
 
     let mut item_rows = Insert::new(
         "item_instance",
-        &["guid", "itemEntry", "owner_guid", "creatorGuid", "giftCreatorGuid", "count", "duration", "charges", "flags", "enchantments", "randomPropertyId", "durability", "playedTime", "text"],
+        &[
+            "guid",
+            "itemEntry",
+            "owner_guid",
+            "creatorGuid",
+            "giftCreatorGuid",
+            "count",
+            "duration",
+            "charges",
+            "flags",
+            "enchantments",
+            "randomPropertyId",
+            "durability",
+            "playedTime",
+            "text",
+        ],
     );
     let mut inventory = Insert::new("character_inventory", &["guid", "bag", "slot", "item"]);
     let mut gifts = Insert::new("character_gifts", &["guid", "item_guid", "entry", "flags"]);
@@ -369,11 +477,25 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
         ])?;
         let bag = match item.container {
             None => Val::u(0u8),
-            Some(c) => Val::ItemRef(*item_index.get(&c).ok_or_else(|| PortableError::Invalid("an item names a container that is not part of the plan".into()))?),
+            Some(c) => Val::ItemRef(*item_index.get(&c).ok_or_else(|| {
+                PortableError::Invalid(
+                    "an item names a container that is not part of the plan".into(),
+                )
+            })?),
         };
-        inventory.row(vec![Val::Expr("@char"), bag, Val::u(item.slot), Val::ItemRef(i as u32)])?;
+        inventory.row(vec![
+            Val::Expr("@char"),
+            bag,
+            Val::u(item.slot),
+            Val::ItemRef(i as u32),
+        ])?;
         if let Some(g) = &item.gift {
-            gifts.row(vec![Val::Expr("@char"), Val::ItemRef(i as u32), Val::u(content_id("gift", &g.entry, ns, "item")?), Val::u(g.flags)])?;
+            gifts.row(vec![
+                Val::Expr("@char"),
+                Val::ItemRef(i as u32),
+                Val::u(content_id("gift", &g.entry, ns, "item")?),
+                Val::u(g.flags),
+            ])?;
         }
     }
     counts.items = item_rows.len();
@@ -391,43 +513,107 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     // The rows stay in the canonical snapshot.
     let mut not_applied_talents = Vec::new();
     if !model.build.talents.is_empty() {
-        not_applied_talents.push(format!("character_talent ({} stock talent rows: not applied, see PORTABLE_IMPORT.md)", model.build.talents.len()));
+        not_applied_talents.push(format!(
+            "character_talent ({} stock talent rows: not applied, see PORTABLE_IMPORT.md)",
+            model.build.talents.len()
+        ));
     }
     let mut skills = Insert::new("character_skills", &["guid", "skill", "value", "max"]);
     for s in &model.build.skills {
-        skills.row(vec![Val::Expr("@char"), Val::u(s.skill), Val::u(s.value), Val::u(s.max)])?;
+        skills.row(vec![
+            Val::Expr("@char"),
+            Val::u(s.skill),
+            Val::u(s.value),
+            Val::u(s.max),
+        ])?;
     }
-    let mut glyphs = Insert::new("character_glyphs", &["guid", "talentGroup", "glyph1", "glyph2", "glyph3", "glyph4", "glyph5", "glyph6"]);
+    let mut glyphs = Insert::new(
+        "character_glyphs",
+        &[
+            "guid",
+            "talentGroup",
+            "glyph1",
+            "glyph2",
+            "glyph3",
+            "glyph4",
+            "glyph5",
+            "glyph6",
+        ],
+    );
     for g in &model.build.glyphs {
         let mut row = vec![Val::Expr("@char"), Val::u(g.talent_group)];
         row.extend(g.glyphs.iter().map(|v| Val::u(*v)));
         glyphs.row(row)?;
     }
-    (counts.spells, counts.talents, counts.skills, counts.glyphs) = (spells.len(), 0, skills.len(), glyphs.len());
+    (counts.spells, counts.talents, counts.skills, counts.glyphs) =
+        (spells.len(), 0, skills.len(), glyphs.len());
     inserts.extend([spells, skills, glyphs]);
 
-    let mut reputation = Insert::new("character_reputation", &["guid", "faction", "standing", "flags"]);
+    let mut reputation = Insert::new(
+        "character_reputation",
+        &["guid", "faction", "standing", "flags"],
+    );
     for r in &model.reputation {
-        reputation.row(vec![Val::Expr("@char"), Val::u(r.faction), Val::i(r.standing), Val::u(r.flags)])?;
+        reputation.row(vec![
+            Val::Expr("@char"),
+            Val::u(r.faction),
+            Val::i(r.standing),
+            Val::u(r.flags),
+        ])?;
     }
     let mut quests = Insert::new(
         "character_queststatus",
-        &["guid", "quest", "status", "explored", "timer", "mobcount1", "mobcount2", "mobcount3", "mobcount4", "itemcount1", "itemcount2", "itemcount3", "itemcount4", "itemcount5", "itemcount6", "playercount"],
+        &[
+            "guid",
+            "quest",
+            "status",
+            "explored",
+            "timer",
+            "mobcount1",
+            "mobcount2",
+            "mobcount3",
+            "mobcount4",
+            "itemcount1",
+            "itemcount2",
+            "itemcount3",
+            "itemcount4",
+            "itemcount5",
+            "itemcount6",
+            "playercount",
+        ],
     );
     for q in &model.quests.active {
-        let mut row = vec![Val::Expr("@char"), Val::u(q.quest), Val::u(q.status), Val::u(q.explored as u8), Val::u(q.timer)];
+        let mut row = vec![
+            Val::Expr("@char"),
+            Val::u(q.quest),
+            Val::u(q.status),
+            Val::u(q.explored as u8),
+            Val::u(q.timer),
+        ];
         row.extend(q.mob_counts.iter().map(|v| Val::u(*v)));
         row.extend(q.item_counts.iter().map(|v| Val::u(*v)));
         row.push(Val::u(q.player_count));
         quests.row(row)?;
     }
-    let mut rewarded = Insert::new("character_queststatus_rewarded", &["guid", "quest", "active"]);
+    let mut rewarded = Insert::new(
+        "character_queststatus_rewarded",
+        &["guid", "quest", "active"],
+    );
     for q in &model.quests.rewarded {
         rewarded.row(vec![Val::Expr("@char"), Val::u(*q), Val::u(1u8)])?;
     }
-    let mut actions = Insert::new("character_action", &["guid", "spec", "button", "action", "type"]);
+    let mut actions = Insert::new(
+        "character_action",
+        &["guid", "spec", "button", "action", "type"],
+    );
     for a in &model.actions {
-        actions.row(vec![Val::Expr("@char"), Val::u(a.spec), Val::u(a.button), Val::u(a.action), Val::u(a.kind)])?;
+        actions.row(vec![
+            Val::Expr("@char"),
+            Val::u(a.spec),
+            Val::u(a.button),
+            Val::u(a.action),
+            Val::u(a.kind),
+        ])?;
     }
     counts.reputation = reputation.len();
     counts.quests = quests.len();
@@ -437,10 +623,39 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
 
     let mut pets = Insert::new(
         "character_pet",
-        &["id", "entry", "owner", "modelid", "CreatedBySpell", "PetType", "level", "exp", "Reactstate", "name", "renamed", "slot", "curhealth", "curmana", "curhappiness", "savetime", "abdata"],
+        &[
+            "id",
+            "entry",
+            "owner",
+            "modelid",
+            "CreatedBySpell",
+            "PetType",
+            "level",
+            "exp",
+            "Reactstate",
+            "name",
+            "renamed",
+            "slot",
+            "curhealth",
+            "curmana",
+            "curhappiness",
+            "savetime",
+            "abdata",
+        ],
     );
     let mut pet_spells = Insert::new("pet_spell", &["guid", "spell", "active"]);
-    let mut declined = Insert::new("character_pet_declinedname", &["id", "owner", "genitive", "dative", "accusative", "instrumental", "prepositional"]);
+    let mut declined = Insert::new(
+        "character_pet_declinedname",
+        &[
+            "id",
+            "owner",
+            "genitive",
+            "dative",
+            "accusative",
+            "instrumental",
+            "prepositional",
+        ],
+    );
     for (i, pet) in model.pets.iter().enumerate() {
         let i = i as u32;
         pets.row(vec![
@@ -460,7 +675,11 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
             Val::u(pet.mana),
             Val::u(pet.happiness),
             Val::Expr("UNIX_TIMESTAMP()"),
-            if pet.action_bar.is_empty() { Val::Null } else { Val::text(pet.action_bar.clone()) },
+            if pet.action_bar.is_empty() {
+                Val::Null
+            } else {
+                Val::text(pet.action_bar.clone())
+            },
         ])?;
         for s in &pet.spells {
             pet_spells.row(vec![Val::PetRef(i), Val::u(s.spell), Val::u(s.active)])?;
@@ -471,7 +690,8 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
             declined.row(row)?;
         }
     }
-    (counts.pets, counts.pet_spells, counts.declined) = (pets.len(), pet_spells.len(), declined.len());
+    (counts.pets, counts.pet_spells, counts.declined) =
+        (pets.len(), pet_spells.len(), declined.len());
     inserts.extend([pets, pet_spells, declined]);
 
     // settings: only what the policy carries is applied; the importer's own marker goes in the same table
@@ -479,35 +699,61 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     let mut not_applied = not_applied_talents;
     for (source, values) in &model.settings {
         match classify_setting(source, model.ruleset) {
-            Disposition::Carry => settings.row(vec![Val::Expr("@char"), Val::text(source.clone()), Val::text(settings_text(values))])?,
+            Disposition::Carry => settings.row(vec![
+                Val::Expr("@char"),
+                Val::text(source.clone()),
+                Val::text(settings_text(values)),
+            ])?,
             _ => not_applied.push(source.clone()),
         }
     }
     // selected appearances: only what the destination's client data knows
-    let wardrobe_rows = match super::wardrobe::writable(&model.wardrobe, None, ctx.knowledge, ctx.probe) {
-        Some(w) => {
-            counts.wardrobe = super::wardrobe::row_count(&w);
-            inserts.extend(super::wardrobe::inserts(&w)?);
-            Some(w)
-        }
-        None => {
-            if !model.wardrobe.is_empty() {
-                not_applied.push("wardrobe".to_string());
+    let wardrobe_rows =
+        match super::wardrobe::writable(&model.wardrobe, None, ctx.knowledge, ctx.probe) {
+            Some(w) => {
+                counts.wardrobe = super::wardrobe::row_count(&w);
+                inserts.extend(super::wardrobe::inserts(&w)?);
+                Some(w)
             }
-            None
-        }
-    };
+            None => {
+                if !model.wardrobe.is_empty() {
+                    not_applied.push("wardrobe".to_string());
+                }
+                None
+            }
+        };
     // extensions (module data this importer does not apply) stay in the snapshot only
     not_applied.extend(model.extensions.keys().cloned());
     counts.settings = settings.len();
     let marker = marker_data(ctx.nonce, ctx.revision);
-    settings.row(vec![Val::Expr("@char"), Val::text(IMPORT_MARKER_SOURCE), Val::text(marker.clone())])?;
+    settings.row(vec![
+        Val::Expr("@char"),
+        Val::text(IMPORT_MARKER_SOURCE),
+        Val::text(marker.clone()),
+    ])?;
     if let Some(words) = &ctx.pin {
-        settings.row(vec![Val::Expr("@char"), Val::text(super::policy::PIN_SOURCE), Val::text(words.iter().map(|w| format!("{w} ")).collect::<String>())])?;
+        settings.row(vec![
+            Val::Expr("@char"),
+            Val::text(super::policy::PIN_SOURCE),
+            Val::text(words.iter().map(|w| format!("{w} ")).collect::<String>()),
+        ])?;
     }
     inserts.push(settings);
 
-    let mut session_row = Insert::new("coa_portable_session", &["guid", "session_id", "character_id", "imported_revision", "baseline_generation", "state", "checkpoint_seq", "save_seq", "updated_at"]);
+    let mut session_row = Insert::new(
+        "coa_portable_session",
+        &[
+            "guid",
+            "session_id",
+            "character_id",
+            "imported_revision",
+            "baseline_generation",
+            "state",
+            "checkpoint_seq",
+            "save_seq",
+            "updated_at",
+        ],
+    );
     if let Some(arm) = &ctx.session {
         if !ctx.probe.has("coa_portable_session") {
             return Err(PortableError::Invalid("this realm's core has no portable session support (coa_portable_session is missing)".into()));
@@ -528,7 +774,12 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
 
     let mut macros = Insert::new("character_account_data", &["guid", "type", "time", "data"]);
     if let Some(blob) = model.client_data.get(&5) {
-        macros.row(vec![Val::Expr("@char"), Val::u(5u8), Val::u(blob.time), Val::Bytes(blob.data.0.clone())])?;
+        macros.row(vec![
+            Val::Expr("@char"),
+            Val::u(5u8),
+            Val::u(blob.time),
+            Val::Bytes(blob.data.0.clone()),
+        ])?;
     }
     counts.macros = macros.len();
     inserts.push(macros);
@@ -541,22 +792,36 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     };
     let has = |t: &str| ctx.probe.has(t);
 
-    line(format!("DO IF(GET_LOCK('{IMPORT_LOCK}', 10) = 1, 1, {FAIL});"));
+    line(format!(
+        "DO IF(GET_LOCK('{IMPORT_LOCK}', 10) = 1, 1, {FAIL});"
+    ));
     line("SET SESSION innodb_lock_wait_timeout = 10;".into());
     line("START TRANSACTION;".into());
 
     // guards: the realm is stopped (no online character, no session of the game server's database user), the account exists
     line(format!("DO IF((SELECT COUNT(*) FROM acore_characters.characters WHERE online <> 0) = 0, 1, {FAIL});"));
-    let users = ctx.game_server_users.iter().map(|u| Val::text(u.clone()).sql()).collect::<Vec<_>>().join(", ");
+    let users = ctx
+        .game_server_users
+        .iter()
+        .map(|u| Val::text(u.clone()).sql())
+        .collect::<Vec<_>>()
+        .join(", ");
     line(format!("DO IF((SELECT COUNT(*) FROM information_schema.processlist WHERE id <> CONNECTION_ID() AND user IN ({users})) = 0, 1, {FAIL});"));
-    line(format!("DO IF((SELECT COUNT(*) FROM acore_auth.account WHERE id = {}) = 1, 1, {FAIL});", ctx.account));
+    line(format!(
+        "DO IF((SELECT COUNT(*) FROM acore_auth.account WHERE id = {}) = 1, 1, {FAIL});",
+        ctx.account
+    ));
     line(format!("DO IF((SELECT COUNT(*) FROM acore_auth.account WHERE id = {} AND UPPER(username) NOT LIKE 'COABOT%' AND UPPER(username) <> 'COAMANAGER') = 1, 1, {FAIL});", ctx.account));
     line(format!("DO IF((SELECT COUNT(*) FROM acore_characters.characters WHERE account = {}) < {}, 1, {FAIL});", ctx.account, ctx.max_characters_per_account));
 
     // allocation: above everything that exists (and everything stale rows still name)
     line("SET @char := (SELECT IFNULL(MAX(guid), 0) + 1 FROM acore_characters.characters);".into());
     let max_of = |list: &[(&str, &str)]| -> String {
-        let parts: Vec<String> = list.iter().filter(|(t, _)| has(t)).map(|(t, c)| format!("IFNULL((SELECT MAX(`{c}`) FROM acore_characters.`{t}`), 0)")).collect();
+        let parts: Vec<String> = list
+            .iter()
+            .filter(|(t, _)| has(t))
+            .map(|(t, c)| format!("IFNULL((SELECT MAX(`{c}`) FROM acore_characters.`{t}`), 0)"))
+            .collect();
         format!("GREATEST(0, {})", parts.join(", "))
     };
     line(format!("SET @item_base := {} + 1;", max_of(ITEM_KEYED)));
@@ -568,16 +833,25 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     line(format!("DO IF(@map IS NOT NULL, 1, {FAIL});"));
 
     // name: kept unless it collides (case/accent-insensitively) or is reserved; then a temporary name + rename at login
-    line(format!("SET @name := {};", Val::text(model.identity.name.clone()).sql()));
+    line(format!(
+        "SET @name := {};",
+        Val::text(model.identity.name.clone()).sql()
+    ));
     let collides = "EXISTS(SELECT 1 FROM acore_characters.characters WHERE name COLLATE utf8mb4_unicode_ci = @name COLLATE utf8mb4_unicode_ci)";
-    let reserved = if has("reserved_name") { " OR EXISTS(SELECT 1 FROM acore_characters.reserved_name WHERE name COLLATE utf8mb4_unicode_ci = @name COLLATE utf8mb4_unicode_ci)" } else { "" };
+    let reserved = if has("reserved_name") {
+        " OR EXISTS(SELECT 1 FROM acore_characters.reserved_name WHERE name COLLATE utf8mb4_unicode_ci = @name COLLATE utf8mb4_unicode_ci)"
+    } else {
+        ""
+    };
     line(format!("SET @rename := IF({collides}{reserved}, 1, 0);"));
     line(format!("SET @final_name := IF(@rename = 1, CONCAT(LEFT(@name, {NAME_COLUMN_CHARS} - CHAR_LENGTH(HEX(@char))), HEX(@char)), @name);"));
     line("SET @at_login := IF(@rename = 1, 1, 0);".into());
 
     // leftovers of a deleted character that had this guid
     for (table, column) in CHARACTER_KEYED.iter().filter(|(t, _)| has(t)) {
-        line(format!("DELETE FROM acore_characters.`{table}` WHERE `{column}` = @char;"));
+        line(format!(
+            "DELETE FROM acore_characters.`{table}` WHERE `{column}` = @char;"
+        ));
     }
 
     for insert in &inserts {
@@ -587,24 +861,69 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
     }
 
     // the transaction checks its own result: a failed assertion raises an SQL error, so there is no COMMIT
-    line(assert_count("acore_characters.characters WHERE guid = @char", 1));
-    line(assert_count("acore_characters.item_instance WHERE owner_guid = @char", counts.items));
-    line(assert_count("acore_characters.character_inventory WHERE guid = @char", counts.inventory));
-    line(assert_count("acore_characters.character_spell WHERE guid = @char", counts.spells));
-    line(assert_count("acore_characters.character_talent WHERE guid = @char", counts.talents));
-    line(assert_count("acore_characters.character_skills WHERE guid = @char", counts.skills));
-    line(assert_count("acore_characters.character_reputation WHERE guid = @char", counts.reputation));
-    line(assert_count("acore_characters.character_queststatus WHERE guid = @char", counts.quests));
-    line(assert_count("acore_characters.character_queststatus_rewarded WHERE guid = @char", counts.rewarded));
-    line(assert_count("acore_characters.character_action WHERE guid = @char", counts.actions));
-    line(assert_count("acore_characters.character_pet WHERE owner = @char", counts.pets));
-    line(assert_count("acore_characters.character_settings WHERE guid = @char", counts.settings + 1 + usize::from(ctx.pin.is_some())));
+    line(assert_count(
+        "acore_characters.characters WHERE guid = @char",
+        1,
+    ));
+    line(assert_count(
+        "acore_characters.item_instance WHERE owner_guid = @char",
+        counts.items,
+    ));
+    line(assert_count(
+        "acore_characters.character_inventory WHERE guid = @char",
+        counts.inventory,
+    ));
+    line(assert_count(
+        "acore_characters.character_spell WHERE guid = @char",
+        counts.spells,
+    ));
+    line(assert_count(
+        "acore_characters.character_talent WHERE guid = @char",
+        counts.talents,
+    ));
+    line(assert_count(
+        "acore_characters.character_skills WHERE guid = @char",
+        counts.skills,
+    ));
+    line(assert_count(
+        "acore_characters.character_reputation WHERE guid = @char",
+        counts.reputation,
+    ));
+    line(assert_count(
+        "acore_characters.character_queststatus WHERE guid = @char",
+        counts.quests,
+    ));
+    line(assert_count(
+        "acore_characters.character_queststatus_rewarded WHERE guid = @char",
+        counts.rewarded,
+    ));
+    line(assert_count(
+        "acore_characters.character_action WHERE guid = @char",
+        counts.actions,
+    ));
+    line(assert_count(
+        "acore_characters.character_pet WHERE owner = @char",
+        counts.pets,
+    ));
+    line(assert_count(
+        "acore_characters.character_settings WHERE guid = @char",
+        counts.settings + 1 + usize::from(ctx.pin.is_some()),
+    ));
     if let Some(w) = &wardrobe_rows {
-        line(assert_count("acore_characters.character_appearance WHERE guid = @char", w.active.len()));
-        line(assert_count("acore_characters.character_appearance_outfit WHERE guid = @char", w.outfits.len()));
+        line(assert_count(
+            "acore_characters.character_appearance WHERE guid = @char",
+            w.active.len(),
+        ));
+        line(assert_count(
+            "acore_characters.character_appearance_outfit WHERE guid = @char",
+            w.outfits.len(),
+        ));
     }
     if ctx.session.is_some() {
-        line(assert_count("acore_characters.coa_portable_session WHERE guid = @char", 1));
+        line(assert_count(
+            "acore_characters.coa_portable_session WHERE guid = @char",
+            1,
+        ));
     }
     // every inventory row points at an item of this character, every bag at an item of this character
     line(format!(
@@ -614,12 +933,22 @@ pub fn build_plan(model: &PortableCharacter, ctx: &PlanContext<'_>) -> Result<Im
         "DO IF((SELECT COUNT(*) FROM acore_characters.character_inventory ci LEFT JOIN acore_characters.character_inventory b ON b.item = ci.bag AND b.guid = @char WHERE ci.guid = @char AND ci.bag <> 0 AND b.item IS NULL) = 0, 1, {FAIL});"
     ));
 
-    line("SELECT '#R:alloc', @char, @item_base, @pet_base, @rename, CONCAT('x', HEX(@final_name));".into());
+    line(
+        "SELECT '#R:alloc', @char, @item_base, @pet_base, @rename, CONCAT('x', HEX(@final_name));"
+            .into(),
+    );
     line("COMMIT;".into());
     line("SELECT '#R:committed';".into());
     line(format!("DO RELEASE_LOCK('{IMPORT_LOCK}');"));
 
-    Ok(ImportPlan { script: s, item_ids: model.items.iter().map(|i| i.id).collect(), pet_ids: model.pets.iter().map(|p| p.id).collect(), marker_data: marker, counts, not_applied_settings: not_applied })
+    Ok(ImportPlan {
+        script: s,
+        item_ids: model.items.iter().map(|i| i.id).collect(),
+        pet_ids: model.pets.iter().map(|p| p.id).collect(),
+        marker_data: marker,
+        counts,
+        not_applied_settings: not_applied,
+    })
 }
 
 /// What the realm answered after a successful import.
@@ -640,10 +969,23 @@ pub fn parse_report(output: &str) -> Result<(Allocation, bool)> {
         let cells: Vec<&str> = line.split('\t').collect();
         match cells[0] {
             "#R:alloc" if cells.len() == 6 => {
-                let num = |i: usize| cells[i].parse::<u64>().map_err(|_| PortableError::CorruptSnapshot(format!("import report: {:?} is not a number", cells[i])));
-                let name_hex = cells[5].strip_prefix('x').ok_or_else(|| PortableError::CorruptSnapshot("import report: name is not hex".into()))?;
-                let name = String::from_utf8(hex::decode(name_hex).map_err(|_| PortableError::CorruptSnapshot("import report: invalid hex".into()))?)
-                    .map_err(|_| PortableError::CorruptSnapshot("import report: name is not UTF-8".into()))?;
+                let num = |i: usize| {
+                    cells[i].parse::<u64>().map_err(|_| {
+                        PortableError::CorruptSnapshot(format!(
+                            "import report: {:?} is not a number",
+                            cells[i]
+                        ))
+                    })
+                };
+                let name_hex = cells[5].strip_prefix('x').ok_or_else(|| {
+                    PortableError::CorruptSnapshot("import report: name is not hex".into())
+                })?;
+                let name = String::from_utf8(hex::decode(name_hex).map_err(|_| {
+                    PortableError::CorruptSnapshot("import report: invalid hex".into())
+                })?)
+                .map_err(|_| {
+                    PortableError::CorruptSnapshot("import report: name is not UTF-8".into())
+                })?;
                 alloc = Some(Allocation {
                     local_guid: to_u32("guid", num(1)?)?,
                     item_base: to_u32("item base", num(2)?)?,
@@ -653,9 +995,15 @@ pub fn parse_report(output: &str) -> Result<(Allocation, bool)> {
                 });
             }
             "#R:committed" => committed = true,
-            other => return Err(PortableError::CorruptSnapshot(format!("unexpected line in the import report: {other:?}"))),
+            other => {
+                return Err(PortableError::CorruptSnapshot(format!(
+                    "unexpected line in the import report: {other:?}"
+                )))
+            }
         }
     }
-    let alloc = alloc.ok_or_else(|| PortableError::CorruptSnapshot("the import report has no allocation".into()))?;
+    let alloc = alloc.ok_or_else(|| {
+        PortableError::CorruptSnapshot("the import report has no allocation".into())
+    })?;
     Ok((alloc, committed))
 }

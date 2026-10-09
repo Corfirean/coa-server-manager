@@ -93,7 +93,12 @@ pub trait RealmBackend: Send + Sync {
     fn create_account(&self, local_id: &str, username: &str, password: &str) -> Result<()>;
     fn set_password(&self, local_id: &str, username: &str, password: &str) -> Result<()>;
     /// The account when the realm's own login check accepts this name and password; checked against the realm's stored verifier, nothing is stored.
-    fn check_login(&self, local_id: &str, username: &str, password: &str) -> Result<Option<AccountRow>>;
+    fn check_login(
+        &self,
+        local_id: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<AccountRow>>;
     /// The character is already registered with this Manager's portable engine (made portable here before).
     fn is_portable(&self, local_id: &str, guid: u32) -> Result<bool>;
     fn presence(&self, local_id: &str, account_id: u32) -> Result<Presence>;
@@ -101,9 +106,18 @@ pub trait RealmBackend: Send + Sync {
     /// Read the character (offline, eligible, belonging to the account) and register it with the Host's portable store; the same character again returns the same id.
     fn export(&self, local_id: &str, account_id: u32, guid: u32) -> Result<ClaimExport>;
     /// Compatibility preflight check before receiving payload chunks.
-    fn check_transfer(&self, local_id: &str, character_id: Uuid, revision: u64) -> Result<PreflightVerdict>;
+    fn check_transfer(
+        &self,
+        local_id: &str,
+        character_id: Uuid,
+        revision: u64,
+    ) -> Result<PreflightVerdict>;
     /// Import or update a transferred character into the realm and arm a session.
-    fn import_remote(&self, local_id: &str, params: RemoteImportParams) -> Result<RemoteImportOutcome>;
+    fn import_remote(
+        &self,
+        local_id: &str,
+        params: RemoteImportParams,
+    ) -> Result<RemoteImportOutcome>;
 }
 
 /// State of one channel.
@@ -135,9 +149,12 @@ const LINK_FAILURES: usize = 5;
 const LINK_WINDOW: Duration = Duration::from_secs(600);
 
 pub trait RelayProvider: Send + Sync {
-    fn allocate(&self, player_id: &Uuid, client_ip: Option<&str>) -> crate::error::Result<crate::control::relay_link::RelayAllocationInfo>;
+    fn allocate(
+        &self,
+        player_id: &Uuid,
+        client_ip: Option<&str>,
+    ) -> crate::error::Result<crate::control::relay_link::RelayAllocationInfo>;
 }
-
 
 pub struct HostService {
     local_id: String,
@@ -152,16 +169,27 @@ pub struct HostService {
 }
 
 fn err(code: AppError, message: &str) -> Response {
-    Response::Error { code, message: message.to_string() }
+    Response::Error {
+        code,
+        message: message.to_string(),
+    }
 }
 
 fn unavailable(what: &str, e: &Error) -> Response {
     tracing::warn!(error = %e, "{what}");
-    err(AppError::Unavailable, "The server could not do that right now.")
+    err(
+        AppError::Unavailable,
+        "The server could not do that right now.",
+    )
 }
 
 impl HostService {
-    pub fn new(local_id: &str, realm_id: RealmId, store: Arc<Mutex<ControlStore>>, backend: Arc<dyn RealmBackend>) -> Self {
+    pub fn new(
+        local_id: &str,
+        realm_id: RealmId,
+        store: Arc<Mutex<ControlStore>>,
+        backend: Arc<dyn RealmBackend>,
+    ) -> Self {
         Self {
             local_id: local_id.to_string(),
             realm_id,
@@ -186,48 +214,79 @@ impl HostService {
         self.direct_route.lock().unwrap().clone()
     }
 
-
     pub fn realm_id(&self) -> RealmId {
         self.realm_id
     }
 
     /// The player's public key is the one recorded for this player id when there is a record; `None` when the player is new here.
     pub fn key_matches(&self, player: &Uuid, public_key: &str) -> bool {
-        match self.store.lock().ok().and_then(|s| s.host_player(&self.local_id, player).ok().flatten()) {
+        match self
+            .store
+            .lock()
+            .ok()
+            .and_then(|s| s.host_player(&self.local_id, player).ok().flatten())
+        {
             Some(p) => p.public_key == public_key,
             None => true,
         }
     }
 
-    pub fn handle(&self, session: &mut Session, player: &Uuid, public_key: &str, request: Request) -> Response {
+    pub fn handle(
+        &self,
+        session: &mut Session,
+        player: &Uuid,
+        public_key: &str,
+        request: Request,
+    ) -> Response {
         if matches!(request, Request::TransferChunk { .. }) {
             session.transfer_chunks += 1;
             if session.transfer_chunks > MAX_TRANSFER_CHUNKS_PER_SESSION {
-                return err(AppError::RateLimited, "Too many transfer chunks on this connection.");
+                return err(
+                    AppError::RateLimited,
+                    "Too many transfer chunks on this connection.",
+                );
             }
         } else {
             session.requests += 1;
             if session.requests > MAX_REQUESTS_PER_SESSION {
-                return err(AppError::RateLimited, "Too many requests on this connection.");
+                return err(
+                    AppError::RateLimited,
+                    "Too many requests on this connection.",
+                );
             }
         }
         if !self.key_matches(player, public_key) {
-            return err(AppError::Invalid, "This player id belongs to another key on this realm.");
+            return err(
+                AppError::Invalid,
+                "This player id belongs to another key on this realm.",
+            );
         }
         match request {
             Request::Hello { protocol, .. } => {
                 if protocol != coa_control_proto::CONTROL_PROTOCOL_VERSION {
-                    return err(AppError::UnsupportedVersion, "This protocol version is not supported.");
+                    return err(
+                        AppError::UnsupportedVersion,
+                        "This protocol version is not supported.",
+                    );
                 }
                 match self.backend.info(&self.local_id) {
                     Ok(info) => {
                         let active_route = self.direct_route().or(info.route);
-                        Response::Welcome { realm_id: self.realm_id, automatic: info.automatic, existing_only: !info.automatic, route: active_route }
+                        Response::Welcome {
+                            realm_id: self.realm_id,
+                            automatic: info.automatic,
+                            existing_only: !info.automatic,
+                            route: active_route,
+                        }
                     }
                     Err(e) => unavailable("realm info", &e),
                 }
             }
-            Request::Provision { desired, password, have_credentials } => self.provision(player, public_key, desired, &password, have_credentials),
+            Request::Provision {
+                desired,
+                password,
+                have_credentials,
+            } => self.provision(player, public_key, desired, &password, have_credentials),
             Request::Link { login, password } => self.link(player, public_key, &login, &password),
             Request::ListCharacters => self.list(session, player),
             Request::Claim { token } => self.claim(session, player, token),
@@ -235,25 +294,56 @@ impl HostService {
             Request::Route => match self.backend.info(&self.local_id) {
                 Ok(info) => {
                     let active_route = self.direct_route().or(info.route);
-                    Response::RouteInfo { address: active_route }
+                    Response::RouteInfo {
+                        address: active_route,
+                    }
                 }
                 Err(e) => unavailable("route", &e),
             },
-            Request::TransferOffer { transfer_id, character_id, canonical_revision, content_hash, total_size, collections } => {
-                self.transfer_offer(player, transfer_id, character_id, canonical_revision, content_hash, total_size, collections)
-            }
-            Request::TransferChunk { transfer_id, offset, data } => self.transfer_chunk(player, transfer_id, offset, data),
+            Request::TransferOffer {
+                transfer_id,
+                character_id,
+                canonical_revision,
+                content_hash,
+                total_size,
+                collections,
+            } => self.transfer_offer(
+                player,
+                transfer_id,
+                character_id,
+                canonical_revision,
+                content_hash,
+                total_size,
+                collections,
+            ),
+            Request::TransferChunk {
+                transfer_id,
+                offset,
+                data,
+            } => self.transfer_chunk(player, transfer_id, offset, data),
             Request::TransferStatus { transfer_id } => self.transfer_status(player, transfer_id),
             Request::TransferCommit { transfer_id } => self.transfer_commit(player, transfer_id),
-            Request::TransferAck { transfer_id, character_id } => self.transfer_ack(player, transfer_id, character_id),
-            Request::AllocateRelay { player_id } => self.allocate_relay(session, player, &player_id),
-
+            Request::TransferAck {
+                transfer_id,
+                character_id,
+            } => self.transfer_ack(player, transfer_id, character_id),
+            Request::AllocateRelay { player_id } => {
+                self.allocate_relay(session, player, &player_id)
+            }
         }
     }
 
-    fn allocate_relay(&self, session: &Session, player: &Uuid, requested_player: &Uuid) -> Response {
+    fn allocate_relay(
+        &self,
+        session: &Session,
+        player: &Uuid,
+        requested_player: &Uuid,
+    ) -> Response {
         if player != requested_player {
-            return err(AppError::Invalid, "Cannot request relay for another player identity.");
+            return err(
+                AppError::Invalid,
+                "Cannot request relay for another player identity.",
+            );
         }
         if self.mapping(player).is_none() {
             return err(AppError::NoAccount, "Player has no account on this realm.");
@@ -270,19 +360,32 @@ impl HostService {
                 },
                 Err(e) => err(AppError::RelayUnavailable, &e.to_string()),
             }
-
         } else {
-            err(AppError::RelayUnavailable, "Relay is not configured on this host.")
+            err(
+                AppError::RelayUnavailable,
+                "Relay is not configured on this host.",
+            )
         }
     }
 
     fn mapping(&self, player: &Uuid) -> Option<super::store::HostPlayer> {
-
-        self.store.lock().ok().and_then(|s| s.host_player(&self.local_id, player).ok().flatten())
+        self.store
+            .lock()
+            .ok()
+            .and_then(|s| s.host_player(&self.local_id, player).ok().flatten())
     }
 
-    fn provision(&self, player: &Uuid, public_key: &str, desired: Option<String>, password: &str, have_credentials: bool) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+    fn provision(
+        &self,
+        player: &Uuid,
+        public_key: &str,
+        desired: Option<String>,
+        password: &str,
+        have_credentials: bool,
+    ) -> Response {
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
+        };
         let info = match self.backend.info(&self.local_id) {
             Ok(i) => i,
             Err(e) => return unavailable("realm info", &e),
@@ -292,10 +395,21 @@ impl HostService {
             match self.backend.account_by_id(&self.local_id, m.account_id) {
                 Ok(Some(row)) if row.username.eq_ignore_ascii_case(&m.username) => {
                     if have_credentials {
-                        return Response::Provisioned { username: m.username, created: false, reset: false };
+                        return Response::Provisioned {
+                            username: m.username,
+                            created: false,
+                            reset: false,
+                        };
                     }
-                    return match self.backend.set_password(&self.local_id, &m.username, password) {
-                        Ok(()) => Response::Provisioned { username: m.username, created: false, reset: true },
+                    return match self
+                        .backend
+                        .set_password(&self.local_id, &m.username, password)
+                    {
+                        Ok(()) => Response::Provisioned {
+                            username: m.username,
+                            created: false,
+                            reset: true,
+                        },
                         Err(e) => unavailable("password reset", &e),
                     };
                 }
@@ -321,7 +435,10 @@ impl HostService {
             }
             if let Err(e) = self.backend.create_account(&self.local_id, &name, password) {
                 // a name taken between the check and the creation looks like any other failure here; look again before giving up
-                if matches!(self.backend.account_by_name(&self.local_id, &name), Ok(Some(_))) {
+                if matches!(
+                    self.backend.account_by_name(&self.local_id, &name),
+                    Ok(Some(_))
+                ) {
                     continue;
                 }
                 return unavailable("account creation", &e);
@@ -331,23 +448,47 @@ impl HostService {
                 Ok(None) => return err(AppError::Unavailable, "The account was not created."),
                 Err(e) => return unavailable("account lookup", &e),
             };
-            let bound = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_bind_player(&self.local_id, player, public_key, row.id, &row.username, AccountKind::Generated));
+            let bound = self
+                .store
+                .lock()
+                .map_err(|_| Error::Invalid("lock".into()))
+                .and_then(|s| {
+                    s.host_bind_player(
+                        &self.local_id,
+                        player,
+                        public_key,
+                        row.id,
+                        &row.username,
+                        AccountKind::Generated,
+                    )
+                });
             if let Err(e) = bound {
                 return unavailable("recording the account", &e);
             }
-            return Response::Provisioned { username: row.username, created: true, reset: false };
+            return Response::Provisioned {
+                username: row.username,
+                created: true,
+                reset: false,
+            };
         }
-        err(AppError::AccountTaken, "No free account name was found; try a different name.")
+        err(
+            AppError::AccountTaken,
+            "No free account name was found; try a different name.",
+        )
     }
 
     fn too_many_failures(&self, player: &Uuid) -> bool {
-        let Ok(mut map) = self.link_failures.lock() else { return true };
+        let Ok(mut map) = self.link_failures.lock() else {
+            return true;
+        };
         let now = Instant::now();
         for key in [Some(*player), None] {
             let list = map.entry(key).or_default();
             list.retain(|t| now.duration_since(*t) < LINK_WINDOW);
         }
-        map.get(&Some(*player)).is_some_and(|l| l.len() >= LINK_FAILURES) || map.get(&None).is_some_and(|l| l.len() >= LINK_FAILURES * 6)
+        map.get(&Some(*player))
+            .is_some_and(|l| l.len() >= LINK_FAILURES)
+            || map.get(&None).is_some_and(|l| l.len() >= LINK_FAILURES * 6)
     }
 
     fn note_failure(&self, player: &Uuid) {
@@ -359,74 +500,173 @@ impl HostService {
     }
 
     fn link(&self, player: &Uuid, public_key: &str, login: &str, password: &str) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
-        if self.too_many_failures(player) {
-            return err(AppError::RateLimited, "Too many failed attempts; wait a few minutes.");
-        }
-        let row = match self.backend.check_login(&self.local_id, &login.to_ascii_uppercase(), password) {
-            Ok(Some(r)) => r,
-            Ok(None) => {
-                self.note_failure(player);
-                return err(AppError::WrongCredentials, "The realm does not accept that account name and password.");
-            }
-            Err(e) => return unavailable("login check", &e),
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
         };
+        if self.too_many_failures(player) {
+            return err(
+                AppError::RateLimited,
+                "Too many failed attempts; wait a few minutes.",
+            );
+        }
+        let row =
+            match self
+                .backend
+                .check_login(&self.local_id, &login.to_ascii_uppercase(), password)
+            {
+                Ok(Some(r)) => r,
+                Ok(None) => {
+                    self.note_failure(player);
+                    return err(
+                        AppError::WrongCredentials,
+                        "The realm does not accept that account name and password.",
+                    );
+                }
+                Err(e) => return unavailable("login check", &e),
+            };
         if let Some(m) = self.mapping(player) {
-            return if m.account_id == row.id { Response::Linked { username: row.username } } else { err(AppError::AccountTaken, "This player already has another account on this realm.") };
+            return if m.account_id == row.id {
+                Response::Linked {
+                    username: row.username,
+                }
+            } else {
+                err(
+                    AppError::AccountTaken,
+                    "This player already has another account on this realm.",
+                )
+            };
         }
-        let owner = self.store.lock().ok().and_then(|s| s.host_player_of_account(&self.local_id, row.id).ok().flatten());
+        let owner = self.store.lock().ok().and_then(|s| {
+            s.host_player_of_account(&self.local_id, row.id)
+                .ok()
+                .flatten()
+        });
         if owner.is_some() {
-            return err(AppError::AccountTaken, "That account already belongs to another player.");
+            return err(
+                AppError::AccountTaken,
+                "That account already belongs to another player.",
+            );
         }
-        let bound = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_bind_player(&self.local_id, player, public_key, row.id, &row.username, AccountKind::Linked));
+        let bound = self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| {
+                s.host_bind_player(
+                    &self.local_id,
+                    player,
+                    public_key,
+                    row.id,
+                    &row.username,
+                    AccountKind::Linked,
+                )
+            });
         match bound {
-            Ok(()) => Response::Linked { username: row.username },
+            Ok(()) => Response::Linked {
+                username: row.username,
+            },
             Err(e) => unavailable("recording the account", &e),
         }
     }
 
     fn list(&self, session: &mut Session, player: &Uuid) -> Response {
-        let Some(m) = self.mapping(player) else { return err(AppError::NoAccount, "This player has no account on this realm yet.") };
+        let Some(m) = self.mapping(player) else {
+            return err(
+                AppError::NoAccount,
+                "This player has no account on this realm yet.",
+            );
+        };
         let chars = match self.backend.characters(&self.local_id, m.account_id) {
             Ok(c) => c,
             Err(e) => return unavailable("character list", &e),
         };
-        let claims = self.store.lock().ok().and_then(|s| s.host_claims_of(&self.local_id, player).ok()).unwrap_or_default();
+        let claims = self
+            .store
+            .lock()
+            .ok()
+            .and_then(|s| s.host_claims_of(&self.local_id, player).ok())
+            .unwrap_or_default();
         session.tokens.clear();
         let mut out = Vec::new();
         for c in chars.into_iter().take(app::MAX_CHARACTERS) {
             session.next += 1;
             let token = session.next;
             session.tokens.insert(token, c.guid);
-            let yours = claims.iter().any(|k| k.local_guid == c.guid && k.state == ClaimState::Acknowledged);
-            out.push(CharacterEntry { token, name: c.name, class: c.class, race: c.race, level: c.level, eligible: c.eligible, reasons: c.reasons, yours });
+            let yours = claims
+                .iter()
+                .any(|k| k.local_guid == c.guid && k.state == ClaimState::Acknowledged);
+            out.push(CharacterEntry {
+                token,
+                name: c.name,
+                class: c.class,
+                race: c.race,
+                level: c.level,
+                eligible: c.eligible,
+                reasons: c.reasons,
+                yours,
+            });
         }
         Response::Characters { characters: out }
     }
 
     fn claim(&self, session: &mut Session, player: &Uuid, token: u32) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
-        let Some(m) = self.mapping(player) else { return err(AppError::NoAccount, "This player has no account on this realm yet.") };
-        let Some(&guid) = session.tokens.get(&token) else { return err(AppError::Invalid, "List the characters first.") };
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
+        };
+        let Some(m) = self.mapping(player) else {
+            return err(
+                AppError::NoAccount,
+                "This player has no account on this realm yet.",
+            );
+        };
+        let Some(&guid) = session.tokens.get(&token) else {
+            return err(AppError::Invalid, "List the characters first.");
+        };
         match self.backend.presence(&self.local_id, m.account_id) {
             Ok(p) if p.account_online && p.online_characters == 0 => {}
-            Ok(_) => return err(AppError::NotAtCharacterSelect, "Log in to this realm and stay at the character selection screen, then try again."),
+            Ok(_) => return err(
+                AppError::NotAtCharacterSelect,
+                "Log in to this realm and stay at the character selection screen, then try again.",
+            ),
             Err(e) => return unavailable("presence", &e),
         }
         let chars = match self.backend.characters(&self.local_id, m.account_id) {
             Ok(c) => c,
             Err(e) => return unavailable("character list", &e),
         };
-        let Some(c) = chars.into_iter().find(|c| c.guid == guid) else { return err(AppError::NotYours, "That character is not on your account.") };
+        let Some(c) = chars.into_iter().find(|c| c.guid == guid) else {
+            return err(AppError::NotYours, "That character is not on your account.");
+        };
         if !c.eligible {
-            return err(AppError::NotEligible, &format!("That character cannot be made portable yet ({}).", c.reasons.join(", ")));
+            return err(
+                AppError::NotEligible,
+                &format!(
+                    "That character cannot be made portable yet ({}).",
+                    c.reasons.join(", ")
+                ),
+            );
         }
-        let held = self.store.lock().ok().and_then(|s| s.host_claim(&self.local_id, guid).ok().flatten());
+        let held = self
+            .store
+            .lock()
+            .ok()
+            .and_then(|s| s.host_claim(&self.local_id, guid).ok().flatten());
         if held.as_ref().is_some_and(|k| k.player_id != *player) {
-            return err(AppError::AlreadyClaimed, "That character was already claimed by another player.");
+            return err(
+                AppError::AlreadyClaimed,
+                "That character was already claimed by another player.",
+            );
         }
-        if held.is_none() && self.backend.is_portable(&self.local_id, guid).unwrap_or(true) {
-            return err(AppError::AlreadyClaimed, "That character is already portable on this realm; ask the realm's owner.");
+        if held.is_none()
+            && self
+                .backend
+                .is_portable(&self.local_id, guid)
+                .unwrap_or(true)
+        {
+            return err(
+                AppError::AlreadyClaimed,
+                "That character is already portable on this realm; ask the realm's owner.",
+            );
         }
         let exported = match self.backend.export(&self.local_id, m.account_id, guid) {
             Ok(e) => e,
@@ -434,20 +674,39 @@ impl HostService {
         };
         if let Some(k) = &held {
             if k.character_id != exported.character_id {
-                return err(AppError::Unavailable, "The character's record does not match; ask the realm's owner.");
+                return err(
+                    AppError::Unavailable,
+                    "The character's record does not match; ask the realm's owner.",
+                );
             }
         }
-        let recorded = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_claim_set(&self.local_id, guid, &exported.character_id, player));
+        let recorded = self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| s.host_claim_set(&self.local_id, guid, &exported.character_id, player));
         if let Err(e) = recorded {
             return unavailable("recording the claim", &e);
         }
         use base64::Engine;
-        Response::Claimed { character_id: exported.character_id, sha256: hex::encode(exported.sha256), payload: base64::engine::general_purpose::STANDARD.encode(&exported.payload), collections: exported.collections }
+        Response::Claimed {
+            character_id: exported.character_id,
+            sha256: hex::encode(exported.sha256),
+            payload: base64::engine::general_purpose::STANDARD.encode(&exported.payload),
+            collections: exported.collections,
+        }
     }
 
     fn ack(&self, player: &Uuid, character: Uuid) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
-        match self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_claim_acknowledge(&self.local_id, &character, player)) {
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
+        };
+        match self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| s.host_claim_acknowledge(&self.local_id, &character, player))
+        {
             Ok(true) => Response::Done,
             Ok(false) => err(AppError::Invalid, "There is no such claim."),
             Err(e) => unavailable("recording the acknowledgement", &e),
@@ -455,41 +714,86 @@ impl HostService {
     }
 
     fn transfer_path(&self, transfer_id: &Uuid) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join("coa-transfers").join(&self.local_id);
+        let dir = std::env::temp_dir()
+            .join("coa-transfers")
+            .join(&self.local_id);
         let _ = std::fs::create_dir_all(&dir);
         dir.join(format!("{transfer_id}.part"))
     }
 
-    fn transfer_offer(&self, player: &Uuid, transfer_id: Uuid, character_id: Uuid, canonical_revision: u64, content_hash: String, total_size: usize, collections: BTreeMap<String, Vec<u32>>) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
-        let Some(m) = self.mapping(player) else { return err(AppError::NoAccount, "This player has no account on this realm yet.") };
+    fn transfer_offer(
+        &self,
+        player: &Uuid,
+        transfer_id: Uuid,
+        character_id: Uuid,
+        canonical_revision: u64,
+        content_hash: String,
+        total_size: usize,
+        collections: BTreeMap<String, Vec<u32>>,
+    ) -> Response {
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
+        };
+        let Some(m) = self.mapping(player) else {
+            return err(
+                AppError::NoAccount,
+                "This player has no account on this realm yet.",
+            );
+        };
 
         // 1. Ownership check: another player cannot overwrite a character claimed here
-        if let Ok(Some(claim)) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_claim_of_character(&self.local_id, &character_id)) {
+        if let Ok(Some(claim)) = self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| s.host_claim_of_character(&self.local_id, &character_id))
+        {
             if claim.player_id != *player {
-                return err(AppError::AlreadyClaimed, "That character was already claimed by another player.");
+                return err(
+                    AppError::AlreadyClaimed,
+                    "That character was already claimed by another player.",
+                );
             }
         }
 
         // 2. Active session conflict: if account is online with active characters
         match self.backend.presence(&self.local_id, m.account_id) {
             Ok(p) if p.account_online && p.online_characters > 0 => {
-                return err(AppError::Conflict, "The character is currently playing in a live session.");
+                return err(
+                    AppError::Conflict,
+                    "The character is currently playing in a live session.",
+                );
             }
             Err(e) => return unavailable("presence check", &e),
             _ => {}
         }
 
         // 3. Compatibility check before accepting payload
-        match self.backend.check_transfer(&self.local_id, character_id, canonical_revision) {
-            Ok(PreflightVerdict::Incompatible) => return err(AppError::Incompatible, "This character is incompatible with this realm."),
+        match self
+            .backend
+            .check_transfer(&self.local_id, character_id, canonical_revision)
+        {
+            Ok(PreflightVerdict::Incompatible) => {
+                return err(
+                    AppError::Incompatible,
+                    "This character is incompatible with this realm.",
+                )
+            }
             Err(e) => return unavailable("compatibility check", &e),
             _ => {}
         }
 
         // 4. Idempotency / already committed check
-        if let Ok(Some(existing)) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_transfer_latest(&self.local_id, &character_id)) {
-            if existing.state != TransferState::Receiving && existing.revision == canonical_revision && existing.content_hash == content_hash {
+        if let Ok(Some(existing)) = self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| s.host_transfer_latest(&self.local_id, &character_id))
+        {
+            if existing.state != TransferState::Receiving
+                && existing.revision == canonical_revision
+                && existing.content_hash == content_hash
+            {
                 if let (Some(guid), Some(sid)) = (existing.local_guid, existing.session_id) {
                     return Response::TransferCommitted {
                         transfer_id,
@@ -504,11 +808,24 @@ impl HostService {
         }
 
         // 5. Resume check for this specific transfer_id
-        if let Ok(Some(cur)) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_transfer(&self.local_id, &transfer_id)) {
-            if cur.player_id == *player && cur.state == TransferState::Receiving && cur.content_hash == content_hash {
+        if let Ok(Some(cur)) = self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| s.host_transfer(&self.local_id, &transfer_id))
+        {
+            if cur.player_id == *player
+                && cur.state == TransferState::Receiving
+                && cur.content_hash == content_hash
+            {
                 let path = self.transfer_path(&transfer_id);
-                let on_disk = std::fs::metadata(&path).map(|meta| meta.len() as usize).unwrap_or(0);
-                return Response::TransferReady { transfer_id, received_offset: on_disk.min(cur.received_size) };
+                let on_disk = std::fs::metadata(&path)
+                    .map(|meta| meta.len() as usize)
+                    .unwrap_or(0);
+                return Response::TransferReady {
+                    transfer_id,
+                    received_offset: on_disk.min(cur.received_size),
+                };
             }
         }
 
@@ -529,17 +846,33 @@ impl HostService {
             notes: vec![],
             collections,
         };
-        if let Err(e) = self.store.lock().map_err(|_| Error::Invalid("lock".into())).and_then(|s| s.host_transfer_save(&transfer)) {
+        if let Err(e) = self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| s.host_transfer_save(&transfer))
+        {
             return unavailable("saving transfer", &e);
         }
         let path = self.transfer_path(&transfer_id);
         let _ = std::fs::remove_file(&path);
 
-        Response::TransferReady { transfer_id, received_offset: 0 }
+        Response::TransferReady {
+            transfer_id,
+            received_offset: 0,
+        }
     }
 
-    fn transfer_chunk(&self, player: &Uuid, transfer_id: Uuid, offset: usize, data: String) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+    fn transfer_chunk(
+        &self,
+        player: &Uuid,
+        transfer_id: Uuid,
+        offset: usize,
+        data: String,
+    ) -> Response {
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
+        };
         let store = match self.store.lock() {
             Ok(s) => s,
             Err(_) => return err(AppError::Unavailable, "Busy."),
@@ -552,7 +885,10 @@ impl HostService {
         drop(store);
 
         if t.player_id != *player {
-            return err(AppError::NotYours, "Transfer does not belong to this player.");
+            return err(
+                AppError::NotYours,
+                "Transfer does not belong to this player.",
+            );
         }
         if t.state != TransferState::Receiving {
             return err(AppError::Invalid, "Transfer is not receiving chunks.");
@@ -565,12 +901,19 @@ impl HostService {
         };
 
         if offset != t.received_size {
-            return Response::TransferChunkAck { transfer_id, received_offset: t.received_size };
+            return Response::TransferChunkAck {
+                transfer_id,
+                received_offset: t.received_size,
+            };
         }
 
         use std::io::Write;
         let path = self.transfer_path(&transfer_id);
-        let mut file = match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let mut file = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
             Ok(f) => f,
             Err(e) => return unavailable("opening transfer file", &Error::Invalid(e.to_string())),
         };
@@ -583,7 +926,10 @@ impl HostService {
             let _ = s.host_transfer_update_progress(&transfer_id, new_received);
         }
 
-        Response::TransferChunkAck { transfer_id, received_offset: new_received }
+        Response::TransferChunkAck {
+            transfer_id,
+            received_offset: new_received,
+        }
     }
 
     fn transfer_status(&self, player: &Uuid, transfer_id: Uuid) -> Response {
@@ -597,25 +943,31 @@ impl HostService {
             Err(e) => return unavailable("reading transfer", &e),
         };
         if t.player_id != *player {
-            return err(AppError::NotYours, "Transfer does not belong to this player.");
+            return err(
+                AppError::NotYours,
+                "Transfer does not belong to this player.",
+            );
         }
         match t.state {
-            TransferState::Receiving => Response::TransferReady { transfer_id, received_offset: t.received_size },
-            TransferState::Committed | TransferState::Acknowledged => {
-                Response::TransferCommitted {
-                    transfer_id,
-                    character_id: t.character_id,
-                    local_guid: t.local_guid.unwrap_or_default(),
-                    session_id: t.session_id.unwrap_or_default(),
-                    projected_level: t.projected_level,
-                    notes: t.notes,
-                }
-            }
+            TransferState::Receiving => Response::TransferReady {
+                transfer_id,
+                received_offset: t.received_size,
+            },
+            TransferState::Committed | TransferState::Acknowledged => Response::TransferCommitted {
+                transfer_id,
+                character_id: t.character_id,
+                local_guid: t.local_guid.unwrap_or_default(),
+                session_id: t.session_id.unwrap_or_default(),
+                projected_level: t.projected_level,
+                notes: t.notes,
+            },
         }
     }
 
     fn transfer_commit(&self, player: &Uuid, transfer_id: Uuid) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
+        };
         let store = match self.store.lock() {
             Ok(s) => s,
             Err(_) => return err(AppError::Unavailable, "Busy."),
@@ -628,7 +980,10 @@ impl HostService {
         drop(store);
 
         if t.player_id != *player {
-            return err(AppError::NotYours, "Transfer does not belong to this player.");
+            return err(
+                AppError::NotYours,
+                "Transfer does not belong to this player.",
+            );
         }
         if t.state != TransferState::Receiving {
             if let (Some(guid), Some(sid)) = (t.local_guid, t.session_id) {
@@ -665,7 +1020,9 @@ impl HostService {
             return err(AppError::Invalid, "Invalid content hash format.");
         }
 
-        let Some(m) = self.mapping(player) else { return err(AppError::NoAccount, "Player has no account on this realm.") };
+        let Some(m) = self.mapping(player) else {
+            return err(AppError::NoAccount, "Player has no account on this realm.");
+        };
 
         let params = RemoteImportParams {
             character_id: t.character_id,
@@ -687,7 +1044,13 @@ impl HostService {
         let _ = std::fs::remove_file(&path);
 
         if let Ok(s) = self.store.lock() {
-            let _ = s.host_transfer_commit(&transfer_id, outcome.local_guid, &outcome.session_id, outcome.projected_level, &outcome.notes);
+            let _ = s.host_transfer_commit(
+                &transfer_id,
+                outcome.local_guid,
+                &outcome.session_id,
+                outcome.projected_level,
+                &outcome.notes,
+            );
             let _ = s.host_claim_set(&self.local_id, outcome.local_guid, &t.character_id, player);
             let _ = s.host_claim_acknowledge(&self.local_id, &t.character_id, player);
         }
@@ -703,7 +1066,9 @@ impl HostService {
     }
 
     fn transfer_ack(&self, player: &Uuid, transfer_id: Uuid, _character_id: Uuid) -> Response {
-        let Ok(_guard) = self.write.lock() else { return err(AppError::Unavailable, "Busy.") };
+        let Ok(_guard) = self.write.lock() else {
+            return err(AppError::Unavailable, "Busy.");
+        };
         if let Ok(s) = self.store.lock() {
             if let Ok(Some(t)) = s.host_transfer(&self.local_id, &transfer_id) {
                 if t.player_id == *player {
@@ -745,25 +1110,70 @@ pub mod fake {
             id
         }
         pub fn add_char(&self, account: u32, guid: u32, name: &str, eligible: bool) {
-            self.chars.lock().unwrap().push((account, CharInfo { guid, name: name.into(), class: 1, race: 1, level: 60, eligible, reasons: if eligible { vec![] } else { vec!["online".into()] } }));
+            self.chars.lock().unwrap().push((
+                account,
+                CharInfo {
+                    guid,
+                    name: name.into(),
+                    class: 1,
+                    race: 1,
+                    level: 60,
+                    eligible,
+                    reasons: if eligible {
+                        vec![]
+                    } else {
+                        vec!["online".into()]
+                    },
+                },
+            ));
         }
         pub fn at_select(&self, account: u32, online: bool, chars_online: u32) {
-            self.online.lock().unwrap().insert(account, Presence { account_online: online, online_characters: chars_online });
+            self.online.lock().unwrap().insert(
+                account,
+                Presence {
+                    account_online: online,
+                    online_characters: chars_online,
+                },
+            );
         }
     }
 
     impl RealmBackend for FakeRealm {
         fn info(&self, _: &str) -> Result<RealmInfo> {
-            Ok(RealmInfo { automatic: *self.automatic.lock().unwrap(), route: self.route.lock().unwrap().clone() })
+            Ok(RealmInfo {
+                automatic: *self.automatic.lock().unwrap(),
+                route: self.route.lock().unwrap().clone(),
+            })
         }
         fn account_by_name(&self, _: &str, username: &str) -> Result<Option<AccountRow>> {
-            Ok(self.accounts.lock().unwrap().iter().find(|a| a.1 == username.to_ascii_uppercase()).map(|a| AccountRow { id: a.0, username: a.1.clone() }))
+            Ok(self
+                .accounts
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|a| a.1 == username.to_ascii_uppercase())
+                .map(|a| AccountRow {
+                    id: a.0,
+                    username: a.1.clone(),
+                }))
         }
         fn account_by_id(&self, _: &str, id: u32) -> Result<Option<AccountRow>> {
-            Ok(self.accounts.lock().unwrap().iter().find(|a| a.0 == id).map(|a| AccountRow { id: a.0, username: a.1.clone() }))
+            Ok(self
+                .accounts
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|a| a.0 == id)
+                .map(|a| AccountRow {
+                    id: a.0,
+                    username: a.1.clone(),
+                }))
         }
         fn create_account(&self, _: &str, username: &str, password: &str) -> Result<()> {
-            self.seen_passwords.lock().unwrap().push(password.to_string());
+            self.seen_passwords
+                .lock()
+                .unwrap()
+                .push(password.to_string());
             if self.account_by_name("", username)?.is_some() {
                 return Err(Error::Invalid("taken".into()));
             }
@@ -771,7 +1181,10 @@ pub mod fake {
             Ok(())
         }
         fn set_password(&self, _: &str, username: &str, password: &str) -> Result<()> {
-            self.seen_passwords.lock().unwrap().push(password.to_string());
+            self.seen_passwords
+                .lock()
+                .unwrap()
+                .push(password.to_string());
             for a in self.accounts.lock().unwrap().iter_mut() {
                 if a.1 == username.to_ascii_uppercase() {
                     a.2 = password.to_ascii_uppercase();
@@ -779,21 +1192,63 @@ pub mod fake {
             }
             Ok(())
         }
-        fn check_login(&self, _: &str, username: &str, password: &str) -> Result<Option<AccountRow>> {
-            Ok(self.accounts.lock().unwrap().iter().find(|a| a.1 == username.to_ascii_uppercase() && a.2 == password.to_ascii_uppercase()).map(|a| AccountRow { id: a.0, username: a.1.clone() }))
+        fn check_login(
+            &self,
+            _: &str,
+            username: &str,
+            password: &str,
+        ) -> Result<Option<AccountRow>> {
+            Ok(self
+                .accounts
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|a| {
+                    a.1 == username.to_ascii_uppercase() && a.2 == password.to_ascii_uppercase()
+                })
+                .map(|a| AccountRow {
+                    id: a.0,
+                    username: a.1.clone(),
+                }))
         }
         fn is_portable(&self, _: &str, guid: u32) -> Result<bool> {
             Ok(self.exports.lock().unwrap().contains_key(&guid))
         }
         fn presence(&self, _: &str, account_id: u32) -> Result<Presence> {
-            Ok(self.online.lock().unwrap().get(&account_id).copied().unwrap_or(Presence { account_online: false, online_characters: 0 }))
+            Ok(self
+                .online
+                .lock()
+                .unwrap()
+                .get(&account_id)
+                .copied()
+                .unwrap_or(Presence {
+                    account_online: false,
+                    online_characters: 0,
+                }))
         }
         fn characters(&self, _: &str, account_id: u32) -> Result<Vec<CharInfo>> {
-            Ok(self.chars.lock().unwrap().iter().filter(|c| c.0 == account_id).map(|c| c.1.clone()).collect())
+            Ok(self
+                .chars
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.0 == account_id)
+                .map(|c| c.1.clone())
+                .collect())
         }
         fn export(&self, _: &str, _: u32, guid: u32) -> Result<ClaimExport> {
-            let id = *self.exports.lock().unwrap().entry(guid).or_insert_with(Uuid::now_v7);
-            Ok(ClaimExport { character_id: id, payload: format!("payload-{guid}").into_bytes(), sha256: [7; 32], collections: BTreeMap::from([("coa:appearance".to_string(), vec![1, 2, 3])]) })
+            let id = *self
+                .exports
+                .lock()
+                .unwrap()
+                .entry(guid)
+                .or_insert_with(Uuid::now_v7);
+            Ok(ClaimExport {
+                character_id: id,
+                payload: format!("payload-{guid}").into_bytes(),
+                sha256: [7; 32],
+                collections: BTreeMap::from([("coa:appearance".to_string(), vec![1, 2, 3])]),
+            })
         }
         fn check_transfer(&self, _: &str, character_id: Uuid, _: u64) -> Result<PreflightVerdict> {
             if self.incompatible.lock().unwrap().contains(&character_id) {
@@ -802,14 +1257,32 @@ pub mod fake {
                 Ok(PreflightVerdict::Compatible)
             }
         }
-        fn import_remote(&self, _: &str, params: RemoteImportParams) -> Result<RemoteImportOutcome> {
-            if self.incompatible.lock().unwrap().contains(&params.character_id) {
-                return Err(Error::Invalid("Character is incompatible with this realm.".into()));
+        fn import_remote(
+            &self,
+            _: &str,
+            params: RemoteImportParams,
+        ) -> Result<RemoteImportOutcome> {
+            if self
+                .incompatible
+                .lock()
+                .unwrap()
+                .contains(&params.character_id)
+            {
+                return Err(Error::Invalid(
+                    "Character is incompatible with this realm.".into(),
+                ));
             }
             let mut map = self.imported.lock().unwrap();
             let len = map.len() as u32 + 100;
-            let (guid, sid) = *map.entry(params.character_id).or_insert((len, Uuid::now_v7()));
-            Ok(RemoteImportOutcome { local_guid: guid, session_id: sid, projected_level: None, notes: vec![] })
+            let (guid, sid) = *map
+                .entry(params.character_id)
+                .or_insert((len, Uuid::now_v7()));
+            Ok(RemoteImportOutcome {
+                local_guid: guid,
+                session_id: sid,
+                projected_level: None,
+                notes: vec![],
+            })
         }
     }
 }
@@ -820,15 +1293,35 @@ mod tests {
     use super::*;
 
     fn service(realm: &Arc<FakeRealm>) -> HostService {
-        HostService::new("srv-1", RealmId::new(), Arc::new(Mutex::new(ControlStore::open_in_memory().unwrap())), realm.clone())
+        HostService::new(
+            "srv-1",
+            RealmId::new(),
+            Arc::new(Mutex::new(ControlStore::open_in_memory().unwrap())),
+            realm.clone(),
+        )
     }
 
     fn pw() -> String {
         app::generate_password()
     }
 
-    fn provision(s: &HostService, p: &Uuid, desired: Option<&str>, password: &str, have: bool) -> Response {
-        s.handle(&mut Session::default(), p, "KEY", Request::Provision { desired: desired.map(str::to_string), password: password.to_string(), have_credentials: have })
+    fn provision(
+        s: &HostService,
+        p: &Uuid,
+        desired: Option<&str>,
+        password: &str,
+        have: bool,
+    ) -> Response {
+        s.handle(
+            &mut Session::default(),
+            p,
+            "KEY",
+            Request::Provision {
+                desired: desired.map(str::to_string),
+                password: password.to_string(),
+                have_credentials: have,
+            },
+        )
     }
 
     #[test]
@@ -837,15 +1330,42 @@ mod tests {
         let s = service(&realm);
         let p = Uuid::now_v7();
         let password = pw();
-        let Response::Provisioned { username, created, reset } = provision(&s, &p, Some("Dmitry"), &password, false) else { panic!() };
+        let Response::Provisioned {
+            username,
+            created,
+            reset,
+        } = provision(&s, &p, Some("Dmitry"), &password, false)
+        else {
+            panic!()
+        };
         assert_eq!((username.as_str(), created, reset), ("DMITRY", true, false));
-        assert!(realm.check_login("", "DMITRY", &password).unwrap().is_some(), "the password the player sent is the realm's");
+        assert!(
+            realm
+                .check_login("", "DMITRY", &password)
+                .unwrap()
+                .is_some(),
+            "the password the player sent is the realm's"
+        );
         // coming back with credentials changes nothing
-        assert_eq!(provision(&s, &p, Some("Dmitry"), &pw(), true), Response::Provisioned { username: "DMITRY".into(), created: false, reset: false });
+        assert_eq!(
+            provision(&s, &p, Some("Dmitry"), &pw(), true),
+            Response::Provisioned {
+                username: "DMITRY".into(),
+                created: false,
+                reset: false
+            }
+        );
         assert_eq!(realm.accounts.lock().unwrap().len(), 1);
         // coming back without them (reinstalled Manager) gets a new password for the same account
         let fresh = pw();
-        assert_eq!(provision(&s, &p, None, &fresh, false), Response::Provisioned { username: "DMITRY".into(), created: false, reset: true });
+        assert_eq!(
+            provision(&s, &p, None, &fresh, false),
+            Response::Provisioned {
+                username: "DMITRY".into(),
+                created: false,
+                reset: true
+            }
+        );
         assert!(realm.check_login("", "DMITRY", &fresh).unwrap().is_some());
     }
 
@@ -855,11 +1375,27 @@ mod tests {
         realm.add_account("Dmitry", "whatever1");
         let s = service(&realm);
         let p = Uuid::now_v7();
-        let Response::Provisioned { username, created, .. } = provision(&s, &p, Some("DMITRY"), &pw(), false) else { panic!() };
-        assert!(created && username.starts_with("DMITRY_") && username.len() == 11 && app::valid_username(&username), "{username}");
+        let Response::Provisioned {
+            username, created, ..
+        } = provision(&s, &p, Some("DMITRY"), &pw(), false)
+        else {
+            panic!()
+        };
+        assert!(
+            created
+                && username.starts_with("DMITRY_")
+                && username.len() == 11
+                && app::valid_username(&username),
+            "{username}"
+        );
         assert_eq!(username, app::alternative_username("DMITRY", &p, 0));
         let q = Uuid::now_v7();
-        let Response::Provisioned { username: other, .. } = provision(&s, &q, Some("DMITRY"), &pw(), false) else { panic!() };
+        let Response::Provisioned {
+            username: other, ..
+        } = provision(&s, &q, Some("DMITRY"), &pw(), false)
+        else {
+            panic!()
+        };
         assert_ne!(other, username, "another player, another account");
     }
 
@@ -868,9 +1404,33 @@ mod tests {
         let realm = FakeRealm::new(false);
         let s = service(&realm);
         let r = provision(&s, &Uuid::now_v7(), Some("X"), &pw(), false);
-        assert!(matches!(r, Response::Error { code: AppError::ProvisioningOff, .. }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Response::Error {
+                    code: AppError::ProvisioningOff,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
         assert!(realm.accounts.lock().unwrap().is_empty());
-        let Response::Welcome { automatic, existing_only, .. } = s.handle(&mut Session::default(), &Uuid::now_v7(), "K", Request::Hello { protocol: 1, client: "t".into() }) else { panic!() };
+        let Response::Welcome {
+            automatic,
+            existing_only,
+            ..
+        } = s.handle(
+            &mut Session::default(),
+            &Uuid::now_v7(),
+            "K",
+            Request::Hello {
+                protocol: 1,
+                client: "t".into(),
+            },
+        )
+        else {
+            panic!()
+        };
         assert!(!automatic && existing_only);
     }
 
@@ -881,7 +1441,12 @@ mod tests {
         let p = Uuid::now_v7();
         provision(&s, &p, Some("Anna"), &pw(), false);
         realm.accounts.lock().unwrap().clear();
-        let Response::Provisioned { created, username, .. } = provision(&s, &p, Some("Anna"), &pw(), true) else { panic!() };
+        let Response::Provisioned {
+            created, username, ..
+        } = provision(&s, &p, Some("Anna"), &pw(), true)
+        else {
+            panic!()
+        };
         assert!(created && username == "ANNA");
     }
 
@@ -891,15 +1456,78 @@ mod tests {
         let id = realm.add_account("Legacy", "Secret12");
         let s = service(&realm);
         let (p, q) = (Uuid::now_v7(), Uuid::now_v7());
-        let link = |who: &Uuid, key: &str, login: &str, pw: &str| s.handle(&mut Session::default(), who, key, Request::Link { login: login.into(), password: pw.into() });
-        assert!(matches!(link(&p, "KP", "LEGACY", "wrongpass"), Response::Error { code: AppError::WrongCredentials, .. }));
-        assert_eq!(link(&p, "KP", "legacy", "secret12"), Response::Linked { username: "LEGACY".into() });
-        assert_eq!(link(&p, "KP", "LEGACY", "Secret12"), Response::Linked { username: "LEGACY".into() }, "idempotent");
-        assert!(matches!(link(&q, "KQ", "LEGACY", "Secret12"), Response::Error { code: AppError::AccountTaken, .. }), "an account belongs to one player");
-        assert_eq!(s.store.lock().unwrap().host_player("srv-1", &p).unwrap().unwrap().account_id, id);
-        assert!(!s.key_matches(&p, "OTHER") && s.key_matches(&p, "KP") && s.key_matches(&Uuid::now_v7(), "ANY"));
-        let r = s.handle(&mut Session::default(), &p, "OTHER", Request::ListCharacters);
-        assert!(matches!(r, Response::Error { code: AppError::Invalid, .. }), "another key for the same player id is refused");
+        let link = |who: &Uuid, key: &str, login: &str, pw: &str| {
+            s.handle(
+                &mut Session::default(),
+                who,
+                key,
+                Request::Link {
+                    login: login.into(),
+                    password: pw.into(),
+                },
+            )
+        };
+        assert!(matches!(
+            link(&p, "KP", "LEGACY", "wrongpass"),
+            Response::Error {
+                code: AppError::WrongCredentials,
+                ..
+            }
+        ));
+        assert_eq!(
+            link(&p, "KP", "legacy", "secret12"),
+            Response::Linked {
+                username: "LEGACY".into()
+            }
+        );
+        assert_eq!(
+            link(&p, "KP", "LEGACY", "Secret12"),
+            Response::Linked {
+                username: "LEGACY".into()
+            },
+            "idempotent"
+        );
+        assert!(
+            matches!(
+                link(&q, "KQ", "LEGACY", "Secret12"),
+                Response::Error {
+                    code: AppError::AccountTaken,
+                    ..
+                }
+            ),
+            "an account belongs to one player"
+        );
+        assert_eq!(
+            s.store
+                .lock()
+                .unwrap()
+                .host_player("srv-1", &p)
+                .unwrap()
+                .unwrap()
+                .account_id,
+            id
+        );
+        assert!(
+            !s.key_matches(&p, "OTHER")
+                && s.key_matches(&p, "KP")
+                && s.key_matches(&Uuid::now_v7(), "ANY")
+        );
+        let r = s.handle(
+            &mut Session::default(),
+            &p,
+            "OTHER",
+            Request::ListCharacters,
+        );
+        assert!(
+            matches!(
+                r,
+                Response::Error {
+                    code: AppError::Invalid,
+                    ..
+                }
+            ),
+            "another key for the same player id is refused"
+        );
     }
 
     #[test]
@@ -909,10 +1537,41 @@ mod tests {
         let s = service(&realm);
         let p = Uuid::now_v7();
         for _ in 0..LINK_FAILURES {
-            assert!(matches!(s.handle(&mut Session::default(), &p, "K", Request::Link { login: "LEGACY".into(), password: "guess123".into() }), Response::Error { code: AppError::WrongCredentials, .. }));
+            assert!(matches!(
+                s.handle(
+                    &mut Session::default(),
+                    &p,
+                    "K",
+                    Request::Link {
+                        login: "LEGACY".into(),
+                        password: "guess123".into()
+                    }
+                ),
+                Response::Error {
+                    code: AppError::WrongCredentials,
+                    ..
+                }
+            ));
         }
-        let r = s.handle(&mut Session::default(), &p, "K", Request::Link { login: "LEGACY".into(), password: "Secret12".into() });
-        assert!(matches!(r, Response::Error { code: AppError::RateLimited, .. }), "even the right password waits: {r:?}");
+        let r = s.handle(
+            &mut Session::default(),
+            &p,
+            "K",
+            Request::Link {
+                login: "LEGACY".into(),
+                password: "Secret12".into(),
+            },
+        );
+        assert!(
+            matches!(
+                r,
+                Response::Error {
+                    code: AppError::RateLimited,
+                    ..
+                }
+            ),
+            "even the right password waits: {r:?}"
+        );
     }
 
     fn claimed_setup() -> (Arc<FakeRealm>, HostService, Uuid, u32) {
@@ -923,7 +1582,18 @@ mod tests {
         realm.add_char(999, 200, "Stranger", true);
         let s = service(&realm);
         let p = Uuid::now_v7();
-        assert!(matches!(s.handle(&mut Session::default(), &p, "K", Request::Link { login: "THRALL".into(), password: "Secret12".into() }), Response::Linked { .. }));
+        assert!(matches!(
+            s.handle(
+                &mut Session::default(),
+                &p,
+                "K",
+                Request::Link {
+                    login: "THRALL".into(),
+                    password: "Secret12".into()
+                }
+            ),
+            Response::Linked { .. }
+        ));
         (realm, s, p, acc)
     }
 
@@ -931,31 +1601,105 @@ mod tests {
     fn a_claim_needs_the_character_select_screen_ownership_and_eligibility() {
         let (realm, s, p, acc) = claimed_setup();
         let mut session = Session::default();
-        let Response::Characters { characters } = s.handle(&mut session, &p, "K", Request::ListCharacters) else { panic!() };
+        let Response::Characters { characters } =
+            s.handle(&mut session, &p, "K", Request::ListCharacters)
+        else {
+            panic!()
+        };
         assert_eq!(characters.len(), 2, "only this account's characters");
         let good = characters.iter().find(|c| c.name == "Thrall").unwrap();
         let busy = characters.iter().find(|c| c.name == "Busy").unwrap();
         assert!(good.eligible && !busy.eligible && !good.yours);
-        assert!(characters.iter().all(|c| c.token < 100), "the realm's own numbers are not handed out");
+        assert!(
+            characters.iter().all(|c| c.token < 100),
+            "the realm's own numbers are not handed out"
+        );
         // not logged in
         let r = s.handle(&mut session, &p, "K", Request::Claim { token: good.token });
-        assert!(matches!(r, Response::Error { code: AppError::NotAtCharacterSelect, .. }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Response::Error {
+                    code: AppError::NotAtCharacterSelect,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
         // logged in with a character in the world
         realm.at_select(acc, true, 1);
-        assert!(matches!(s.handle(&mut session, &p, "K", Request::Claim { token: good.token }), Response::Error { code: AppError::NotAtCharacterSelect, .. }));
+        assert!(matches!(
+            s.handle(&mut session, &p, "K", Request::Claim { token: good.token }),
+            Response::Error {
+                code: AppError::NotAtCharacterSelect,
+                ..
+            }
+        ));
         realm.at_select(acc, true, 0);
-        assert!(matches!(s.handle(&mut session, &p, "K", Request::Claim { token: busy.token }), Response::Error { code: AppError::NotEligible, .. }));
-        assert!(matches!(s.handle(&mut session, &p, "K", Request::Claim { token: 9999 }), Response::Error { code: AppError::Invalid, .. }), "a made-up handle");
-        let Response::Claimed { character_id, sha256, payload, collections } = s.handle(&mut session, &p, "K", Request::Claim { token: good.token }) else { panic!() };
+        assert!(matches!(
+            s.handle(&mut session, &p, "K", Request::Claim { token: busy.token }),
+            Response::Error {
+                code: AppError::NotEligible,
+                ..
+            }
+        ));
+        assert!(
+            matches!(
+                s.handle(&mut session, &p, "K", Request::Claim { token: 9999 }),
+                Response::Error {
+                    code: AppError::Invalid,
+                    ..
+                }
+            ),
+            "a made-up handle"
+        );
+        let Response::Claimed {
+            character_id,
+            sha256,
+            payload,
+            collections,
+        } = s.handle(&mut session, &p, "K", Request::Claim { token: good.token })
+        else {
+            panic!()
+        };
         assert_eq!(sha256, hex::encode([7u8; 32]));
         assert!(!payload.is_empty() && collections["coa:appearance"] == vec![1, 2, 3]);
         // asking again returns the same character
-        let Response::Claimed { character_id: again, .. } = s.handle(&mut session, &p, "K", Request::Claim { token: good.token }) else { panic!() };
+        let Response::Claimed {
+            character_id: again,
+            ..
+        } = s.handle(&mut session, &p, "K", Request::Claim { token: good.token })
+        else {
+            panic!()
+        };
         assert_eq!(again, character_id);
-        assert_eq!(s.handle(&mut session, &p, "K", Request::ClaimAck { character_id }), Response::Done);
-        assert!(matches!(s.handle(&mut session, &p, "K", Request::ClaimAck { character_id: Uuid::now_v7() }), Response::Error { .. }));
-        let Response::Characters { characters } = s.handle(&mut session, &p, "K", Request::ListCharacters) else { panic!() };
-        assert!(characters.iter().find(|c| c.name == "Thrall").unwrap().yours);
+        assert_eq!(
+            s.handle(&mut session, &p, "K", Request::ClaimAck { character_id }),
+            Response::Done
+        );
+        assert!(matches!(
+            s.handle(
+                &mut session,
+                &p,
+                "K",
+                Request::ClaimAck {
+                    character_id: Uuid::now_v7()
+                }
+            ),
+            Response::Error { .. }
+        ));
+        let Response::Characters { characters } =
+            s.handle(&mut session, &p, "K", Request::ListCharacters)
+        else {
+            panic!()
+        };
+        assert!(
+            characters
+                .iter()
+                .find(|c| c.name == "Thrall")
+                .unwrap()
+                .yours
+        );
     }
 
     #[test]
@@ -963,33 +1707,108 @@ mod tests {
         let (realm, s, p, acc) = claimed_setup();
         realm.at_select(acc, true, 0);
         let mut session = Session::default();
-        let Response::Characters { characters } = s.handle(&mut session, &p, "K", Request::ListCharacters) else { panic!() };
-        let token = characters.iter().find(|c| c.name == "Thrall").unwrap().token;
-        assert!(matches!(s.handle(&mut session, &p, "K", Request::Claim { token }), Response::Claimed { .. }));
+        let Response::Characters { characters } =
+            s.handle(&mut session, &p, "K", Request::ListCharacters)
+        else {
+            panic!()
+        };
+        let token = characters
+            .iter()
+            .find(|c| c.name == "Thrall")
+            .unwrap()
+            .token;
+        assert!(matches!(
+            s.handle(&mut session, &p, "K", Request::Claim { token }),
+            Response::Claimed { .. }
+        ));
         // a second player linked to the same realm (a different account) has none of these characters
         let acc2 = realm.add_account("Other", "Secret34");
         realm.at_select(acc2, true, 0);
         let q = Uuid::now_v7();
-        assert!(matches!(s.handle(&mut Session::default(), &q, "KQ", Request::Link { login: "OTHER".into(), password: "Secret34".into() }), Response::Linked { .. }));
+        assert!(matches!(
+            s.handle(
+                &mut Session::default(),
+                &q,
+                "KQ",
+                Request::Link {
+                    login: "OTHER".into(),
+                    password: "Secret34".into()
+                }
+            ),
+            Response::Linked { .. }
+        ));
         let mut qs = Session::default();
-        let Response::Characters { characters } = s.handle(&mut qs, &q, "KQ", Request::ListCharacters) else { panic!() };
+        let Response::Characters { characters } =
+            s.handle(&mut qs, &q, "KQ", Request::ListCharacters)
+        else {
+            panic!()
+        };
         assert!(characters.is_empty());
-        assert!(matches!(s.handle(&mut qs, &q, "KQ", Request::Claim { token }), Response::Error { code: AppError::Invalid, .. }), "a handle from another connection means nothing");
+        assert!(
+            matches!(
+                s.handle(&mut qs, &q, "KQ", Request::Claim { token }),
+                Response::Error {
+                    code: AppError::Invalid,
+                    ..
+                }
+            ),
+            "a handle from another connection means nothing"
+        );
         // even if the character were moved to q's account, the claim by p stands
-        realm.chars.lock().unwrap().push((acc2, CharInfoLike::copy(100)));
-        let Response::Characters { characters } = s.handle(&mut qs, &q, "KQ", Request::ListCharacters) else { panic!() };
-        let moved = characters.iter().find(|c| c.name == "Thrall").unwrap().token;
+        realm
+            .chars
+            .lock()
+            .unwrap()
+            .push((acc2, CharInfoLike::copy(100)));
+        let Response::Characters { characters } =
+            s.handle(&mut qs, &q, "KQ", Request::ListCharacters)
+        else {
+            panic!()
+        };
+        let moved = characters
+            .iter()
+            .find(|c| c.name == "Thrall")
+            .unwrap()
+            .token;
         let r = s.handle(&mut qs, &q, "KQ", Request::Claim { token: moved });
-        assert!(matches!(r, Response::Error { code: AppError::AlreadyClaimed, .. }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Response::Error {
+                    code: AppError::AlreadyClaimed,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
         // and an unlinked player has no account at all
-        let r = s.handle(&mut Session::default(), &Uuid::now_v7(), "KZ", Request::ListCharacters);
-        assert!(matches!(r, Response::Error { code: AppError::NoAccount, .. }));
+        let r = s.handle(
+            &mut Session::default(),
+            &Uuid::now_v7(),
+            "KZ",
+            Request::ListCharacters,
+        );
+        assert!(matches!(
+            r,
+            Response::Error {
+                code: AppError::NoAccount,
+                ..
+            }
+        ));
     }
 
     struct CharInfoLike;
     impl CharInfoLike {
         fn copy(guid: u32) -> CharInfo {
-            CharInfo { guid, name: "Thrall".into(), class: 1, race: 1, level: 60, eligible: true, reasons: vec![] }
+            CharInfo {
+                guid,
+                name: "Thrall".into(),
+                class: 1,
+                race: 1,
+                level: 60,
+                eligible: true,
+                reasons: vec![],
+            }
         }
     }
 
@@ -998,16 +1817,44 @@ mod tests {
         let realm = FakeRealm::new(true);
         let s = service(&realm);
         let p = Uuid::now_v7();
-        assert!(matches!(s.handle(&mut Session::default(), &p, "K", Request::Hello { protocol: 99, client: "x".into() }), Response::Error { code: AppError::UnsupportedVersion, .. }));
+        assert!(matches!(
+            s.handle(
+                &mut Session::default(),
+                &p,
+                "K",
+                Request::Hello {
+                    protocol: 99,
+                    client: "x".into()
+                }
+            ),
+            Response::Error {
+                code: AppError::UnsupportedVersion,
+                ..
+            }
+        ));
         let mut session = Session::default();
         let mut last = Response::Done;
         for _ in 0..=MAX_REQUESTS_PER_SESSION {
             last = s.handle(&mut session, &p, "K", Request::Route);
         }
-        assert!(matches!(last, Response::Error { code: AppError::RateLimited, .. }));
-        assert_eq!(s.handle(&mut Session::default(), &p, "K", Request::Route), Response::RouteInfo { address: None });
+        assert!(matches!(
+            last,
+            Response::Error {
+                code: AppError::RateLimited,
+                ..
+            }
+        ));
+        assert_eq!(
+            s.handle(&mut Session::default(), &p, "K", Request::Route),
+            Response::RouteInfo { address: None }
+        );
         *realm.route.lock().unwrap() = Some("203.0.113.5:3724".into());
-        assert_eq!(s.handle(&mut Session::default(), &p, "K", Request::Route), Response::RouteInfo { address: Some("203.0.113.5:3724".into()) });
+        assert_eq!(
+            s.handle(&mut Session::default(), &p, "K", Request::Route),
+            Response::RouteInfo {
+                address: Some("203.0.113.5:3724".into())
+            }
+        );
     }
 
     #[test]
@@ -1031,26 +1878,54 @@ mod tests {
             collections: BTreeMap::from([("coa:appearance".into(), vec![1, 2, 3])]),
         };
         let r = s.handle(&mut session, &p, "K", offer);
-        assert_eq!(r, Response::TransferReady { transfer_id: tid, received_offset: 0 });
+        assert_eq!(
+            r,
+            Response::TransferReady {
+                transfer_id: tid,
+                received_offset: 0
+            }
+        );
 
         // 2. Chunk
         use base64::Engine;
         let data = base64::engine::general_purpose::STANDARD.encode(&payload);
-        let chunk = Request::TransferChunk { transfer_id: tid, offset: 0, data };
+        let chunk = Request::TransferChunk {
+            transfer_id: tid,
+            offset: 0,
+            data,
+        };
         let r = s.handle(&mut session, &p, "K", chunk);
-        assert_eq!(r, Response::TransferChunkAck { transfer_id: tid, received_offset: payload.len() });
+        assert_eq!(
+            r,
+            Response::TransferChunkAck {
+                transfer_id: tid,
+                received_offset: payload.len()
+            }
+        );
 
         // 3. Commit
         let commit = Request::TransferCommit { transfer_id: tid };
         let r = s.handle(&mut session, &p, "K", commit);
-        let Response::TransferCommitted { transfer_id, character_id, local_guid, session_id, .. } = r else { panic!("{r:?}") };
+        let Response::TransferCommitted {
+            transfer_id,
+            character_id,
+            local_guid,
+            session_id,
+            ..
+        } = r
+        else {
+            panic!("{r:?}")
+        };
         assert_eq!(transfer_id, tid);
         assert_eq!(character_id, cid);
         assert!(local_guid >= 100);
         assert_ne!(session_id, Uuid::nil());
 
         // 4. Ack
-        let ack = Request::TransferAck { transfer_id: tid, character_id: cid };
+        let ack = Request::TransferAck {
+            transfer_id: tid,
+            character_id: cid,
+        };
         assert_eq!(s.handle(&mut session, &p, "K", ack), Response::Done);
 
         // Verify imported in realm
@@ -1076,7 +1951,16 @@ mod tests {
             collections: BTreeMap::new(),
         };
         let r = s.handle(&mut session, &p, "K", offer);
-        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Response::Error {
+                    code: AppError::Incompatible,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
 
         // Nothing written
         assert!(realm.imported.lock().unwrap().is_empty());
@@ -1106,25 +1990,77 @@ mod tests {
             collections: BTreeMap::new(),
         };
         let r = s.handle(&mut session, &p, "K", offer);
-        assert_eq!(r, Response::TransferReady { transfer_id: tid, received_offset: 0 });
+        assert_eq!(
+            r,
+            Response::TransferReady {
+                transfer_id: tid,
+                received_offset: 0
+            }
+        );
 
         // Send chunk 1
         use base64::Engine;
         let c1_b64 = base64::engine::general_purpose::STANDARD.encode(chunk1);
-        let r = s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid, offset: 0, data: c1_b64 });
-        assert_eq!(r, Response::TransferChunkAck { transfer_id: tid, received_offset: chunk1.len() });
+        let r = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid,
+                offset: 0,
+                data: c1_b64,
+            },
+        );
+        assert_eq!(
+            r,
+            Response::TransferChunkAck {
+                transfer_id: tid,
+                received_offset: chunk1.len()
+            }
+        );
 
         // Query status (resuming after interruption)
-        let r = s.handle(&mut session, &p, "K", Request::TransferStatus { transfer_id: tid });
-        assert_eq!(r, Response::TransferReady { transfer_id: tid, received_offset: chunk1.len() });
+        let r = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferStatus { transfer_id: tid },
+        );
+        assert_eq!(
+            r,
+            Response::TransferReady {
+                transfer_id: tid,
+                received_offset: chunk1.len()
+            }
+        );
 
         // Send chunk 2
         let c2_b64 = base64::engine::general_purpose::STANDARD.encode(chunk2);
-        let r = s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid, offset: chunk1.len(), data: c2_b64 });
-        assert_eq!(r, Response::TransferChunkAck { transfer_id: tid, received_offset: full.len() });
+        let r = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid,
+                offset: chunk1.len(),
+                data: c2_b64,
+            },
+        );
+        assert_eq!(
+            r,
+            Response::TransferChunkAck {
+                transfer_id: tid,
+                received_offset: full.len()
+            }
+        );
 
         // Commit succeeds
-        let r = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid });
+        let r = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferCommit { transfer_id: tid },
+        );
         assert!(matches!(r, Response::TransferCommitted { .. }));
     }
 
@@ -1151,16 +2087,53 @@ mod tests {
 
         use base64::Engine;
         let data = base64::engine::general_purpose::STANDARD.encode(&payload);
-        s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid, offset: 0, data });
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid,
+                offset: 0,
+                data,
+            },
+        );
 
-        let Response::TransferCommitted { local_guid: guid1, session_id: sid1, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid }) else { panic!() };
+        let Response::TransferCommitted {
+            local_guid: guid1,
+            session_id: sid1,
+            ..
+        } = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferCommit { transfer_id: tid },
+        )
+        else {
+            panic!()
+        };
         assert_eq!(realm.imported.lock().unwrap().len(), 1);
 
         // Client retries commit (lost reply):
-        let Response::TransferCommitted { local_guid: guid2, session_id: sid2, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid }) else { panic!() };
+        let Response::TransferCommitted {
+            local_guid: guid2,
+            session_id: sid2,
+            ..
+        } = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferCommit { transfer_id: tid },
+        )
+        else {
+            panic!()
+        };
         assert_eq!(guid1, guid2);
         assert_eq!(sid1, sid2);
-        assert_eq!(realm.imported.lock().unwrap().len(), 1, "does not duplicate character");
+        assert_eq!(
+            realm.imported.lock().unwrap().len(),
+            1,
+            "does not duplicate character"
+        );
 
         // Client starts a new transfer for the exact same committed revision: discovers committed state
         let tid2 = Uuid::now_v7();
@@ -1173,10 +2146,21 @@ mod tests {
             collections: BTreeMap::new(),
         };
         let r = s.handle(&mut session, &p, "K", offer2);
-        let Response::TransferCommitted { local_guid: guid3, session_id: sid3, .. } = r else { panic!("{r:?}") };
+        let Response::TransferCommitted {
+            local_guid: guid3,
+            session_id: sid3,
+            ..
+        } = r
+        else {
+            panic!("{r:?}")
+        };
         assert_eq!(guid1, guid3);
         assert_eq!(sid1, sid3);
-        assert_eq!(realm.imported.lock().unwrap().len(), 1, "does not duplicate character");
+        assert_eq!(
+            realm.imported.lock().unwrap().len(),
+            1,
+            "does not duplicate character"
+        );
     }
 
     #[test]
@@ -1197,19 +2181,62 @@ mod tests {
             total_size: payload.len(),
             collections: BTreeMap::new(),
         };
-        assert!(matches!(s.handle(&mut Session::default(), &p, "K", offer), Response::TransferReady { .. }));
+        assert!(matches!(
+            s.handle(&mut Session::default(), &p, "K", offer),
+            Response::TransferReady { .. }
+        ));
         use base64::Engine;
         let data = base64::engine::general_purpose::STANDARD.encode(&payload);
-        s.handle(&mut Session::default(), &p, "K", Request::TransferChunk { transfer_id: tid, offset: 0, data });
-        assert!(matches!(s.handle(&mut Session::default(), &p, "K", Request::TransferCommit { transfer_id: tid }), Response::TransferCommitted { .. }));
-        assert_eq!(s.handle(&mut Session::default(), &p, "K", Request::TransferAck { transfer_id: tid, character_id: cid }), Response::Done);
+        s.handle(
+            &mut Session::default(),
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid,
+                offset: 0,
+                data,
+            },
+        );
+        assert!(matches!(
+            s.handle(
+                &mut Session::default(),
+                &p,
+                "K",
+                Request::TransferCommit { transfer_id: tid }
+            ),
+            Response::TransferCommitted { .. }
+        ));
+        assert_eq!(
+            s.handle(
+                &mut Session::default(),
+                &p,
+                "K",
+                Request::TransferAck {
+                    transfer_id: tid,
+                    character_id: cid
+                }
+            ),
+            Response::Done
+        );
 
         // Player 2 attempts to transfer with the same character_id
         let q = Uuid::now_v7();
         let srv = &s;
         // Provision account for player 2
         let pw = app::generate_password();
-        assert!(matches!(srv.handle(&mut Session::default(), &q, "KQ", Request::Provision { desired: Some("PLAYER2".into()), password: pw, have_credentials: false }), Response::Provisioned { .. }));
+        assert!(matches!(
+            srv.handle(
+                &mut Session::default(),
+                &q,
+                "KQ",
+                Request::Provision {
+                    desired: Some("PLAYER2".into()),
+                    password: pw,
+                    have_credentials: false
+                }
+            ),
+            Response::Provisioned { .. }
+        ));
 
         let tid_impostor = Uuid::now_v7();
         let impostor_offer = Request::TransferOffer {
@@ -1221,7 +2248,16 @@ mod tests {
             collections: BTreeMap::new(),
         };
         let r = srv.handle(&mut Session::default(), &q, "KQ", impostor_offer);
-        assert!(matches!(r, Response::Error { code: AppError::AlreadyClaimed, .. }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                Response::Error {
+                    code: AppError::AlreadyClaimed,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
     }
 
     #[test]
@@ -1236,41 +2272,109 @@ mod tests {
         let hash1 = hex::encode(Sha256::digest(&payload1));
 
         // Rev 1
-        s.handle(&mut session, &p, "K", Request::TransferOffer {
-            transfer_id: tid1,
-            character_id: cid,
-            canonical_revision: 1,
-            content_hash: hash1,
-            total_size: payload1.len(),
-            collections: BTreeMap::new(),
-        });
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferOffer {
+                transfer_id: tid1,
+                character_id: cid,
+                canonical_revision: 1,
+                content_hash: hash1,
+                total_size: payload1.len(),
+                collections: BTreeMap::new(),
+            },
+        );
         use base64::Engine;
         let d1 = base64::engine::general_purpose::STANDARD.encode(&payload1);
-        s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid1, offset: 0, data: d1 });
-        let Response::TransferCommitted { local_guid: guid1, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid1 }) else { panic!() };
-        s.handle(&mut session, &p, "K", Request::TransferAck { transfer_id: tid1, character_id: cid });
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid1,
+                offset: 0,
+                data: d1,
+            },
+        );
+        let Response::TransferCommitted {
+            local_guid: guid1, ..
+        } = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferCommit { transfer_id: tid1 },
+        )
+        else {
+            panic!()
+        };
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferAck {
+                transfer_id: tid1,
+                character_id: cid,
+            },
+        );
         assert_eq!(realm.imported.lock().unwrap().len(), 1);
 
         // Rev 2
         let tid2 = Uuid::now_v7();
         let payload2 = b"character_revision_2_newer_data".to_vec();
         let hash2 = hex::encode(Sha256::digest(&payload2));
-        let r = s.handle(&mut session, &p, "K", Request::TransferOffer {
-            transfer_id: tid2,
-            character_id: cid,
-            canonical_revision: 2,
-            content_hash: hash2,
-            total_size: payload2.len(),
-            collections: BTreeMap::new(),
-        });
+        let r = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferOffer {
+                transfer_id: tid2,
+                character_id: cid,
+                canonical_revision: 2,
+                content_hash: hash2,
+                total_size: payload2.len(),
+                collections: BTreeMap::new(),
+            },
+        );
         assert!(matches!(r, Response::TransferReady { .. }));
         let d2 = base64::engine::general_purpose::STANDARD.encode(&payload2);
-        s.handle(&mut session, &p, "K", Request::TransferChunk { transfer_id: tid2, offset: 0, data: d2 });
-        let Response::TransferCommitted { local_guid: guid2, .. } = s.handle(&mut session, &p, "K", Request::TransferCommit { transfer_id: tid2 }) else { panic!() };
-        s.handle(&mut session, &p, "K", Request::TransferAck { transfer_id: tid2, character_id: cid });
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid2,
+                offset: 0,
+                data: d2,
+            },
+        );
+        let Response::TransferCommitted {
+            local_guid: guid2, ..
+        } = s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferCommit { transfer_id: tid2 },
+        )
+        else {
+            panic!()
+        };
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferAck {
+                transfer_id: tid2,
+                character_id: cid,
+            },
+        );
 
         // Same local guid, updated, not duplicate
         assert_eq!(guid1, guid2);
-        assert_eq!(realm.imported.lock().unwrap().len(), 1, "update, not duplicate import");
+        assert_eq!(
+            realm.imported.lock().unwrap().len(),
+            1,
+            "update, not duplicate import"
+        );
     }
 }

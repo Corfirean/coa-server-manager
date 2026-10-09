@@ -37,9 +37,21 @@ pub fn validate_route(route: &str) -> Result<String> {
         Some((h, p)) => (h, Some(p)),
         None => (r, None),
     };
-    let port_ok = port.is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u32>().is_ok_and(|n| (1..=65535).contains(&n)));
-    if r.is_empty() || r.len() > 255 || !port_ok || !crate::client::host_ok(host) || host.contains(':') {
-        return Err(Error::Invalid("The address must be a host name or an IPv4 address and an optional port.".into()));
+    let port_ok = port.is_none_or(|p| {
+        !p.is_empty()
+            && p.len() <= 5
+            && p.bytes().all(|b| b.is_ascii_digit())
+            && p.parse::<u32>().is_ok_and(|n| (1..=65535).contains(&n))
+    });
+    if r.is_empty()
+        || r.len() > 255
+        || !port_ok
+        || !crate::client::host_ok(host)
+        || host.contains(':')
+    {
+        return Err(Error::Invalid(
+            "The address must be a host name or an IPv4 address and an optional port.".into(),
+        ));
     }
     Ok(r.to_string())
 }
@@ -80,20 +92,42 @@ impl RegistrySettings {
 
 impl Default for RegistrySettings {
     fn default() -> Self {
-        Self { schema: SETTINGS_SCHEMA, url: None, realms: BTreeMap::new() }
+        Self {
+            schema: SETTINGS_SCHEMA,
+            url: None,
+            realms: BTreeMap::new(),
+        }
     }
 }
 
 /// A Registry address: http or https, a host, an optional port, nothing else.
 pub fn validate_url(url: &str) -> Result<String> {
     let trimmed = url.trim().trim_end_matches('/');
-    let rest = trimmed.strip_prefix("http://").or_else(|| trimmed.strip_prefix("https://")).ok_or_else(|| Error::Invalid("the Registry address must start with http:// or https://".into()))?;
+    let rest = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+        .ok_or_else(|| {
+            Error::Invalid("the Registry address must start with http:// or https://".into())
+        })?;
     if rest.is_empty() || rest.contains(['/', '?', '#', '@', ' ']) {
-        return Err(Error::Invalid("the Registry address is a host and an optional port, nothing else".into()));
+        return Err(Error::Invalid(
+            "the Registry address is a host and an optional port, nothing else".into(),
+        ));
     }
-    let host = rest.rsplit_once(':').map(|(h, p)| if p.bytes().all(|b| b.is_ascii_digit()) && !p.is_empty() { h } else { rest }).unwrap_or(rest);
+    let host = rest
+        .rsplit_once(':')
+        .map(|(h, p)| {
+            if p.bytes().all(|b| b.is_ascii_digit()) && !p.is_empty() {
+                h
+            } else {
+                rest
+            }
+        })
+        .unwrap_or(rest);
     if !crate::client::host_ok(host) || host.contains(':') {
-        return Err(Error::Invalid("the Registry host is not a host name or an IPv4 address".into()));
+        return Err(Error::Invalid(
+            "the Registry host is not a host name or an IPv4 address".into(),
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -107,7 +141,10 @@ pub fn load(dir: &Path) -> Result<RegistrySettings> {
         Ok(bytes) => {
             let s: RegistrySettings = serde_json::from_slice(&bytes)?;
             if s.schema != SETTINGS_SCHEMA {
-                return Err(Error::Invalid(format!("registry settings schema {} is not supported", s.schema)));
+                return Err(Error::Invalid(format!(
+                    "registry settings schema {} is not supported",
+                    s.schema
+                )));
             }
             Ok(s)
         }
@@ -126,9 +163,26 @@ mod tests {
 
     #[test]
     fn addresses_are_a_host_and_a_port_only() {
-        assert_eq!(validate_url("http://127.0.0.1:8080/").unwrap(), "http://127.0.0.1:8080");
-        assert_eq!(validate_url(" https://registry.example ").unwrap(), "https://registry.example");
-        for bad in ["", "ftp://x", "registry.example", "http://", "http://x/registry", "http://user:pw@x", "http://x?y=1", "http://x y", "http://[::1]:80", "http://x:abc"] {
+        assert_eq!(
+            validate_url("http://127.0.0.1:8080/").unwrap(),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(
+            validate_url(" https://registry.example ").unwrap(),
+            "https://registry.example"
+        );
+        for bad in [
+            "",
+            "ftp://x",
+            "registry.example",
+            "http://",
+            "http://x/registry",
+            "http://user:pw@x",
+            "http://x?y=1",
+            "http://x y",
+            "http://[::1]:80",
+            "http://x:abc",
+        ] {
             assert!(validate_url(bad).is_err(), "{bad}");
         }
     }
@@ -137,13 +191,35 @@ mod tests {
     fn settings_round_trip_and_refuse_what_they_do_not_know() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(load(dir.path()).unwrap(), RegistrySettings::default());
-        let mut s = RegistrySettings { url: Some("http://x".into()), ..Default::default() };
-        s.realms.insert("srv-1".into(), PublishConfig { realm_id: Some(RealmId::new()), enabled: true, display_name: "A".into(), description: String::new(), language: "en".into(), region: None, existing_only: false, route: None });
+        let mut s = RegistrySettings {
+            url: Some("http://x".into()),
+            ..Default::default()
+        };
+        s.realms.insert(
+            "srv-1".into(),
+            PublishConfig {
+                realm_id: Some(RealmId::new()),
+                enabled: true,
+                display_name: "A".into(),
+                description: String::new(),
+                language: "en".into(),
+                region: None,
+                existing_only: false,
+                route: None,
+            },
+        );
         save(dir.path(), &s).unwrap();
         assert_eq!(load(dir.path()).unwrap(), s);
         let text = std::fs::read_to_string(file(dir.path())).unwrap();
-        assert!(!text.contains("key") && !text.contains("password"), "{text}");
-        std::fs::write(file(dir.path()), r#"{"schema":1,"url":null,"realms":{},"private_key":"x"}"#).unwrap();
+        assert!(
+            !text.contains("key") && !text.contains("password"),
+            "{text}"
+        );
+        std::fs::write(
+            file(dir.path()),
+            r#"{"schema":1,"url":null,"realms":{},"private_key":"x"}"#,
+        )
+        .unwrap();
         assert!(load(dir.path()).is_err());
     }
 }

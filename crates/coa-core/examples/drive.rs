@@ -2,7 +2,9 @@ use std::path::Path;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let root = args.next().expect("usage: drive <server folder> <start|stop>");
+    let root = args
+        .next()
+        .expect("usage: drive <server folder> <start|stop>");
     let verb = match args.next().as_deref() {
         Some("start") => coa_core::driver::Verb::StartAll,
         Some("mysql") => coa_core::driver::Verb::StartMysql,

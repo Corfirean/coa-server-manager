@@ -118,11 +118,18 @@ pub struct AdvertisedCapabilities {
 }
 
 fn hex64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn token(s: &str, what: &str) -> Result<()> {
-    if s.is_empty() || s.len() > MAX_TOKEN || !s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':' | b'+')) {
+    if s.is_empty()
+        || s.len() > MAX_TOKEN
+        || !s
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':' | b'+'))
+    {
         return invalid(format!("capabilities: {what} is not a short token"));
     }
     Ok(())
@@ -130,7 +137,9 @@ fn token(s: &str, what: &str) -> Result<()> {
 
 fn identity_text(s: &str, what: &str) -> Result<()> {
     if s.len() > MAX_IDENTITY || s.chars().any(char::is_control) {
-        return invalid(format!("capabilities: {what} is too long or has control characters"));
+        return invalid(format!(
+            "capabilities: {what} is too long or has control characters"
+        ));
     }
     Ok(())
 }
@@ -146,7 +155,9 @@ impl ContentProfile {
     /// SHA-256 of the canonical JSON, as the Manager computes it (`coa-content-profile-v1\0` + the JSON with the extensions sorted).
     pub fn hash(&self) -> String {
         let mut canonical = self.clone();
-        canonical.extensions.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+        canonical
+            .extensions
+            .sort_by(|a, b| a.namespace.cmp(&b.namespace));
         let json = serde_json::to_vec(&canonical).expect("a profile serialises");
         let mut h = Sha256::new();
         h.update(b"coa-content-profile-v1\0");
@@ -159,12 +170,25 @@ impl AdvertisedCapabilities {
     /// Bounds on everything, and the declared hash must be the hash of the content.
     pub fn validate(&self) -> Result<()> {
         if self.profile_version != PROFILE_VERSION {
-            return invalid(format!("capabilities: profile version {} is not supported (expected {PROFILE_VERSION})", self.profile_version));
+            return invalid(format!(
+                "capabilities: profile version {} is not supported (expected {PROFILE_VERSION})",
+                self.profile_version
+            ));
         }
         let c = &self.content;
-        range(&c.character_formats.readable, "the readable character formats")?;
-        range(&c.character_formats.writable, "the writable character formats")?;
-        if c.online_import_job_formats.len() > MAX_JOB_FORMATS || c.online_import_job_formats.iter().any(|v| *v == 0 || *v > 1000) {
+        range(
+            &c.character_formats.readable,
+            "the readable character formats",
+        )?;
+        range(
+            &c.character_formats.writable,
+            "the writable character formats",
+        )?;
+        if c.online_import_job_formats.len() > MAX_JOB_FORMATS
+            || c.online_import_job_formats
+                .iter()
+                .any(|v| *v == 0 || *v > 1000)
+        {
             return invalid("capabilities: the import job formats are out of range");
         }
         if c.session_protocol > 1000 || c.collection_protocol > 1000 {
@@ -192,7 +216,12 @@ impl AdvertisedCapabilities {
             return invalid("capabilities: too many client tables");
         }
         for (name, entry) in &c.client_catalog {
-            if name.is_empty() || name.len() > MAX_TOKEN || !name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')) {
+            if name.is_empty()
+                || name.len() > MAX_TOKEN
+                || !name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+            {
                 return invalid("capabilities: a client table name is not a plain file name");
             }
             if !hex64(&entry.sha256) || entry.records > 100_000_000 {
@@ -205,7 +234,13 @@ impl AdvertisedCapabilities {
             identity_text(&core.date, "the core date")?;
         }
         if let Some(p) = &self.progression {
-            if p.max_player_level == 0 || p.max_player_level > 255 || p.projection_protocol == 0 || p.projection_protocol > 1000 || p.projection_policy_version == 0 || p.projection_policy_version > 1000 {
+            if p.max_player_level == 0
+                || p.max_player_level > 255
+                || p.projection_protocol == 0
+                || p.projection_protocol > 1000
+                || p.projection_policy_version == 0
+                || p.projection_policy_version > 1000
+            {
                 return invalid("capabilities: the progression numbers are out of range");
             }
             if !hex64(&p.progression_signature) {
@@ -253,22 +288,53 @@ pub(crate) mod tests {
     pub(crate) fn sample() -> AdvertisedCapabilities {
         let content = ContentProfile {
             ruleset: Ruleset::Coa,
-            character_formats: CharacterFormats { readable: FormatRange { min: 1, max: 2 }, writable: FormatRange { min: 2, max: 2 } },
+            character_formats: CharacterFormats {
+                readable: FormatRange { min: 1, max: 2 },
+                writable: FormatRange { min: 2, max: 2 },
+            },
             online_import_job_formats: vec![2],
             session_protocol: 2,
             collection_protocol: 1,
-            features: [Feature::RuntimeSessions, Feature::Wardrobe, Feature::LevelProjection].into_iter().collect(),
+            features: [
+                Feature::RuntimeSessions,
+                Feature::Wardrobe,
+                Feature::LevelProjection,
+            ]
+            .into_iter()
+            .collect(),
             collection_kinds: ["coa:appearance".to_string()].into_iter().collect(),
-            extensions: vec![ExtensionSupport { namespace: "coa".into(), module_version: "1".into(), formats: FormatRange { min: 1, max: 1 } }],
-            client_catalog: [("Appearances.dbc".to_string(), CatalogEntry { sha256: "a".repeat(64), records: 5 })].into_iter().collect(),
+            extensions: vec![ExtensionSupport {
+                namespace: "coa".into(),
+                module_version: "1".into(),
+                formats: FormatRange { min: 1, max: 1 },
+            }],
+            client_catalog: [(
+                "Appearances.dbc".to_string(),
+                CatalogEntry {
+                    sha256: "a".repeat(64),
+                    records: 5,
+                },
+            )]
+            .into_iter()
+            .collect(),
         };
         let content_profile_hash = content.hash();
         AdvertisedCapabilities {
             profile_version: 2,
-            core: Some(CoreIdentity { commit: "abc123".into(), branch: "main".into(), date: "2026-10-01".into() }),
+            core: Some(CoreIdentity {
+                commit: "abc123".into(),
+                branch: "main".into(),
+                date: "2026-10-01".into(),
+            }),
             content,
             content_profile_hash,
-            progression: Some(Progression { max_player_level: 60, projection_protocol: 1, projection_policy_version: 1, progression_signature: "b".repeat(64), scaling_enabled: false }),
+            progression: Some(Progression {
+                max_player_level: 60,
+                projection_protocol: 1,
+                projection_policy_version: 1,
+                progression_signature: "b".repeat(64),
+                scaling_enabled: false,
+            }),
         }
     }
 
@@ -280,17 +346,32 @@ pub(crate) mod tests {
         assert!(c.validate().is_err());
         let mut c = sample();
         c.content.session_protocol = 3;
-        assert!(c.validate().is_err(), "the content changed under the same hash");
+        assert!(
+            c.validate().is_err(),
+            "the content changed under the same hash"
+        );
     }
 
     #[test]
     fn hostile_content_is_bounded() {
         let mut c = sample();
-        c.content.extensions = (0..65).map(|i| ExtensionSupport { namespace: format!("ns{i}"), module_version: "1".into(), formats: FormatRange { min: 1, max: 1 } }).collect();
+        c.content.extensions = (0..65)
+            .map(|i| ExtensionSupport {
+                namespace: format!("ns{i}"),
+                module_version: "1".into(),
+                formats: FormatRange { min: 1, max: 1 },
+            })
+            .collect();
         c.content_profile_hash = c.content.hash();
         assert!(c.validate().is_err());
         let mut c = sample();
-        c.content.client_catalog.insert("../../x".into(), CatalogEntry { sha256: "a".repeat(64), records: 1 });
+        c.content.client_catalog.insert(
+            "../../x".into(),
+            CatalogEntry {
+                sha256: "a".repeat(64),
+                records: 1,
+            },
+        );
         c.content_profile_hash = c.content.hash();
         assert!(c.validate().is_err());
         let mut c = sample();
@@ -300,7 +381,11 @@ pub(crate) mod tests {
         c.content.collection_kinds.insert("<script>".into());
         c.content_profile_hash = c.content.hash();
         assert!(c.validate().is_err());
-        assert!(serde_json::from_str::<AdvertisedCapabilities>(r#"{"profile_version":2,"extra":1}"#).is_err(), "unknown fields");
+        assert!(
+            serde_json::from_str::<AdvertisedCapabilities>(r#"{"profile_version":2,"extra":1}"#)
+                .is_err(),
+            "unknown fields"
+        );
     }
 
     #[test]

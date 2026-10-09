@@ -26,7 +26,11 @@ impl HostState {
             "armed" => HostState::Armed,
             "open" => HostState::Open,
             "closed" => HostState::Closed,
-            other => return Err(PortableError::Invalid(format!("unknown host session state {other:?}"))),
+            other => {
+                return Err(PortableError::Invalid(format!(
+                    "unknown host session state {other:?}"
+                )))
+            }
         })
     }
 }
@@ -67,13 +71,30 @@ pub enum AckEffect {
     Ignored,
     Applied,
     /// The final checkpoint was applied: the realm is now synchronised with the canonical character, and this session follows.
-    Finished { next_session: SessionId, next_revision: u64 },
+    Finished {
+        next_session: SessionId,
+        next_revision: u64,
+    },
     /// The Owner will never accept this message (stale or rejected); it was dropped from the outbox.
     Dropped(String),
 }
 
 fn read_host_session(conn: &Connection, session: SessionId) -> Result<Option<HostSession>> {
-    type Raw = (String, String, Option<i64>, i64, i64, String, i64, Option<i64>, i64, String, String, Option<String>, i64);
+    type Raw = (
+        String,
+        String,
+        Option<i64>,
+        i64,
+        i64,
+        String,
+        i64,
+        Option<i64>,
+        i64,
+        String,
+        String,
+        Option<String>,
+        i64,
+    );
     let raw: Option<Raw> = conn
         .query_row(
             "SELECT character_id, server_id, local_guid, base_revision, generation, state, next_sequence, pending_sequence, acked_sequence, owned_items, owned_pets, pin, reproject FROM host_session WHERE session_id = ?1",
@@ -81,8 +102,31 @@ fn read_host_session(conn: &Connection, session: SessionId) -> Result<Option<Hos
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?)),
         )
         .optional()?;
-    let Some((character, server_id, guid, base, generation, state, next, pending, acked, items, pets, pin, reproject)) = raw else { return Ok(None) };
-    let pin: Option<ProgressionPin> = pin.map(|j| serde_json::from_str(&j).map_err(|e| PortableError::CorruptSnapshot(format!("a stored session pin is not valid: {e}")))).transpose()?;
+    let Some((
+        character,
+        server_id,
+        guid,
+        base,
+        generation,
+        state,
+        next,
+        pending,
+        acked,
+        items,
+        pets,
+        pin,
+        reproject,
+    )) = raw
+    else {
+        return Ok(None);
+    };
+    let pin: Option<ProgressionPin> = pin
+        .map(|j| {
+            serde_json::from_str(&j).map_err(|e| {
+                PortableError::CorruptSnapshot(format!("a stored session pin is not valid: {e}"))
+            })
+        })
+        .transpose()?;
     Ok(Some(HostSession {
         session_id: session,
         character_id: character.parse()?,
@@ -102,7 +146,18 @@ fn read_host_session(conn: &Connection, session: SessionId) -> Result<Option<Hos
 }
 
 #[allow(clippy::too_many_arguments)]
-fn insert_host_session(tx: &Transaction<'_>, session: SessionId, id: CharacterId, server_id: &str, guid: Option<u32>, base: u64, generation: u32, model: &PortableCharacter, pin: Option<&ProgressionPin>, reproject: bool) -> Result<()> {
+fn insert_host_session(
+    tx: &Transaction<'_>,
+    session: SessionId,
+    id: CharacterId,
+    server_id: &str,
+    guid: Option<u32>,
+    base: u64,
+    generation: u32,
+    model: &PortableCharacter,
+    pin: Option<&ProgressionPin>,
+    reproject: bool,
+) -> Result<()> {
     let items: Vec<PortableItemId> = model.items.iter().map(|i| i.id).collect();
     let pets: Vec<PortablePetId> = model.pets.iter().map(|p| p.id).collect();
     let at = now();
@@ -115,46 +170,105 @@ fn insert_host_session(tx: &Transaction<'_>, session: SessionId, id: CharacterId
 }
 
 /// Install (or advance to) the canonical character the Owner handed over, as the Host's copy. The revision is the Owner's.
-fn install_copy_in_tx(tx: &Transaction<'_>, profile: ProfileId, model: &PortableCharacter, revision: u64, source_server_id: &str) -> Result<()> {
+fn install_copy_in_tx(
+    tx: &Transaction<'_>,
+    profile: ProfileId,
+    model: &PortableCharacter,
+    revision: u64,
+    source_server_id: &str,
+) -> Result<()> {
     let encoded = snapshot::encode(model)?;
     let id = model.character_id;
     let at = now();
-    let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM character WHERE character_id = ?1)", [id.to_string()], |r| r.get(0))?;
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM character WHERE character_id = ?1)",
+        [id.to_string()],
+        |r| r.get(0),
+    )?;
     if !exists {
         tx.execute(
             "INSERT INTO character(character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, 0)",
             params![id.to_string(), profile.to_string(), model.ruleset.as_str(), model.identity.name, model.identity.race.to_string(), model.identity.class.to_string(), model.identity.gender, model.progression.level, revision as i64, at],
         )?;
-        insert_snapshot(tx, id, revision, &encoded, source_server_id, Some("received"), &at)?;
+        insert_snapshot(
+            tx,
+            id,
+            revision,
+            &encoded,
+            source_server_id,
+            Some("received"),
+            &at,
+        )?;
         return Ok(());
     }
     let record = read_character(tx, id)?;
     if record.ruleset != model.ruleset {
-        return Err(PortableError::RulesetChange { from: record.ruleset.to_string(), to: model.ruleset.to_string() });
+        return Err(PortableError::RulesetChange {
+            from: record.ruleset.to_string(),
+            to: model.ruleset.to_string(),
+        });
     }
     if revision < record.revision {
-        return Err(PortableError::StaleRevision { expected: revision, current: record.revision });
+        return Err(PortableError::StaleRevision {
+            expected: revision,
+            current: record.revision,
+        });
     }
     if revision == record.revision {
         let (_, have) = read_snapshot_row(tx, id, revision)?;
         if snapshot::semantic_hash(&have.payload, &have.content_hash)? != encoded.content_hash {
-            return Err(PortableError::Invalid("the Host already holds a different canonical state at this revision".into()));
+            return Err(PortableError::Invalid(
+                "the Host already holds a different canonical state at this revision".into(),
+            ));
         }
         return Ok(());
     }
-    insert_snapshot(tx, id, revision, &encoded, source_server_id, Some("received"), &at)?;
+    insert_snapshot(
+        tx,
+        id,
+        revision,
+        &encoded,
+        source_server_id,
+        Some("received"),
+        &at,
+    )?;
     update_character(tx, id, model, revision, &at)?;
     Ok(())
 }
 
 /// Presence of every active mapping after the Owner said what the canonical character owns: owned and shown = present, owned and
 /// not shown = filtered, shown and not owned = realm-local, neither = retired.
-fn reclassify_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revision: u64, items: &[PortableItemId], pets: &[PortablePetId]) -> Result<()> {
+fn reclassify_in_tx(
+    tx: &Transaction<'_>,
+    id: CharacterId,
+    server_id: &str,
+    revision: u64,
+    items: &[PortableItemId],
+    pets: &[PortablePetId],
+) -> Result<()> {
     let at = now();
-    for (table, column, owned) in [("item_mapping", "portable_item_id", items.iter().map(|i| i.to_string()).collect::<std::collections::HashSet<_>>()), ("pet_mapping", "portable_pet_id", pets.iter().map(|p| p.to_string()).collect())] {
+    for (table, column, owned) in [
+        (
+            "item_mapping",
+            "portable_item_id",
+            items
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<std::collections::HashSet<_>>(),
+        ),
+        (
+            "pet_mapping",
+            "portable_pet_id",
+            pets.iter().map(|p| p.to_string()).collect(),
+        ),
+    ] {
         let mut stmt = tx.prepare(&format!("SELECT mapping_id, {column}, presence FROM {table} WHERE character_id = ?1 AND server_id = ?2 AND state = 'active'"))?;
-        let rows: Vec<(i64, String, String)> = stmt.query_map(params![id.to_string(), server_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<std::result::Result<_, _>>()?;
+        let rows: Vec<(i64, String, String)> = stmt
+            .query_map(params![id.to_string(), server_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
         drop(stmt);
         for (mapping, portable, presence) in rows {
             let observed = presence != "filtered";
@@ -172,7 +286,13 @@ fn reclassify_in_tx(tx: &Transaction<'_>, id: CharacterId, server_id: &str, revi
 
 impl Store {
     /// The Host's copy of the character the Owner handed over (creates it, or advances it to a newer revision).
-    pub fn host_install_copy(&mut self, profile: ProfileId, model: &PortableCharacter, revision: u64, owner_server_id: &str) -> Result<()> {
+    pub fn host_install_copy(
+        &mut self,
+        profile: ProfileId,
+        model: &PortableCharacter,
+        revision: u64,
+        owner_server_id: &str,
+    ) -> Result<()> {
         check_server_id(owner_server_id)?;
         let tx = self.write_tx()?;
         install_copy_in_tx(&tx, profile, model, revision, owner_server_id)?;
@@ -181,12 +301,27 @@ impl Store {
     }
 
     /// Record that a session is about to be armed on the realm (before the import runs, so a crash in between is recoverable).
-    pub fn host_prepare_session(&mut self, offer: &SessionOffer, model: &PortableCharacter) -> Result<HostSession> {
+    pub fn host_prepare_session(
+        &mut self,
+        offer: &SessionOffer,
+        model: &PortableCharacter,
+    ) -> Result<HostSession> {
         let tx = self.write_tx()?;
         if let Some(existing) = read_host_session(&tx, offer.session_id)? {
             return Ok(existing);
         }
-        insert_host_session(&tx, offer.session_id, offer.character_id, &offer.server_id, None, offer.canonical_revision, 1, model, None, false)?;
+        insert_host_session(
+            &tx,
+            offer.session_id,
+            offer.character_id,
+            &offer.server_id,
+            None,
+            offer.canonical_revision,
+            1,
+            model,
+            None,
+            false,
+        )?;
         tx.commit()?;
         Ok(read_host_session(&self.conn, offer.session_id)?.expect("just inserted"))
     }
@@ -195,7 +330,9 @@ impl Store {
     pub fn host_bind_session(&mut self, session: SessionId, local_guid: u32) -> Result<()> {
         let changed = self.conn.execute("UPDATE host_session SET local_guid = ?2, updated_at = ?3 WHERE session_id = ?1 AND (local_guid IS NULL OR local_guid = ?2)", params![session.to_string(), local_guid, now()])?;
         if changed == 0 {
-            return Err(PortableError::Invalid(format!("session {session} does not exist or is bound to another character")));
+            return Err(PortableError::Invalid(format!(
+                "session {session} does not exist or is bound to another character"
+            )));
         }
         Ok(())
     }
@@ -207,36 +344,67 @@ impl Store {
     /// Armed and open sessions on one realm, oldest first.
     pub fn host_live_sessions(&self, server_id: &str) -> Result<Vec<HostSession>> {
         let mut stmt = self.conn.prepare("SELECT session_id FROM host_session WHERE server_id = ?1 AND state IN ('armed', 'open') ORDER BY session_id")?;
-        let ids: Vec<String> = stmt.query_map([server_id], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
-        ids.iter().map(|s| Ok(read_host_session(&self.conn, s.parse()?)?.expect("it was just listed"))).collect()
+        let ids: Vec<String> = stmt
+            .query_map([server_id], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        ids.iter()
+            .map(|s| Ok(read_host_session(&self.conn, s.parse()?)?.expect("it was just listed")))
+            .collect()
     }
 
     /// Reserve the sequence of the next checkpoint **before** the realm is asked to save. Asking again returns the same number
     /// until the checkpoint is queued, so a restart resumes the same checkpoint.
     pub fn host_begin_checkpoint(&mut self, session: SessionId) -> Result<u64> {
         let tx = self.write_tx()?;
-        let s = read_host_session(&tx, session)?.ok_or_else(|| PortableError::Invalid(format!("unknown session {session}")))?;
+        let s = read_host_session(&tx, session)?
+            .ok_or_else(|| PortableError::Invalid(format!("unknown session {session}")))?;
         if s.state != HostState::Open {
-            return Err(PortableError::Invalid("a checkpoint needs an open session".into()));
+            return Err(PortableError::Invalid(
+                "a checkpoint needs an open session".into(),
+            ));
         }
         let sequence = s.pending_sequence.unwrap_or(s.next_sequence);
-        tx.execute("UPDATE host_session SET pending_sequence = ?2, updated_at = ?3 WHERE session_id = ?1", params![session.to_string(), sequence as i64, now()])?;
+        tx.execute(
+            "UPDATE host_session SET pending_sequence = ?2, updated_at = ?3 WHERE session_id = ?1",
+            params![session.to_string(), sequence as i64, now()],
+        )?;
         tx.commit()?;
         Ok(sequence)
     }
 
     /// `B0` was read from the realm: persist the baseline (presence of items and pets), queue `PortableSessionStarted`, open.
-    pub fn host_queue_started(&mut self, session: SessionId, msg: &PortableSessionStarted, b0: &PortableCharacter, items: &[ItemObservation], pets: &[PetObservation]) -> Result<()> {
+    pub fn host_queue_started(
+        &mut self,
+        session: SessionId,
+        msg: &PortableSessionStarted,
+        b0: &PortableCharacter,
+        items: &[ItemObservation],
+        pets: &[PetObservation],
+    ) -> Result<()> {
         let tx = self.write_tx()?;
-        let s = read_host_session(&tx, session)?.ok_or_else(|| PortableError::Invalid(format!("unknown session {session}")))?;
+        let s = read_host_session(&tx, session)?
+            .ok_or_else(|| PortableError::Invalid(format!("unknown session {session}")))?;
         match s.state {
             HostState::Armed => {}
-            _ => return Err(PortableError::Invalid("this session already has its baseline".into())),
+            _ => {
+                return Err(PortableError::Invalid(
+                    "this session already has its baseline".into(),
+                ))
+            }
         }
-        capture_baseline_in_tx(&tx, s.character_id, &s.server_id, &BaselineInput { b0, items, pets })?;
+        capture_baseline_in_tx(
+            &tx,
+            s.character_id,
+            &s.server_id,
+            &BaselineInput { b0, items, pets },
+        )?;
         let bytes = to_json(msg)?;
         tx.execute("INSERT INTO host_outbox(session_id, sequence, kind, message, state, created_at) VALUES (?1, 0, 'started', ?2, 'pending', ?3)", params![session.to_string(), bytes, now()])?;
-        let pin = msg.progression.as_ref().map(|p| serde_json::to_string(&p.pin)).transpose()?;
+        let pin = msg
+            .progression
+            .as_ref()
+            .map(|p| serde_json::to_string(&p.pin))
+            .transpose()?;
         tx.execute("UPDATE host_session SET state = 'open', generation = ?2, pin = ?4, updated_at = ?3 WHERE session_id = ?1", params![session.to_string(), msg.baseline_generation, now(), pin])?;
         tx.commit()?;
         Ok(())
@@ -244,28 +412,85 @@ impl Store {
 
     /// `B1` was read after the realm's checkpoint marker appeared: register what the realm shows (so new items keep their ids in
     /// the next checkpoint) and queue the message.
-    pub fn host_queue_checkpoint(&mut self, session: SessionId, msg: &PortableCheckpoint, items: &[ItemObservation], pets: &[PetObservation]) -> Result<()> {
+    pub fn host_queue_checkpoint(
+        &mut self,
+        session: SessionId,
+        msg: &PortableCheckpoint,
+        items: &[ItemObservation],
+        pets: &[PetObservation],
+    ) -> Result<()> {
         let tx = self.write_tx()?;
-        let s = read_host_session(&tx, session)?.ok_or_else(|| PortableError::Invalid(format!("unknown session {session}")))?;
+        let s = read_host_session(&tx, session)?
+            .ok_or_else(|| PortableError::Invalid(format!("unknown session {session}")))?;
         if s.state != HostState::Open || s.pending_sequence != Some(msg.sequence) {
-            return Err(PortableError::Invalid("this checkpoint was not reserved".into()));
+            return Err(PortableError::Invalid(
+                "this checkpoint was not reserved".into(),
+            ));
         }
         if msg.pin != s.pin {
-            return Err(PortableError::ProgressionChanged("the checkpoint is not under the pin the session started under".into()));
+            return Err(PortableError::ProgressionChanged(
+                "the checkpoint is not under the pin the session started under".into(),
+            ));
         }
-        let baseline = read_open_baseline(&tx, s.character_id, &s.server_id)?.ok_or(PortableError::NoBaseline)?;
-        let (c0_items, b0_items): (std::collections::HashSet<_>, std::collections::HashSet<_>) = (baseline.c0.items.iter().map(|i| i.id).collect(), baseline.b0.items.iter().map(|i| i.id).collect());
-        let (c0_pets, b0_pets): (std::collections::HashSet<_>, std::collections::HashSet<_>) = (baseline.c0.pets.iter().map(|p| p.id).collect(), baseline.b0.pets.iter().map(|p| p.id).collect());
+        let baseline = read_open_baseline(&tx, s.character_id, &s.server_id)?
+            .ok_or(PortableError::NoBaseline)?;
+        let (c0_items, b0_items): (std::collections::HashSet<_>, std::collections::HashSet<_>) = (
+            baseline.c0.items.iter().map(|i| i.id).collect(),
+            baseline.b0.items.iter().map(|i| i.id).collect(),
+        );
+        let (c0_pets, b0_pets): (std::collections::HashSet<_>, std::collections::HashSet<_>) = (
+            baseline.c0.pets.iter().map(|p| p.id).collect(),
+            baseline.b0.pets.iter().map(|p| p.id).collect(),
+        );
         // what the Owner is expected to own: what it owned at the last acknowledgement plus what is new since B0
-        let mut canonical_items: std::collections::HashSet<_> = s.owned_items.iter().copied().collect();
-        canonical_items.extend(items.iter().map(|o| o.portable_item_id).filter(|i| !b0_items.contains(i) && !c0_items.contains(i)));
-        let mut canonical_pets: std::collections::HashSet<_> = s.owned_pets.iter().copied().collect();
-        canonical_pets.extend(pets.iter().map(|o| o.portable_pet_id).filter(|p| !b0_pets.contains(p) && !c0_pets.contains(p)));
+        let mut canonical_items: std::collections::HashSet<_> =
+            s.owned_items.iter().copied().collect();
+        canonical_items.extend(
+            items
+                .iter()
+                .map(|o| o.portable_item_id)
+                .filter(|i| !b0_items.contains(i) && !c0_items.contains(i)),
+        );
+        let mut canonical_pets: std::collections::HashSet<_> =
+            s.owned_pets.iter().copied().collect();
+        canonical_pets.extend(
+            pets.iter()
+                .map(|o| o.portable_pet_id)
+                .filter(|p| !b0_pets.contains(p) && !c0_pets.contains(p)),
+        );
         let mapping_revision: i64 = tx.query_row("SELECT last_revision FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![s.character_id.to_string(), s.server_id], |r| r.get(0))?;
-        let protection = Protection { realm_local_items: items.iter().map(|o| o.portable_item_id).filter(|i| !canonical_items.contains(i)).collect(), canonical_items };
-        reconcile_with(&tx, s.character_id, &s.server_id, mapping_revision as u64, items, &protection)?;
-        let pet_protection = PetProtection { realm_local_pets: pets.iter().map(|o| o.portable_pet_id).filter(|p| !canonical_pets.contains(p)).collect(), canonical_pets };
-        sync_pets_in_tx(&tx, s.character_id, &s.server_id, mapping_revision as u64, pets, &pet_protection)?;
+        let protection = Protection {
+            realm_local_items: items
+                .iter()
+                .map(|o| o.portable_item_id)
+                .filter(|i| !canonical_items.contains(i))
+                .collect(),
+            canonical_items,
+        };
+        reconcile_with(
+            &tx,
+            s.character_id,
+            &s.server_id,
+            mapping_revision as u64,
+            items,
+            &protection,
+        )?;
+        let pet_protection = PetProtection {
+            realm_local_pets: pets
+                .iter()
+                .map(|o| o.portable_pet_id)
+                .filter(|p| !canonical_pets.contains(p))
+                .collect(),
+            canonical_pets,
+        };
+        sync_pets_in_tx(
+            &tx,
+            s.character_id,
+            &s.server_id,
+            mapping_revision as u64,
+            pets,
+            &pet_protection,
+        )?;
         let bytes = to_json(msg)?;
         tx.execute("INSERT INTO host_outbox(session_id, sequence, kind, message, state, created_at) VALUES (?1, ?2, 'checkpoint', ?3, 'pending', ?4)", params![session.to_string(), msg.sequence as i64, bytes, now()])?;
         tx.execute("UPDATE host_session SET next_sequence = ?2, pending_sequence = NULL, updated_at = ?3 WHERE session_id = ?1", params![session.to_string(), msg.sequence as i64 + 1, now()])?;
@@ -278,13 +503,19 @@ impl Store {
     pub fn host_mark_reproject(&mut self, session: SessionId) -> Result<()> {
         let n = self.conn.execute("UPDATE host_session SET reproject = 1, updated_at = ?2 WHERE session_id = ?1 AND state <> 'closed'", params![session.to_string(), now()])?;
         if n == 0 {
-            return Err(PortableError::Invalid(format!("session {session} is not live")));
+            return Err(PortableError::Invalid(format!(
+                "session {session} is not live"
+            )));
         }
         Ok(())
     }
 
     /// The working copy was projected again under the new profile: the session may be armed.
-    pub fn host_clear_reproject(&mut self, session: SessionId, pin: Option<&ProgressionPin>) -> Result<()> {
+    pub fn host_clear_reproject(
+        &mut self,
+        session: SessionId,
+        pin: Option<&ProgressionPin>,
+    ) -> Result<()> {
         let json = pin.map(serde_json::to_string).transpose()?;
         self.conn.execute("UPDATE host_session SET reproject = 0, pin = ?3, updated_at = ?2 WHERE session_id = ?1", params![session.to_string(), now(), json])?;
         Ok(())
@@ -292,7 +523,14 @@ impl Store {
 
     /// The bytes of one queued message, acknowledged or not.
     pub fn host_message(&self, session: SessionId, sequence: u64) -> Result<Option<Vec<u8>>> {
-        Ok(self.conn.query_row("SELECT message FROM host_outbox WHERE session_id = ?1 AND sequence = ?2", params![session.to_string(), sequence as i64], |r| r.get(0)).optional()?)
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT message FROM host_outbox WHERE session_id = ?1 AND sequence = ?2",
+                params![session.to_string(), sequence as i64],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     /// Messages the Owner has not acknowledged yet, in the order they must be delivered.
@@ -301,11 +539,23 @@ impl Store {
             "SELECT o.session_id, o.sequence, o.kind, o.message FROM host_outbox o JOIN host_session s ON s.session_id = o.session_id
              WHERE s.server_id = ?1 AND o.state = 'pending' ORDER BY o.created_at, o.sequence",
         )?;
-        let rows = stmt.query_map([server_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, Vec<u8>>(3)?)))?;
+        let rows = stmt.query_map([server_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Vec<u8>>(3)?,
+            ))
+        })?;
         let mut out = Vec::new();
         for row in rows {
             let (session, sequence, kind, bytes) = row?;
-            out.push(OutboxMessage { session_id: session.parse()?, sequence: sequence as u64, started: kind == "started", bytes });
+            out.push(OutboxMessage {
+                session_id: session.parse()?,
+                sequence: sequence as u64,
+                started: kind == "started",
+                bytes,
+            });
         }
         Ok(out)
     }
@@ -313,9 +563,15 @@ impl Store {
     /// Apply the Owner's acknowledgement.
     pub fn host_receive_ack(&mut self, ack: &OwnerAck) -> Result<AckEffect> {
         let tx = self.write_tx()?;
-        let Some(s) = read_host_session(&tx, ack.session_id)? else { return Ok(AckEffect::Ignored) };
+        let Some(s) = read_host_session(&tx, ack.session_id)? else {
+            return Ok(AckEffect::Ignored);
+        };
         let waiting: Option<String> = tx
-            .query_row("SELECT state FROM host_outbox WHERE session_id = ?1 AND sequence = ?2", params![ack.session_id.to_string(), ack.sequence as i64], |r| r.get(0))
+            .query_row(
+                "SELECT state FROM host_outbox WHERE session_id = ?1 AND sequence = ?2",
+                params![ack.session_id.to_string(), ack.sequence as i64],
+                |r| r.get(0),
+            )
             .optional()?;
         match waiting.as_deref() {
             None => return Ok(AckEffect::Ignored),
@@ -324,23 +580,38 @@ impl Store {
         }
         let at = now();
         if ack.outcome.accepted() && ack.pin != s.pin {
-            return Err(PortableError::ProgressionChanged("the acknowledgement is under another progression profile than the session".into()));
+            return Err(PortableError::ProgressionChanged(
+                "the acknowledgement is under another progression profile than the session".into(),
+            ));
         }
         if !ack.outcome.accepted() {
-            tx.execute("UPDATE host_outbox SET state = 'acked' WHERE session_id = ?1 AND sequence = ?2", params![ack.session_id.to_string(), ack.sequence as i64])?;
+            tx.execute(
+                "UPDATE host_outbox SET state = 'acked' WHERE session_id = ?1 AND sequence = ?2",
+                params![ack.session_id.to_string(), ack.sequence as i64],
+            )?;
             if matches!(ack.outcome, AckOutcome::StaleSession) {
                 tx.execute("UPDATE host_session SET state = 'closed', updated_at = ?2 WHERE session_id = ?1", params![ack.session_id.to_string(), at])?;
             }
             tx.commit()?;
             return Ok(AckEffect::Dropped(format!("{:?}", ack.outcome)));
         }
-        tx.execute("UPDATE host_outbox SET state = 'acked' WHERE session_id = ?1 AND sequence = ?2", params![ack.session_id.to_string(), ack.sequence as i64])?;
+        tx.execute(
+            "UPDATE host_outbox SET state = 'acked' WHERE session_id = ?1 AND sequence = ?2",
+            params![ack.session_id.to_string(), ack.sequence as i64],
+        )?;
         if ack.sequence > 0 {
             tx.execute(
                 "UPDATE host_session SET acked_sequence = max(acked_sequence, ?2), owned_items = ?3, owned_pets = ?4, updated_at = ?5 WHERE session_id = ?1",
                 params![ack.session_id.to_string(), ack.sequence as i64, serde_json::to_string(&ack.owned_items)?, serde_json::to_string(&ack.owned_pets)?, at],
             )?;
-            reclassify_in_tx(&tx, s.character_id, &s.server_id, ack.canonical_revision, &ack.owned_items, &ack.owned_pets)?;
+            reclassify_in_tx(
+                &tx,
+                s.character_id,
+                &s.server_id,
+                ack.canonical_revision,
+                &ack.owned_items,
+                &ack.owned_pets,
+            )?;
         }
         let (Some(canonical), Some(next)) = (&ack.canonical, &ack.next_session) else {
             tx.commit()?;
@@ -349,23 +620,54 @@ impl Store {
 
         // the final checkpoint: the realm is now synchronised with the canonical character, and the next session follows
         let model = canonical.open()?;
-        if hex::encode(canonical.hash()?) != ack.canonical_hash || model.character_id != s.character_id {
-            return Err(PortableError::Invalid("the final acknowledgement carries another character than its session".into()));
+        if hex::encode(canonical.hash()?) != ack.canonical_hash
+            || model.character_id != s.character_id
+        {
+            return Err(PortableError::Invalid(
+                "the final acknowledgement carries another character than its session".into(),
+            ));
         }
-        let profile: String = tx.query_row("SELECT profile_id FROM character WHERE character_id = ?1", [s.character_id.to_string()], |r| r.get(0))?;
-        install_copy_in_tx(&tx, profile.parse()?, &model, ack.canonical_revision, "owner")?;
+        let profile: String = tx.query_row(
+            "SELECT profile_id FROM character WHERE character_id = ?1",
+            [s.character_id.to_string()],
+            |r| r.get(0),
+        )?;
+        install_copy_in_tx(
+            &tx,
+            profile.parse()?,
+            &model,
+            ack.canonical_revision,
+            "owner",
+        )?;
         let encoded = snapshot::encode(&model)?;
         tx.execute("UPDATE character_server_mapping SET last_revision = ?3, state = 'synced', updated_at = ?4 WHERE character_id = ?1 AND server_id = ?2", params![s.character_id.to_string(), s.server_id, ack.canonical_revision as i64, at])?;
         set_synced_in_tx(&tx, s.character_id, &s.server_id, &encoded)?;
         tx.execute("UPDATE realm_baseline SET state = 'closed', updated_at = ?3 WHERE character_id = ?1 AND server_id = ?2 AND state = 'open'", params![s.character_id.to_string(), s.server_id, at])?;
-        tx.execute("UPDATE host_session SET state = 'closed', updated_at = ?2 WHERE session_id = ?1", params![ack.session_id.to_string(), at])?;
-        insert_host_session(&tx, next.session_id, s.character_id, &s.server_id, s.local_guid, next.canonical_revision, s.generation + 1, &model, s.pin.as_ref(), s.reproject)?;
+        tx.execute(
+            "UPDATE host_session SET state = 'closed', updated_at = ?2 WHERE session_id = ?1",
+            params![ack.session_id.to_string(), at],
+        )?;
+        insert_host_session(
+            &tx,
+            next.session_id,
+            s.character_id,
+            &s.server_id,
+            s.local_guid,
+            next.canonical_revision,
+            s.generation + 1,
+            &model,
+            s.pin.as_ref(),
+            s.reproject,
+        )?;
         tx.execute(
             "UPDATE realm_projection SET canonical_revision = ?3, context = json_set(context, '$.canonical_revision', ?3), updated_at = ?4 WHERE character_id = ?1 AND server_id = ?2",
             params![s.character_id.to_string(), s.server_id, next.canonical_revision as i64, at],
         )?;
         tx.commit()?;
-        Ok(AckEffect::Finished { next_session: next.session_id, next_revision: next.canonical_revision })
+        Ok(AckEffect::Finished {
+            next_session: next.session_id,
+            next_revision: next.canonical_revision,
+        })
     }
 }
 
@@ -392,12 +694,30 @@ pub struct CollectionOutboxMessage {
 }
 
 fn opt_hash(blob: Option<Vec<u8>>) -> Result<Option<[u8; 32]>> {
-    blob.map(|b| <[u8; 32]>::try_from(b.as_slice()).map_err(|_| PortableError::CorruptSnapshot("a stored collection hash is not 32 bytes".into()))).transpose()
+    blob.map(|b| {
+        <[u8; 32]>::try_from(b.as_slice()).map_err(|_| {
+            PortableError::CorruptSnapshot("a stored collection hash is not 32 bytes".into())
+        })
+    })
+    .transpose()
 }
 
 impl Store {
-    pub fn host_collection(&self, server_id: &str, account: u32, kind: &str) -> Result<Option<HostCollection>> {
-        type Raw = (String, Option<Vec<u8>>, Option<Vec<u8>>, i64, Option<Vec<u8>>, Option<Vec<u8>>, i64);
+    pub fn host_collection(
+        &self,
+        server_id: &str,
+        account: u32,
+        kind: &str,
+    ) -> Result<Option<HostCollection>> {
+        type Raw = (
+            String,
+            Option<Vec<u8>>,
+            Option<Vec<u8>>,
+            i64,
+            Option<Vec<u8>>,
+            Option<Vec<u8>>,
+            i64,
+        );
         let raw: Option<Raw> = self
             .conn
             .query_row(
@@ -406,15 +726,34 @@ impl Store {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
             )
             .optional()?;
-        raw.map(|(fingerprint, observed, acked, revision, canonical, pending, checked_at)| {
-            Ok(HostCollection { fingerprint, observed_hash: opt_hash(observed)?, acked_hash: opt_hash(acked)?, canonical_revision: revision as u64, canonical_hash: opt_hash(canonical)?, pending, checked_at: checked_at as u64 })
-        })
+        raw.map(
+            |(fingerprint, observed, acked, revision, canonical, pending, checked_at)| {
+                Ok(HostCollection {
+                    fingerprint,
+                    observed_hash: opt_hash(observed)?,
+                    acked_hash: opt_hash(acked)?,
+                    canonical_revision: revision as u64,
+                    canonical_hash: opt_hash(canonical)?,
+                    pending,
+                    checked_at: checked_at as u64,
+                })
+            },
+        )
         .transpose()
     }
 
     /// The realm account was read: remember the fingerprint and the hash of what it showed, and queue `pending` for the Owner
     /// (or none when the Owner already acknowledged exactly this set). A newer observation replaces an older pending one.
-    pub fn host_collection_observe(&mut self, server_id: &str, account: u32, kind: &str, fingerprint: &str, observed: &[u8; 32], pending: Option<&[u8]>, checked_at: u64) -> Result<()> {
+    pub fn host_collection_observe(
+        &mut self,
+        server_id: &str,
+        account: u32,
+        kind: &str,
+        fingerprint: &str,
+        observed: &[u8; 32],
+        pending: Option<&[u8]>,
+        checked_at: u64,
+    ) -> Result<()> {
         let tx = self.write_tx()?;
         tx.execute(
             "INSERT INTO host_collection(server_id, account, kind, fingerprint, observed_hash, pending, checked_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -429,7 +768,17 @@ impl Store {
     /// The Owner acknowledged `acked` (the hash of the realm set it was sent, or of the set the realm holds after the canonical
     /// ids were applied): the pending message is dropped and the canonical revision remembered.
     #[allow(clippy::too_many_arguments)]
-    pub fn host_collection_acknowledge(&mut self, server_id: &str, account: u32, kind: &str, fingerprint: Option<&str>, observed: Option<&[u8; 32]>, acked: &[u8; 32], canonical_revision: u64, canonical_hash: Option<&[u8; 32]>) -> Result<()> {
+    pub fn host_collection_acknowledge(
+        &mut self,
+        server_id: &str,
+        account: u32,
+        kind: &str,
+        fingerprint: Option<&str>,
+        observed: Option<&[u8; 32]>,
+        acked: &[u8; 32],
+        canonical_revision: u64,
+        canonical_hash: Option<&[u8; 32]>,
+    ) -> Result<()> {
         let tx = self.write_tx()?;
         let at = now();
         tx.execute(
@@ -444,7 +793,12 @@ impl Store {
     }
 
     /// Drop a pending message the Owner will never accept.
-    pub fn host_collection_drop_pending(&mut self, server_id: &str, account: u32, kind: &str) -> Result<()> {
+    pub fn host_collection_drop_pending(
+        &mut self,
+        server_id: &str,
+        account: u32,
+        kind: &str,
+    ) -> Result<()> {
         let tx = self.write_tx()?;
         tx.execute("UPDATE host_collection SET pending = NULL, updated_at = ?4 WHERE server_id = ?1 AND account = ?2 AND kind = ?3", params![server_id, account, kind, now()])?;
         tx.commit()?;
@@ -453,7 +807,13 @@ impl Store {
 
     pub fn host_collection_outbox(&self, server_id: &str) -> Result<Vec<CollectionOutboxMessage>> {
         let mut stmt = self.conn.prepare("SELECT account, kind, pending FROM host_collection WHERE server_id = ?1 AND pending IS NOT NULL ORDER BY account, kind")?;
-        let rows = stmt.query_map([server_id], |r| Ok(CollectionOutboxMessage { account: r.get::<_, i64>(0)? as u32, kind: r.get(1)?, bytes: r.get(2)? }))?;
+        let rows = stmt.query_map([server_id], |r| {
+            Ok(CollectionOutboxMessage {
+                account: r.get::<_, i64>(0)? as u32,
+                kind: r.get(1)?,
+                bytes: r.get(2)?,
+            })
+        })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 

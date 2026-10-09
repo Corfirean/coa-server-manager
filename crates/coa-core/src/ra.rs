@@ -29,12 +29,22 @@ fn read_until(stream: &mut TcpStream, marker: &[u8]) -> Result<String> {
     let mut byte = [0u8; 1];
     while !data.ends_with(marker) {
         match stream.read(&mut byte) {
-            Ok(0) => return Err(Error::Invalid("The world console closed the connection.".into())),
+            Ok(0) => {
+                return Err(Error::Invalid(
+                    "The world console closed the connection.".into(),
+                ))
+            }
             Ok(_) => data.push(byte[0]),
-            Err(e) => return Err(Error::Invalid(format!("The world console did not answer: {e}"))),
+            Err(e) => {
+                return Err(Error::Invalid(format!(
+                    "The world console did not answer: {e}"
+                )))
+            }
         }
         if data.len() > 256 * 1024 {
-            return Err(Error::Invalid("The world console sent too much data.".into()));
+            return Err(Error::Invalid(
+                "The world console sent too much data.".into(),
+            ));
         }
     }
     Ok(String::from_utf8_lossy(&data).into_owned())
@@ -43,23 +53,31 @@ fn read_until(stream: &mut TcpStream, marker: &[u8]) -> Result<String> {
 impl Ra {
     /// Connect to the loopback RA port of the server in `root`, using the credentials from its `repack.json`.
     pub fn connect(root: &Path) -> Result<Ra> {
-        let cfg: RaSettings = fsx::read_json(&root.join("Settings/repack.json")).map_err(|_| Error::Invalid("The server console settings could not be read.".into()))?;
+        let cfg: RaSettings = fsx::read_json(&root.join("Settings/repack.json"))
+            .map_err(|_| Error::Invalid("The server console settings could not be read.".into()))?;
         Self::connect_to(read_ports(root).ra, &cfg.ra_username, &cfg.ra_password)
     }
 
     pub fn connect_to(port: u16, user: &str, password: &str) -> Result<Ra> {
         let addr: SocketAddr = ([127, 0, 0, 1], port).into();
-        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
-            .map_err(|_| Error::Invalid("The world server is not running (its console is not reachable).".into()))?;
+        let mut stream =
+            TcpStream::connect_timeout(&addr, Duration::from_secs(5)).map_err(|_| {
+                Error::Invalid(
+                    "The world server is not running (its console is not reachable).".into(),
+                )
+            })?;
         stream.set_read_timeout(Some(Duration::from_secs(15)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         read_until(&mut stream, b"Username: ")?;
         stream.write_all(format!("{user}\r\n").as_bytes())?;
         read_until(&mut stream, b"Password: ")?;
         stream.write_all(format!("{password}\r\n").as_bytes())?;
-        let banner = read_until(&mut stream, b"AC>").map_err(|_| Error::Invalid("The world console rejected the login.".into()))?;
+        let banner = read_until(&mut stream, b"AC>")
+            .map_err(|_| Error::Invalid("The world console rejected the login.".into()))?;
         if banner.to_lowercase().contains("authentication failed") {
-            return Err(Error::Invalid("The world console rejected the login.".into()));
+            return Err(Error::Invalid(
+                "The world console rejected the login.".into(),
+            ));
         }
         Ok(Ra { stream })
     }
@@ -87,22 +105,37 @@ impl Ra {
         if l.contains("created") {
             Ok(())
         } else {
-            Err(Error::Invalid(format!("The server did not create the account: {}", out.lines().last().unwrap_or(""))))
+            Err(Error::Invalid(format!(
+                "The server did not create the account: {}",
+                out.lines().last().unwrap_or("")
+            )))
         }
     }
 
     /// `portable checkpoint <guid> <session> <sequence>`: the core saves this one character with a checkpoint marker. Only a
     /// number, a session id and a number are sent. The reply is a request status, **not** proof that anything was written.
-    pub fn portable_checkpoint(&mut self, guid: u32, session: crate::portable::SessionId, sequence: u64) -> Result<crate::portable::session::bridge::CheckpointReply> {
+    pub fn portable_checkpoint(
+        &mut self,
+        guid: u32,
+        session: crate::portable::SessionId,
+        sequence: u64,
+    ) -> Result<crate::portable::session::bridge::CheckpointReply> {
         use crate::portable::session::bridge::CheckpointReply;
-        let sequence = u32::try_from(sequence).map_err(|_| Error::Invalid("The checkpoint sequence is out of range.".into()))?;
+        let sequence = u32::try_from(sequence)
+            .map_err(|_| Error::Invalid("The checkpoint sequence is out of range.".into()))?;
         let out = self.command(&format!("portable checkpoint {guid} {session} {sequence}"))?;
-        let first = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        let first = out
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("");
         Ok(match first.split_whitespace().next() {
             Some("QUEUED") => CheckpointReply::Queued,
             Some("BUSY") => CheckpointReply::Busy,
             Some("NOT_ONLINE") => CheckpointReply::NotOnline,
-            Some("REFUSED") => CheckpointReply::Refused(first.trim_start_matches("REFUSED").trim().to_string()),
+            Some("REFUSED") => {
+                CheckpointReply::Refused(first.trim_start_matches("REFUSED").trim().to_string())
+            }
             _ => CheckpointReply::Refused(format!("unexpected answer: {first}")),
         })
     }
@@ -110,11 +143,18 @@ impl Ra {
     /// `portable import <job_id>`: the core imports the job file of that id from its fixed job directory. Only the id travels.
     pub fn portable_import(&mut self, job_id: crate::portable::ImportId) -> Result<String> {
         let out = self.command(&format!("portable import {job_id}"))?;
-        let first = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
+        let first = out
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("")
+            .to_string();
         if first.starts_with("OK") {
             Ok(first)
         } else {
-            Err(Error::Invalid(format!("The server did not import the job: {first}")))
+            Err(Error::Invalid(format!(
+                "The server did not import the job: {first}"
+            )))
         }
     }
 
@@ -122,18 +162,26 @@ impl Ra {
     /// decision to the job's result file. Only the id travels.
     pub fn portable_project(&mut self, job_id: crate::portable::ImportId) -> Result<String> {
         let out = self.command(&format!("portable project {job_id}"))?;
-        let first = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
+        let first = out
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("")
+            .to_string();
         if first.starts_with("OK") {
             Ok(first)
         } else {
-            Err(Error::Invalid(format!("The server did not answer the projection query: {first}")))
+            Err(Error::Invalid(format!(
+                "The server did not answer the projection query: {first}"
+            )))
         }
     }
 
     /// `portable capabilities`: the realm's core says what it is and what portable features it has. An older core does not know the command.
     pub fn portable_capabilities(&mut self) -> Result<crate::portable::capabilities::CoreReport> {
         let out = self.command("portable capabilities")?;
-        crate::portable::capabilities::CoreReport::parse(&out).map_err(|e| Error::Invalid(e.to_string()))
+        crate::portable::capabilities::CoreReport::parse(&out)
+            .map_err(|e| Error::Invalid(e.to_string()))
     }
 
     /// `portable release <session>`: lets a held portable character play. Sent only after its baseline was persisted.
@@ -142,7 +190,10 @@ impl Ra {
         if out.lines().any(|l| l.trim().starts_with("OK")) {
             Ok(())
         } else {
-            Err(Error::Invalid(format!("The server did not release the session: {}", out.lines().last().unwrap_or(""))))
+            Err(Error::Invalid(format!(
+                "The server did not release the session: {}",
+                out.lines().last().unwrap_or("")
+            )))
         }
     }
 
@@ -172,7 +223,10 @@ impl Ra {
 
     /// Log one bot out (the character stays saved). False when that bot was not online.
     pub fn despawn_bot(&mut self, guid: u64) -> Result<bool> {
-        Ok(self.bot_command(&format!("botcmd despawn {guid}"))?.to_lowercase().contains("despawned"))
+        Ok(self
+            .bot_command(&format!("botcmd despawn {guid}"))?
+            .to_lowercase()
+            .contains("despawned"))
     }
 
     /// Log every bot out and delete every bot character for good (the caller saves a recovery point first).
@@ -184,7 +238,9 @@ impl Ra {
     /// Ask the bot module to create `count` leveling bots (throttled by the module itself). Only a number is sent.
     pub fn spawn_bots(&mut self, count: u32) -> Result<String> {
         if !(1..=2000).contains(&count) {
-            return Err(Error::Invalid("Choose between 1 and 2000 companions.".into()));
+            return Err(Error::Invalid(
+                "Choose between 1 and 2000 companions.".into(),
+            ));
         }
         let out = self.command(&format!("botcmd spawnleveled {count}"))?;
         if out.to_lowercase().contains("no usable template characters") {
@@ -196,7 +252,9 @@ impl Ra {
     /// Set a new password for an existing account.
     pub fn set_account_password(&mut self, name: &str, password: &str) -> Result<()> {
         validate_account(name, password)?;
-        let out = self.command(&format!("account set password {name} {password} {password}"))?;
+        let out = self.command(&format!(
+            "account set password {name} {password} {password}"
+        ))?;
         account_reply(&out, "The password was not changed")
     }
 
@@ -221,10 +279,15 @@ impl Ra {
     pub fn make_administrator(&mut self, name: &str) -> Result<()> {
         validate_account(name, "placeholder")?;
         let out = self.command(&format!("account set gmlevel {name} 3 -1"))?;
-        if out.to_lowercase().contains("gm level") || out.to_lowercase().contains("security") || out.is_empty() {
+        if out.to_lowercase().contains("gm level")
+            || out.to_lowercase().contains("security")
+            || out.is_empty()
+        {
             Ok(())
         } else {
-            Err(Error::Invalid(format!("Could not set administrator rights: {out}")))
+            Err(Error::Invalid(format!(
+                "Could not set administrator rights: {out}"
+            )))
         }
     }
 }
@@ -232,9 +295,22 @@ impl Ra {
 /// The console reports a failed account command in words; anything else (including silence) counts as done.
 fn account_reply(out: &str, what: &str) -> Result<()> {
     let l = out.to_lowercase();
-    let failed = ["does not exist", "not exist", "not found", "do not match", "don't match", "usage", "unknown", "incorrect", "error"];
+    let failed = [
+        "does not exist",
+        "not exist",
+        "not found",
+        "do not match",
+        "don't match",
+        "usage",
+        "unknown",
+        "incorrect",
+        "error",
+    ];
     if failed.iter().any(|m| l.contains(m)) {
-        return Err(Error::Invalid(format!("{what}: {}", out.lines().last().unwrap_or("").trim())));
+        return Err(Error::Invalid(format!(
+            "{what}: {}",
+            out.lines().last().unwrap_or("").trim()
+        )));
     }
     Ok(())
 }
@@ -242,11 +318,17 @@ fn account_reply(out: &str, what: &str) -> Result<()> {
 /// The console answers an unknown sub-command with the list of the ones it knows.
 fn is_unsupported_command(out: &str) -> bool {
     let l = out.to_lowercase();
-    l.contains("possible subcommands") || l.contains("### usage") || l.contains("no such command") || l.contains("unknown command")
+    l.contains("possible subcommands")
+        || l.contains("### usage")
+        || l.contains("no such command")
+        || l.contains("unknown command")
 }
 
 fn first_number(text: &str) -> u32 {
-    text.split(|c: char| !c.is_ascii_digit()).find(|t| !t.is_empty()).and_then(|t| t.parse().ok()).unwrap_or(0)
+    text.split(|c: char| !c.is_ascii_digit())
+        .find(|t| !t.is_empty())
+        .and_then(|t| t.parse().ok())
+        .unwrap_or(0)
 }
 
 /// How fast the world loop is running, read from `server info`.
@@ -268,7 +350,11 @@ fn ms(text: &str) -> Option<u32> {
 pub fn parse_server_info(text: &str) -> Option<Performance> {
     let (mut mean, mut median, mut pct) = (None, None, None);
     for line in text.lines() {
-        let line = line.trim().trim_start_matches('|').trim_start_matches('-').trim();
+        let line = line
+            .trim()
+            .trim_start_matches('|')
+            .trim_start_matches('-')
+            .trim();
         if let Some(v) = line.strip_prefix("Mean:") {
             mean = ms(v);
         } else if let Some(v) = line.strip_prefix("Median:") {
@@ -281,17 +367,32 @@ pub fn parse_server_info(text: &str) -> Option<Performance> {
         }
     }
     let (mean_ms, median_ms, (p95_ms, p99_ms, max_ms)) = (mean?, median?, pct?);
-    Some(Performance { mean_ms, median_ms, p95_ms, p99_ms, max_ms, ticks_per_sec: 1000.0 / mean_ms.max(1) as f32 })
+    Some(Performance {
+        mean_ms,
+        median_ms,
+        p95_ms,
+        p99_ms,
+        max_ms,
+        ticks_per_sec: 1000.0 / mean_ms.max(1) as f32,
+    })
 }
 
 /// Account names are letters/digits (3-17); passwords are 6-16 printable characters without spaces or quotes.
 pub fn validate_account(name: &str, password: &str) -> Result<()> {
     let bad = |m: &str| Err(Error::Invalid(m.into()));
     // an underscore inside a name is allowed: the Manager gives joining players names like `DMITRY_7K4M`
-    if !(3..=17).contains(&name.len()) || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || name.starts_with('_') || name.ends_with('_') {
+    if !(3..=17).contains(&name.len())
+        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        || name.starts_with('_')
+        || name.ends_with('_')
+    {
         return bad("The username must be 3–17 letters or digits.");
     }
-    if !(6..=16).contains(&password.len()) || !password.chars().all(|c| c.is_ascii_graphic() && c != '"' && c != '\'') {
+    if !(6..=16).contains(&password.len())
+        || !password
+            .chars()
+            .all(|c| c.is_ascii_graphic() && c != '"' && c != '\'')
+    {
         return bad("The password must be 6–16 characters (no spaces or quotes).");
     }
     Ok(())
@@ -344,11 +445,18 @@ mod tests {
 
     #[test]
     fn an_unknown_bot_subcommand_is_recognised_and_numbers_are_read_from_replies() {
-        assert!(is_unsupported_command("### USAGE: .botcmd ...
+        assert!(is_unsupported_command(
+            "### USAGE: .botcmd ...
 Possible subcommands:
-|- botcmd despawn"));
-        assert!(!is_unsupported_command("BotMgr: cancelled 35 queued bot spawn(s)."));
-        assert_eq!(first_number("BotMgr: cancelled 35 queued bot spawn(s)."), 35);
+|- botcmd despawn"
+        ));
+        assert!(!is_unsupported_command(
+            "BotMgr: cancelled 35 queued bot spawn(s)."
+        ));
+        assert_eq!(
+            first_number("BotMgr: cancelled 35 queued bot spawn(s)."),
+            35
+        );
         assert_eq!(first_number("nothing"), 0);
     }
 
@@ -362,7 +470,10 @@ Update time diff: 1ms. Last 500 diffs summary:
 |- Percentiles (95, 99, max): 24ms, 30ms, 61ms
 AC>";
         let p = parse_server_info(text).unwrap();
-        assert_eq!((p.mean_ms, p.median_ms, p.p95_ms, p.p99_ms, p.max_ms), (14, 15, 24, 30, 61));
+        assert_eq!(
+            (p.mean_ms, p.median_ms, p.p95_ms, p.p99_ms, p.max_ms),
+            (14, 15, 24, 30, 61)
+        );
         assert!((p.ticks_per_sec - 71.4).abs() < 0.2);
         assert!(parse_server_info("Connected players: 0.").is_none());
     }
@@ -374,7 +485,10 @@ AC>";
         let mut ra = Ra::connect_to(port, "local", "secretra").unwrap();
         ra.create_account("Player1", "hunter22").unwrap();
         drop(ra);
-        assert_eq!(h.join().unwrap(), ["local", "secretra", "account create Player1 hunter22"]);
+        assert_eq!(
+            h.join().unwrap(),
+            ["local", "secretra", "account create Player1 hunter22"]
+        );
     }
 
     #[test]
@@ -384,7 +498,10 @@ AC>";
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         ra.set_account_password("Player1", "newpass9").unwrap();
         drop(ra);
-        assert_eq!(h.join().unwrap()[2], "account set password Player1 newpass9 newpass9");
+        assert_eq!(
+            h.join().unwrap()[2],
+            "account set password Player1 newpass9 newpass9"
+        );
     }
 
     #[test]
@@ -403,8 +520,15 @@ AC>";
         let _lock = serial();
         let (port, h) = fake_ra("Account not found.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
-        assert!(ra.set_account_password("x", "newpass9").is_err(), "the name is validated before anything is sent");
-        assert!(ra.set_account_password("Nobody", "newpass9").unwrap_err().to_string().contains("not found"));
+        assert!(
+            ra.set_account_password("x", "newpass9").is_err(),
+            "the name is validated before anything is sent"
+        );
+        assert!(ra
+            .set_account_password("Nobody", "newpass9")
+            .unwrap_err()
+            .to_string()
+            .contains("not found"));
         drop(ra);
         let _ = h.join();
     }
@@ -425,10 +549,22 @@ AC>";
         let _lock = serial();
         let (port, h) = fake_ra("Account already exist.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
-        assert!(ra.create_account("Player1", "hunter22").unwrap_err().to_string().contains("already taken"));
+        assert!(ra
+            .create_account("Player1", "hunter22")
+            .unwrap_err()
+            .to_string()
+            .contains("already taken"));
         drop(ra);
         let _ = h.join();
-        for (n, p) in [("ab", "hunter22"), ("bad name", "hunter22"), ("Player1", "short"), ("Player1", "has space1"), ("Player1", "quote\"pw1"), ("Pl\r\nayer", "hunter22"), ("x".repeat(18).as_str(), "hunter22")] {
+        for (n, p) in [
+            ("ab", "hunter22"),
+            ("bad name", "hunter22"),
+            ("Player1", "short"),
+            ("Player1", "has space1"),
+            ("Player1", "quote\"pw1"),
+            ("Pl\r\nayer", "hunter22"),
+            ("x".repeat(18).as_str(), "hunter22"),
+        ] {
             assert!(validate_account(n, p).is_err(), "{n:?} {p:?}");
         }
         validate_account("Player1", "hunter22").unwrap();
@@ -438,6 +574,9 @@ AC>";
     fn unreachable_console_gives_a_friendly_error() {
         let _lock = serial();
         // Port 1 is never used by a game server; probing a freed ephemeral port would race with the other tests.
-        assert!(Ra::connect_to(1, "u", "p").unwrap_err().to_string().contains("not running"));
+        assert!(Ra::connect_to(1, "u", "p")
+            .unwrap_err()
+            .to_string()
+            .contains("not running"));
     }
 }

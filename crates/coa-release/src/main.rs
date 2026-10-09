@@ -36,22 +36,32 @@ fn signing_key() -> Result<String, String> {
     if let Ok(k) = std::env::var("COA_SIGNING_KEY") {
         return Ok(k);
     }
-    let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).map_err(|_| "no home folder".to_string())?;
-    std::fs::read_to_string(PathBuf::from(home).join(".coa-manager/signing/manifest-signing.key")).map_err(|_| "no signing key: set COA_SIGNING_KEY".to_string())
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| "no home folder".to_string())?;
+    std::fs::read_to_string(PathBuf::from(home).join(".coa-manager/signing/manifest-signing.key"))
+        .map_err(|_| "no signing key: set COA_SIGNING_KEY".to_string())
 }
 
 fn run() -> Result<(), String> {
     let all: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = all.split_first().ok_or("usage: coa-release <pack-base|pack-update|sign|verify> ...")?;
+    let (cmd, rest) = all
+        .split_first()
+        .ok_or("usage: coa-release <pack-base|pack-update|sign|verify> ...")?;
     let a = args(rest);
     let e = |x: coa_core::Error| x.to_string();
-    let part = a.get("part-size").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PART_SIZE);
+    let part = a
+        .get("part-size")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
         "extract-schema-base" => {
             coa_core::release_schema::extract_base(
-                &PathBuf::from(need(&a, "package")?), &PathBuf::from(need(&a, "fixture")?),
+                &PathBuf::from(need(&a, "package")?),
+                &PathBuf::from(need(&a, "fixture")?),
                 coa_core::signing::EMBEDDED_PUBLIC_KEY,
-            ).map_err(e)?;
+            )
+            .map_err(e)?;
             println!("signed base extracted into a disposable database fixture");
         }
         "schema-contract" => {
@@ -60,42 +70,113 @@ fn run() -> Result<(), String> {
             if let Some(core) = a.get("core") {
                 let bots = a.get("bots").map(PathBuf::from);
                 let repairs = a.get("repairs").map(PathBuf::from);
-                let sql = coa_core::release_schema::collect(&PathBuf::from(core), bots.as_deref(), repairs.as_deref()).map_err(e)?;
+                let sql = coa_core::release_schema::collect(
+                    &PathBuf::from(core),
+                    bots.as_deref(),
+                    repairs.as_deref(),
+                )
+                .map_err(e)?;
                 coa_core::release_schema::capture_release(&repack, &tree, &sql).map_err(e)?;
             } else {
-                coa_core::backup::with_database(&repack, |db| coa_core::schema_check::capture(db, &tree)).map_err(e)?;
+                coa_core::backup::with_database(&repack, |db| {
+                    coa_core::schema_check::capture(db, &tree)
+                })
+                .map_err(e)?;
             }
             println!("database schema contract captured");
         }
         "pack-base" => {
-            coa_core::schema_check::require_release_contract(&PathBuf::from(need(&a, "tree")?)).map_err(e)?;
-            let opts = BuildOptions { kind: Kind::Base, version: need(&a, "version")?.clone(), core_commit: a.get("core-commit").cloned(), built_at: chrono_now(), part_size: part, bots_commit: a.get("bots-commit").cloned(), migrations: vec![] };
-            let m = build(&PathBuf::from(need(&a, "tree")?), &PathBuf::from(need(&a, "out")?), &opts, &|s| eprintln!("{s}")).map_err(e)?;
-            println!("base {}: {} files, {} parts", m.version, m.files.len(), m.archive.as_ref().map(|x| x.parts.len()).unwrap_or(0));
-        }
-        "pack-update" => {
-            let base: Manifest = Manifest::parse(&std::fs::read(need(&a, "base-manifest")?).map_err(|x| x.to_string())?).map_err(e)?;
-            coa_core::schema_check::require_release_contract(&PathBuf::from(need(&a, "tree")?)).map_err(e)?;
-            let bots = a.get("bots").map(PathBuf::from);
-            let repairs = a.get("repairs").map(PathBuf::from);
-            let sql = coa_core::release_schema::collect(&PathBuf::from(need(&a, "core")?), bots.as_deref(), repairs.as_deref()).map_err(e)?;
-            let out = PathBuf::from(need(&a, "out")?);
-            let m = pack_update(
-                &UpdateParams { tree: &PathBuf::from(need(&a, "tree")?), base_manifest: &base, sql: &sql, out: &out, version: need(&a, "version")?.clone(), core_commit: a.get("core-commit").cloned(), bots_commit: a.get("bots-commit").cloned(), part_size: part },
+            coa_core::schema_check::require_release_contract(&PathBuf::from(need(&a, "tree")?))
+                .map_err(e)?;
+            let opts = BuildOptions {
+                kind: Kind::Base,
+                version: need(&a, "version")?.clone(),
+                core_commit: a.get("core-commit").cloned(),
+                built_at: chrono_now(),
+                part_size: part,
+                bots_commit: a.get("bots-commit").cloned(),
+                migrations: vec![],
+            };
+            let m = build(
+                &PathBuf::from(need(&a, "tree")?),
+                &PathBuf::from(need(&a, "out")?),
+                &opts,
                 &|s| eprintln!("{s}"),
             )
             .map_err(e)?;
-            println!("update {}: {} files, {} migrations", m.version, m.files.len(), m.migrations.len());
+            println!(
+                "base {}: {} files, {} parts",
+                m.version,
+                m.files.len(),
+                m.archive.as_ref().map(|x| x.parts.len()).unwrap_or(0)
+            );
+        }
+        "pack-update" => {
+            let base: Manifest = Manifest::parse(
+                &std::fs::read(need(&a, "base-manifest")?).map_err(|x| x.to_string())?,
+            )
+            .map_err(e)?;
+            coa_core::schema_check::require_release_contract(&PathBuf::from(need(&a, "tree")?))
+                .map_err(e)?;
+            let bots = a.get("bots").map(PathBuf::from);
+            let repairs = a.get("repairs").map(PathBuf::from);
+            let sql = coa_core::release_schema::collect(
+                &PathBuf::from(need(&a, "core")?),
+                bots.as_deref(),
+                repairs.as_deref(),
+            )
+            .map_err(e)?;
+            let out = PathBuf::from(need(&a, "out")?);
+            let m = pack_update(
+                &UpdateParams {
+                    tree: &PathBuf::from(need(&a, "tree")?),
+                    base_manifest: &base,
+                    sql: &sql,
+                    out: &out,
+                    version: need(&a, "version")?.clone(),
+                    core_commit: a.get("core-commit").cloned(),
+                    bots_commit: a.get("bots-commit").cloned(),
+                    part_size: part,
+                },
+                &|s| eprintln!("{s}"),
+            )
+            .map_err(e)?;
+            println!(
+                "update {}: {} files, {} migrations",
+                m.version,
+                m.files.len(),
+                m.migrations.len()
+            );
         }
         "clean-base" => {
-            let (repack, core, tree, out) = (PathBuf::from(need(&a, "repack")?), PathBuf::from(need(&a, "core")?), PathBuf::from(need(&a, "tree")?), PathBuf::from(need(&a, "out")?));
+            let (repack, core, tree, out) = (
+                PathBuf::from(need(&a, "repack")?),
+                PathBuf::from(need(&a, "core")?),
+                PathBuf::from(need(&a, "tree")?),
+                PathBuf::from(need(&a, "out")?),
+            );
             let bots = a.get("bots").map(PathBuf::from);
             let data = a.get("data").map(PathBuf::from);
-            coa_core::cleanbase::build(&coa_core::cleanbase::Params { repack: &repack, core: &core, bots: bots.as_deref(), tree: &tree, data: data.as_deref(), out: &out }, &|s| eprintln!("{s}")).map_err(e)?;
+            coa_core::cleanbase::build(
+                &coa_core::cleanbase::Params {
+                    repack: &repack,
+                    core: &core,
+                    bots: bots.as_deref(),
+                    tree: &tree,
+                    data: data.as_deref(),
+                    out: &out,
+                },
+                &|s| eprintln!("{s}"),
+            )
+            .map_err(e)?;
             println!("clean base tree at {}", out.display());
         }
         "export-baseline" => {
-            let done = coa_core::release::export_baseline(&PathBuf::from(need(&a, "server")?), &PathBuf::from(need(&a, "out")?)).map_err(e)?;
+            let done = coa_core::release::export_baseline(
+                &PathBuf::from(need(&a, "server")?),
+                &PathBuf::from(need(&a, "out")?),
+            )
+            .map_err(e)?;
             for (kind, bytes) in done {
                 println!("{kind}.sql.zst: {:.1} MB", bytes as f64 / 1e6);
             }
@@ -104,12 +185,14 @@ fn run() -> Result<(), String> {
             let dir = PathBuf::from(need(&a, "dir")?);
             require_contract_entry(&dir)?;
             sign_manifest(&dir, &signing_key()?).map_err(e)?;
-            coa_core::release_schema::verify_package(&dir, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            coa_core::release_schema::verify_package(&dir, coa_core::signing::EMBEDDED_PUBLIC_KEY)
+                .map_err(e)?;
             println!("signed {}", dir.join("manifest.json").display());
         }
         "verify" => {
             let dir = PathBuf::from(need(&a, "dir")?);
-            coa_core::release_schema::verify_package(&dir, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            coa_core::release_schema::verify_package(&dir, coa_core::signing::EMBEDDED_PUBLIC_KEY)
+                .map_err(e)?;
             println!("signature, archive contents and database schema contract OK");
         }
         other => return Err(format!("unknown command {other}")),
@@ -118,9 +201,18 @@ fn run() -> Result<(), String> {
 }
 
 fn require_contract_entry(dir: &std::path::Path) -> Result<(), String> {
-    let manifest = Manifest::parse(&std::fs::read(dir.join("manifest.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    if !manifest.files.iter().any(|f| f.path == coa_core::schema_check::CONTRACT && f.size > 0) {
-        return Err("The release is missing its database schema contract; refusing to sign or publish it.".into());
+    let manifest =
+        Manifest::parse(&std::fs::read(dir.join("manifest.json")).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    if !manifest
+        .files
+        .iter()
+        .any(|f| f.path == coa_core::schema_check::CONTRACT && f.size > 0)
+    {
+        return Err(
+            "The release is missing its database schema contract; refusing to sign or publish it."
+                .into(),
+        );
     }
     Ok(())
 }

@@ -15,7 +15,11 @@ pub enum ClientError {
     /// The network, a timeout, a 5xx or a rate limit: the same request may work later.
     Transient(String),
     /// The Registry understood the request and refused it with this code.
-    Rejected { code: ErrorCode, status: u16, message: String },
+    Rejected {
+        code: ErrorCode,
+        status: u16,
+        message: String,
+    },
     /// The answer is not Registry protocol 1.
     Protocol(String),
 }
@@ -71,46 +75,114 @@ impl RegistryClient {
         &self.base
     }
 
-    fn send<R: DeserializeOwned>(&self, method: &str, path: &str, body: Vec<u8>, key: &SigningKey, realm: &RealmId, ts: i64) -> Result<R, ClientError> {
+    fn send<R: DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Vec<u8>,
+        key: &SigningKey,
+        realm: &RealmId,
+        ts: i64,
+    ) -> Result<R, ClientError> {
         let headers = sign_request(key, method, path, realm, ts, &body);
         let url = format!("{}{}", self.base, path);
-        let mut req = if method == "GET" { self.http.get(url) } else { self.http.post(url).header("content-type", "application/json").body(body) };
+        let mut req = if method == "GET" {
+            self.http.get(url)
+        } else {
+            self.http
+                .post(url)
+                .header("content-type", "application/json")
+                .body(body)
+        };
         for (name, value) in headers.pairs() {
             req = req.header(name, value);
         }
-        let resp = req.send().map_err(|e| ClientError::Transient(e.without_url().to_string()))?;
+        let resp = req
+            .send()
+            .map_err(|e| ClientError::Transient(e.without_url().to_string()))?;
         let status = resp.status();
-        let bytes = resp.bytes().map_err(|e| ClientError::Transient(e.without_url().to_string()))?;
+        let bytes = resp
+            .bytes()
+            .map_err(|e| ClientError::Transient(e.without_url().to_string()))?;
         if status.is_success() {
-            return serde_json::from_slice(&bytes).map_err(|_| ClientError::Protocol("the answer cannot be read".into()));
+            return serde_json::from_slice(&bytes)
+                .map_err(|_| ClientError::Protocol("the answer cannot be read".into()));
         }
         match serde_json::from_slice::<ErrorBody>(&bytes) {
-            Ok(e) if status.as_u16() == 429 || status.as_u16() == 503 => Err(ClientError::Transient(format!("{:?}: {}", e.error.code, e.error.message))),
-            Ok(e) => Err(ClientError::Rejected { code: e.error.code, status: status.as_u16(), message: e.error.message }),
-            Err(_) if status.is_server_error() || status.as_u16() == 408 || status.as_u16() == 429 => Err(ClientError::Transient(format!("HTTP {status}"))),
-            Err(_) => Err(ClientError::Protocol(format!("HTTP {status} without a Registry error body"))),
+            Ok(e) if status.as_u16() == 429 || status.as_u16() == 503 => Err(
+                ClientError::Transient(format!("{:?}: {}", e.error.code, e.error.message)),
+            ),
+            Ok(e) => Err(ClientError::Rejected {
+                code: e.error.code,
+                status: status.as_u16(),
+                message: e.error.message,
+            }),
+            Err(_)
+                if status.is_server_error() || status.as_u16() == 408 || status.as_u16() == 429 =>
+            {
+                Err(ClientError::Transient(format!("HTTP {status}")))
+            }
+            Err(_) => Err(ClientError::Protocol(format!(
+                "HTTP {status} without a Registry error body"
+            ))),
         }
     }
 
-    fn post<B: Serialize, R: DeserializeOwned>(&self, path: &str, body: &B, key: &SigningKey, realm: &RealmId, ts: i64) -> Result<R, ClientError> {
+    fn post<B: Serialize, R: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+        key: &SigningKey,
+        realm: &RealmId,
+        ts: i64,
+    ) -> Result<R, ClientError> {
         let bytes = serde_json::to_vec(body).map_err(|e| ClientError::Protocol(e.to_string()))?;
         self.send("POST", path, bytes, key, realm, ts)
     }
 
-    pub fn register(&self, key: &SigningKey, req: &RegisterRequest, ts: i64) -> Result<RegisterResponse, ClientError> {
+    pub fn register(
+        &self,
+        key: &SigningKey,
+        req: &RegisterRequest,
+        ts: i64,
+    ) -> Result<RegisterResponse, ClientError> {
         self.post(PATH_REGISTER, req, key, &req.realm_id, ts)
     }
 
-    pub fn heartbeat(&self, key: &SigningKey, realm: &RealmId, req: &HeartbeatRequest, ts: i64) -> Result<HeartbeatResponse, ClientError> {
+    pub fn heartbeat(
+        &self,
+        key: &SigningKey,
+        realm: &RealmId,
+        req: &HeartbeatRequest,
+        ts: i64,
+    ) -> Result<HeartbeatResponse, ClientError> {
         self.post(&path_heartbeat(realm), req, key, realm, ts)
     }
 
-    pub fn unpublish(&self, key: &SigningKey, realm: &RealmId, ts: i64) -> Result<UnpublishResponse, ClientError> {
-        self.post(&path_unpublish(realm), &UnpublishRequest { protocol_version: REGISTRY_PROTOCOL_VERSION }, key, realm, ts)
+    pub fn unpublish(
+        &self,
+        key: &SigningKey,
+        realm: &RealmId,
+        ts: i64,
+    ) -> Result<UnpublishResponse, ClientError> {
+        self.post(
+            &path_unpublish(realm),
+            &UnpublishRequest {
+                protocol_version: REGISTRY_PROTOCOL_VERSION,
+            },
+            key,
+            realm,
+            ts,
+        )
     }
 
     /// The Registry's own record of this realm (the authenticated read).
-    pub fn self_info(&self, key: &SigningKey, realm: &RealmId, ts: i64) -> Result<RealmDetail, ClientError> {
+    pub fn self_info(
+        &self,
+        key: &SigningKey,
+        realm: &RealmId,
+        ts: i64,
+    ) -> Result<RealmDetail, ClientError> {
         self.send("GET", &path_self(realm), Vec::new(), key, realm, ts)
     }
 }

@@ -20,8 +20,8 @@ pub mod install;
 mod lifecycle;
 
 pub use cli::{Call, Docker, Output, SystemDocker};
-pub use lifecycle::{check_docker, observe, observe_with, run, run_with};
 pub(crate) use lifecycle::destroy;
+pub use lifecycle::{check_docker, observe, observe_with, run, run_with};
 
 use std::net::IpAddr;
 use std::path::Path;
@@ -80,36 +80,57 @@ pub(crate) struct Names {
 
 impl Config {
     pub fn load(root: &Path) -> Result<Config> {
-        let cfg: Config = fsx::read_json(&root.join(MARKER)).map_err(|_| Error::Invalid("The Docker settings of this server could not be read.".into()))?;
+        let cfg: Config = fsx::read_json(&root.join(MARKER)).map_err(|_| {
+            Error::Invalid("The Docker settings of this server could not be read.".into())
+        })?;
         cfg.validate()?;
         Ok(cfg)
     }
 
     /// The folder mounted as the game data.
     pub fn data_path(&self, root: &Path) -> std::path::PathBuf {
-        self.data_dir.as_deref().map(std::path::PathBuf::from).unwrap_or_else(|| root.join("Data"))
+        self.data_dir
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| root.join("Data"))
     }
 
     fn validate(&self) -> Result<()> {
         let name_ok = !self.project.is_empty()
             && self.project.len() <= 32
-            && self.project.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
-            && self.project.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+            && self
+                .project
+                .starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
+            && self
+                .project
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
         if !name_ok {
             return Err(Error::Invalid("The Docker project name must be 1-32 characters: lower-case letters, digits and dashes.".into()));
         }
         if self.bind_address.parse::<IpAddr>().is_err() {
-            return Err(Error::Invalid(format!("{} is not an IP address.", self.bind_address)));
+            return Err(Error::Invalid(format!(
+                "{} is not an IP address.",
+                self.bind_address
+            )));
         }
         for d in [&self.data_dir, &self.mysql_data].into_iter().flatten() {
             // The folder goes into a `--volume host:container` option, where a colon would be read as a separator.
             if !Path::new(d).is_absolute() || d.contains(':') {
-                return Err(Error::Invalid("A Docker folder must be a full path without a colon.".into()));
+                return Err(Error::Invalid(
+                    "A Docker folder must be a full path without a colon.".into(),
+                ));
             }
         }
-        let image_ok = !self.mysql_image.is_empty() && self.mysql_image.chars().all(|c| c.is_ascii_alphanumeric() || "._/:@-".contains(c));
+        let image_ok = !self.mysql_image.is_empty()
+            && self
+                .mysql_image
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._/:@-".contains(c));
         if !image_ok {
-            return Err(Error::Invalid("The database image name is not valid.".into()));
+            return Err(Error::Invalid(
+                "The database image name is not valid.".into(),
+            ));
         }
         Ok(())
     }
@@ -121,7 +142,13 @@ impl Config {
 
     pub(crate) fn names(&self) -> Names {
         let p = &self.project;
-        Names { network: format!("coa-{p}"), volume: format!("coa-{p}-db"), db: format!("coa-{p}-db"), world: format!("coa-{p}-world"), auth: format!("coa-{p}-auth") }
+        Names {
+            network: format!("coa-{p}"),
+            volume: format!("coa-{p}-db"),
+            db: format!("coa-{p}-db"),
+            world: format!("coa-{p}-world"),
+            auth: format!("coa-{p}-auth"),
+        }
     }
 }
 
@@ -131,7 +158,10 @@ impl Config {
 pub fn ensure_main_configs(root: &Path) -> Result<Vec<String>> {
     let mut created = Vec::new();
     for name in ["worldserver", "authserver"] {
-        let (conf, dist) = (root.join(format!("Core/configs/{name}.conf")), root.join(format!("Core/configs/{name}.conf.dist")));
+        let (conf, dist) = (
+            root.join(format!("Core/configs/{name}.conf")),
+            root.join(format!("Core/configs/{name}.conf.dist")),
+        );
         if !conf.exists() && dist.is_file() {
             std::fs::copy(&dist, &conf)?;
             created.push(format!("{name}.conf"));
@@ -142,7 +172,10 @@ pub fn ensure_main_configs(root: &Path) -> Result<Vec<String>> {
 
 /// Name of the runtime image: it follows the content of its Dockerfile, so changing the libraries builds a new image.
 pub(crate) fn runtime_image() -> String {
-    format!("coa-runtime:{}", &fsx::sha256_bytes(RUNTIME_DOCKERFILE.as_bytes())[..12])
+    format!(
+        "coa-runtime:{}",
+        &fsx::sha256_bytes(RUNTIME_DOCKERFILE.as_bytes())[..12]
+    )
 }
 
 /// Read-only description of a Docker installation, shaped like the scan of a repack so the screens that list what a
@@ -153,27 +186,70 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
     let auth = layout::hash_exe(&root.join("Core/authserver"), None, "authserver");
     let modules_dir = root.join("Core/configs/modules");
     let mut module_configs: Vec<String> = std::fs::read_dir(&modules_dir)
-        .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| e.file_name().into_string().ok()).filter(|n| n.ends_with(".conf")).collect())
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".conf"))
+                .collect()
+        })
         .unwrap_or_default();
     module_configs.sort();
 
     let bot_active = modules_dir.join("mod_coa_playerbots.conf");
-    let bot_conf = if bot_active.is_file() { bot_active } else { modules_dir.join("mod_coa_playerbots.conf.dist") };
+    let bot_conf = if bot_active.is_file() {
+        bot_active
+    } else {
+        modules_dir.join("mod_coa_playerbots.conf.dist")
+    };
     let bot_config_keys = layout::count_bot_keys(&bot_conf);
-    let data = cfg.as_ref().map(|c| c.data_path(root)).unwrap_or_else(|_| root.join("Data"));
+    let data = cfg
+        .as_ref()
+        .map(|c| c.data_path(root))
+        .unwrap_or_else(|_| root.join("Data"));
     let has_data = data.join("dbc").is_dir() && data.join("maps").is_dir();
-    let has_confs = layout::exists(root, "Core/configs/worldserver.conf") && layout::exists(root, "Core/configs/authserver.conf");
+    let has_confs = layout::exists(root, "Core/configs/worldserver.conf")
+        && layout::exists(root, "Core/configs/authserver.conf");
 
     let items = vec![
         layout::item("worldserver", "World server", world.is_some(), None),
         layout::item("authserver", "Auth server", auth.is_some(), None),
-        layout::item("worldserver_conf", "World server configuration", layout::exists(root, "Core/configs/worldserver.conf"), None),
-        layout::item("authserver_conf", "Auth server configuration", layout::exists(root, "Core/configs/authserver.conf"), None),
-        layout::item("modules_conf", "Module configuration", modules_dir.is_dir(), Some(format!("{} files", module_configs.len()))),
+        layout::item(
+            "worldserver_conf",
+            "World server configuration",
+            layout::exists(root, "Core/configs/worldserver.conf"),
+            None,
+        ),
+        layout::item(
+            "authserver_conf",
+            "Auth server configuration",
+            layout::exists(root, "Core/configs/authserver.conf"),
+            None,
+        ),
+        layout::item(
+            "modules_conf",
+            "Module configuration",
+            modules_dir.is_dir(),
+            Some(format!("{} files", module_configs.len())),
+        ),
         layout::item("game_data", "Game data (maps, DBC)", has_data, None),
-        layout::item("database_runtime", "Database runtime", cfg.is_ok(), cfg.as_ref().ok().map(|c| c.mysql_image.clone())),
-        layout::item("launcher", "Docker settings", cfg.is_ok(), cfg.as_ref().ok().map(|c| c.project.clone())),
-        layout::item("companions", "CoA Companions (bots)", bot_conf.is_file(), (bot_config_keys > 0).then(|| format!("{bot_config_keys} settings"))),
+        layout::item(
+            "database_runtime",
+            "Database runtime",
+            cfg.is_ok(),
+            cfg.as_ref().ok().map(|c| c.mysql_image.clone()),
+        ),
+        layout::item(
+            "launcher",
+            "Docker settings",
+            cfg.is_ok(),
+            cfg.as_ref().ok().map(|c| c.project.clone()),
+        ),
+        layout::item(
+            "companions",
+            "CoA Companions (bots)",
+            bot_conf.is_file(),
+            (bot_config_keys > 0).then(|| format!("{bot_config_keys} settings")),
+        ),
     ];
     let mut notes = Vec::new();
     if let Err(e) = &cfg {
@@ -182,7 +258,11 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
     let healthy = cfg.is_ok() && world.is_some() && auth.is_some() && has_data && has_confs;
     Ok(ScanReport {
         path: root.to_string_lossy().into_owned(),
-        classification: if healthy { Classification::Healthy } else { Classification::Partial },
+        classification: if healthy {
+            Classification::Healthy
+        } else {
+            Classification::Partial
+        },
         items,
         worldserver: world,
         authserver: auth,
@@ -192,14 +272,15 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
         bot_config_keys,
         ports: layout::read_ports(root),
         database_schemas: Vec::new(),
-        client: ["Client", "client"].iter().find_map(|d| layout::detect_client(&root.join(d))),
+        client: ["Client", "client"]
+            .iter()
+            .find_map(|d| layout::detect_client(&root.join(d))),
         notes,
         suggested_path: None,
         hint: None,
         modifies_files: false,
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -214,13 +295,22 @@ mod tests {
         fs::write(cfg.join("worldserver.conf.dist"), "Setting = default\n").unwrap();
         fs::write(cfg.join("authserver.conf.dist"), "Auth = default\n").unwrap();
 
-        assert_eq!(ensure_main_configs(d.path()).unwrap(), ["worldserver.conf", "authserver.conf"]);
-        assert_eq!(fs::read_to_string(cfg.join("worldserver.conf")).unwrap(), "Setting = default\n");
+        assert_eq!(
+            ensure_main_configs(d.path()).unwrap(),
+            ["worldserver.conf", "authserver.conf"]
+        );
+        assert_eq!(
+            fs::read_to_string(cfg.join("worldserver.conf")).unwrap(),
+            "Setting = default\n"
+        );
 
         // The person's own settings survive the next start.
         fs::write(cfg.join("worldserver.conf"), "Setting = mine\n").unwrap();
         assert!(ensure_main_configs(d.path()).unwrap().is_empty());
-        assert_eq!(fs::read_to_string(cfg.join("worldserver.conf")).unwrap(), "Setting = mine\n");
+        assert_eq!(
+            fs::read_to_string(cfg.join("worldserver.conf")).unwrap(),
+            "Setting = mine\n"
+        );
         // Without a template there is nothing to create and nothing fails.
         fs::remove_file(cfg.join("authserver.conf")).unwrap();
         fs::remove_file(cfg.join("authserver.conf.dist")).unwrap();

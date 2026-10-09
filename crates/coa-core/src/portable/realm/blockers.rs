@@ -41,21 +41,34 @@ impl Blocker {
 
     /// Blockers that come from challenge / game mode / Manastorm state (decision D6).
     pub fn is_challenge_state(&self) -> bool {
-        matches!(self, Blocker::ActiveChallenge | Blocker::ActiveGameMode | Blocker::ActiveCustomTrial | Blocker::PendingManastormCaches)
+        matches!(
+            self,
+            Blocker::ActiveChallenge
+                | Blocker::ActiveGameMode
+                | Blocker::ActiveCustomTrial
+                | Blocker::PendingManastormCaches
+        )
     }
 }
 
 impl fmt::Display for Blocker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Blocker::Online => f.write_str("the character is online (or the realm did not log it out cleanly)"),
+            Blocker::Online => {
+                f.write_str("the character is online (or the realm did not log it out cleanly)")
+            }
             Blocker::Deleted => f.write_str("the character is deleted"),
             Blocker::BotAccount => f.write_str("the character belongs to a bot or Manager account"),
             Blocker::ActiveChallenge => f.write_str("a challenge is in progress"),
             Blocker::ActiveGameMode => f.write_str("a game mode (such as hardcore) is active"),
             Blocker::ActiveCustomTrial => f.write_str("a custom trial is in progress"),
-            Blocker::PendingManastormCaches => f.write_str("Manastorm caches are waiting to be delivered"),
-            Blocker::UnclassifiedState(table) => write!(f, "table `{table}` holds data of this character and is not known to this Manager"),
+            Blocker::PendingManastormCaches => {
+                f.write_str("Manastorm caches are waiting to be delivered")
+            }
+            Blocker::UnclassifiedState(table) => write!(
+                f,
+                "table `{table}` holds data of this character and is not known to this Manager"
+            ),
         }
     }
 }
@@ -73,7 +86,13 @@ mod tests {
 
     #[test]
     fn internal_accounts_follow_the_managers_own_rule() {
-        for n in ["COABOTHOST1", "coabothost12", "COABOT", "COAMANAGER", "CoaManager"] {
+        for n in [
+            "COABOTHOST1",
+            "coabothost12",
+            "COABOT",
+            "COAMANAGER",
+            "CoaManager",
+        ] {
             assert!(is_internal_account(n), "{n}");
         }
         for n in ["ALICE", "MYCOABOT", "COAMANAGER2", "BOT1", ""] {

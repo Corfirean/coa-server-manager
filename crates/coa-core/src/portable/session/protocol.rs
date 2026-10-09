@@ -33,30 +33,44 @@ pub struct Envelope {
 impl Envelope {
     pub fn seal(model: &PortableCharacter) -> Result<Envelope> {
         let encoded = snapshot::encode(model)?;
-        Ok(Envelope { content_hash: hex::encode(encoded.content_hash), payload: base64::engine::general_purpose::STANDARD.encode(&encoded.payload) })
+        Ok(Envelope {
+            content_hash: hex::encode(encoded.content_hash),
+            payload: base64::engine::general_purpose::STANDARD.encode(&encoded.payload),
+        })
     }
 
     pub fn from_encoded(encoded: &snapshot::EncodedSnapshot) -> Envelope {
-        Envelope { content_hash: hex::encode(encoded.content_hash), payload: base64::engine::general_purpose::STANDARD.encode(&encoded.payload) }
+        Envelope {
+            content_hash: hex::encode(encoded.content_hash),
+            payload: base64::engine::general_purpose::STANDARD.encode(&encoded.payload),
+        }
     }
 
     pub fn hash(&self) -> Result<[u8; 32]> {
-        let bytes = hex::decode(&self.content_hash).map_err(|_| PortableError::Invalid("the content hash is not hex".into()))?;
-        <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| PortableError::Invalid("the content hash is not 32 bytes".into()))
+        let bytes = hex::decode(&self.content_hash)
+            .map_err(|_| PortableError::Invalid("the content hash is not hex".into()))?;
+        <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| PortableError::Invalid("the content hash is not 32 bytes".into()))
     }
 
     /// Decode and fully verify (size caps while inflating, hash, structure).
     pub fn open(&self) -> Result<PortableCharacter> {
         if self.payload.len() > MAX_COMPRESSED_BYTES * 4 / 3 + 8 {
-            return Err(PortableError::LimitExceeded("the snapshot payload is over the limit".into()));
+            return Err(PortableError::LimitExceeded(
+                "the snapshot payload is over the limit".into(),
+            ));
         }
-        let bytes = base64::engine::general_purpose::STANDARD.decode(&self.payload).map_err(|_| PortableError::Invalid("the snapshot payload is not base64".into()))?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&self.payload)
+            .map_err(|_| PortableError::Invalid("the snapshot payload is not base64".into()))?;
         snapshot::decode(&bytes, Some(&self.hash()?))
     }
 
     /// The raw compressed bytes, for storage next to their hash.
     pub fn bytes(&self) -> Result<Vec<u8>> {
-        base64::engine::general_purpose::STANDARD.decode(&self.payload).map_err(|_| PortableError::Invalid("the snapshot payload is not base64".into()))
+        base64::engine::general_purpose::STANDARD
+            .decode(&self.payload)
+            .map_err(|_| PortableError::Invalid("the snapshot payload is not base64".into()))
     }
 }
 
@@ -88,11 +102,17 @@ impl SessionProgression {
             (Some(ctx), true) => {
                 ctx.validate()?;
                 if ctx.pin() != self.pin {
-                    return Err(PortableError::Invalid("the projection is not the one the pin names".into()));
+                    return Err(PortableError::Invalid(
+                        "the projection is not the one the pin names".into(),
+                    ));
                 }
             }
             (None, false) => {}
-            _ => return Err(PortableError::Invalid("a projected pin needs its projection and a native one has none".into())),
+            _ => {
+                return Err(PortableError::Invalid(
+                    "a projected pin needs its projection and a native one has none".into(),
+                ))
+            }
         }
         Ok(())
     }
@@ -132,7 +152,12 @@ pub struct PortableCheckpoint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, tag = "status", content = "reason", rename_all = "snake_case")]
+#[serde(
+    deny_unknown_fields,
+    tag = "status",
+    content = "reason",
+    rename_all = "snake_case"
+)]
 pub enum AckOutcome {
     Applied,
     /// The same sequence with the same content was applied before; the original result is repeated.
@@ -183,7 +208,9 @@ pub struct OwnerAck {
 pub fn to_json<T: Serialize>(message: &T) -> Result<Vec<u8>> {
     let bytes = serde_json::to_vec(message)?;
     if bytes.len() > MAX_MESSAGE_BYTES {
-        return Err(PortableError::LimitExceeded(format!("a message is limited to {MAX_MESSAGE_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "a message is limited to {MAX_MESSAGE_BYTES} bytes"
+        )));
     }
     Ok(bytes)
 }
@@ -192,30 +219,76 @@ pub fn to_json<T: Serialize>(message: &T) -> Result<Vec<u8>> {
 /// is checked before anything else is trusted.
 pub fn from_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     if bytes.len() > MAX_MESSAGE_BYTES {
-        return Err(PortableError::LimitExceeded(format!("a message is limited to {MAX_MESSAGE_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "a message is limited to {MAX_MESSAGE_BYTES} bytes"
+        )));
     }
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
-    let version = value.get("protocol_version").and_then(|v| v.as_u64()).ok_or_else(|| PortableError::Invalid("the message has no protocol version".into()))?;
+    let version = value
+        .get("protocol_version")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| PortableError::Invalid("the message has no protocol version".into()))?;
     if version != PROTOCOL_VERSION as u64 {
-        return Err(PortableError::UnsupportedFormat { found: version.min(u32::MAX as u64) as u32, supported: PROTOCOL_VERSION });
+        return Err(PortableError::UnsupportedFormat {
+            found: version.min(u32::MAX as u64) as u32,
+            supported: PROTOCOL_VERSION,
+        });
     }
     Ok(serde_json::from_value(value)?)
 }
 
 impl PortableSessionStarted {
-    pub fn new(session_id: SessionId, character_id: CharacterId, server_id: &str, base_canonical_revision: u64, baseline_generation: u32, b0: &PortableCharacter, progression: Option<SessionProgression>) -> Result<Self> {
+    pub fn new(
+        session_id: SessionId,
+        character_id: CharacterId,
+        server_id: &str,
+        base_canonical_revision: u64,
+        baseline_generation: u32,
+        b0: &PortableCharacter,
+        progression: Option<SessionProgression>,
+    ) -> Result<Self> {
         if let Some(p) = &progression {
             p.validate()?;
         }
         let b0 = Envelope::seal(b0)?;
-        Ok(Self { protocol_version: PROTOCOL_VERSION, session_id, character_id, server_id: server_id.to_string(), base_canonical_revision, baseline_generation, content_hash: b0.content_hash.clone(), b0, progression })
+        Ok(Self {
+            protocol_version: PROTOCOL_VERSION,
+            session_id,
+            character_id,
+            server_id: server_id.to_string(),
+            base_canonical_revision,
+            baseline_generation,
+            content_hash: b0.content_hash.clone(),
+            b0,
+            progression,
+        })
     }
 }
 
 impl PortableCheckpoint {
-    pub fn new(session_id: SessionId, character_id: CharacterId, server_id: &str, base_canonical_revision: u64, sequence: u64, final_checkpoint: bool, b1: &PortableCharacter, pin: Option<ProgressionPin>) -> Result<Self> {
+    pub fn new(
+        session_id: SessionId,
+        character_id: CharacterId,
+        server_id: &str,
+        base_canonical_revision: u64,
+        sequence: u64,
+        final_checkpoint: bool,
+        b1: &PortableCharacter,
+        pin: Option<ProgressionPin>,
+    ) -> Result<Self> {
         let realm_snapshot = Envelope::seal(b1)?;
-        Ok(Self { protocol_version: PROTOCOL_VERSION, session_id, character_id, server_id: server_id.to_string(), base_canonical_revision, sequence, final_checkpoint, content_hash: realm_snapshot.content_hash.clone(), realm_snapshot, pin })
+        Ok(Self {
+            protocol_version: PROTOCOL_VERSION,
+            session_id,
+            character_id,
+            server_id: server_id.to_string(),
+            base_canonical_revision,
+            sequence,
+            final_checkpoint,
+            content_hash: realm_snapshot.content_hash.clone(),
+            realm_snapshot,
+            pin,
+        })
     }
 }
 
@@ -247,28 +320,43 @@ pub struct CompactSet {
 
 impl CompactSet {
     pub fn seal(kind: &str, set: &IdSet) -> Result<CompactSet> {
-        Ok(CompactSet { hash: hex::encode(set.hash(kind)), count: u32::try_from(set.len()).map_err(|_| PortableError::LimitExceeded("a collection is too large".into()))?, ids: base64::engine::general_purpose::STANDARD.encode(set.encode()) })
+        Ok(CompactSet {
+            hash: hex::encode(set.hash(kind)),
+            count: u32::try_from(set.len())
+                .map_err(|_| PortableError::LimitExceeded("a collection is too large".into()))?,
+            ids: base64::engine::general_purpose::STANDARD.encode(set.encode()),
+        })
     }
 
     /// Decode and verify against the kind: size cap before decoding, then count and hash must match what was announced.
     pub fn open(&self, kind: &str) -> Result<IdSet> {
         if self.ids.len() > MAX_ENCODED_BYTES * 4 / 3 + 8 {
-            return Err(PortableError::LimitExceeded("the collection payload is over the limit".into()));
+            return Err(PortableError::LimitExceeded(
+                "the collection payload is over the limit".into(),
+            ));
         }
-        let bytes = base64::engine::general_purpose::STANDARD.decode(&self.ids).map_err(|_| PortableError::Invalid("the collection payload is not base64".into()))?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&self.ids)
+            .map_err(|_| PortableError::Invalid("the collection payload is not base64".into()))?;
         let set = IdSet::decode(&bytes)?;
         if set.len() != self.count as usize {
-            return Err(PortableError::Invalid("the collection does not have the announced number of ids".into()));
+            return Err(PortableError::Invalid(
+                "the collection does not have the announced number of ids".into(),
+            ));
         }
         if hex::encode(set.hash(kind)) != self.hash {
-            return Err(PortableError::Invalid("the collection does not match its hash".into()));
+            return Err(PortableError::Invalid(
+                "the collection does not match its hash".into(),
+            ));
         }
         Ok(set)
     }
 
     pub fn hash_bytes(&self) -> Result<[u8; 32]> {
-        let bytes = hex::decode(&self.hash).map_err(|_| PortableError::Invalid("the collection hash is not hex".into()))?;
-        <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| PortableError::Invalid("the collection hash is not 32 bytes".into()))
+        let bytes = hex::decode(&self.hash)
+            .map_err(|_| PortableError::Invalid("the collection hash is not hex".into()))?;
+        <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| PortableError::Invalid("the collection hash is not 32 bytes".into()))
     }
 }
 
@@ -293,7 +381,12 @@ pub struct CollectionState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, tag = "status", content = "reason", rename_all = "snake_case")]
+#[serde(
+    deny_unknown_fields,
+    tag = "status",
+    content = "reason",
+    rename_all = "snake_case"
+)]
 pub enum CollectionOutcome {
     /// The union added ids: a new collection revision.
     Applied,
@@ -318,7 +411,9 @@ pub struct CollectionAck {
 pub fn collection_to_json<T: Serialize>(message: &T) -> Result<Vec<u8>> {
     let bytes = serde_json::to_vec(message)?;
     if bytes.len() > MAX_COLLECTION_MESSAGE_BYTES {
-        return Err(PortableError::LimitExceeded(format!("a collection message is limited to {MAX_COLLECTION_MESSAGE_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "a collection message is limited to {MAX_COLLECTION_MESSAGE_BYTES} bytes"
+        )));
     }
     Ok(bytes)
 }
@@ -326,12 +421,20 @@ pub fn collection_to_json<T: Serialize>(message: &T) -> Result<Vec<u8>> {
 /// Parse a collection message: size first, protocol version second, unknown fields refused.
 pub fn collection_from_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
     if bytes.len() > MAX_COLLECTION_MESSAGE_BYTES {
-        return Err(PortableError::LimitExceeded(format!("a collection message is limited to {MAX_COLLECTION_MESSAGE_BYTES} bytes")));
+        return Err(PortableError::LimitExceeded(format!(
+            "a collection message is limited to {MAX_COLLECTION_MESSAGE_BYTES} bytes"
+        )));
     }
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
-    let version = value.get("protocol_version").and_then(|v| v.as_u64()).ok_or_else(|| PortableError::Invalid("the message has no protocol version".into()))?;
+    let version = value
+        .get("protocol_version")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| PortableError::Invalid("the message has no protocol version".into()))?;
     if version != PROTOCOL_VERSION as u64 {
-        return Err(PortableError::UnsupportedFormat { found: version.min(u32::MAX as u64) as u32, supported: PROTOCOL_VERSION });
+        return Err(PortableError::UnsupportedFormat {
+            found: version.min(u32::MAX as u64) as u32,
+            supported: PROTOCOL_VERSION,
+        });
     }
     Ok(serde_json::from_value(value)?)
 }
@@ -339,14 +442,26 @@ pub fn collection_from_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
 impl CollectionObserved {
     pub fn new(server_id: &str, kind: &str, set: &IdSet) -> Result<Self> {
         if !carried_kind(kind) {
-            return Err(PortableError::Invalid(format!("collection kind {kind:?} is not carried")));
+            return Err(PortableError::Invalid(format!(
+                "collection kind {kind:?} is not carried"
+            )));
         }
-        Ok(Self { protocol_version: PROTOCOL_VERSION, server_id: server_id.to_string(), kind: kind.to_string(), set: CompactSet::seal(kind, set)? })
+        Ok(Self {
+            protocol_version: PROTOCOL_VERSION,
+            server_id: server_id.to_string(),
+            kind: kind.to_string(),
+            set: CompactSet::seal(kind, set)?,
+        })
     }
 }
 
 impl CollectionState {
     pub fn new(kind: &str, revision: u64, set: &IdSet) -> Result<Self> {
-        Ok(Self { protocol_version: PROTOCOL_VERSION, kind: kind.to_string(), collection_revision: revision, set: CompactSet::seal(kind, set)? })
+        Ok(Self {
+            protocol_version: PROTOCOL_VERSION,
+            kind: kind.to_string(),
+            collection_revision: revision,
+            set: CompactSet::seal(kind, set)?,
+        })
     }
 }

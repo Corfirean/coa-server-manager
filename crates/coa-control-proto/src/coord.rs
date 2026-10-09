@@ -41,13 +41,29 @@ pub mod limits {
 #[serde(tag = "t", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Frame {
     /// Coordinator -> anyone who connected: prove who you are with this.
-    Challenge { protocol: u32, nonce: String },
+    Challenge {
+        protocol: u32,
+        nonce: String,
+    },
     /// Host -> Coordinator.
-    HostHello { realm_id: RealmId, ts: i64, sig: String },
+    HostHello {
+        realm_id: RealmId,
+        ts: i64,
+        sig: String,
+    },
     /// Player -> Coordinator (the realm it wants is in the URL and is signed).
-    PlayerHello { player_id: Uuid, public_key: String, realm_id: RealmId, ts: i64, sig: String },
+    PlayerHello {
+        player_id: Uuid,
+        public_key: String,
+        realm_id: RealmId,
+        ts: i64,
+        sig: String,
+    },
     /// Coordinator -> Host: the Host is registered and these are the limits.
-    HostReady { max_connections: u32, max_frame: u32 },
+    HostReady {
+        max_connections: u32,
+        max_frame: u32,
+    },
     /// Coordinator -> Host: a Player wants to talk; its frames will carry this number.
     Open {
         conn: u32,
@@ -55,10 +71,19 @@ pub enum Frame {
         client_ip: Option<String>,
     },
     /// Either side of a connection ends it.
-    Close { conn: u32, reason: Option<String> },
+    Close {
+        conn: u32,
+        reason: Option<String>,
+    },
     /// Coordinator -> Player: the Host accepted the connection; binary frames flow now.
-    PlayerReady { conn: u32, max_frame: u32 },
-    Error { code: ErrorCode, message: String },
+    PlayerReady {
+        conn: u32,
+        max_frame: u32,
+    },
+    Error {
+        code: ErrorCode,
+        message: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +100,7 @@ pub enum ErrorCode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProbePayload {
     pub ports: Vec<u16>,
 }
@@ -94,57 +120,121 @@ pub fn challenge_nonce() -> String {
 }
 
 fn host_input(realm: &RealmId, nonce: &str, ts: i64) -> Vec<u8> {
-    format!("coa-coord-host-v1\n{}\n{realm}\n{nonce}\n{ts}", crate::CONTROL_PROTOCOL_VERSION).into_bytes()
+    format!(
+        "coa-coord-host-v1\n{}\n{realm}\n{nonce}\n{ts}",
+        crate::CONTROL_PROTOCOL_VERSION
+    )
+    .into_bytes()
 }
 
 fn player_input(player: &Uuid, public_key: &str, realm: &RealmId, nonce: &str, ts: i64) -> Vec<u8> {
-    format!("coa-coord-player-v1\n{}\n{}\n{public_key}\n{realm}\n{nonce}\n{ts}", crate::CONTROL_PROTOCOL_VERSION, player.hyphenated()).into_bytes()
+    format!(
+        "coa-coord-player-v1\n{}\n{}\n{public_key}\n{realm}\n{nonce}\n{ts}",
+        crate::CONTROL_PROTOCOL_VERSION,
+        player.hyphenated()
+    )
+    .into_bytes()
 }
 
 pub fn sign_host_hello(key: &SigningKey, realm: &RealmId, nonce: &str, ts: i64) -> Frame {
-    Frame::HostHello { realm_id: *realm, ts, sig: B64.encode(key.sign(&host_input(realm, nonce, ts)).to_bytes()) }
+    Frame::HostHello {
+        realm_id: *realm,
+        ts,
+        sig: B64.encode(key.sign(&host_input(realm, nonce, ts)).to_bytes()),
+    }
 }
 
-pub fn sign_player_hello(key: &SigningKey, player: &Uuid, realm: &RealmId, nonce: &str, ts: i64) -> Frame {
+pub fn sign_player_hello(
+    key: &SigningKey,
+    player: &Uuid,
+    realm: &RealmId,
+    nonce: &str,
+    ts: i64,
+) -> Frame {
     let public_key = B64.encode(key.verifying_key().as_bytes());
-    let sig = B64.encode(key.sign(&player_input(player, &public_key, realm, nonce, ts)).to_bytes());
-    Frame::PlayerHello { player_id: *player, public_key, realm_id: *realm, ts, sig }
+    let sig = B64.encode(
+        key.sign(&player_input(player, &public_key, realm, nonce, ts))
+            .to_bytes(),
+    );
+    Frame::PlayerHello {
+        player_id: *player,
+        public_key,
+        realm_id: *realm,
+        ts,
+        sig,
+    }
 }
 
 fn decode_sig(sig: &str) -> Result<Signature> {
     if sig.len() != 86 {
         return invalid("the signature has the wrong length");
     }
-    let bytes: [u8; 64] = B64.decode(sig).map_err(|_| ControlError::Invalid("the signature is not base64url".into()))?.try_into().map_err(|_| ControlError::Invalid("the signature is not 64 bytes".into()))?;
+    let bytes: [u8; 64] = B64
+        .decode(sig)
+        .map_err(|_| ControlError::Invalid("the signature is not base64url".into()))?
+        .try_into()
+        .map_err(|_| ControlError::Invalid("the signature is not 64 bytes".into()))?;
     Ok(Signature::from_bytes(&bytes))
 }
 
 /// A Host's hello checked against the key the Registry holds for the realm.
-pub fn verify_host_hello(frame: &Frame, realm_key: &VerifyingKey, expect_realm: Option<&RealmId>, nonce: &str, now: i64) -> Result<RealmId> {
-    let Frame::HostHello { realm_id, ts, sig } = frame else { return Err(ControlError::Auth("not a host hello".into())) };
+pub fn verify_host_hello(
+    frame: &Frame,
+    realm_key: &VerifyingKey,
+    expect_realm: Option<&RealmId>,
+    nonce: &str,
+    now: i64,
+) -> Result<RealmId> {
+    let Frame::HostHello { realm_id, ts, sig } = frame else {
+        return Err(ControlError::Auth("not a host hello".into()));
+    };
     if expect_realm.is_some_and(|r| r != realm_id) {
         return Err(ControlError::Auth("another realm".into()));
     }
     if (ts - now).abs() > MAX_HELLO_SKEW_SECS {
-        return Err(ControlError::Auth("the timestamp is outside the allowed skew".into()));
+        return Err(ControlError::Auth(
+            "the timestamp is outside the allowed skew".into(),
+        ));
     }
-    realm_key.verify_strict(&host_input(realm_id, nonce, *ts), &decode_sig(sig)?).map_err(|_| ControlError::Auth("the signature does not match".into()))?;
+    realm_key
+        .verify_strict(&host_input(realm_id, nonce, *ts), &decode_sig(sig)?)
+        .map_err(|_| ControlError::Auth("the signature does not match".into()))?;
     Ok(*realm_id)
 }
 
 /// A Player's hello checked against the key it presents (proof of possession; the Host decides whether it is a known player).
-pub fn verify_player_hello(frame: &Frame, nonce: &str, now: i64) -> Result<(Uuid, RealmId, VerifyingKey)> {
-    let Frame::PlayerHello { player_id, public_key, realm_id, ts, sig } = frame else { return Err(ControlError::Auth("not a player hello".into())) };
+pub fn verify_player_hello(
+    frame: &Frame,
+    nonce: &str,
+    now: i64,
+) -> Result<(Uuid, RealmId, VerifyingKey)> {
+    let Frame::PlayerHello {
+        player_id,
+        public_key,
+        realm_id,
+        ts,
+        sig,
+    } = frame
+    else {
+        return Err(ControlError::Auth("not a player hello".into()));
+    };
     if (ts - now).abs() > MAX_HELLO_SKEW_SECS {
-        return Err(ControlError::Auth("the timestamp is outside the allowed skew".into()));
+        return Err(ControlError::Auth(
+            "the timestamp is outside the allowed skew".into(),
+        ));
     }
     let key = decode_public_key(public_key)?;
-    key.verify_strict(&player_input(player_id, public_key, realm_id, nonce, *ts), &decode_sig(sig)?).map_err(|_| ControlError::Auth("the signature does not match".into()))?;
+    key.verify_strict(
+        &player_input(player_id, public_key, realm_id, nonce, *ts),
+        &decode_sig(sig)?,
+    )
+    .map_err(|_| ControlError::Auth("the signature does not match".into()))?;
     Ok((*player_id, *realm_id, key))
 }
 
 pub fn decode_public_key(text: &str) -> Result<VerifyingKey> {
-    coa_registry_proto::sign::decode_public_key(text).map_err(|e| ControlError::Invalid(e.to_string()))
+    coa_registry_proto::sign::decode_public_key(text)
+        .map_err(|e| ControlError::Invalid(e.to_string()))
 }
 
 pub fn encode_public_key(key: &VerifyingKey) -> String {
@@ -161,16 +251,22 @@ pub fn binary(conn: u32, frame: &[u8]) -> Vec<u8> {
 
 pub fn split_binary(data: &[u8]) -> Result<(u32, &[u8])> {
     if data.len() < CONN_PREFIX || data.len() > CONN_PREFIX + MAX_FRAME_BYTES {
-        return Err(ControlError::Limit("a frame is too short or too long".into()));
+        return Err(ControlError::Limit(
+            "a frame is too short or too long".into(),
+        ));
     }
-    Ok((u32::from_be_bytes(data[..CONN_PREFIX].try_into().expect("4 bytes")), &data[CONN_PREFIX..]))
+    Ok((
+        u32::from_be_bytes(data[..CONN_PREFIX].try_into().expect("4 bytes")),
+        &data[CONN_PREFIX..],
+    ))
 }
 
 pub fn parse_text(text: &str) -> Result<Frame> {
     if text.len() > MAX_CONTROL_TEXT_BYTES {
         return Err(ControlError::Limit("a control message is too long".into()));
     }
-    serde_json::from_str(text).map_err(|_| ControlError::Invalid("a control message is not valid".into()))
+    serde_json::from_str(text)
+        .map_err(|_| ControlError::Invalid("a control message is not valid".into()))
 }
 
 pub fn to_text(frame: &Frame) -> String {
@@ -190,11 +286,40 @@ mod tests {
         let realm = RealmId::new();
         let nonce = challenge_nonce();
         let hello = sign_host_hello(&key(1), &realm, &nonce, 1000);
-        assert_eq!(verify_host_hello(&hello, &key(1).verifying_key(), Some(&realm), &nonce, 1010).unwrap(), realm);
-        assert!(verify_host_hello(&hello, &key(2).verifying_key(), Some(&realm), &nonce, 1010).is_err(), "another key");
-        assert!(verify_host_hello(&hello, &key(1).verifying_key(), Some(&RealmId::new()), &nonce, 1010).is_err(), "another realm");
-        assert!(verify_host_hello(&hello, &key(1).verifying_key(), None, &challenge_nonce(), 1010).is_err(), "another challenge: no replay");
-        assert!(verify_host_hello(&hello, &key(1).verifying_key(), None, &nonce, 5000).is_err(), "too old");
+        assert_eq!(
+            verify_host_hello(&hello, &key(1).verifying_key(), Some(&realm), &nonce, 1010).unwrap(),
+            realm
+        );
+        assert!(
+            verify_host_hello(&hello, &key(2).verifying_key(), Some(&realm), &nonce, 1010).is_err(),
+            "another key"
+        );
+        assert!(
+            verify_host_hello(
+                &hello,
+                &key(1).verifying_key(),
+                Some(&RealmId::new()),
+                &nonce,
+                1010
+            )
+            .is_err(),
+            "another realm"
+        );
+        assert!(
+            verify_host_hello(
+                &hello,
+                &key(1).verifying_key(),
+                None,
+                &challenge_nonce(),
+                1010
+            )
+            .is_err(),
+            "another challenge: no replay"
+        );
+        assert!(
+            verify_host_hello(&hello, &key(1).verifying_key(), None, &nonce, 5000).is_err(),
+            "too old"
+        );
     }
 
     #[test]
@@ -202,11 +327,51 @@ mod tests {
         let (player, realm, nonce) = (Uuid::now_v7(), RealmId::new(), challenge_nonce());
         let hello = sign_player_hello(&key(3), &player, &realm, &nonce, 50);
         let (p, r, k) = verify_player_hello(&hello, &nonce, 55).unwrap();
-        assert_eq!((p, r, k.to_bytes()), (player, realm, key(3).verifying_key().to_bytes()));
-        let Frame::PlayerHello { player_id, public_key, realm_id, ts, sig } = hello.clone() else { unreachable!() };
+        assert_eq!(
+            (p, r, k.to_bytes()),
+            (player, realm, key(3).verifying_key().to_bytes())
+        );
+        let Frame::PlayerHello {
+            player_id,
+            public_key,
+            realm_id,
+            ts,
+            sig,
+        } = hello.clone()
+        else {
+            unreachable!()
+        };
         let other_key = encode_public_key(&key(4).verifying_key());
-        assert!(verify_player_hello(&Frame::PlayerHello { player_id, public_key: other_key, realm_id, ts, sig: sig.clone() }, &nonce, 55).is_err(), "a key that did not sign");
-        assert!(verify_player_hello(&Frame::PlayerHello { player_id: Uuid::now_v7(), public_key, realm_id, ts, sig }, &nonce, 55).is_err(), "another player id");
+        assert!(
+            verify_player_hello(
+                &Frame::PlayerHello {
+                    player_id,
+                    public_key: other_key,
+                    realm_id,
+                    ts,
+                    sig: sig.clone()
+                },
+                &nonce,
+                55
+            )
+            .is_err(),
+            "a key that did not sign"
+        );
+        assert!(
+            verify_player_hello(
+                &Frame::PlayerHello {
+                    player_id: Uuid::now_v7(),
+                    public_key,
+                    realm_id,
+                    ts,
+                    sig
+                },
+                &nonce,
+                55
+            )
+            .is_err(),
+            "another player id"
+        );
     }
 
     #[test]

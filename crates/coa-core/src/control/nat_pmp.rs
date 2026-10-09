@@ -9,7 +9,8 @@ pub const NAT_PMP_PORT: u16 = 5351;
 /// Request the external (public) IPv4 address from the NAT-PMP gateway.
 pub fn query_external_ip(gateway: Ipv4Addr) -> Option<Ipv4Addr> {
     let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
-    sock.set_read_timeout(Some(Duration::from_millis(800))).ok()?;
+    sock.set_read_timeout(Some(Duration::from_millis(800)))
+        .ok()?;
     let target = SocketAddr::V4(SocketAddrV4::new(gateway, NAT_PMP_PORT));
 
     // NAT-PMP External Address Request: Version 0 (1 byte), Opcode 0 (1 byte)
@@ -44,7 +45,8 @@ pub fn request_mapping(
     lifetime_secs: u32,
 ) -> Option<u16> {
     let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
-    sock.set_read_timeout(Some(Duration::from_millis(1000))).ok()?;
+    sock.set_read_timeout(Some(Duration::from_millis(1000)))
+        .ok()?;
     let target = SocketAddr::V4(SocketAddrV4::new(gateway, NAT_PMP_PORT));
 
     // NAT-PMP TCP Mapping Request:
@@ -107,11 +109,17 @@ mod tests {
         req_map[8..12].copy_from_slice(&3600u32.to_be_bytes());
         assert_eq!(req_map[1], 2);
         assert_eq!(u16::from_be_bytes([req_map[4], req_map[5]]), 3724);
-        assert_eq!(u32::from_be_bytes([req_map[8], req_map[9], req_map[10], req_map[11]]), 3600);
+        assert_eq!(
+            u32::from_be_bytes([req_map[8], req_map[9], req_map[10], req_map[11]]),
+            3600
+        );
 
         // Test timeout on unanswering gateway
         assert_eq!(query_external_ip(Ipv4Addr::new(127, 0, 0, 1)), None);
-        assert_eq!(request_mapping(Ipv4Addr::new(127, 0, 0, 1), 3724, 3724, 3600), None);
+        assert_eq!(
+            request_mapping(Ipv4Addr::new(127, 0, 0, 1), 3724, 3724, 3600),
+            None
+        );
         assert!(!delete_mapping(Ipv4Addr::new(127, 0, 0, 1), 3724));
     }
 }

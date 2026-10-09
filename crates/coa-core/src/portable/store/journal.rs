@@ -56,7 +56,9 @@ impl JournalKind {
         match s {
             "import" => Ok(JournalKind::Import),
             "update" => Ok(JournalKind::Update),
-            other => Err(PortableError::Invalid(format!("unknown journal kind {other:?}"))),
+            other => Err(PortableError::Invalid(format!(
+                "unknown journal kind {other:?}"
+            ))),
         }
     }
 }
@@ -87,7 +89,11 @@ impl ImportState {
             "committed" => ImportState::Committed,
             "aborted" => ImportState::Aborted,
             "needs_attention" => ImportState::NeedsAttention,
-            other => return Err(PortableError::Invalid(format!("unknown import state {other:?}"))),
+            other => {
+                return Err(PortableError::Invalid(format!(
+                    "unknown import state {other:?}"
+                )))
+            }
         })
     }
 }
@@ -139,7 +145,10 @@ fn nonce() -> [u32; 4] {
 
 /// The marker text for a nonce and revision. Kept in step with `realm::plan::marker_data`.
 pub fn marker_text(nonce: [u32; 4], revision: u64) -> String {
-    format!("{} {} {} {} {} ", nonce[0], nonce[1], nonce[2], nonce[3], revision)
+    format!(
+        "{} {} {} {} {} ",
+        nonce[0], nonce[1], nonce[2], nonce[3], revision
+    )
 }
 
 /// What an update changes in the realm's mappings.
@@ -155,27 +164,62 @@ impl Store {
     /// Record the intention to import `character` at its current canonical `revision` into `server_id`.
     /// Refused when the revision is stale, when the character is already on that server, or when another import of the
     /// same pair is unfinished.
-    pub fn begin_import(&mut self, character: CharacterId, server_id: &str, revision: u64, items: &[PlannedItem], pets: &[PlannedPet]) -> Result<ImportTicket> {
-        self.begin(JournalKind::Import, character, server_id, revision, UpdatePlan { added_items: items.to_vec(), added_pets: pets.to_vec(), ..UpdatePlan::default() })
+    pub fn begin_import(
+        &mut self,
+        character: CharacterId,
+        server_id: &str,
+        revision: u64,
+        items: &[PlannedItem],
+        pets: &[PlannedPet],
+    ) -> Result<ImportTicket> {
+        self.begin(
+            JournalKind::Import,
+            character,
+            server_id,
+            revision,
+            UpdatePlan {
+                added_items: items.to_vec(),
+                added_pets: pets.to_vec(),
+                ..UpdatePlan::default()
+            },
+        )
     }
 
     /// Record the intention to bring the existing realm character to canonical `revision`, in place.
-    pub fn begin_update(&mut self, character: CharacterId, server_id: &str, revision: u64, plan: UpdatePlan) -> Result<ImportTicket> {
+    pub fn begin_update(
+        &mut self,
+        character: CharacterId,
+        server_id: &str,
+        revision: u64,
+        plan: UpdatePlan,
+    ) -> Result<ImportTicket> {
         self.begin(JournalKind::Update, character, server_id, revision, plan)
     }
 
-    fn begin(&mut self, kind: JournalKind, character: CharacterId, server_id: &str, revision: u64, plan: UpdatePlan) -> Result<ImportTicket> {
+    fn begin(
+        &mut self,
+        kind: JournalKind,
+        character: CharacterId,
+        server_id: &str,
+        revision: u64,
+        plan: UpdatePlan,
+    ) -> Result<ImportTicket> {
         check_server_id(server_id)?;
         let tx = self.write_tx()?;
         let record = read_character(&tx, character)?;
         if record.revision != revision {
-            return Err(PortableError::StaleRevision { expected: revision, current: record.revision });
+            return Err(PortableError::StaleRevision {
+                expected: revision,
+                current: record.revision,
+            });
         }
         let open: Option<String> = tx
             .query_row("SELECT import_id FROM import_journal WHERE character_id = ?1 AND server_id = ?2 AND state = 'prepared'", params![character.to_string(), server_id], |r| r.get(0))
             .optional()?;
         if let Some(open) = open {
-            return Err(PortableError::ImportInProgress { import_id: open.parse()? });
+            return Err(PortableError::ImportInProgress {
+                import_id: open.parse()?,
+            });
         }
         let bound: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2)",
@@ -183,8 +227,17 @@ impl Store {
             |r| r.get(0),
         )?;
         match (kind, bound) {
-            (JournalKind::Import, true) => return Err(PortableError::AlreadyOnRealm { character, server_id: server_id.to_string() }),
-            (JournalKind::Update, false) => return Err(PortableError::Invalid(format!("character {character} is not on server {server_id}: there is nothing to update"))),
+            (JournalKind::Import, true) => {
+                return Err(PortableError::AlreadyOnRealm {
+                    character,
+                    server_id: server_id.to_string(),
+                })
+            }
+            (JournalKind::Update, false) => {
+                return Err(PortableError::Invalid(format!(
+                "character {character} is not on server {server_id}: there is nothing to update"
+            )))
+            }
             _ => {}
         }
         let (target, _) = read_snapshot_row(&tx, character, revision)?;
@@ -213,50 +266,154 @@ impl Store {
             ],
         )?;
         tx.commit()?;
-        Ok(ImportTicket { import_id, nonce, revision, marker })
+        Ok(ImportTicket {
+            import_id,
+            nonce,
+            revision,
+            marker,
+        })
     }
 
     /// The realm committed: record the binding (or the update), the item and pet mappings, the synced snapshot and close the
     /// journal entry, in **one** local transaction. Safe to call again for an entry that is already committed.
-    pub fn finish_import(&mut self, import_id: ImportId, allocation: ImportAllocation) -> Result<()> {
+    pub fn finish_import(
+        &mut self,
+        import_id: ImportId,
+        allocation: ImportAllocation,
+    ) -> Result<()> {
         let tx = self.write_tx()?;
         let entry = read_journal(&tx, import_id)?;
         match entry.state {
             ImportState::Committed => return Ok(()),
             ImportState::Prepared => {}
-            other => return Err(PortableError::ImportState { import_id, state: other.as_str().into() }),
+            other => {
+                return Err(PortableError::ImportState {
+                    import_id,
+                    state: other.as_str().into(),
+                })
+            }
         }
-        let guid_of = |base: u32, i: usize| u32::try_from(base as u64 + i as u64).map_err(|_| PortableError::Invalid("a realm id is out of range".into()));
-        let item_rows: Vec<(PortableItemId, u32, ContentId, String)> =
-            entry.items.iter().enumerate().map(|(i, p)| Ok((p.id, guid_of(allocation.item_base, i)?, p.entry.clone(), p.identity.clone()))).collect::<Result<_>>()?;
-        let pet_rows: Vec<(PortablePetId, u32, String)> = entry.pets.iter().enumerate().map(|(i, p)| Ok((p.id, guid_of(allocation.pet_base, i)?, p.identity.clone()))).collect::<Result<_>>()?;
+        let guid_of = |base: u32, i: usize| {
+            u32::try_from(base as u64 + i as u64)
+                .map_err(|_| PortableError::Invalid("a realm id is out of range".into()))
+        };
+        let item_rows: Vec<(PortableItemId, u32, ContentId, String)> = entry
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                Ok((
+                    p.id,
+                    guid_of(allocation.item_base, i)?,
+                    p.entry.clone(),
+                    p.identity.clone(),
+                ))
+            })
+            .collect::<Result<_>>()?;
+        let pet_rows: Vec<(PortablePetId, u32, String)> = entry
+            .pets
+            .iter()
+            .enumerate()
+            .map(|(i, p)| Ok((p.id, guid_of(allocation.pet_base, i)?, p.identity.clone())))
+            .collect::<Result<_>>()?;
 
         match entry.kind {
             JournalKind::Import => {
-                bind_in_tx(&tx, entry.character_id, &entry.server_id, allocation.local_guid, entry.revision, MappingState::Synced)?;
-                let observations: Vec<ItemObservation> = item_rows.iter().map(|(id, guid, entry, identity)| ItemObservation { portable_item_id: *id, local_item_guid: *guid, entry: entry.clone(), identity: identity.clone() }).collect();
-                reconcile_in_tx(&tx, entry.character_id, &entry.server_id, entry.revision, &observations)?;
-                let pets: Vec<PetObservation> = pet_rows.iter().map(|(id, number, identity)| PetObservation { portable_pet_id: *id, local_pet_number: *number, identity: identity.clone() }).collect();
-                sync_pets_in_tx(&tx, entry.character_id, &entry.server_id, entry.revision, &pets, &PetProtection::default())?;
+                bind_in_tx(
+                    &tx,
+                    entry.character_id,
+                    &entry.server_id,
+                    allocation.local_guid,
+                    entry.revision,
+                    MappingState::Synced,
+                )?;
+                let observations: Vec<ItemObservation> = item_rows
+                    .iter()
+                    .map(|(id, guid, entry, identity)| ItemObservation {
+                        portable_item_id: *id,
+                        local_item_guid: *guid,
+                        entry: entry.clone(),
+                        identity: identity.clone(),
+                    })
+                    .collect();
+                reconcile_in_tx(
+                    &tx,
+                    entry.character_id,
+                    &entry.server_id,
+                    entry.revision,
+                    &observations,
+                )?;
+                let pets: Vec<PetObservation> = pet_rows
+                    .iter()
+                    .map(|(id, number, identity)| PetObservation {
+                        portable_pet_id: *id,
+                        local_pet_number: *number,
+                        identity: identity.clone(),
+                    })
+                    .collect();
+                sync_pets_in_tx(
+                    &tx,
+                    entry.character_id,
+                    &entry.server_id,
+                    entry.revision,
+                    &pets,
+                    &PetProtection::default(),
+                )?;
             }
             JournalKind::Update => {
                 let local: i64 = tx.query_row("SELECT local_guid FROM character_server_mapping WHERE character_id = ?1 AND server_id = ?2", params![entry.character_id.to_string(), entry.server_id], |r| r.get(0))?;
                 if local != allocation.local_guid as i64 {
-                    return Err(PortableError::Invalid(format!("the update reports local character {} but the realm binding is {local}", allocation.local_guid)));
+                    return Err(PortableError::Invalid(format!(
+                        "the update reports local character {} but the realm binding is {local}",
+                        allocation.local_guid
+                    )));
                 }
-                retire_items_by_id(&tx, entry.character_id, &entry.server_id, &entry.retired_items, entry.revision)?;
-                retire_pets_by_id(&tx, entry.character_id, &entry.server_id, &entry.retired_pets, entry.revision)?;
-                add_item_mappings(&tx, entry.character_id, &entry.server_id, entry.revision, &item_rows)?;
-                add_pet_mappings(&tx, entry.character_id, &entry.server_id, entry.revision, &pet_rows)?;
+                retire_items_by_id(
+                    &tx,
+                    entry.character_id,
+                    &entry.server_id,
+                    &entry.retired_items,
+                    entry.revision,
+                )?;
+                retire_pets_by_id(
+                    &tx,
+                    entry.character_id,
+                    &entry.server_id,
+                    &entry.retired_pets,
+                    entry.revision,
+                )?;
+                add_item_mappings(
+                    &tx,
+                    entry.character_id,
+                    &entry.server_id,
+                    entry.revision,
+                    &item_rows,
+                )?;
+                add_pet_mappings(
+                    &tx,
+                    entry.character_id,
+                    &entry.server_id,
+                    entry.revision,
+                    &pet_rows,
+                )?;
                 tx.execute(
                     "UPDATE character_server_mapping SET last_revision = ?3, state = 'synced', updated_at = ?4 WHERE character_id = ?1 AND server_id = ?2",
                     params![entry.character_id.to_string(), entry.server_id, entry.revision as i64, now()],
                 )?;
             }
         }
-        let (hash, payload): (Vec<u8>, Vec<u8>) = tx.query_row("SELECT target_hash, target_payload FROM import_journal WHERE import_id = ?1", [import_id.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let (hash, payload): (Vec<u8>, Vec<u8>) = tx.query_row(
+            "SELECT target_hash, target_payload FROM import_journal WHERE import_id = ?1",
+            [import_id.to_string()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
         let target = snapshot::decode(&payload, Some(&hash_from_blob(hash)?))?;
-        set_synced_in_tx(&tx, entry.character_id, &entry.server_id, &snapshot::encode(&target)?)?;
+        set_synced_in_tx(
+            &tx,
+            entry.character_id,
+            &entry.server_id,
+            &snapshot::encode(&target)?,
+        )?;
         tx.execute(
             "UPDATE import_journal SET state = 'committed', local_guid = ?2, item_base = ?3, pet_base = ?4, updated_at = ?5 WHERE import_id = ?1",
             params![import_id.to_string(), allocation.local_guid, allocation.item_base, allocation.pet_base, now()],
@@ -275,11 +432,19 @@ impl Store {
         self.close_import(import_id, ImportState::NeedsAttention, detail)
     }
 
-    fn close_import(&mut self, import_id: ImportId, state: ImportState, detail: &str) -> Result<()> {
+    fn close_import(
+        &mut self,
+        import_id: ImportId,
+        state: ImportState,
+        detail: &str,
+    ) -> Result<()> {
         let tx = self.write_tx()?;
         let entry = read_journal(&tx, import_id)?;
         if entry.state != ImportState::Prepared {
-            return Err(PortableError::ImportState { import_id, state: entry.state.as_str().into() });
+            return Err(PortableError::ImportState {
+                import_id,
+                state: entry.state.as_str().into(),
+            });
         }
         tx.execute("UPDATE import_journal SET state = ?2, detail = ?3, updated_at = ?4 WHERE import_id = ?1", params![import_id.to_string(), state.as_str(), detail, now()])?;
         tx.commit()?;
@@ -293,13 +458,34 @@ impl Store {
     /// Unfinished imports and updates into one server, oldest first.
     pub fn open_imports(&self, server_id: &str) -> Result<Vec<JournalEntry>> {
         let mut stmt = self.conn.prepare("SELECT import_id FROM import_journal WHERE server_id = ?1 AND state = 'prepared' ORDER BY import_id")?;
-        let ids: Vec<String> = stmt.query_map([server_id], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
-        ids.iter().map(|id| read_journal(&self.conn, id.parse()?)).collect()
+        let ids: Vec<String> = stmt
+            .query_map([server_id], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        ids.iter()
+            .map(|id| read_journal(&self.conn, id.parse()?))
+            .collect()
     }
 }
 
 fn read_journal(conn: &Connection, import_id: ImportId) -> Result<JournalEntry> {
-    type Row = (String, String, i64, String, String, String, String, Option<i64>, Option<i64>, Option<i64>, Option<String>, String, String, String, String, String);
+    type Row = (
+        String,
+        String,
+        i64,
+        String,
+        String,
+        String,
+        String,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        String,
+        String,
+        String,
+        String,
+        String,
+    );
     let row: Option<Row> = conn
         .query_row(
             "SELECT character_id, server_id, revision, marker, state, items, pet_ids, local_guid, item_base, pet_base, detail, created_at, updated_at, kind, retired_items, retired_pets
@@ -308,11 +494,33 @@ fn read_journal(conn: &Connection, import_id: ImportId) -> Result<JournalEntry> 
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?, r.get(15)?)),
         )
         .optional()?;
-    let Some((character, server_id, revision, marker, state, items, pets, guid, item_base, pet_base, detail, created_at, updated_at, kind, retired_items, retired_pets)) = row else {
+    let Some((
+        character,
+        server_id,
+        revision,
+        marker,
+        state,
+        items,
+        pets,
+        guid,
+        item_base,
+        pet_base,
+        detail,
+        created_at,
+        updated_at,
+        kind,
+        retired_items,
+        retired_pets,
+    )) = row
+    else {
         return Err(PortableError::UnknownImport(import_id));
     };
     let allocation = match (guid, item_base, pet_base) {
-        (Some(g), Some(i), Some(p)) => Some(ImportAllocation { local_guid: g as u32, item_base: i as u32, pet_base: p as u32 }),
+        (Some(g), Some(i), Some(p)) => Some(ImportAllocation {
+            local_guid: g as u32,
+            item_base: i as u32,
+            pet_base: p as u32,
+        }),
         _ => None,
     };
     Ok(JournalEntry {

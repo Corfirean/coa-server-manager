@@ -11,12 +11,12 @@ use super::super::error::{PortableError, Result};
 use super::super::identity::item_identity;
 use super::super::ids::{CharacterId, ContentId, PortableItemId, PortablePetId};
 use super::super::model::*;
+use super::super::session::bridge::{RowState, SessionRow};
 use super::super::store::{pet_identity, ItemObservation, PetObservation};
 use super::super::versions::PORTABLE_CHARACTER_FORMAT_VERSION;
 use super::blockers::{is_internal_account, Blocker};
 use super::policy::{classify_setting, Disposition, QUARANTINE_EXTENSION, SETTINGS_POLICY_VERSION};
 use super::script::{RawExport, Row};
-use super::super::session::bridge::{RowState, SessionRow};
 
 /// Only the cosmetic bits of `playerFlags` are carried: hide helm (0x400) and hide cloak (0x800).
 pub const COSMETIC_FLAG_MASK: u32 = 0x0C00;
@@ -63,16 +63,23 @@ pub fn blockers(raw: &RawExport) -> Result<Vec<Blocker>> {
 
 pub fn blockers_with(raw: &RawExport, allow_online_session: bool) -> Result<Vec<Blocker>> {
     let chars = raw.section("chars")?;
-    let row = chars.iter().next().ok_or_else(|| PortableError::NoSuchRealmCharacter(0))?;
+    let row = chars
+        .iter()
+        .next()
+        .ok_or_else(|| PortableError::NoSuchRealmCharacter(0))?;
     let mut out = Vec::new();
-    let has_session = raw.has("portable_session") && raw.section("portable_session")?.iter().next().is_some();
+    let has_session =
+        raw.has("portable_session") && raw.section("portable_session")?.iter().next().is_some();
     if row.u64("online")? != 0 && !(allow_online_session && has_session) {
         out.push(Blocker::Online);
     }
     if row.u64("deleted")? != 0 {
         out.push(Blocker::Deleted);
     }
-    if row.opt_text("username")?.is_some_and(|u| is_internal_account(&u)) {
+    if row
+        .opt_text("username")?
+        .is_some_and(|u| is_internal_account(&u))
+    {
         out.push(Blocker::BotAccount);
     }
     for (section, blocker) in [
@@ -81,14 +88,31 @@ pub fn blockers_with(raw: &RawExport, allow_online_session: bool) -> Result<Vec<
         ("block:trial", Blocker::ActiveCustomTrial),
         ("block:manastorm", Blocker::PendingManastormCaches),
     ] {
-        if raw.has(section) && raw.section(section)?.iter().next().map(|r| r.u64("n")).transpose()?.unwrap_or(0) > 0 {
+        if raw.has(section)
+            && raw
+                .section(section)?
+                .iter()
+                .next()
+                .map(|r| r.u64("n"))
+                .transpose()?
+                .unwrap_or(0)
+                > 0
+        {
             out.push(blocker);
         }
     }
     for name in raw.names().filter(|n| n.starts_with("unclassified:")) {
-        let n = raw.section(name)?.iter().next().map(|r| r.u64("n")).transpose()?.unwrap_or(0);
+        let n = raw
+            .section(name)?
+            .iter()
+            .next()
+            .map(|r| r.u64("n"))
+            .transpose()?
+            .unwrap_or(0);
         if n > 0 {
-            out.push(Blocker::UnclassifiedState(name["unclassified:".len()..].to_string()));
+            out.push(Blocker::UnclassifiedState(
+                name["unclassified:".len()..].to_string(),
+            ));
         }
     }
     out.sort_by_key(|b| b.code());
@@ -97,7 +121,10 @@ pub fn blockers_with(raw: &RawExport, allow_online_session: bool) -> Result<Vec<
 
 pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
     let chars = raw.section("chars")?;
-    let c = chars.iter().next().ok_or(PortableError::NoSuchRealmCharacter(req.local_guid))?;
+    let c = chars
+        .iter()
+        .next()
+        .ok_or(PortableError::NoSuchRealmCharacter(req.local_guid))?;
     if c.u32("guid")? != req.local_guid {
         return corrupt("the realm answered for another character");
     }
@@ -152,11 +179,33 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
     let build = Build {
         spells: pairs(raw, "spells")?,
         talents: pairs(raw, "talents")?,
-        skills: raw.section("skills")?.iter().map(|r| Ok(Skill { skill: r.u32("skill")?, value: r.u16("value")?, max: r.u16("max")? })).collect::<Result<_>>()?,
+        skills: raw
+            .section("skills")?
+            .iter()
+            .map(|r| {
+                Ok(Skill {
+                    skill: r.u32("skill")?,
+                    value: r.u16("value")?,
+                    max: r.u16("max")?,
+                })
+            })
+            .collect::<Result<_>>()?,
         glyphs: raw
             .section("glyphs")?
             .iter()
-            .map(|r| Ok(GlyphSet { talent_group: r.u8("talent_group")?, glyphs: [r.u16("g1")?, r.u16("g2")?, r.u16("g3")?, r.u16("g4")?, r.u16("g5")?, r.u16("g6")?] }))
+            .map(|r| {
+                Ok(GlyphSet {
+                    talent_group: r.u8("talent_group")?,
+                    glyphs: [
+                        r.u16("g1")?,
+                        r.u16("g2")?,
+                        r.u16("g3")?,
+                        r.u16("g4")?,
+                        r.u16("g5")?,
+                        r.u16("g6")?,
+                    ],
+                })
+            })
             .collect::<Result<_>>()?,
         talent_groups_count: c.u8("talent_groups")?,
         active_talent_group: c.u8("active_group")?,
@@ -176,24 +225,53 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
                     status: r.u8("status")?,
                     explored: r.u64("explored")? != 0,
                     timer: r.u32("timer")?,
-                    mob_counts: [r.u16("mob1")?, r.u16("mob2")?, r.u16("mob3")?, r.u16("mob4")?],
-                    item_counts: [r.u16("item1")?, r.u16("item2")?, r.u16("item3")?, r.u16("item4")?, r.u16("item5")?, r.u16("item6")?],
+                    mob_counts: [
+                        r.u16("mob1")?,
+                        r.u16("mob2")?,
+                        r.u16("mob3")?,
+                        r.u16("mob4")?,
+                    ],
+                    item_counts: [
+                        r.u16("item1")?,
+                        r.u16("item2")?,
+                        r.u16("item3")?,
+                        r.u16("item4")?,
+                        r.u16("item5")?,
+                        r.u16("item6")?,
+                    ],
                     player_count: r.u16("player_count")?,
                 })
             })
             .collect::<Result<_>>()?,
-        rewarded: raw.section("rewarded")?.iter().map(|r| r.u32("quest")).collect::<Result<_>>()?,
+        rewarded: raw
+            .section("rewarded")?
+            .iter()
+            .map(|r| r.u32("quest"))
+            .collect::<Result<_>>()?,
     };
 
     let reputation = raw
         .section("reputation")?
         .iter()
-        .map(|r| Ok(ReputationEntry { faction: r.u32("faction")?, standing: r.i32("standing")?, flags: r.u32("flags")? }))
+        .map(|r| {
+            Ok(ReputationEntry {
+                faction: r.u32("faction")?,
+                standing: r.i32("standing")?,
+                flags: r.u32("flags")?,
+            })
+        })
         .collect::<Result<_>>()?;
     let actions = raw
         .section("actions")?
         .iter()
-        .map(|r| Ok(ActionButton { spec: r.u8("spec")?, button: r.u8("button")?, action: r.u32("action")?, kind: r.u8("type")? }))
+        .map(|r| {
+            Ok(ActionButton {
+                spec: r.u8("spec")?,
+                button: r.u8("button")?,
+                action: r.u32("action")?,
+                kind: r.u8("type")?,
+            })
+        })
         .collect::<Result<_>>()?;
 
     let (pets, pet_observations) = pets(raw, ns, req.prior_pets)?;
@@ -201,14 +279,23 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
 
     let mut client_data = BTreeMap::new();
     if let Some(r) = raw.section("macros")?.iter().next() {
-        client_data.insert(5u8, ClientBlob { time: r.u32("time")?, data: Bytes(r.bytes("data")?) });
+        client_data.insert(
+            5u8,
+            ClientBlob {
+                time: r.u32("time")?,
+                data: Bytes(r.bytes("data")?),
+            },
+        );
     }
 
     let mut extensions = BTreeMap::new();
     if !quarantined.is_empty() {
         // BTreeMap -> deterministic bytes, so an unchanged quarantine has an unchanged hash
         let payload = serde_json::to_vec(&quarantined)?;
-        extensions.insert(QUARANTINE_EXTENSION.to_string(), Extension::new(&SETTINGS_POLICY_VERSION.to_string(), 1, payload));
+        extensions.insert(
+            QUARANTINE_EXTENSION.to_string(),
+            Extension::new(&SETTINGS_POLICY_VERSION.to_string(), 1, payload),
+        );
         warnings.push(format!("{} settings source(s) are not known gameplay state and were kept aside, not carried: {}", quarantined.len(), quarantined.keys().cloned().collect::<Vec<_>>().join(", ")));
     }
 
@@ -234,7 +321,15 @@ pub fn build(raw: &RawExport, req: &ExportRequest<'_>) -> Result<Exported> {
     model.validate()?;
 
     let session = session_row(raw)?;
-    Ok(Exported { model, local_guid: req.local_guid, account: c.u32("account")?, observations, pet_observations, session, warnings })
+    Ok(Exported {
+        model,
+        local_guid: req.local_guid,
+        account: c.u32("account")?,
+        observations,
+        pet_observations,
+        session,
+        warnings,
+    })
 }
 
 /// The core's marker row of this character, if it has one.
@@ -242,8 +337,12 @@ pub fn session_row(raw: &RawExport) -> Result<Option<SessionRow>> {
     if !raw.has("portable_session") {
         return Ok(None);
     }
-    let Some(r) = raw.section("portable_session")?.iter().next() else { return Ok(None) };
-    let state = RowState::from_code(r.u64("state")?).ok_or_else(|| PortableError::CorruptSnapshot("the portable session row has an unknown state".into()))?;
+    let Some(r) = raw.section("portable_session")?.iter().next() else {
+        return Ok(None);
+    };
+    let state = RowState::from_code(r.u64("state")?).ok_or_else(|| {
+        PortableError::CorruptSnapshot("the portable session row has an unknown state".into())
+    })?;
     Ok(Some(SessionRow {
         guid: r.u32("guid")?,
         session_id: r.text("session_id")?.parse()?,
@@ -257,18 +356,38 @@ pub fn session_row(raw: &RawExport) -> Result<Option<SessionRow>> {
 }
 
 fn pairs(raw: &RawExport, section: &str) -> Result<Vec<(u32, u8)>> {
-    raw.section(section)?.iter().map(|r| Ok((r.u32("spell")?, r.u8("spec_mask")?))).collect()
+    raw.section(section)?
+        .iter()
+        .map(|r| Ok((r.u32("spell")?, r.u8("spec_mask")?)))
+        .collect()
 }
 
 fn numbers(text: &str, what: &str) -> Result<Vec<i64>> {
     text.split_whitespace()
-        .map(|t| t.parse::<i64>().map_err(|_| PortableError::CorruptSnapshot(format!("{what}: {t:?} is not a number"))))
+        .map(|t| {
+            t.parse::<i64>().map_err(|_| {
+                PortableError::CorruptSnapshot(format!("{what}: {t:?} is not a number"))
+            })
+        })
         .collect()
 }
 
-fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<String>) -> Result<(Vec<PortableItem>, Vec<ItemObservation>)> {
-    let instances: HashMap<u32, Row<'_>> = raw.section("items")?.iter().map(|r| Ok((r.u32("guid")?, r))).collect::<Result<_>>()?;
-    let gifts: HashMap<u32, Row<'_>> = raw.section("gifts")?.iter().map(|r| Ok((r.u32("item_guid")?, r))).collect::<Result<_>>()?;
+fn items(
+    raw: &RawExport,
+    req: &ExportRequest<'_>,
+    ns: &str,
+    warnings: &mut Vec<String>,
+) -> Result<(Vec<PortableItem>, Vec<ItemObservation>)> {
+    let instances: HashMap<u32, Row<'_>> = raw
+        .section("items")?
+        .iter()
+        .map(|r| Ok((r.u32("guid")?, r)))
+        .collect::<Result<_>>()?;
+    let gifts: HashMap<u32, Row<'_>> = raw
+        .section("gifts")?
+        .iter()
+        .map(|r| Ok((r.u32("item_guid")?, r)))
+        .collect::<Result<_>>()?;
 
     // First pass: which inventory rows are usable at all.
     struct Placed {
@@ -280,7 +399,9 @@ fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<
     for r in raw.section("inventory")?.iter() {
         let (bag, slot, guid) = (r.u32("bag")?, r.u64("slot")?, r.u32("item")?);
         let Ok(slot) = u8::try_from(slot) else {
-            warnings.push(format!("item {guid}: slot {slot} is out of range, left out"));
+            warnings.push(format!(
+                "item {guid}: slot {slot} is out of range, left out"
+            ));
             continue;
         };
         if !instances.contains_key(&guid) {
@@ -293,7 +414,11 @@ fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<
         }
         placed.push(Placed { guid, bag, slot });
     }
-    let on_character: HashSet<u32> = placed.iter().filter(|p| p.bag == 0).map(|p| p.guid).collect();
+    let on_character: HashSet<u32> = placed
+        .iter()
+        .filter(|p| p.bag == 0)
+        .map(|p| p.guid)
+        .collect();
 
     let mut ids: HashMap<u32, PortableItemId> = HashMap::new();
     let mut observations = Vec::new();
@@ -306,7 +431,11 @@ fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<
         let r = instances[&p.guid];
         let entry = ContentId::new(ns, "item", r.u64("entry")?)?;
         let random_property_id = r.i32("random_property")?;
-        let creator_name = if r.u64("creator_guid")? != 0 { r.opt_text("creator_name")?.filter(|n| !n.is_empty()) } else { None };
+        let creator_name = if r.u64("creator_guid")? != 0 {
+            r.opt_text("creator_name")?.filter(|n| !n.is_empty())
+        } else {
+            None
+        };
         let identity = item_identity(&entry, random_property_id);
 
         // keep the portable id when this local guid is still the same item; a recycled guid gets a new one
@@ -318,25 +447,57 @@ fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<
 
         let enchantment_numbers = numbers(&r.text("enchantments")?, "enchantments")?;
         if enchantment_numbers.len() % 3 != 0 || enchantment_numbers.len() > 36 {
-            warnings.push(format!("item {}: unusual enchantment data ({} values)", p.guid, enchantment_numbers.len()));
+            warnings.push(format!(
+                "item {}: unusual enchantment data ({} values)",
+                p.guid,
+                enchantment_numbers.len()
+            ));
         }
         let mut enchantments = Vec::new();
-        for (slot, chunk) in enchantment_numbers.chunks_exact(3).take(12).enumerate() {
+        for (slot, chunk) in enchantment_numbers.as_chunks::<3>().0.iter().take(12).enumerate() {
             if chunk.iter().any(|v| *v != 0) {
-                let to = |v: i64| u32::try_from(v).map_err(|_| PortableError::CorruptSnapshot(format!("item {}: enchantment value {v} is out of range", p.guid)));
-                enchantments.push(Enchantment { slot: slot as u8, id: to(chunk[0])?, duration: to(chunk[1])?, charges: to(chunk[2])? });
+                let to = |v: i64| {
+                    u32::try_from(v).map_err(|_| {
+                        PortableError::CorruptSnapshot(format!(
+                            "item {}: enchantment value {v} is out of range",
+                            p.guid
+                        ))
+                    })
+                };
+                enchantments.push(Enchantment {
+                    slot: slot as u8,
+                    id: to(chunk[0])?,
+                    duration: to(chunk[1])?,
+                    charges: to(chunk[2])?,
+                });
             }
         }
         let charges: Vec<i32> = match r.opt_text("charges")? {
-            Some(text) => numbers(&text, "charges")?.into_iter().take(5).map(|v| i32::try_from(v).map_err(|_| PortableError::CorruptSnapshot("item charges out of range".into()))).collect::<Result<_>>()?,
+            Some(text) => numbers(&text, "charges")?
+                .into_iter()
+                .take(5)
+                .map(|v| {
+                    i32::try_from(v).map_err(|_| {
+                        PortableError::CorruptSnapshot("item charges out of range".into())
+                    })
+                })
+                .collect::<Result<_>>()?,
             None => Vec::new(),
         };
         let gift = match gifts.get(&p.guid) {
-            Some(g) => Some(Gift { entry: ContentId::new(ns, "item", g.u64("entry")?)?, flags: g.u32("flags")? }),
+            Some(g) => Some(Gift {
+                entry: ContentId::new(ns, "item", g.u64("entry")?)?,
+                flags: g.u32("flags")?,
+            }),
             None => None,
         };
 
-        observations.push(ItemObservation { portable_item_id: id, local_item_guid: p.guid, entry: entry.clone(), identity });
+        observations.push(ItemObservation {
+            portable_item_id: id,
+            local_item_guid: p.guid,
+            entry: entry.clone(),
+            identity,
+        });
         items.push((
             p.bag,
             PortableItem {
@@ -371,14 +532,30 @@ fn items(raw: &RawExport, req: &ExportRequest<'_>, ns: &str, warnings: &mut Vec<
     Ok((items, observations))
 }
 
-fn pets(raw: &RawExport, ns: &str, prior: &HashMap<u32, (PortablePetId, String)>) -> Result<(Vec<PortablePet>, Vec<PetObservation>)> {
+fn pets(
+    raw: &RawExport,
+    ns: &str,
+    prior: &HashMap<u32, (PortablePetId, String)>,
+) -> Result<(Vec<PortablePet>, Vec<PetObservation>)> {
     let mut spells: HashMap<u32, Vec<PetSpell>> = HashMap::new();
     for r in raw.section("pet_spells")?.iter() {
-        spells.entry(r.u32("pet")?).or_default().push(PetSpell { spell: r.u32("spell")?, active: r.u8("active")? });
+        spells.entry(r.u32("pet")?).or_default().push(PetSpell {
+            spell: r.u32("spell")?,
+            active: r.u8("active")?,
+        });
     }
     let mut declined: HashMap<u32, [String; 5]> = HashMap::new();
     for r in raw.section("pet_declined")?.iter() {
-        declined.insert(r.u32("id")?, [r.text("n1")?, r.text("n2")?, r.text("n3")?, r.text("n4")?, r.text("n5")?]);
+        declined.insert(
+            r.u32("id")?,
+            [
+                r.text("n1")?,
+                r.text("n2")?,
+                r.text("n3")?,
+                r.text("n4")?,
+                r.text("n5")?,
+            ],
+        );
     }
     let mut observations = Vec::new();
     let mut pets = Vec::new();
@@ -392,7 +569,11 @@ fn pets(raw: &RawExport, ns: &str, prior: &HashMap<u32, (PortablePetId, String)>
             Some((id, prior_identity)) if *prior_identity == identity => *id,
             _ => PortablePetId::new(),
         };
-        observations.push(PetObservation { portable_pet_id: id, local_pet_number: number, identity });
+        observations.push(PetObservation {
+            portable_pet_id: id,
+            local_pet_number: number,
+            identity,
+        });
         pets.push(PortablePet {
             id,
             entry,
@@ -417,7 +598,10 @@ fn pets(raw: &RawExport, ns: &str, prior: &HashMap<u32, (PortablePetId, String)>
 }
 
 /// `(carried, quarantined)`.
-fn settings(raw: &RawExport, ruleset: Ruleset) -> Result<(BTreeMap<String, Vec<u32>>, BTreeMap<String, Vec<u32>>)> {
+fn settings(
+    raw: &RawExport,
+    ruleset: Ruleset,
+) -> Result<(BTreeMap<String, Vec<u32>>, BTreeMap<String, Vec<u32>>)> {
     let mut carried = BTreeMap::new();
     let mut quarantined = BTreeMap::new();
     for r in raw.section("settings")?.iter() {
@@ -425,7 +609,13 @@ fn settings(raw: &RawExport, ruleset: Ruleset) -> Result<(BTreeMap<String, Vec<u
         let values: Vec<u32> = r
             .text("data")?
             .split_whitespace()
-            .map(|t| t.parse::<u32>().map_err(|_| PortableError::CorruptSnapshot(format!("settings {source}: {t:?} is not an unsigned integer"))))
+            .map(|t| {
+                t.parse::<u32>().map_err(|_| {
+                    PortableError::CorruptSnapshot(format!(
+                        "settings {source}: {t:?} is not an unsigned integer"
+                    ))
+                })
+            })
             .collect::<Result<_>>()?;
         match classify_setting(&source, ruleset) {
             Disposition::Carry => {
@@ -462,7 +652,12 @@ fn wardrobe(raw: &RawExport) -> Result<PortableAppearance> {
         for r in raw.section("appearance_outfits")?.iter() {
             let name = r.text("name")?;
             // the realm tokenises on spaces and reads an unparsable token as 0
-            let ids = r.text("appearances")?.split(' ').filter(|t| !t.is_empty()).map(|t| t.parse::<u32>().unwrap_or(0)).collect();
+            let ids = r
+                .text("appearances")?
+                .split(' ')
+                .filter(|t| !t.is_empty())
+                .map(|t| t.parse::<u32>().unwrap_or(0))
+                .collect();
             out.outfits.insert(name, ids);
         }
     }

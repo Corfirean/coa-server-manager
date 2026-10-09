@@ -13,12 +13,16 @@ use crate::portable::merge::{merge3, Mode};
 use crate::portable::model::*;
 use crate::portable::store::{ImportState, Presence, Store, UpdatePlan};
 
-use super::live_import::{counts, expected_after_a_trip, first, fresh_store, json_diff, make, number, opts, read_back, realms, reset_b, Realms, ACCOUNT, B};
+use super::live_import::{
+    counts, expected_after_a_trip, first, fresh_store, json_diff, make, number, opts, read_back,
+    realms, reset_b, Realms, ACCOUNT, B,
+};
 use super::reconcile::resolve_import_update;
 use super::update::{build_update, UpdateContext};
 use super::*;
 
-const EMPTY_ENCHANTS: &str = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ";
+const EMPTY_ENCHANTS: &str =
+    "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ";
 
 fn sql(db: &Db, text: &str) {
     db.query(text).unwrap_or_else(|e| panic!("{e}\n{text}"));
@@ -27,7 +31,8 @@ fn sql(db: &Db, text: &str) {
 /// Make `a_guid` portable on realm A and import it into B; returns (portable id, local guid on B).
 fn join(r: &Realms, store: &mut Store, profile: ProfileId, a_guid: u32) -> (CharacterId, u32) {
     let id = make(r, store, profile, a_guid);
-    let outcome = import_character(&r.b, store, id, B, ACCOUNT, &opts()).unwrap_or_else(|e| panic!("import of {a_guid}: {e}"));
+    let outcome = import_character(&r.b, store, id, B, ACCOUNT, &opts())
+        .unwrap_or_else(|e| panic!("import of {a_guid}: {e}"));
     (id, outcome.local_guid)
 }
 
@@ -61,13 +66,26 @@ fn make_local(db: &Db, guid: u32) {
 }
 
 fn free_slot(db: &Db, guid: u32) -> u8 {
-    let used: Vec<u64> = db.query(&format!("SELECT slot FROM acore_characters.character_inventory WHERE guid = {guid} AND bag = 0")).unwrap().lines().filter_map(|l| l.trim().parse().ok()).collect();
-    (23u8..=38).chain(39..=66).find(|s| !used.contains(&(*s as u64))).expect("a free slot")
+    let used: Vec<u64> = db
+        .query(&format!(
+            "SELECT slot FROM acore_characters.character_inventory WHERE guid = {guid} AND bag = 0"
+        ))
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.trim().parse().ok())
+        .collect();
+    (23u8..=38)
+        .chain(39..=66)
+        .find(|s| !used.contains(&(*s as u64)))
+        .expect("a free slot")
 }
 
 /// A new item of the realm's own (what a realm hands out, or a player loots), written the way the realm writes it.
 fn realm_gives(db: &Db, guid: u32, entry: u64) -> u32 {
-    let item = number(db, "SELECT MAX(guid) + 1 FROM acore_characters.item_instance") as u32;
+    let item = number(
+        db,
+        "SELECT MAX(guid) + 1 FROM acore_characters.item_instance",
+    ) as u32;
     let slot = free_slot(db, guid);
     sql(
         db,
@@ -86,21 +104,47 @@ fn realm_takes(db: &Db, guid: u32, item: u32) {
 
 /// The local item guid a portable item has on B.
 fn local_item(store: &Store, id: CharacterId, item: PortableItemId) -> u32 {
-    store.item_mappings(id, B).unwrap().into_iter().find(|m| m.portable_item_id == item && m.active).unwrap_or_else(|| panic!("item {item} is not mapped")).local_item_guid
+    store
+        .item_mappings(id, B)
+        .unwrap()
+        .into_iter()
+        .find(|m| m.portable_item_id == item && m.active)
+        .unwrap_or_else(|| panic!("item {item} is not mapped"))
+        .local_item_guid
 }
 
 /// Plain items of a model that hold nothing (safe to take away or hold back).
 fn plain(m: &PortableCharacter) -> Vec<PortableItemId> {
-    let containers: std::collections::HashSet<PortableItemId> = m.items.iter().filter_map(|i| i.container).collect();
-    m.items.iter().filter(|i| i.container.is_none() && !containers.contains(&i.id) && i.slot >= 23).map(|i| i.id).collect()
+    let containers: std::collections::HashSet<PortableItemId> =
+        m.items.iter().filter_map(|i| i.container).collect();
+    m.items
+        .iter()
+        .filter(|i| i.container.is_none() && !containers.contains(&i.id) && i.slot >= 23)
+        .map(|i| i.id)
+        .collect()
 }
 
 fn state_of(store: &Store, id: CharacterId) -> (u64, u64) {
-    (store.character(id).unwrap().revision, store.server_mappings(id).unwrap().into_iter().find(|m| m.server_id == B).unwrap().last_revision)
+    (
+        store.character(id).unwrap().revision,
+        store
+            .server_mappings(id)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.server_id == B)
+            .unwrap()
+            .last_revision,
+    )
 }
 
 fn spells_of(r: &Realms, guid: u32) -> Vec<u32> {
-    r.a.query(&format!("SELECT spell FROM acore_characters.character_spell WHERE guid = {guid} ORDER BY spell")).unwrap().lines().filter_map(|l| l.trim().parse().ok()).collect()
+    r.a.query(&format!(
+        "SELECT spell FROM acore_characters.character_spell WHERE guid = {guid} ORDER BY spell"
+    ))
+    .unwrap()
+    .lines()
+    .filter_map(|l| l.trim().parse().ok())
+    .collect()
 }
 
 #[test]
@@ -117,51 +161,106 @@ fn an_update_changes_the_portable_subset_in_place_and_keeps_everything_local() {
     let c0 = store.load_current(id).unwrap();
 
     // the canonical character moves on (it was played somewhere else): more money and xp, one item gone, one new, a spell, a quest
-    let extra_spell = *spells_of(&r, 1004).iter().find(|s| !c0.build.spells.iter().any(|(k, _)| k == *s)).expect("a spell 1002 lacks");
+    let extra_spell = *spells_of(&r, 1004)
+        .iter()
+        .find(|s| !c0.build.spells.iter().any(|(k, _)| k == *s))
+        .expect("a spell 1002 lacks");
     let gone = plain(&c0)[0];
     let mut c1 = c0.clone();
     c1.progression.money += 123_456;
     c1.progression.xp += 1_000;
     c1.progression.honor.total_kills += 7;
     c1.items.retain(|i| i.id != gone);
-    let mut loot = c0.items.iter().find(|i| i.id == plain(&c0)[1]).unwrap().clone();
+    let mut loot = c0
+        .items
+        .iter()
+        .find(|i| i.id == plain(&c0)[1])
+        .unwrap()
+        .clone();
     loot.id = PortableItemId::new();
     loot.slot = 66;
     c1.items.push(loot.clone());
     c1.build.spells.push((extra_spell, 255));
     c1.quests.rewarded.push(4242);
-    c1.reputation.push(ReputationEntry { faction: 69, standing: 300, flags: 1 });
+    c1.reputation.push(ReputationEntry {
+        faction: 69,
+        standing: 300,
+        flags: 1,
+    });
     let c1 = c1.normalized();
-    store.commit_snapshot(id, 1, c1.clone(), "realm-a", Some("played elsewhere")).unwrap();
+    store
+        .commit_snapshot(id, 1, c1.clone(), "realm-a", Some("played elsewhere"))
+        .unwrap();
 
     let outcome = update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap();
     assert!(outcome.updated);
     assert_eq!((outcome.from_revision, outcome.to_revision), (1, 2));
-    assert_eq!((outcome.counts.items_added, outcome.counts.items_removed), (1, 1), "{:?}", outcome.counts);
+    assert_eq!(
+        (outcome.counts.items_added, outcome.counts.items_removed),
+        (1, 1),
+        "{:?}",
+        outcome.counts
+    );
 
     // the same character, in place: guid, mapping, and every piece of realm-local state are untouched
-    assert_eq!(world_local(&r.b, g), local_before, "position, homebind, auras, cooldowns and instance saves are the realm's own");
-    assert_eq!(store.server_mappings(id).unwrap().into_iter().find(|m| m.server_id == B).unwrap().local_guid, g);
+    assert_eq!(
+        world_local(&r.b, g),
+        local_before,
+        "position, homebind, auras, cooldowns and instance saves are the realm's own"
+    );
+    assert_eq!(
+        store
+            .server_mappings(id)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.server_id == B)
+            .unwrap()
+            .local_guid,
+        g
+    );
     assert_eq!(state_of(&store, id), (2, 2));
     let after = counts(&r.b);
-    let changed: BTreeMap<_, _> = after.iter().filter(|(t, n)| counts_before[*t] != **n).map(|(t, n)| (t.clone(), (counts_before[t], *n))).collect();
+    let changed: BTreeMap<_, _> = after
+        .iter()
+        .filter(|(t, n)| counts_before[*t] != **n)
+        .map(|(t, n)| (t.clone(), (counts_before[t], *n)))
+        .collect();
     assert_eq!(
         changed.keys().map(String::as_str).collect::<Vec<_>>(),
-        vec!["character_queststatus_rewarded", "character_reputation", "character_settings", "character_spell"],
+        vec![
+            "character_queststatus_rewarded",
+            "character_reputation",
+            "character_settings",
+            "character_spell"
+        ],
         "only the tables the change is about gained rows: {changed:?}"
     );
-    assert_eq!(after["characters"], counts_before["characters"], "the character is never deleted or re-created");
-    assert_eq!(after["item_instance"], counts_before["item_instance"], "one item out, one in");
+    assert_eq!(
+        after["characters"], counts_before["characters"],
+        "the character is never deleted or re-created"
+    );
+    assert_eq!(
+        after["item_instance"], counts_before["item_instance"],
+        "one item out, one in"
+    );
 
     // the realm now holds exactly the new canonical character
     let back = read_back(&r, &store, id);
     let mut diffs = Vec::new();
-    json_diff("", &serde_json::to_value(expected_after_a_trip(&c1, &back)).unwrap(), &serde_json::to_value(&back).unwrap(), &mut diffs);
+    json_diff(
+        "",
+        &serde_json::to_value(expected_after_a_trip(&c1, &back)).unwrap(),
+        &serde_json::to_value(&back).unwrap(),
+        &mut diffs,
+    );
     assert!(diffs.is_empty(), "{diffs:#?}");
     // the removed item's mapping is retired, the new one is mapped to a guid above everything the realm names
     let mapped = store.item_mappings(id, B).unwrap();
     assert!(mapped.iter().all(|m| m.portable_item_id != gone));
-    assert!(local_item(&store, id, loot.id) as u64 > max_item_before, "the new item's guid is allocated above every item guid of the realm");
+    assert!(
+        local_item(&store, id, loot.id) as u64 > max_item_before,
+        "the new item's guid is allocated above every item guid of the realm"
+    );
     // nothing is left unfinished, and asking again is a no-op
     assert!(store.open_imports(B).unwrap().is_empty());
     let again = update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap();
@@ -182,21 +281,42 @@ fn a_failed_update_changes_not_one_row() {
     let mut c1 = store.load_current(id).unwrap();
     c1.progression.money += 5;
     c1.build.spells.push((500_090, 255));
-    store.commit_snapshot(id, 1, c1.normalized(), "realm-a", None).unwrap();
+    store
+        .commit_snapshot(id, 1, c1.normalized(), "realm-a", None)
+        .unwrap();
 
-    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail").unwrap();
+    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail")
+        .unwrap();
     r.b.query("DELIMITER //\nCREATE TRIGGER acore_characters.coa_test_fail BEFORE INSERT ON acore_characters.character_spell FOR EACH ROW BEGIN IF NEW.spell = 500090 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected failure'; END IF; END//\nDELIMITER ;").unwrap();
     let result = update_realm_character(&r.b, &mut store, id, B, &opts());
-    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail").unwrap();
-    let error = result.expect_err("the injected failure must fail the update").to_string();
-    assert!(error.contains("injected failure") || error.contains("database command failed"), "{error}");
+    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail")
+        .unwrap();
+    let error = result
+        .expect_err("the injected failure must fail the update")
+        .to_string();
+    assert!(
+        error.contains("injected failure") || error.contains("database command failed"),
+        "{error}"
+    );
 
     assert_eq!(counts(&r.b), before);
     assert_eq!(world_local(&r.b, g), local_before);
-    assert_eq!(number(&r.b, &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")), store.load_snapshot(id, 1).unwrap().progression.money as u64, "the money change that ran before the failure was rolled back");
+    assert_eq!(
+        number(
+            &r.b,
+            &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")
+        ),
+        store.load_snapshot(id, 1).unwrap().progression.money as u64,
+        "the money change that ran before the failure was rolled back"
+    );
     assert_eq!(state_of(&store, id), (2, 1), "no mapping or revision moved");
-    assert!(store.open_imports(B).unwrap().is_empty(), "the journal entry is closed");
-    let entries = r.b.query("SELECT GET_LOCK('coa_portable_import', 0)").unwrap();
+    assert!(
+        store.open_imports(B).unwrap().is_empty(),
+        "the journal entry is closed"
+    );
+    let entries =
+        r.b.query("SELECT GET_LOCK('coa_portable_import', 0)")
+            .unwrap();
     assert_eq!(entries.trim(), "1", "the import lock was released");
     r.b.query("DO RELEASE_LOCK('coa_portable_import')").unwrap();
     // and the update works once the cause is gone
@@ -206,25 +326,68 @@ fn a_failed_update_changes_not_one_row() {
 }
 
 /// The update flow of `update_realm_character` up to (not including) the realm run, so a test can interrupt it.
-fn prepare_update(r: &Realms, store: &mut Store, id: CharacterId) -> (crate::portable::ids::ImportId, String) {
-    let guid = store.server_mappings(id).unwrap().into_iter().find(|m| m.server_id == B).unwrap().local_guid;
+fn prepare_update(
+    r: &Realms,
+    store: &mut Store,
+    id: CharacterId,
+) -> (crate::portable::ids::ImportId, String) {
+    let guid = store
+        .server_mappings(id)
+        .unwrap()
+        .into_iter()
+        .find(|m| m.server_id == B)
+        .unwrap()
+        .local_guid;
     let prior_items = store.active_item_lookup(id, B).unwrap();
     let prior_pets = store.active_pet_lookup(id, B).unwrap();
-    let exported = export_character_with_pets(&r.b, guid, Some(id), &prior_items, &prior_pets).unwrap();
+    let exported =
+        export_character_with_pets(&r.b, guid, Some(id), &prior_items, &prior_pets).unwrap();
     let synced = store.synced_model(id, B).unwrap().unwrap();
     let canonical = store.load_current(id).unwrap();
     let merged = merge3(&exported.model, &synced, &canonical, Mode::Strict).unwrap();
     assert!(merged.conflicts.is_empty());
-    let items = exported.observations.iter().map(|o| (o.portable_item_id, o.local_item_guid)).collect();
-    let pets = exported.pet_observations.iter().map(|o| (o.portable_pet_id, o.local_pet_number)).collect();
+    let items = exported
+        .observations
+        .iter()
+        .map(|o| (o.portable_item_id, o.local_item_guid))
+        .collect();
+    let pets = exported
+        .pet_observations
+        .iter()
+        .map(|o| (o.portable_pet_id, o.local_pet_number))
+        .collect();
     let schema = probe(&r.b).unwrap();
     let users = opts().game_server_users;
     let revision = canonical_revision(store, id);
-    let ctx = |nonce| UpdateContext { ruleset: Ruleset::Coa, local_guid: guid, revision, nonce, game_server_users: &users, probe: &schema, items: &items, pets: &pets, session: None, knowledge: None, pin: crate::portable::realm::update::PinWrite::Keep };
+    let ctx = |nonce| UpdateContext {
+        ruleset: Ruleset::Coa,
+        local_guid: guid,
+        revision,
+        nonce,
+        game_server_users: &users,
+        probe: &schema,
+        items: &items,
+        pets: &pets,
+        session: None,
+        knowledge: None,
+        pin: crate::portable::realm::update::PinWrite::Keep,
+    };
     let draft = build_update(&exported.model, &merged.model, &ctx([0; 4])).unwrap();
-    let by_id: std::collections::HashMap<_, _> = merged.model.items.iter().map(|i| (i.id, i)).collect();
+    let by_id: std::collections::HashMap<_, _> =
+        merged.model.items.iter().map(|i| (i.id, i)).collect();
     let plan = UpdatePlan {
-        added_items: draft.added_items.iter().map(|i| crate::portable::store::PlannedItem { id: *i, entry: by_id[i].entry.clone(), identity: crate::portable::identity::item_identity(&by_id[i].entry, by_id[i].random_property_id) }).collect(),
+        added_items: draft
+            .added_items
+            .iter()
+            .map(|i| crate::portable::store::PlannedItem {
+                id: *i,
+                entry: by_id[i].entry.clone(),
+                identity: crate::portable::identity::item_identity(
+                    &by_id[i].entry,
+                    by_id[i].random_property_id,
+                ),
+            })
+            .collect(),
         retired_items: draft.removed_items.clone(),
         ..UpdatePlan::default()
     };
@@ -249,27 +412,64 @@ fn an_update_whose_answer_was_lost_is_finished_by_recovery_and_one_that_never_ra
     let mut c1 = c0.clone();
     c1.progression.money += 10;
     c1.items.retain(|i| i.id != gone);
-    let mut loot = c0.items.iter().find(|i| i.id == plain(&c0)[1]).unwrap().clone();
+    let mut loot = c0
+        .items
+        .iter()
+        .find(|i| i.id == plain(&c0)[1])
+        .unwrap()
+        .clone();
     loot.id = PortableItemId::new();
     loot.slot = 66;
     c1.items.push(loot.clone());
-    store.commit_snapshot(id, 1, c1.normalized(), "realm-a", None).unwrap();
+    store
+        .commit_snapshot(id, 1, c1.normalized(), "realm-a", None)
+        .unwrap();
 
     // (a) the realm commits, the Manager never hears of it
     let (import_id, script) = prepare_update(&r, &mut store, id);
-    assert!(matches!(store.begin_update(id, B, 2, UpdatePlan::default()), Err(PortableError::ImportInProgress { .. })), "one unfinished update per pair");
+    assert!(
+        matches!(
+            store.begin_update(id, B, 2, UpdatePlan::default()),
+            Err(PortableError::ImportInProgress { .. })
+        ),
+        "one unfinished update per pair"
+    );
     r.b.query(&script).unwrap();
-    assert_eq!(state_of(&store, id), (2, 1), "the Manager still believes the realm is at revision 1");
-    assert!(store.item_mappings(id, B).unwrap().iter().any(|m| m.portable_item_id == gone), "and still maps the removed item");
+    assert_eq!(
+        state_of(&store, id),
+        (2, 1),
+        "the Manager still believes the realm is at revision 1"
+    );
+    assert!(
+        store
+            .item_mappings(id, B)
+            .unwrap()
+            .iter()
+            .any(|m| m.portable_item_id == gone),
+        "and still maps the removed item"
+    );
     let reports = recover_imports(&r.b, &mut store, B, &opts()).unwrap();
     assert_eq!(reports.len(), 1);
-    assert!(matches!(reports[0].resolution, Resolution::Committed(a) if a.local_guid == g), "{:?}", reports[0].resolution);
+    assert!(
+        matches!(reports[0].resolution, Resolution::Committed(a) if a.local_guid == g),
+        "{:?}",
+        reports[0].resolution
+    );
     assert_eq!(state_of(&store, id), (2, 2));
-    assert!(store.item_mappings(id, B).unwrap().iter().all(|m| m.portable_item_id != gone));
+    assert!(store
+        .item_mappings(id, B)
+        .unwrap()
+        .iter()
+        .all(|m| m.portable_item_id != gone));
     let new_guid = local_item(&store, id, loot.id);
     assert_eq!(number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.item_instance WHERE guid = {new_guid} AND owner_guid = {g}")), 1, "the recorded allocation is the realm's");
-    assert_eq!(store.import_entry(import_id).unwrap().state, ImportState::Committed);
-    assert!(recover_imports(&r.b, &mut store, B, &opts()).unwrap().is_empty());
+    assert_eq!(
+        store.import_entry(import_id).unwrap().state,
+        ImportState::Committed
+    );
+    assert!(recover_imports(&r.b, &mut store, B, &opts())
+        .unwrap()
+        .is_empty());
 
     // (b) the Manager journaled the update and died before the realm ran it
     let mut c2 = store.load_current(id).unwrap();
@@ -278,15 +478,29 @@ fn an_update_whose_answer_was_lost_is_finished_by_recovery_and_one_that_never_ra
     let before = counts(&r.b);
     let (import_id, _script_never_run) = prepare_update(&r, &mut store, id);
     let reports = recover_imports(&r.b, &mut store, B, &opts()).unwrap();
-    assert!(matches!(reports[0].resolution, Resolution::Aborted), "{:?}", reports[0].resolution);
-    assert_eq!(store.import_entry(import_id).unwrap().state, ImportState::Aborted);
+    assert!(
+        matches!(reports[0].resolution, Resolution::Aborted),
+        "{:?}",
+        reports[0].resolution
+    );
+    assert_eq!(
+        store.import_entry(import_id).unwrap().state,
+        ImportState::Aborted
+    );
     assert_eq!(counts(&r.b), before);
     assert_eq!(state_of(&store, id), (3, 2));
     // the update can simply be done again
-    assert!(update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap().updated);
+    assert!(
+        update_realm_character(&r.b, &mut store, id, B, &opts())
+            .unwrap()
+            .updated
+    );
     assert_eq!(state_of(&store, id), (3, 3));
     // a resolved entry resolves the same way again
-    assert!(matches!(resolve_import_update(&r.b, &mut store, import_id, &opts(), false).unwrap(), Resolution::Aborted));
+    assert!(matches!(
+        resolve_import_update(&r.b, &mut store, import_id, &opts(), false).unwrap(),
+        Resolution::Aborted
+    ));
 }
 
 #[test]
@@ -298,7 +512,9 @@ fn an_update_is_refused_while_the_realm_runs_the_character_is_online_or_a_sessio
     let (id, g) = join(&r, &mut store, profile, 1002);
     let mut c1 = store.load_current(id).unwrap();
     c1.progression.money += 1;
-    store.commit_snapshot(id, 1, c1.normalized(), "realm-a", None).unwrap();
+    store
+        .commit_snapshot(id, 1, c1.normalized(), "realm-a", None)
+        .unwrap();
     let before = counts(&r.b);
 
     // a session of the game server's database user = the realm is running
@@ -311,29 +527,68 @@ fn an_update_is_refused_while_the_realm_runs_the_character_is_online_or_a_sessio
         holder.join().unwrap();
         result
     });
-    assert!(matches!(&refused, Err(PortableError::ImportRefused(p)) if p.iter().any(|p| matches!(p, ImportProblem::RealmRunning { .. }))), "{refused:?}");
+    assert!(
+        matches!(&refused, Err(PortableError::ImportRefused(p)) if p.iter().any(|p| matches!(p, ImportProblem::RealmRunning { .. }))),
+        "{refused:?}"
+    );
     assert_eq!(counts(&r.b), before);
-    assert!(store.open_imports(B).unwrap().is_empty(), "refused before anything was journaled");
+    assert!(
+        store.open_imports(B).unwrap().is_empty(),
+        "refused before anything was journaled"
+    );
 
     // a character that is online cannot be read, so it cannot be updated either
-    sql(&r.b, &format!("UPDATE acore_characters.characters SET online = 1 WHERE guid = {g}"));
-    assert!(matches!(update_realm_character(&r.b, &mut store, id, B, &opts()), Err(PortableError::NotExportable(_))));
+    sql(
+        &r.b,
+        &format!("UPDATE acore_characters.characters SET online = 1 WHERE guid = {g}"),
+    );
+    assert!(matches!(
+        update_realm_character(&r.b, &mut store, id, B, &opts()),
+        Err(PortableError::NotExportable(_))
+    ));
     sql(&r.b, "UPDATE acore_characters.characters SET online = 0");
 
     // a session cannot start from an old base: the realm is at revision 1, the canonical character at 2
     let started = begin_session(&r.b, &mut store, id, B);
-    assert!(matches!(started, Err(PortableError::StaleRevision { expected: 1, current: 2 })), "{started:?}");
-    assert!(update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap().updated);
+    assert!(
+        matches!(
+            started,
+            Err(PortableError::StaleRevision {
+                expected: 1,
+                current: 2
+            })
+        ),
+        "{started:?}"
+    );
+    assert!(
+        update_realm_character(&r.b, &mut store, id, B, &opts())
+            .unwrap()
+            .updated
+    );
 
     // an open session blocks updates: reconcile first
     begin_session(&r.b, &mut store, id, B).unwrap();
     let mut c = store.load_current(id).unwrap();
     c.progression.money += 1;
-    store.commit_snapshot(id, 2, c.normalized(), "realm-a", None).unwrap();
-    assert!(matches!(update_realm_character(&r.b, &mut store, id, B, &opts()), Err(PortableError::SessionOpen)));
+    store
+        .commit_snapshot(id, 2, c.normalized(), "realm-a", None)
+        .unwrap();
+    assert!(matches!(
+        update_realm_character(&r.b, &mut store, id, B, &opts()),
+        Err(PortableError::SessionOpen)
+    ));
     // and a session whose canonical character moved under it cannot be reconciled
     let r2 = reconcile_session(&r.b, &mut store, id, B, true, None);
-    assert!(matches!(r2, Err(PortableError::StaleRevision { expected: 2, current: 3 })), "{r2:?}");
+    assert!(
+        matches!(
+            r2,
+            Err(PortableError::StaleRevision {
+                expected: 2,
+                current: 3
+            })
+        ),
+        "{r2:?}"
+    );
     assert_eq!(store.character(id).unwrap().revision, 3);
 }
 
@@ -350,27 +605,50 @@ fn both_sides_changing_the_same_thing_differently_is_a_conflict_and_nothing_is_w
     // the realm raised a reputation (played without a session) while the canonical character raised it differently
     sql(&r.b, &format!("UPDATE acore_characters.character_reputation SET standing = {} WHERE guid = {g} AND faction = {faction}", standing + 111));
     let mut c1 = c0.clone();
-    c1.reputation.iter_mut().find(|e| e.faction == faction).unwrap().standing = standing + 222;
+    c1.reputation
+        .iter_mut()
+        .find(|e| e.faction == faction)
+        .unwrap()
+        .standing = standing + 222;
     c1.progression.money += 77;
-    store.commit_snapshot(id, 1, c1.normalized(), "realm-a", None).unwrap();
+    store
+        .commit_snapshot(id, 1, c1.normalized(), "realm-a", None)
+        .unwrap();
     let before = counts(&r.b);
     let result = update_realm_character(&r.b, &mut store, id, B, &opts());
     match &result {
-        Err(PortableError::UpdateConflicts(list)) => assert!(list.iter().any(|c| c.contains("reputation")), "{list:?}"),
+        Err(PortableError::UpdateConflicts(list)) => {
+            assert!(list.iter().any(|c| c.contains("reputation")), "{list:?}")
+        }
         other => panic!("expected a conflict, got {other:?}"),
     }
     assert_eq!(counts(&r.b), before);
-    assert_eq!(number(&r.b, &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")), c0.progression.money as u64, "not even the money, which would not have conflicted, was written");
+    assert_eq!(
+        number(
+            &r.b,
+            &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")
+        ),
+        c0.progression.money as u64,
+        "not even the money, which would not have conflicted, was written"
+    );
     assert!(store.open_imports(B).unwrap().is_empty());
     assert_eq!(state_of(&store, id), (2, 1));
 
     // where only one side changed a thing, both changes survive: the realm's own reputation change and the canonical money
     let mut c2 = c0.clone();
     c2.progression.money += 77;
-    store.commit_snapshot(id, 2, c2.normalized(), "realm-a", None).unwrap();
+    store
+        .commit_snapshot(id, 2, c2.normalized(), "realm-a", None)
+        .unwrap();
     let out = update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap();
     assert!(out.updated);
-    assert_eq!(number(&r.b, &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")), c0.progression.money as u64 + 77);
+    assert_eq!(
+        number(
+            &r.b,
+            &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")
+        ),
+        c0.progression.money as u64 + 77
+    );
     assert_eq!(first(&r.b, &format!("SELECT standing FROM acore_characters.character_reputation WHERE guid = {g} AND faction = {faction}")).trim().parse::<i64>().unwrap(), (standing + 111) as i64, "the realm's own unreconciled change is left alone");
 }
 
@@ -387,14 +665,22 @@ fn filtered_items_stay_canonical_and_deleted_ones_do_not_and_a_checkpoint_never_
     let (held_back, sold_later, kept) = (&candidates[0..3], candidates[3], candidates[4]);
 
     // --- the realm's own first load/save: it holds three items back, hands out one of its own, adds default spells, resets honor ---
-    let extra_spells: Vec<u32> = spells_of(&r, 1004).into_iter().filter(|s| !c0.build.spells.iter().any(|(k, _)| k == s)).take(2).collect();
+    let extra_spells: Vec<u32> = spells_of(&r, 1004)
+        .into_iter()
+        .filter(|s| !c0.build.spells.iter().any(|(k, _)| k == s))
+        .take(2)
+        .collect();
     for item in held_back {
         let guid = local_item(&store, id, *item);
         sql(&r.b, &format!("DELETE FROM acore_characters.character_inventory WHERE guid = {g} AND item = {guid}"));
         // a realm mails what it cannot place: the instance row stays, owned by the character, in a mail
         sql(&r.b, &format!("INSERT INTO acore_characters.mail_items (mail_id, item_guid, receiver) VALUES (99000, {guid}, {g})"));
     }
-    let realm_own = realm_gives(&r.b, g, c0.items.iter().find(|i| i.id == kept).unwrap().entry.id());
+    let realm_own = realm_gives(
+        &r.b,
+        g,
+        c0.items.iter().find(|i| i.id == kept).unwrap().entry.id(),
+    );
     for s in &extra_spells {
         sql(&r.b, &format!("INSERT INTO acore_characters.character_spell (guid, spell, specMask) VALUES ({g}, {s}, 255)"));
     }
@@ -402,54 +688,120 @@ fn filtered_items_stay_canonical_and_deleted_ones_do_not_and_a_checkpoint_never_
 
     let start = begin_session(&r.b, &mut store, id, B).unwrap();
     assert_eq!(start.c0_revision, 1);
-    assert_eq!(start.items_filtered, 3, "the three held-back items are recognised as filtered, not as deleted");
-    assert_eq!(start.items_realm_local, 1, "the realm's own item is recognised as the realm's");
+    assert_eq!(
+        start.items_filtered, 3,
+        "the three held-back items are recognised as filtered, not as deleted"
+    );
+    assert_eq!(
+        start.items_realm_local, 1,
+        "the realm's own item is recognised as the realm's"
+    );
     let mapped = store.item_mappings(id, B).unwrap();
     for item in held_back {
         let m = mapped.iter().find(|m| m.portable_item_id == *item).unwrap();
-        assert!(m.active && m.presence == Presence::Filtered, "an item that is absent from the inventory at B0 is not retired");
+        assert!(
+            m.active && m.presence == Presence::Filtered,
+            "an item that is absent from the inventory at B0 is not retired"
+        );
     }
-    assert!(mapped.iter().any(|m| m.local_item_guid == realm_own && m.presence == Presence::RealmLocal));
+    assert!(mapped
+        .iter()
+        .any(|m| m.local_item_guid == realm_own && m.presence == Presence::RealmLocal));
 
     // --- the player plays: gets rid of one item, finds one, earns money ---
     let sold = local_item(&store, id, sold_later);
     realm_takes(&r.b, g, sold);
-    let loot_entry = c0.items.iter().find(|i| i.id == candidates[5]).unwrap().entry.id();
+    let loot_entry = c0
+        .items
+        .iter()
+        .find(|i| i.id == candidates[5])
+        .unwrap()
+        .entry
+        .id();
     let loot_guid = realm_gives(&r.b, g, loot_entry);
     sql(&r.b, &format!("UPDATE acore_characters.characters SET money = money + 1000, totalKills = totalKills + 4 WHERE guid = {g}"));
 
     let first = reconcile_session(&r.b, &mut store, id, B, false, Some("checkpoint 1")).unwrap();
     assert_eq!(first.revision, 2);
     let c1 = store.load_current(id).unwrap();
-    assert!(held_back.iter().all(|h| c1.items.iter().any(|i| i.id == *h)), "everything the realm held back is still canonical");
-    assert!(c1.items.iter().all(|i| i.id != sold_later), "the item the player got rid of is gone");
-    assert!(c1.items.iter().any(|i| i.entry.id() == loot_entry && !c0.items.iter().any(|o| o.id == i.id)), "the loot is canonical");
-    assert_eq!(c1.items.len(), c0.items.len() - 1 + 1, "three filtered stay, one sold, one found; the realm's own item does not count");
+    assert!(
+        held_back
+            .iter()
+            .all(|h| c1.items.iter().any(|i| i.id == *h)),
+        "everything the realm held back is still canonical"
+    );
+    assert!(
+        c1.items.iter().all(|i| i.id != sold_later),
+        "the item the player got rid of is gone"
+    );
+    assert!(
+        c1.items
+            .iter()
+            .any(|i| i.entry.id() == loot_entry && !c0.items.iter().any(|o| o.id == i.id)),
+        "the loot is canonical"
+    );
+    assert_eq!(
+        c1.items.len(),
+        c0.items.len() - 1 + 1,
+        "three filtered stay, one sold, one found; the realm's own item does not count"
+    );
     assert_eq!(c1.progression.money, c0.progression.money + 1000);
-    assert_eq!(c1.progression.honor.total_kills, c0.progression.honor.total_kills + 4);
+    assert_eq!(
+        c1.progression.honor.total_kills,
+        c0.progression.honor.total_kills + 4
+    );
     for s in &extra_spells {
-        assert!(!c1.build.spells.iter().any(|(k, _)| k == s), "a spell the realm added by itself is normalisation, not progress");
+        assert!(
+            !c1.build.spells.iter().any(|(k, _)| k == s),
+            "a spell the realm added by itself is normalisation, not progress"
+        );
     }
-    assert_eq!(c1.progression.honor.today_honor, c0.progression.honor.today_honor, "the realm's honor reset does not overwrite the canonical value");
-    assert_eq!(c1.progression.chosen_title, c0.progression.chosen_title, "the realm's title normalisation does not overwrite the canonical value");
+    assert_eq!(
+        c1.progression.honor.today_honor, c0.progression.honor.today_honor,
+        "the realm's honor reset does not overwrite the canonical value"
+    );
+    assert_eq!(
+        c1.progression.chosen_title, c0.progression.chosen_title,
+        "the realm's title normalisation does not overwrite the canonical value"
+    );
 
     // --- more play, a second checkpoint: only the whole B0 -> B1 delta counts, once ---
-    sql(&r.b, &format!("UPDATE acore_characters.characters SET money = money + 50 WHERE guid = {g}"));
+    sql(
+        &r.b,
+        &format!("UPDATE acore_characters.characters SET money = money + 50 WHERE guid = {g}"),
+    );
     let second = reconcile_session(&r.b, &mut store, id, B, false, Some("checkpoint 2")).unwrap();
     assert_eq!(second.revision, 3);
     let c2 = store.load_current(id).unwrap();
-    assert_eq!(c2.progression.money, c0.progression.money + 1050, "1000 was not counted again");
+    assert_eq!(
+        c2.progression.money,
+        c0.progression.money + 1050,
+        "1000 was not counted again"
+    );
     assert_eq!(c2.items.len(), c1.items.len());
     // nothing played: no new revision
-    assert_eq!(reconcile_session(&r.b, &mut store, id, B, false, None).unwrap().revision, 3);
+    assert_eq!(
+        reconcile_session(&r.b, &mut store, id, B, false, None)
+            .unwrap()
+            .revision,
+        3
+    );
     assert_eq!(store.list_revisions(id).unwrap().len(), 3);
 
     // --- the item the player found is mapped, the realm's own one stays the realm's, the filtered ones stay mapped ---
     let mapped = store.item_mappings(id, B).unwrap();
-    assert!(mapped.iter().any(|m| m.local_item_guid == loot_guid && m.presence == Presence::Present));
-    assert!(mapped.iter().any(|m| m.local_item_guid == realm_own && m.presence == Presence::RealmLocal));
-    assert!(held_back.iter().all(|h| mapped.iter().any(|m| m.portable_item_id == *h && m.active && m.presence == Presence::Filtered)));
-    assert!(mapped.iter().all(|m| m.portable_item_id != sold_later || !m.active));
+    assert!(mapped
+        .iter()
+        .any(|m| m.local_item_guid == loot_guid && m.presence == Presence::Present));
+    assert!(mapped
+        .iter()
+        .any(|m| m.local_item_guid == realm_own && m.presence == Presence::RealmLocal));
+    assert!(held_back.iter().all(|h| mapped
+        .iter()
+        .any(|m| m.portable_item_id == *h && m.active && m.presence == Presence::Filtered)));
+    assert!(mapped
+        .iter()
+        .all(|m| m.portable_item_id != sold_later || !m.active));
 
     // --- closing the session, then an in-place update with a newer canonical state ---
     let last = reconcile_session(&r.b, &mut store, id, B, true, Some("end")).unwrap();
@@ -457,16 +809,51 @@ fn filtered_items_stay_canonical_and_deleted_ones_do_not_and_a_checkpoint_never_
     assert!(store.open_baseline(id, B).unwrap().is_none());
     let mut c3 = c2.clone();
     c3.progression.money += 5;
-    store.commit_snapshot(id, 3, c3.normalized(), "realm-a", Some("played on another realm")).unwrap();
-    let before_items = number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.item_instance WHERE owner_guid = {g}"));
+    store
+        .commit_snapshot(
+            id,
+            3,
+            c3.normalized(),
+            "realm-a",
+            Some("played on another realm"),
+        )
+        .unwrap();
+    let before_items = number(
+        &r.b,
+        &format!("SELECT COUNT(*) FROM acore_characters.item_instance WHERE owner_guid = {g}"),
+    );
     let updated = update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap();
     assert!(updated.updated);
-    assert_eq!(number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.item_instance WHERE owner_guid = {g}")), before_items, "nothing was added or removed");
+    assert_eq!(
+        number(
+            &r.b,
+            &format!("SELECT COUNT(*) FROM acore_characters.item_instance WHERE owner_guid = {g}")
+        ),
+        before_items,
+        "nothing was added or removed"
+    );
     assert_eq!(number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.item_instance WHERE guid = {realm_own} AND owner_guid = {g}")), 1, "the realm's own item survived the update");
     for item in held_back {
         let guid = local_item(&store, id, *item);
-        assert_eq!(number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.mail_items WHERE item_guid = {guid}")), 1, "a held-back item is not resurrected into the inventory by an update");
-        assert_eq!(number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.character_inventory WHERE item = {guid}")), 0);
+        assert_eq!(
+            number(
+                &r.b,
+                &format!(
+                    "SELECT COUNT(*) FROM acore_characters.mail_items WHERE item_guid = {guid}"
+                )
+            ),
+            1,
+            "a held-back item is not resurrected into the inventory by an update"
+        );
+        assert_eq!(
+            number(
+                &r.b,
+                &format!(
+                    "SELECT COUNT(*) FROM acore_characters.character_inventory WHERE item = {guid}"
+                )
+            ),
+            0
+        );
     }
 }
 
@@ -479,7 +866,12 @@ fn pets_keep_their_ids_across_sessions_and_a_deleted_pet_leaves_the_realm_on_upd
     let (id, g) = join(&r, &mut store, profile, 1005);
     let c0 = store.load_current(id).unwrap();
     assert_eq!(c0.pets.len(), 3);
-    let numbers: Vec<u32> = store.pet_mappings(id, B).unwrap().iter().map(|m| m.local_pet_number).collect();
+    let numbers: Vec<u32> = store
+        .pet_mappings(id, B)
+        .unwrap()
+        .iter()
+        .map(|m| m.local_pet_number)
+        .collect();
     assert_eq!(numbers.len(), 3);
 
     begin_session(&r.b, &mut store, id, B).unwrap();
@@ -490,19 +882,54 @@ fn pets_keep_their_ids_across_sessions_and_a_deleted_pet_leaves_the_realm_on_upd
     assert_eq!(out.revision, 2);
     let c1 = store.load_current(id).unwrap();
     assert_eq!(c1.pets.len(), 2);
-    let pet0 = c1.pets.iter().find(|p| p.id == c0.pets[0].id).expect("the same portable pet");
-    assert_eq!((pet0.level, pet0.exp, pet0.name.as_str()), (c0.pets[0].level + 1, 99, "Renamed"), "the same pet id, with the played changes");
-    assert!(c1.pets.iter().all(|p| p.id != c0.pets[1].id), "the abandoned pet is gone");
+    let pet0 = c1
+        .pets
+        .iter()
+        .find(|p| p.id == c0.pets[0].id)
+        .expect("the same portable pet");
+    assert_eq!(
+        (pet0.level, pet0.exp, pet0.name.as_str()),
+        (c0.pets[0].level + 1, 99, "Renamed"),
+        "the same pet id, with the played changes"
+    );
+    assert!(
+        c1.pets.iter().all(|p| p.id != c0.pets[1].id),
+        "the abandoned pet is gone"
+    );
     assert!(c1.pets.iter().any(|p| p.id == c0.pets[2].id));
     assert_eq!(store.active_pet_lookup(id, B).unwrap().len(), 2);
 
     // canonical pet 0 moves on elsewhere; the update changes the same realm pet row in place
     let mut c2 = c1.clone();
-    c2.pets.iter_mut().find(|p| p.id == c0.pets[0].id).unwrap().exp = 500;
+    c2.pets
+        .iter_mut()
+        .find(|p| p.id == c0.pets[0].id)
+        .unwrap()
+        .exp = 500;
     store.commit_snapshot(id, 2, c2, "realm-a", None).unwrap();
-    assert!(update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap().updated);
-    assert_eq!(number(&r.b, &format!("SELECT exp FROM acore_characters.character_pet WHERE id = {}", numbers[0])), 500, "the same pet number, updated in place");
-    assert_eq!(number(&r.b, &format!("SELECT COUNT(*) FROM acore_characters.character_pet WHERE owner = {g}")), 2);
+    assert!(
+        update_realm_character(&r.b, &mut store, id, B, &opts())
+            .unwrap()
+            .updated
+    );
+    assert_eq!(
+        number(
+            &r.b,
+            &format!(
+                "SELECT exp FROM acore_characters.character_pet WHERE id = {}",
+                numbers[0]
+            )
+        ),
+        500,
+        "the same pet number, updated in place"
+    );
+    assert_eq!(
+        number(
+            &r.b,
+            &format!("SELECT COUNT(*) FROM acore_characters.character_pet WHERE owner = {g}")
+        ),
+        2
+    );
 
     // a pet number the realm recycles is not the old pet
     sql(&r.b, &format!("DELETE FROM acore_characters.character_pet WHERE id = {0}; DELETE FROM acore_characters.pet_spell WHERE guid = {0};", numbers[0]));
@@ -510,8 +937,18 @@ fn pets_keep_their_ids_across_sessions_and_a_deleted_pet_leaves_the_realm_on_upd
     let c = store.load_current(id).unwrap();
     let before = c.pets.len();
     store.commit_snapshot(id, 2, c, "realm-a", None).ok();
-    let exported = export_character_with_pets(&r.b, g, Some(id), &store.active_item_lookup(id, B).unwrap(), &store.active_pet_lookup(id, B).unwrap()).unwrap();
-    assert!(exported.model.pets.iter().all(|p| p.id != c0.pets[0].id), "the recycled number does not inherit the old pet's portable id");
+    let exported = export_character_with_pets(
+        &r.b,
+        g,
+        Some(id),
+        &store.active_item_lookup(id, B).unwrap(),
+        &store.active_pet_lookup(id, B).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        exported.model.pets.iter().all(|p| p.id != c0.pets[0].id),
+        "the recycled number does not inherit the old pet's portable id"
+    );
     assert_eq!(exported.model.pets.len(), before);
 }
 
@@ -529,14 +966,26 @@ fn the_complete_round_trip_without_a_server() {
     // A -> B
     let (id, g) = join(&r, &mut store, profile, 1002);
     // realm A's fixture keeps one character flagged online on purpose (it must not be exportable); a stopped realm has none
-    sql(&r.a, "UPDATE acore_characters.characters SET online = 0 WHERE guid = 1006");
-    let a_guid = store.server_mappings(id).unwrap().into_iter().find(|m| m.server_id == "realm-a").unwrap().local_guid;
+    sql(
+        &r.a,
+        "UPDATE acore_characters.characters SET online = 0 WHERE guid = 1006",
+    );
+    let a_guid = store
+        .server_mappings(id)
+        .unwrap()
+        .into_iter()
+        .find(|m| m.server_id == "realm-a")
+        .unwrap()
+        .local_guid;
     make_local(&r.b, g);
     let b_local = world_local(&r.b, g);
     let c0 = store.load_current(id).unwrap();
     begin_session(&r.b, &mut store, id, B).unwrap();
     // play on B
-    let new_spell = *spells_of(&r, 1004).iter().find(|s| !c0.build.spells.iter().any(|(k, _)| k == *s)).unwrap();
+    let new_spell = *spells_of(&r, 1004)
+        .iter()
+        .find(|s| !c0.build.spells.iter().any(|(k, _)| k == *s))
+        .unwrap();
     sql(&r.b, &format!("UPDATE acore_characters.characters SET money = money + 4000 WHERE guid = {g}; INSERT INTO acore_characters.character_spell (guid, spell, specMask) VALUES ({g}, {new_spell}, 255)"));
     let sold = local_item(&store, id, plain(&c0)[0]);
     realm_takes(&r.b, g, sold);
@@ -550,34 +999,95 @@ fn the_complete_round_trip_without_a_server() {
     // A is the realm the character came from: its mapping is synced at revision 1
     let updated = update_realm_character(&r.a, &mut store, id, "realm-a", &opts()).unwrap();
     assert!(updated.updated, "{updated:?}");
-    assert_eq!(world_local(&r.a, a_guid), a_before, "A's own position, homebind and local data are untouched");
-    assert_eq!(number(&r.a, &format!("SELECT money FROM acore_characters.characters WHERE guid = {a_guid}")), canonical.progression.money as u64);
+    assert_eq!(
+        world_local(&r.a, a_guid),
+        a_before,
+        "A's own position, homebind and local data are untouched"
+    );
+    assert_eq!(
+        number(
+            &r.a,
+            &format!("SELECT money FROM acore_characters.characters WHERE guid = {a_guid}")
+        ),
+        canonical.progression.money as u64
+    );
     assert_eq!(number(&r.a, &format!("SELECT COUNT(*) FROM acore_characters.character_spell WHERE guid = {a_guid} AND spell = {new_spell}")), 1);
     assert_eq!(counts(&r.a)["characters"], a_counts["characters"]);
     // B is untouched by what happened on A, and still the same local character
     assert_eq!(world_local(&r.b, g), b_local);
     // A holds exactly the canonical character
     let prior = store.active_item_lookup(id, "realm-a").unwrap();
-    let back_a = export_character_with_pets(&r.a, a_guid, Some(id), &prior, &store.active_pet_lookup(id, "realm-a").unwrap()).unwrap().model;
+    let back_a = export_character_with_pets(
+        &r.a,
+        a_guid,
+        Some(id),
+        &prior,
+        &store.active_pet_lookup(id, "realm-a").unwrap(),
+    )
+    .unwrap()
+    .model;
     let mut diffs = Vec::new();
-    json_diff("", &serde_json::to_value(&canonical).unwrap(), &serde_json::to_value(&back_a).unwrap(), &mut diffs);
-    assert!(diffs.is_empty(), "A holds exactly the canonical character: {diffs:#?}");
+    json_diff(
+        "",
+        &serde_json::to_value(&canonical).unwrap(),
+        &serde_json::to_value(&back_a).unwrap(),
+        &mut diffs,
+    );
+    assert!(
+        diffs.is_empty(),
+        "A holds exactly the canonical character: {diffs:#?}"
+    );
 
     // play on A (a session of its own), reconcile, and go back to B: the SAME local character there, updated in place
     begin_session(&r.a, &mut store, id, "realm-a").unwrap();
-    sql(&r.a, &format!("UPDATE acore_characters.characters SET money = money + 1000 WHERE guid = {a_guid}"));
-    let out = reconcile_session(&r.a, &mut store, id, "realm-a", true, Some("session on A")).unwrap();
+    sql(
+        &r.a,
+        &format!(
+            "UPDATE acore_characters.characters SET money = money + 1000 WHERE guid = {a_guid}"
+        ),
+    );
+    let out =
+        reconcile_session(&r.a, &mut store, id, "realm-a", true, Some("session on A")).unwrap();
     assert_eq!(out.revision, 3);
     let b_counts = counts(&r.b);
     let back = update_realm_character(&r.b, &mut store, id, B, &opts()).unwrap();
     assert!(back.updated);
     assert_eq!((back.from_revision, back.to_revision), (2, 3));
-    assert_eq!(world_local(&r.b, g), b_local, "returning to a visited realm keeps its local character, position and homebind");
-    assert_eq!(number(&r.b, &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")), canonical.progression.money as u64 + 1000);
-    assert_eq!(counts(&r.b)["characters"], b_counts["characters"], "never deleted and re-created");
-    assert_eq!(store.server_mappings(id).unwrap().into_iter().find(|m| m.server_id == B).unwrap().local_guid, g);
-    assert!(store.open_imports(B).unwrap().is_empty() && store.open_imports("realm-a").unwrap().is_empty());
-    sql(&r.a, "UPDATE acore_characters.characters SET online = 1 WHERE guid = 1006");
+    assert_eq!(
+        world_local(&r.b, g),
+        b_local,
+        "returning to a visited realm keeps its local character, position and homebind"
+    );
+    assert_eq!(
+        number(
+            &r.b,
+            &format!("SELECT money FROM acore_characters.characters WHERE guid = {g}")
+        ),
+        canonical.progression.money as u64 + 1000
+    );
+    assert_eq!(
+        counts(&r.b)["characters"],
+        b_counts["characters"],
+        "never deleted and re-created"
+    );
+    assert_eq!(
+        store
+            .server_mappings(id)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.server_id == B)
+            .unwrap()
+            .local_guid,
+        g
+    );
+    assert!(
+        store.open_imports(B).unwrap().is_empty()
+            && store.open_imports("realm-a").unwrap().is_empty()
+    );
+    sql(
+        &r.a,
+        "UPDATE acore_characters.characters SET online = 1 WHERE guid = 1006",
+    );
 }
 
 #[test]
@@ -589,22 +1099,53 @@ fn an_in_place_update_arms_the_next_runtime_session_in_the_same_transaction() {
     let (id, g) = join(&r, &mut store, profile, 1002);
     let mut c1 = store.load_current(id).unwrap();
     c1.progression.money += 3;
-    store.commit_snapshot(id, 1, c1.normalized(), "realm-a", None).unwrap();
+    store
+        .commit_snapshot(id, 1, c1.normalized(), "realm-a", None)
+        .unwrap();
     let session = crate::portable::ids::SessionId::new();
-    let outcome = update_realm_character_in_session(&r.b, &mut store, id, B, &opts(), Some(session)).unwrap();
+    let outcome =
+        update_realm_character_in_session(&r.b, &mut store, id, B, &opts(), Some(session)).unwrap();
     assert!(outcome.updated);
-    let row = crate::portable::session::live::read_session_row(&r.b, g).unwrap().expect("the update armed the session");
-    assert_eq!((row.session_id, row.character_id, row.state, row.imported_revision), (session, id, crate::portable::session::bridge::RowState::WaitingBaseline, 2));
+    let row = crate::portable::session::live::read_session_row(&r.b, g)
+        .unwrap()
+        .expect("the update armed the session");
+    assert_eq!(
+        (
+            row.session_id,
+            row.character_id,
+            row.state,
+            row.imported_revision
+        ),
+        (
+            session,
+            id,
+            crate::portable::session::bridge::RowState::WaitingBaseline,
+            2
+        )
+    );
     // a failed update arms nothing
     let before = counts(&r.b);
     let mut c2 = store.load_current(id).unwrap();
     c2.build.spells.push((500_090, 255));
-    store.commit_snapshot(id, 2, c2.normalized(), "realm-a", None).unwrap();
-    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail").unwrap();
+    store
+        .commit_snapshot(id, 2, c2.normalized(), "realm-a", None)
+        .unwrap();
+    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail")
+        .unwrap();
     r.b.query("DELIMITER //\nCREATE TRIGGER acore_characters.coa_test_fail BEFORE INSERT ON acore_characters.character_spell FOR EACH ROW BEGIN IF NEW.spell = 500090 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected failure'; END IF; END//\nDELIMITER ;").unwrap();
     let again = crate::portable::ids::SessionId::new();
-    assert!(update_realm_character_in_session(&r.b, &mut store, id, B, &opts(), Some(again)).is_err());
-    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail").unwrap();
+    assert!(
+        update_realm_character_in_session(&r.b, &mut store, id, B, &opts(), Some(again)).is_err()
+    );
+    r.b.query("DROP TRIGGER IF EXISTS acore_characters.coa_test_fail")
+        .unwrap();
     assert_eq!(counts(&r.b), before);
-    assert_eq!(crate::portable::session::live::read_session_row(&r.b, g).unwrap().unwrap().session_id, session, "the failed update left the earlier session in place");
+    assert_eq!(
+        crate::portable::session::live::read_session_row(&r.b, g)
+            .unwrap()
+            .unwrap()
+            .session_id,
+        session,
+        "the failed update left the earlier session in place"
+    );
 }

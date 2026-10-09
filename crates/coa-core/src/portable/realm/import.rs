@@ -24,8 +24,13 @@ use crate::db::Db;
 use super::super::error::{PortableError, Result};
 use super::super::ids::{CharacterId, ContentId, ImportId, SessionId};
 use super::super::model::{PortableCharacter, Ruleset};
-use super::super::store::{pet_identity, ImportAllocation, ImportState, JournalEntry, JournalKind, PlannedItem, PlannedPet, Store};
-use super::plan::{build_plan, parse_report, Allocation, ImportPlan, PlanContext, SessionArm, IMPORT_LOCK};
+use super::super::store::{
+    pet_identity, ImportAllocation, ImportState, JournalEntry, JournalKind, PlannedItem,
+    PlannedPet, Store,
+};
+use super::plan::{
+    build_plan, parse_report, Allocation, ImportPlan, PlanContext, SessionArm, IMPORT_LOCK,
+};
 use super::script::{self, parse_output, Query};
 use super::sqlenc::Val;
 use super::{realm_error, ruleset_of};
@@ -56,7 +61,16 @@ pub struct ImportOptions {
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        Self { max_characters_per_account: 10, game_server_users: vec!["acore".to_string()], recovery_grace: Duration::from_secs(30), lock_wait_seconds: 30, knowledge: None, capabilities: None, extensions: None, projection: None }
+        Self {
+            max_characters_per_account: 10,
+            game_server_users: vec!["acore".to_string()],
+            recovery_grace: Duration::from_secs(30),
+            lock_wait_seconds: 30,
+            knowledge: None,
+            capabilities: None,
+            extensions: None,
+            projection: None,
+        }
     }
 }
 
@@ -64,17 +78,28 @@ impl Default for ImportOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportProblem {
     /// The character belongs to another ruleset than this realm.
-    WrongRuleset { character: Ruleset, realm: Ruleset },
+    WrongRuleset {
+        character: Ruleset,
+        realm: Ruleset,
+    },
     /// A session of the game server's database user exists: the realm is running. Only a stopped realm can be imported into
     /// from outside (a running realm hands out guids from memory).
-    RealmRunning { sessions: u64 },
+    RealmRunning {
+        sessions: u64,
+    },
     OnlineCharacters(u64),
     AccountMissing(u32),
     /// Bot and Manager accounts are not destinations.
     InternalAccount(u32),
-    AccountFull { count: u64, max: u32 },
+    AccountFull {
+        count: u64,
+        max: u32,
+    },
     /// The realm's world data has no start position for this race/class.
-    UnknownRaceClass { race: u64, class: u64 },
+    UnknownRaceClass {
+        race: u64,
+        class: u64,
+    },
     /// Item entries the realm's `item_template` does not know: it would delete such items on load.
     MissingItems(Vec<u32>),
     MissingPetCreatures(Vec<u32>),
@@ -86,7 +111,14 @@ pub enum ImportProblem {
 
 impl fmt::Display for ImportProblem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let list = |v: &[u32]| v.iter().take(10).map(u32::to_string).collect::<Vec<_>>().join(", ") + if v.len() > 10 { ", ..." } else { "" };
+        let list = |v: &[u32]| {
+            v.iter()
+                .take(10)
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+                + if v.len() > 10 { ", ..." } else { "" }
+        };
         match self {
             ImportProblem::WrongRuleset { character, realm } => write!(f, "the character is a {character} character and this is a {realm} realm"),
             ImportProblem::RealmRunning { sessions } => write!(f, "the realm is running ({sessions} session(s) of the game server's database user); stop it first"),
@@ -131,36 +163,75 @@ fn content_problems(model: &PortableCharacter, ruleset: Ruleset) -> Vec<ImportPr
     for pet in &model.pets {
         check("pet", &pet.entry, "creature");
     }
-    bad.into_iter().take(10).map(ImportProblem::UnsupportedContent).collect()
+    bad.into_iter()
+        .take(10)
+        .map(ImportProblem::UnsupportedContent)
+        .collect()
 }
 
 fn count_query(name: &str, sql: String) -> Query {
-    Query { name: name.to_string(), columns: vec!["n"], sql }
+    Query {
+        name: name.to_string(),
+        columns: vec!["n"],
+        sql,
+    }
 }
 
 fn users_sql(users: &[String]) -> String {
-    users.iter().map(|u| Val::text(u.clone()).sql()).collect::<Vec<_>>().join(", ")
+    users
+        .iter()
+        .map(|u| Val::text(u.clone()).sql())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn id_list(ids: &BTreeSet<u32>) -> String {
-    ids.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
+    ids.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Look at the realm (one read-only consistent snapshot) and at the character, and say whether the import can start.
-pub fn preflight(db: &Db, model: &PortableCharacter, account: u32, opts: &ImportOptions) -> Result<PreflightReport> {
+pub fn preflight(
+    db: &Db,
+    model: &PortableCharacter,
+    account: u32,
+    opts: &ImportOptions,
+) -> Result<PreflightReport> {
     let mut report = PreflightReport::default();
     let realm_ruleset = ruleset_of(db);
     if model.ruleset != realm_ruleset {
-        report.problems.push(ImportProblem::WrongRuleset { character: model.ruleset, realm: realm_ruleset });
+        report.problems.push(ImportProblem::WrongRuleset {
+            character: model.ruleset,
+            realm: realm_ruleset,
+        });
     }
-    report.problems.extend(content_problems(model, realm_ruleset));
+    report
+        .problems
+        .extend(content_problems(model, realm_ruleset));
     if !report.problems.is_empty() {
         return Ok(report);
     }
     let race = model.identity.race.id();
     let class = model.identity.class.id();
-    let entries: BTreeSet<u32> = model.items.iter().map(|i| i.entry.id()).chain(model.items.iter().filter_map(|i| i.gift.as_ref().map(|g| g.entry.id()))).filter_map(|e| u32::try_from(e).ok()).collect();
-    let creatures: BTreeSet<u32> = model.pets.iter().filter_map(|p| u32::try_from(p.entry.id()).ok()).collect();
+    let entries: BTreeSet<u32> = model
+        .items
+        .iter()
+        .map(|i| i.entry.id())
+        .chain(
+            model
+                .items
+                .iter()
+                .filter_map(|i| i.gift.as_ref().map(|g| g.entry.id())),
+        )
+        .filter_map(|e| u32::try_from(e).ok())
+        .collect();
+    let creatures: BTreeSet<u32> = model
+        .pets
+        .iter()
+        .filter_map(|p| u32::try_from(p.entry.id()).ok())
+        .collect();
 
     let probe = super::probe(db)?;
     let mut queries = vec![
@@ -175,37 +246,81 @@ pub fn preflight(db: &Db, model: &PortableCharacter, account: u32, opts: &Import
     if probe.has("reserved_name") {
         taken.push_str(&format!(" OR EXISTS(SELECT 1 FROM acore_characters.reserved_name WHERE name COLLATE utf8mb4_unicode_ci = {name} COLLATE utf8mb4_unicode_ci)"));
     }
-    queries.push(count_query("name_taken", format!("SELECT IF({taken}, 1, 0)")));
+    queries.push(count_query(
+        "name_taken",
+        format!("SELECT IF({taken}, 1, 0)"),
+    ));
     if !entries.is_empty() {
-        queries.push(Query { name: "item_entries".into(), columns: vec!["entry"], sql: format!("SELECT entry FROM acore_world.item_template WHERE entry IN ({})", id_list(&entries)) });
+        queries.push(Query {
+            name: "item_entries".into(),
+            columns: vec!["entry"],
+            sql: format!(
+                "SELECT entry FROM acore_world.item_template WHERE entry IN ({})",
+                id_list(&entries)
+            ),
+        });
     }
     if !creatures.is_empty() {
-        queries.push(Query { name: "creature_entries".into(), columns: vec!["entry"], sql: format!("SELECT entry FROM acore_world.creature_template WHERE entry IN ({})", id_list(&creatures)) });
+        queries.push(Query {
+            name: "creature_entries".into(),
+            columns: vec!["entry"],
+            sql: format!(
+                "SELECT entry FROM acore_world.creature_template WHERE entry IN ({})",
+                id_list(&creatures)
+            ),
+        });
     }
-    let output = db.query(&script::snapshot_script(&queries)).map_err(realm_error)?;
+    let output = db
+        .query(&script::snapshot_script(&queries))
+        .map_err(realm_error)?;
     let raw = parse_output(&output, &queries)?;
-    let one = |name: &str| -> Result<u64> { raw.section(name)?.iter().next().map(|r| r.u64("n")).transpose().map(|v| v.unwrap_or(0)) };
+    let one = |name: &str| -> Result<u64> {
+        raw.section(name)?
+            .iter()
+            .next()
+            .map(|r| r.u64("n"))
+            .transpose()
+            .map(|v| v.unwrap_or(0))
+    };
 
     let sessions = one("sessions")?;
     if sessions > 0 {
-        report.problems.push(ImportProblem::RealmRunning { sessions });
+        report
+            .problems
+            .push(ImportProblem::RealmRunning { sessions });
     }
     let online = one("online")?;
     if online > 0 {
-        report.problems.push(ImportProblem::OnlineCharacters(online));
+        report
+            .problems
+            .push(ImportProblem::OnlineCharacters(online));
     }
-    let account_row = raw.section("account")?.iter().next().ok_or_else(|| PortableError::CorruptSnapshot("no account answer".into()))?;
+    let account_row = raw
+        .section("account")?
+        .iter()
+        .next()
+        .ok_or_else(|| PortableError::CorruptSnapshot("no account answer".into()))?;
     if account_row.u64("n")? == 0 {
         report.problems.push(ImportProblem::AccountMissing(account));
-    } else if account_row.opt_text("username")?.is_some_and(|u| super::blockers::is_internal_account(&u)) {
-        report.problems.push(ImportProblem::InternalAccount(account));
+    } else if account_row
+        .opt_text("username")?
+        .is_some_and(|u| super::blockers::is_internal_account(&u))
+    {
+        report
+            .problems
+            .push(ImportProblem::InternalAccount(account));
     }
     let chars = one("account_chars")?;
     if chars >= opts.max_characters_per_account as u64 {
-        report.problems.push(ImportProblem::AccountFull { count: chars, max: opts.max_characters_per_account });
+        report.problems.push(ImportProblem::AccountFull {
+            count: chars,
+            max: opts.max_characters_per_account,
+        });
     }
     if one("createinfo")? == 0 {
-        report.problems.push(ImportProblem::UnknownRaceClass { race, class });
+        report
+            .problems
+            .push(ImportProblem::UnknownRaceClass { race, class });
     }
     report.will_rename = one("name_taken")? != 0;
     if report.will_rename {
@@ -217,13 +332,23 @@ pub fn preflight(db: &Db, model: &PortableCharacter, account: u32, opts: &Import
         }
         raw.section(name)?.iter().map(|r| r.u32("entry")).collect()
     };
-    let missing_items: Vec<u32> = entries.difference(&known("item_entries")?).copied().collect();
+    let missing_items: Vec<u32> = entries
+        .difference(&known("item_entries")?)
+        .copied()
+        .collect();
     if !missing_items.is_empty() {
-        report.problems.push(ImportProblem::MissingItems(missing_items));
+        report
+            .problems
+            .push(ImportProblem::MissingItems(missing_items));
     }
-    let missing_pets: Vec<u32> = creatures.difference(&known("creature_entries")?).copied().collect();
+    let missing_pets: Vec<u32> = creatures
+        .difference(&known("creature_entries")?)
+        .copied()
+        .collect();
     if !missing_pets.is_empty() {
-        report.problems.push(ImportProblem::MissingPetCreatures(missing_pets));
+        report
+            .problems
+            .push(ImportProblem::MissingPetCreatures(missing_pets));
     }
     Ok(report)
 }
@@ -245,12 +370,24 @@ pub(crate) fn planned_items(model: &PortableCharacter) -> Vec<PlannedItem> {
     model
         .items
         .iter()
-        .map(|i| PlannedItem { id: i.id, entry: i.entry.clone(), identity: super::super::identity::item_identity(&i.entry, i.random_property_id) })
+        .map(|i| PlannedItem {
+            id: i.id,
+            entry: i.entry.clone(),
+            identity: super::super::identity::item_identity(&i.entry, i.random_property_id),
+        })
         .collect()
 }
 
 pub(crate) fn planned_pets(model: &PortableCharacter) -> Vec<PlannedPet> {
-    model.pets.iter().map(|p| PlannedPet { id: p.id, entry: p.entry.clone(), identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell) }).collect()
+    model
+        .pets
+        .iter()
+        .map(|p| PlannedPet {
+            id: p.id,
+            entry: p.entry.clone(),
+            identity: pet_identity(&p.entry, p.pet_type, p.created_by_spell),
+        })
+        .collect()
 }
 
 /// Run the generated script in the realm. `Ok` carries the realm's report; any SQL error means the transaction rolled back
@@ -261,16 +398,38 @@ pub fn run_realm_import(db: &Db, plan: &ImportPlan) -> Result<(Allocation, bool)
 }
 
 /// Import the character's current canonical revision into a stopped realm.
-pub fn import_character(db: &Db, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions) -> Result<ImportOutcome> {
+pub fn import_character(
+    db: &Db,
+    store: &mut Store,
+    character_id: CharacterId,
+    server_id: &str,
+    account: u32,
+    opts: &ImportOptions,
+) -> Result<ImportOutcome> {
     import_character_in_session(db, store, character_id, server_id, account, opts, None)
 }
 
 /// The same, arming the runtime portable session `session` on the arrival (the core takes the baseline at its first load).
-pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: CharacterId, server_id: &str, account: u32, opts: &ImportOptions, session: Option<SessionId>) -> Result<ImportOutcome> {
+pub fn import_character_in_session(
+    db: &Db,
+    store: &mut Store,
+    character_id: CharacterId,
+    server_id: &str,
+    account: u32,
+    opts: &ImportOptions,
+    session: Option<SessionId>,
+) -> Result<ImportOutcome> {
     let record = store.character(character_id)?;
     let canonical = store.load_snapshot(character_id, record.revision)?;
-    if store.server_mappings(character_id)?.iter().any(|m| m.server_id == server_id) {
-        return Err(PortableError::AlreadyOnRealm { character: character_id, server_id: server_id.to_string() });
+    if store
+        .server_mappings(character_id)?
+        .iter()
+        .any(|m| m.server_id == server_id)
+    {
+        return Err(PortableError::AlreadyOnRealm {
+            character: character_id,
+            server_id: server_id.to_string(),
+        });
     }
 
     let mut operations = vec![super::super::compat::Operation::OfflineImport];
@@ -290,14 +449,38 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
     let pets = planned_pets(&model);
     let ticket = store.begin_import(character_id, server_id, record.revision, &items, &pets)?;
 
-    let plan = match build_plan(&model, &PlanContext { ruleset: ruleset_of(db), account, revision: record.revision, nonce: ticket.nonce, max_characters_per_account: opts.max_characters_per_account, game_server_users: &opts.game_server_users, probe: &probe, session: session.map(|session_id| SessionArm { session_id, character_id, generation: 1 }), pin: projection.pin.as_ref().map(|p| p.words()), knowledge: opts.knowledge.as_deref() }) {
+    let plan = match build_plan(
+        &model,
+        &PlanContext {
+            ruleset: ruleset_of(db),
+            account,
+            revision: record.revision,
+            nonce: ticket.nonce,
+            max_characters_per_account: opts.max_characters_per_account,
+            game_server_users: &opts.game_server_users,
+            probe: &probe,
+            session: session.map(|session_id| SessionArm {
+                session_id,
+                character_id,
+                generation: 1,
+            }),
+            pin: projection.pin.as_ref().map(|p| p.words()),
+            knowledge: opts.knowledge.as_deref(),
+        },
+    ) {
         Ok(plan) => plan,
         Err(e) => {
-            store.abort_import(ticket.import_id, &format!("the import plan could not be built: {e}"))?;
+            store.abort_import(
+                ticket.import_id,
+                &format!("the import plan could not be built: {e}"),
+            )?;
             return Err(e);
         }
     };
-    debug_assert_eq!(plan.marker_data, ticket.marker, "the plan and the journal must use the same marker");
+    debug_assert_eq!(
+        plan.marker_data, ticket.marker,
+        "the plan and the journal must use the same marker"
+    );
 
     let allocation = match run_realm_import(db, &plan) {
         Ok((alloc, true)) => alloc,
@@ -310,19 +493,60 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
                     let (final_name, renamed) = read_name(db, alloc.local_guid)?;
                     super::project::remember(store, character_id, server_id, &projection)?;
                     let mut not_applied = plan.not_applied_settings;
-                    not_applied.extend(super::profile::after_write(Some(db), store, character_id, server_id, opts, alloc.local_guid, &model, compatibility.as_ref())?);
-                    Ok(ImportOutcome { import_id: ticket.import_id, local_guid: alloc.local_guid, final_name, renamed, items: plan.counts.items, pets: plan.counts.pets, not_applied, warnings: report.warnings })
+                    not_applied.extend(super::profile::after_write(
+                        Some(db),
+                        store,
+                        character_id,
+                        server_id,
+                        opts,
+                        alloc.local_guid,
+                        &model,
+                        compatibility.as_ref(),
+                    )?);
+                    Ok(ImportOutcome {
+                        import_id: ticket.import_id,
+                        local_guid: alloc.local_guid,
+                        final_name,
+                        renamed,
+                        items: plan.counts.items,
+                        pets: plan.counts.pets,
+                        not_applied,
+                        warnings: report.warnings,
+                    })
                 }
-                Resolution::Aborted => Err(original.unwrap_or_else(|| PortableError::RealmRead("the realm did not commit the import".into()))),
-                Resolution::Pending(why) => Err(PortableError::ImportNeedsAttention { import_id: ticket.import_id, detail: format!("the outcome in the realm is not known yet ({why}); run recovery") }),
+                Resolution::Aborted => Err(original.unwrap_or_else(|| {
+                    PortableError::RealmRead("the realm did not commit the import".into())
+                })),
+                Resolution::Pending(why) => Err(PortableError::ImportNeedsAttention {
+                    import_id: ticket.import_id,
+                    detail: format!(
+                        "the outcome in the realm is not known yet ({why}); run recovery"
+                    ),
+                }),
             };
         }
     };
 
-    store.finish_import(ticket.import_id, ImportAllocation { local_guid: allocation.local_guid, item_base: allocation.item_base, pet_base: allocation.pet_base })?;
+    store.finish_import(
+        ticket.import_id,
+        ImportAllocation {
+            local_guid: allocation.local_guid,
+            item_base: allocation.item_base,
+            pet_base: allocation.pet_base,
+        },
+    )?;
     super::project::remember(store, character_id, server_id, &projection)?;
     let mut not_applied = plan.not_applied_settings;
-    not_applied.extend(super::profile::after_write(Some(db), store, character_id, server_id, opts, allocation.local_guid, &model, compatibility.as_ref())?);
+    not_applied.extend(super::profile::after_write(
+        Some(db),
+        store,
+        character_id,
+        server_id,
+        opts,
+        allocation.local_guid,
+        &model,
+        compatibility.as_ref(),
+    )?);
     Ok(ImportOutcome {
         import_id: ticket.import_id,
         local_guid: allocation.local_guid,
@@ -338,10 +562,19 @@ pub fn import_character_in_session(db: &Db, store: &mut Store, character_id: Cha
 /// The name and rename flag of a character the realm holds (typed guid, fixed SQL).
 fn read_name(db: &Db, guid: u32) -> Result<(String, bool)> {
     let out = db.query(&format!("SELECT CONCAT('x', HEX(name)), (at_login & 1) FROM acore_characters.characters WHERE guid = {guid}")).map_err(realm_error)?;
-    let line = out.lines().next().ok_or_else(|| PortableError::CorruptSnapshot("the imported character is not in the realm".into()))?;
-    let (name, flag) = line.split_once('\t').ok_or_else(|| PortableError::CorruptSnapshot("unexpected name answer".into()))?;
-    let bytes = hex::decode(name.trim_start_matches('x')).map_err(|_| PortableError::CorruptSnapshot("invalid name hex".into()))?;
-    Ok((String::from_utf8(bytes).map_err(|_| PortableError::CorruptSnapshot("name is not UTF-8".into()))?, flag.trim() == "1"))
+    let line = out.lines().next().ok_or_else(|| {
+        PortableError::CorruptSnapshot("the imported character is not in the realm".into())
+    })?;
+    let (name, flag) = line
+        .split_once('\t')
+        .ok_or_else(|| PortableError::CorruptSnapshot("unexpected name answer".into()))?;
+    let bytes = hex::decode(name.trim_start_matches('x'))
+        .map_err(|_| PortableError::CorruptSnapshot("invalid name hex".into()))?;
+    Ok((
+        String::from_utf8(bytes)
+            .map_err(|_| PortableError::CorruptSnapshot("name is not UTF-8".into()))?,
+        flag.trim() == "1",
+    ))
 }
 
 // ---- recovery -----------------------------------------------------------------------------------------------------
@@ -363,8 +596,17 @@ pub struct RecoveryReport {
 }
 
 fn recovery_queries() -> Vec<Query> {
-    let q = |name: &str, columns: Vec<&'static str>| Query { name: name.to_string(), columns, sql: String::new() };
-    vec![q("lock", vec!["n"]), q("marker", vec!["guid"]), q("items", vec!["n", "min", "max"]), q("pets", vec!["n", "min", "max"])]
+    let q = |name: &str, columns: Vec<&'static str>| Query {
+        name: name.to_string(),
+        columns,
+        sql: String::new(),
+    };
+    vec![
+        q("lock", vec!["n"]),
+        q("marker", vec!["guid"]),
+        q("items", vec!["n", "min", "max"]),
+        q("pets", vec!["n", "min", "max"]),
+    ]
 }
 
 /// The realm side of recovery: take the import lock (so an import that is still running finishes first), then find the
@@ -385,61 +627,121 @@ fn recovery_script(marker: &str, wait: u32) -> String {
 
 /// Decide what became of one unfinished import, and bring the local records in line with the realm.
 /// `with_grace`: refuse to call an import "never committed" while it is younger than the recovery grace period.
-pub fn resolve_import(db: &Db, store: &mut Store, import_id: ImportId, opts: &ImportOptions, with_grace: bool) -> Result<Resolution> {
+pub fn resolve_import(
+    db: &Db,
+    store: &mut Store,
+    import_id: ImportId,
+    opts: &ImportOptions,
+    with_grace: bool,
+) -> Result<Resolution> {
     let entry: JournalEntry = store.import_entry(import_id)?;
     if entry.kind == JournalKind::Update {
         return super::reconcile::resolve_import_update(db, store, import_id, opts, with_grace);
     }
     match entry.state {
-        ImportState::Committed => return Ok(Resolution::Committed(entry.allocation.expect("a committed entry has its allocation"))),
+        ImportState::Committed => {
+            return Ok(Resolution::Committed(
+                entry
+                    .allocation
+                    .expect("a committed entry has its allocation"),
+            ))
+        }
         ImportState::Aborted => return Ok(Resolution::Aborted),
-        ImportState::NeedsAttention => return Err(PortableError::ImportNeedsAttention { import_id, detail: entry.detail.unwrap_or_default() }),
+        ImportState::NeedsAttention => {
+            return Err(PortableError::ImportNeedsAttention {
+                import_id,
+                detail: entry.detail.unwrap_or_default(),
+            })
+        }
         ImportState::Prepared => {}
     }
-    let output = db.query(&recovery_script(&entry.marker, opts.lock_wait_seconds)).map_err(realm_error)?;
+    let output = db
+        .query(&recovery_script(&entry.marker, opts.lock_wait_seconds))
+        .map_err(realm_error)?;
     let queries = recovery_queries();
     let raw = parse_output(&output, &queries)?;
-    let lock = raw.section("lock")?.iter().next().ok_or_else(|| PortableError::CorruptSnapshot("no lock answer".into()))?.u64("n")?;
+    let lock = raw
+        .section("lock")?
+        .iter()
+        .next()
+        .ok_or_else(|| PortableError::CorruptSnapshot("no lock answer".into()))?
+        .u64("n")?;
     if lock != 1 {
-        return Ok(Resolution::Pending("an import is still running in the realm".into()));
+        return Ok(Resolution::Pending(
+            "an import is still running in the realm".into(),
+        ));
     }
-    let guid_text = raw.section("marker")?.iter().next().ok_or_else(|| PortableError::CorruptSnapshot("no marker answer".into()))?.plain("guid")?;
+    let guid_text = raw
+        .section("marker")?
+        .iter()
+        .next()
+        .ok_or_else(|| PortableError::CorruptSnapshot("no marker answer".into()))?
+        .plain("guid")?;
     if guid_text == "none" {
         if with_grace && age_seconds(&entry.created_at) < opts.recovery_grace.as_secs() as i64 {
-            return Ok(Resolution::Pending("the import is too recent to be called lost".into()));
+            return Ok(Resolution::Pending(
+                "the import is too recent to be called lost".into(),
+            ));
         }
-        store.abort_import(import_id, "the realm has no trace of this import: it never committed")?;
+        store.abort_import(
+            import_id,
+            "the realm has no trace of this import: it never committed",
+        )?;
         return Ok(Resolution::Aborted);
     }
-    let local_guid: u32 = guid_text.parse().map_err(|_| PortableError::CorruptSnapshot(format!("marker answer {guid_text:?} is not a guid")))?;
+    let local_guid: u32 = guid_text.parse().map_err(|_| {
+        PortableError::CorruptSnapshot(format!("marker answer {guid_text:?} is not a guid"))
+    })?;
 
     let triple = |name: &str| -> Result<(u64, u64, u64)> {
-        let r = raw.section(name)?.iter().next().ok_or_else(|| PortableError::CorruptSnapshot(format!("no {name} answer")))?;
+        let r = raw
+            .section(name)?
+            .iter()
+            .next()
+            .ok_or_else(|| PortableError::CorruptSnapshot(format!("no {name} answer")))?;
         Ok((r.u64("n")?, r.u64("min")?, r.u64("max")?))
     };
     let (n_items, min_item, max_item) = triple("items")?;
     let (n_pets, min_pet, max_pet) = triple("pets")?;
     let contiguous = |n: u64, min: u64, max: u64| n == 0 || max - min + 1 == n;
-    if n_items as usize != entry.items.len() || n_pets as usize != entry.pets.len() || !contiguous(n_items, min_item, max_item) || !contiguous(n_pets, min_pet, max_pet) {
+    if n_items as usize != entry.items.len()
+        || n_pets as usize != entry.pets.len()
+        || !contiguous(n_items, min_item, max_item)
+        || !contiguous(n_pets, min_pet, max_pet)
+    {
         let detail = format!("the realm has a character with this import's marker (guid {local_guid}) but {n_items} items / {n_pets} pets where the plan had {} / {}", entry.items.len(), entry.pets.len());
         store.flag_import(import_id, &detail)?;
         return Err(PortableError::ImportNeedsAttention { import_id, detail });
     }
-    let alloc = ImportAllocation { local_guid, item_base: min_item as u32, pet_base: min_pet as u32 };
+    let alloc = ImportAllocation {
+        local_guid,
+        item_base: min_item as u32,
+        pet_base: min_pet as u32,
+    };
     store.finish_import(import_id, alloc)?;
     Ok(Resolution::Committed(alloc))
 }
 
 fn age_seconds(created_at: &str) -> i64 {
-    chrono::DateTime::parse_from_rfc3339(created_at).map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds()).unwrap_or(i64::MAX)
+    chrono::DateTime::parse_from_rfc3339(created_at)
+        .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds())
+        .unwrap_or(i64::MAX)
 }
 
 /// Resolve every unfinished import into `server_id`. Call this before starting any new import and when the Manager starts.
-pub fn recover_imports(db: &Db, store: &mut Store, server_id: &str, opts: &ImportOptions) -> Result<Vec<RecoveryReport>> {
+pub fn recover_imports(
+    db: &Db,
+    store: &mut Store,
+    server_id: &str,
+    opts: &ImportOptions,
+) -> Result<Vec<RecoveryReport>> {
     let mut out = Vec::new();
     for entry in store.open_imports(server_id)? {
         let resolution = resolve_import(db, store, entry.import_id, opts, true)?;
-        out.push(RecoveryReport { import_id: entry.import_id, resolution });
+        out.push(RecoveryReport {
+            import_id: entry.import_id,
+            resolution,
+        });
     }
     Ok(out)
 }

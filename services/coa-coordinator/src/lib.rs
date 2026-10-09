@@ -215,7 +215,12 @@ pub fn router<K: KeyLookup>(hub: Arc<Hub<K>>) -> Router {
         .route("/coord/v1/health", get(health::<K>))
         .route("/coord/v1/host", get(host_ws::<K>))
         .route("/coord/v1/player", get(player_ws::<K>))
-        .route("/coord/v1/probe", axum::routing::post(probe_post::<K>).get(probe_get::<K>))
+        .route(
+            "/coord/v1/probe",
+            axum::routing::post(probe_post::<K>)
+                .get(probe_get::<K>)
+                .layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
         .fallback(|| async { (StatusCode::NOT_FOUND, "not found") })
         .with_state(hub)
 }
@@ -225,6 +230,22 @@ struct ProbeQuery {
     ports: String,
 }
 
+const FORBIDDEN_PORTS: &[u16] = &[
+    0, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 1433, 1521, 3306, 3389,
+    5432, 6379, 8080, 8081, 8082, 9090, 27017,
+];
+
+fn is_disallowed_probe_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_broadcast() || v4.is_unspecified()
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unspecified() || v6.is_multicast()
+        }
+    }
+}
+
 async fn probe_post<K: KeyLookup>(
     State(hub): State<Arc<Hub<K>>>,
     ConnectInfo(Peer(peer)): ConnectInfo<Peer>,
@@ -232,6 +253,12 @@ async fn probe_post<K: KeyLookup>(
     Json(payload): Json<ProbePayload>,
 ) -> Response {
     let ip = client_ip(&headers, peer, hub.cfg.trust_proxy);
+    if !hub.ip_rate.take(&ip, 1.0, hub.mono()) {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
+    }
+    if hub.cfg.trust_proxy && is_disallowed_probe_ip(ip) {
+        return (StatusCode::FORBIDDEN, "cannot probe private or internal address").into_response();
+    }
     perform_probe(ip, payload.ports).await
 }
 
@@ -242,6 +269,12 @@ async fn probe_get<K: KeyLookup>(
     Query(q): Query<ProbeQuery>,
 ) -> Response {
     let ip = client_ip(&headers, peer, hub.cfg.trust_proxy);
+    if !hub.ip_rate.take(&ip, 1.0, hub.mono()) {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
+    }
+    if hub.cfg.trust_proxy && is_disallowed_probe_ip(ip) {
+        return (StatusCode::FORBIDDEN, "cannot probe private or internal address").into_response();
+    }
     let ports: Vec<u16> = q.ports.split(',').filter_map(|s| s.trim().parse().ok()).collect();
     perform_probe(ip, ports).await
 }
@@ -251,7 +284,7 @@ async fn perform_probe(ip: IpAddr, ports: Vec<u16>) -> Response {
         return (StatusCode::BAD_REQUEST, "invalid ports count").into_response();
     }
     for &p in &ports {
-        if p == 0 || p == 22 || p == 80 || p == 443 || p == 5432 || p == 8080 || p == 8081 || p == 8082 {
+        if FORBIDDEN_PORTS.contains(&p) {
             return (StatusCode::FORBIDDEN, "forbidden port").into_response();
         }
     }

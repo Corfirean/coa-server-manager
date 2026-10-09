@@ -33,7 +33,9 @@ pub fn classify(source: &str) -> Option<SettingKind> {
         return number(rest).then_some(SettingKind::Bar);
     }
     let rest = source.strip_prefix("core.ascension_slot.")?;
-    let (slot, tail) = rest.split_once('.').map_or((rest, None), |(s, t)| (s, Some(t)));
+    let (slot, tail) = rest
+        .split_once('.')
+        .map_or((rest, None), |(s, t)| (s, Some(t)));
     if !number(slot) {
         return None;
     }
@@ -67,7 +69,14 @@ pub struct Record {
 
 impl Record {
     fn empty(kind: SettingKind) -> Self {
-        Self { kind, head: (0, 0), entries: BTreeMap::new(), buttons: BTreeMap::new(), entry_order: vec![], button_order: vec![] }
+        Self {
+            kind,
+            head: (0, 0),
+            entries: BTreeMap::new(),
+            buttons: BTreeMap::new(),
+            entry_order: vec![],
+            button_order: vec![],
+        }
     }
 
     /// `None` when the values are not exactly one of the shapes (a record the codec cannot take apart is never edited).
@@ -175,7 +184,11 @@ impl Record {
     }
 
     fn ordered(&self, order: &[u32], map: &BTreeMap<u32, u32>) -> Vec<u32> {
-        let mut keys: Vec<u32> = order.iter().copied().filter(|k| map.contains_key(k)).collect();
+        let mut keys: Vec<u32> = order
+            .iter()
+            .copied()
+            .filter(|k| map.contains_key(k))
+            .collect();
         let seen: BTreeSet<u32> = keys.iter().copied().collect();
         keys.extend(map.keys().copied().filter(|k| !seen.contains(k)));
         keys
@@ -201,26 +214,57 @@ mod tests {
     #[test]
     fn the_names_of_the_three_shapes_are_recognised_and_nothing_else() {
         assert_eq!(classify("core.ascension_slot.0"), Some(SettingKind::Slot));
-        assert_eq!(classify("core.ascension_slot.12.build.34"), Some(SettingKind::Build));
-        assert_eq!(classify("core.ascension_slot.3.bar.61"), Some(SettingKind::Bar));
-        assert_eq!(classify("core.ascension_build.61"), Some(SettingKind::Build));
+        assert_eq!(
+            classify("core.ascension_slot.12.build.34"),
+            Some(SettingKind::Build)
+        );
+        assert_eq!(
+            classify("core.ascension_slot.3.bar.61"),
+            Some(SettingKind::Bar)
+        );
+        assert_eq!(
+            classify("core.ascension_build.61"),
+            Some(SettingKind::Build)
+        );
         assert_eq!(classify("core.ascension_bar.0"), Some(SettingKind::Bar));
-        for other in ["core.ascension_slot.active", "core.ascension_slot.1.x", "core.ascension_build.", "core.ascension_slot.1.build.", "core.ascension_active_spec", "core.ascension_slot.1.bar.1.2", "core.ascension_build.1234567890"] {
+        for other in [
+            "core.ascension_slot.active",
+            "core.ascension_slot.1.x",
+            "core.ascension_build.",
+            "core.ascension_slot.1.build.",
+            "core.ascension_active_spec",
+            "core.ascension_slot.1.bar.1.2",
+            "core.ascension_build.1234567890",
+        ] {
             assert_eq!(classify(other), None, "{other}");
         }
     }
 
     #[test]
     fn a_slot_record_round_trips_and_a_bad_one_is_not_taken_apart() {
-        let v = vec![1, 20, 61, 3, 100, 2, 101, 1, 102, 3, 2, 5, 900, 9, 901, 0, 0];
+        let v = vec![
+            1, 20, 61, 3, 100, 2, 101, 1, 102, 3, 2, 5, 900, 9, 901, 0, 0,
+        ];
         let r = Record::parse(SettingKind::Slot, &v).unwrap();
         assert_eq!(r.head, (20, 61));
         assert_eq!(r.entries.len(), 3);
         assert_eq!(r.buttons.get(&5), Some(&900));
-        assert_eq!(r.write(), vec![1, 20, 61, 3, 100, 2, 101, 1, 102, 3, 2, 5, 900, 9, 901], "trailing padding is not kept");
+        assert_eq!(
+            r.write(),
+            vec![1, 20, 61, 3, 100, 2, 101, 1, 102, 3, 2, 5, 900, 9, 901],
+            "trailing padding is not kept"
+        );
         let held = r.without(&[101], &[9]);
         assert_eq!(held.write(), vec![1, 20, 61, 2, 100, 2, 102, 3, 1, 5, 900]);
-        for bad in [vec![1, 20, 61, 3, 100, 2], vec![2, 20, 61, 0, 0], vec![1, 5, 61, 0, 0], vec![1, 20, 61, 1, 100, 2, 0, 7], vec![1, 20, 61, 2, 100, 2, 100, 3, 0], vec![1, 20, 61, 0, 1, 200, 5], vec![1, 20, 61, 0, 0, 3]] {
+        for bad in [
+            vec![1, 20, 61, 3, 100, 2],
+            vec![2, 20, 61, 0, 0],
+            vec![1, 5, 61, 0, 0],
+            vec![1, 20, 61, 1, 100, 2, 0, 7],
+            vec![1, 20, 61, 2, 100, 2, 100, 3, 0],
+            vec![1, 20, 61, 0, 1, 200, 5],
+            vec![1, 20, 61, 0, 0, 3],
+        ] {
             assert!(Record::parse(SettingKind::Slot, &bad).is_none(), "{bad:?}");
         }
     }
@@ -232,10 +276,16 @@ mod tests {
         assert_eq!(build.entries.get(&205), Some(&3));
         assert_eq!(build.without(&[100], &[]).write(), vec![2, 2002, 2053]);
         assert!(Record::parse(SettingKind::Build, &[5, 1, 2]).is_none());
-        assert!(Record::parse(SettingKind::Build, &[1, 11, 7]).is_none(), "something after the picks");
+        assert!(
+            Record::parse(SettingKind::Build, &[1, 11, 7]).is_none(),
+            "something after the picks"
+        );
         let bar = Record::parse(SettingKind::Bar, &[2, 0, 500, 7, 501, 0, 0]).unwrap();
         assert_eq!(bar.without(&[], &[0]).write(), vec![1, 7, 501]);
         assert!(Record::parse(SettingKind::Bar, &[3, 0, 1]).is_none());
-        assert_eq!(Record::parse(SettingKind::Bar, &[0]).unwrap().write(), vec![0]);
+        assert_eq!(
+            Record::parse(SettingKind::Bar, &[0]).unwrap().write(),
+            vec![0]
+        );
     }
 }

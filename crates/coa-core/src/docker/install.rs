@@ -27,12 +27,18 @@ use crate::manifest::{self, Migration};
 use crate::migrations;
 use crate::package::BASELINE_DIR;
 use crate::pkgsource::{fetch_manifest, fetch_parts, Source};
-use crate::registry::{metadata_dir_for, InstallKind, InstallMeta, MetaDir, Registry, LAYOUT_DOCKER_V1};
+use crate::registry::{
+    metadata_dir_for, InstallKind, InstallMeta, MetaDir, Registry, LAYOUT_DOCKER_V1,
+};
 
 /// Created in the staging folder so a leftover of an earlier attempt can be told from somebody else's folder.
 const STAGING_MARKER: &str = ".coa-installing";
 /// The three game databases: kind (the name of the dump), schema.
-const DATABASES: [(&str, &str); 3] = [("auth", "acore_auth"), ("characters", "acore_characters"), ("world", "acore_world")];
+const DATABASES: [(&str, &str); 3] = [
+    ("auth", "acore_auth"),
+    ("characters", "acore_characters"),
+    ("world", "acore_world"),
+];
 /// Ports the game uses by default on this computer.
 const DEFAULT_PORTS: (u16, u16, u16) = (3724, 8085, 3443);
 
@@ -48,24 +54,55 @@ pub struct Params<'a> {
 }
 
 /// Checks whether `dest` and the game data folder are sensible for a new server on Linux.
-pub fn preflight(dest: &Path, data_dir: &Path, needed_bytes: u64, registry: &Registry) -> Preflight {
+pub fn preflight(
+    dest: &Path,
+    data_dir: &Path,
+    needed_bytes: u64,
+    registry: &Registry,
+) -> Preflight {
     let mut problems = Vec::new();
     let s = dest.to_string_lossy();
 
     if !dest.is_absolute() {
-        problems.push(problem("relative", "Choose a full folder path, such as /home/you/CoaServer."));
+        problems.push(problem(
+            "relative",
+            "Choose a full folder path, such as /home/you/CoaServer.",
+        ));
     }
     if s.contains(':') {
-        problems.push(problem("colon", "Choose a folder whose path has no colon in it."));
+        problems.push(problem(
+            "colon",
+            "Choose a folder whose path has no colon in it.",
+        ));
     }
     let trimmed = s.trim_end_matches('/');
-    const SYSTEM: [&str; 13] = ["", "/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/run", "/sbin", "/sys", "/usr", "/var"];
-    if SYSTEM.iter().any(|p| trimmed == *p || (!p.is_empty() && trimmed.starts_with(&format!("{p}/")))) {
-        problems.push(problem("system_folder", "Please choose a normal folder for your games, not a system location."));
+    const SYSTEM: [&str; 13] = [
+        "", "/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/run", "/sbin", "/sys",
+        "/usr", "/var",
+    ];
+    if SYSTEM
+        .iter()
+        .any(|p| trimmed == *p || (!p.is_empty() && trimmed.starts_with(&format!("{p}/"))))
+    {
+        problems.push(problem(
+            "system_folder",
+            "Please choose a normal folder for your games, not a system location.",
+        ));
     }
     if let Some(home) = std::env::var_os("HOME") {
         let home = home.to_string_lossy().trim_end_matches('/').to_string();
-        let special = ["", "/Documents", "/Desktop", "/Downloads", "/Pictures", "/Music", "/Videos", "/.config", "/.local", "/.local/share"];
+        let special = [
+            "",
+            "/Documents",
+            "/Desktop",
+            "/Downloads",
+            "/Pictures",
+            "/Music",
+            "/Videos",
+            "/.config",
+            "/.local",
+            "/.local/share",
+        ];
         if !home.is_empty() && special.iter().any(|sfx| trimmed == format!("{home}{sfx}")) {
             problems.push(problem("personal_folder", "This folder contains unrelated files. Choose another folder or create a new CoA Server folder."));
         }
@@ -87,15 +124,24 @@ pub fn preflight(dest: &Path, data_dir: &Path, needed_bytes: u64, registry: &Reg
                     }
                 }
             }
-            Err(_) => problems.push(problem("unreadable", "This folder cannot be read. Choose another one.")),
+            Err(_) => problems.push(problem(
+                "unreadable",
+                "This folder cannot be read. Choose another one.",
+            )),
         }
     }
 
     if let Ok(list) = registry.list() {
         for (_, existing) in list {
-            if let (Ok(a), Ok(b)) = (fsx::canonicalize_lenient(dest), fsx::canonicalize_lenient(&existing)) {
+            if let (Ok(a), Ok(b)) = (
+                fsx::canonicalize_lenient(dest),
+                fsx::canonicalize_lenient(&existing),
+            ) {
                 if fsx::starts_with_ci(&a, &b) || fsx::starts_with_ci(&b, &a) {
-                    problems.push(problem("registered", "A server is already registered at or around this location."));
+                    problems.push(problem(
+                        "registered",
+                        "A server is already registered at or around this location.",
+                    ));
                     break;
                 }
             }
@@ -105,19 +151,38 @@ pub fn preflight(dest: &Path, data_dir: &Path, needed_bytes: u64, registry: &Reg
     problems.extend(data_problems(data_dir));
 
     let free_bytes = fsx::free_space(dest).unwrap_or(0);
-    let need = needed_bytes.saturating_add(needed_bytes / 5).saturating_add(512 * 1024 * 1024);
+    let need = needed_bytes
+        .saturating_add(needed_bytes / 5)
+        .saturating_add(512 * 1024 * 1024);
     if free_bytes < need {
-        problems.push(problem("space", &format!("Not enough free space: about {} GB needed, {} GB available.", need / (1 << 30) + 1, free_bytes / (1 << 30))));
+        problems.push(problem(
+            "space",
+            &format!(
+                "Not enough free space: about {} GB needed, {} GB available.",
+                need / (1 << 30) + 1,
+                free_bytes / (1 << 30)
+            ),
+        ));
     }
-    Preflight { ok: problems.is_empty(), problems, free_bytes }
+    Preflight {
+        ok: problems.is_empty(),
+        problems,
+        free_bytes,
+    }
 }
 
 fn data_problems(data_dir: &Path) -> Vec<crate::install::Problem> {
     let s = data_dir.to_string_lossy();
     if !data_dir.is_absolute() || s.contains(':') {
-        return vec![problem("data_path", "Choose the game data folder with its full path, without a colon in it.")];
+        return vec![problem(
+            "data_path",
+            "Choose the game data folder with its full path, without a colon in it.",
+        )];
     }
-    let missing: Vec<&str> = ["dbc", "maps"].into_iter().filter(|d| !data_dir.join(d).is_dir()).collect();
+    let missing: Vec<&str> = ["dbc", "maps"]
+        .into_iter()
+        .filter(|d| !data_dir.join(d).is_dir())
+        .collect();
     if missing.is_empty() {
         Vec::new()
     } else {
@@ -143,10 +208,20 @@ struct Settings {
 
 fn write_settings(root: &Path, data_dir: &Path) -> Result<Settings> {
     let project = random_hex(10);
-    let (auth, world, ra) = (pick_port(DEFAULT_PORTS.0)?, pick_port(DEFAULT_PORTS.1)?, pick_port(DEFAULT_PORTS.2)?);
+    let (auth, world, ra) = (
+        pick_port(DEFAULT_PORTS.0)?,
+        pick_port(DEFAULT_PORTS.1)?,
+        pick_port(DEFAULT_PORTS.2)?,
+    );
     let (root_password, app_password) = (random_hex(48), random_hex(48));
     fs::create_dir_all(root.join("Settings"))?;
-    let docker = Config { project, bind_address: "127.0.0.1".into(), mysql_image: super::MYSQL_IMAGE.into(), data_dir: Some(data_dir.to_string_lossy().into_owned()), mysql_data: None };
+    let docker = Config {
+        project,
+        bind_address: "127.0.0.1".into(),
+        mysql_image: super::MYSQL_IMAGE.into(),
+        data_dir: Some(data_dir.to_string_lossy().into_owned()),
+        mysql_data: None,
+    };
     fsx::atomic_write_json(&root.join(MARKER), &docker)?;
     // Same file and keys as a repack, so the console, the ports and the settings screens work unchanged. The database is
     // not published on the host; its port is only there to fill the key.
@@ -155,45 +230,78 @@ fn write_settings(root: &Path, data_dir: &Path) -> Result<Settings> {
         &serde_json::json!({ "mysqlPort": 3307, "authPort": auth, "worldPort": world, "raPort": ra, "raUsername": db::SERVICE_ACCOUNT, "raPassword": "" }),
     )?;
     let secrets = root.join("Settings/database.json");
-    fsx::atomic_write_json(&secrets, &serde_json::json!({ "rootPassword": root_password, "appPassword": app_password }))?;
+    fsx::atomic_write_json(
+        &secrets,
+        &serde_json::json!({ "rootPassword": root_password, "appPassword": app_password }),
+    )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&secrets, fs::Permissions::from_mode(0o600))?;
     }
-    Ok(Settings { app_password, world_port: world })
+    Ok(Settings {
+        app_password,
+        world_port: world,
+    })
 }
 
 /// The package must hold what a Docker installation is made of; say what is missing instead of failing later.
 fn check_extracted(root: &Path) -> Result<()> {
     let mut missing = Vec::new();
-    for rel in ["Core/worldserver", "Core/authserver", "Core/configs/worldserver.conf.dist", "Core/configs/authserver.conf.dist"] {
+    for rel in [
+        "Core/worldserver",
+        "Core/authserver",
+        "Core/configs/worldserver.conf.dist",
+        "Core/configs/authserver.conf.dist",
+    ] {
         if !root.join(rel).is_file() {
             missing.push(rel.to_string());
         }
     }
     for (kind, _) in DATABASES {
-        if !root.join(BASELINE_DIR).join(format!("{kind}.sql.zst")).is_file() {
+        if !root
+            .join(BASELINE_DIR)
+            .join(format!("{kind}.sql.zst"))
+            .is_file()
+        {
             missing.push(format!("{BASELINE_DIR}/{kind}.sql.zst"));
         }
     }
     if missing.is_empty() {
         Ok(())
     } else {
-        Err(Error::Invalid(format!("This package is not a complete Linux server package; missing: {}.", missing.join(", "))))
+        Err(Error::Invalid(format!(
+            "This package is not a complete Linux server package; missing: {}.",
+            missing.join(", ")
+        )))
     }
 }
 
 /// Record every migration of the package as applied without running it, in a few statements (one `docker exec` for each
 /// of more than a thousand would take minutes). Same ledger rows as `migrations::baseline`.
 fn baseline_statements(list: &[Migration]) -> Result<Vec<String>> {
-    let ok = |t: &str| !t.is_empty() && t.len() <= 190 && t.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    let ok = |t: &str| {
+        !t.is_empty()
+            && t.len() <= 190
+            && t.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    };
     let mut rows = Vec::with_capacity(list.len());
     for m in list {
-        if !matches!(m.db.as_str(), "auth" | "characters" | "world") || !ok(&m.id) || m.sha256.len() != 64 || !m.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Error::InvalidManifest(format!("migration {:?} is not valid", m.id)));
+        if !matches!(m.db.as_str(), "auth" | "characters" | "world")
+            || !ok(&m.id)
+            || m.sha256.len() != 64
+            || !m.sha256.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(Error::InvalidManifest(format!(
+                "migration {:?} is not valid",
+                m.id
+            )));
         }
-        rows.push(format!("('{}','{}','{}','applied',NOW(),NULL,1)", m.db, m.id, m.sha256));
+        rows.push(format!(
+            "('{}','{}','{}','applied',NOW(),NULL,1)",
+            m.db, m.id, m.sha256
+        ));
     }
     Ok(rows
         .chunks(400)
@@ -203,15 +311,28 @@ fn baseline_statements(list: &[Migration]) -> Result<Vec<String>> {
 
 /// Create the three schemas and the game servers' account, load the starting databases and record the package's migrations
 /// as applied. The database container is started from `root` and stopped again by the caller.
-fn build_database(d: &dyn Docker, root: &Path, list: &[Migration], s: &Settings, say: &dyn Fn(u8, String)) -> Result<()> {
+fn build_database(
+    d: &dyn Docker,
+    root: &Path,
+    list: &[Migration],
+    s: &Settings,
+    say: &dyn Fn(u8, String),
+) -> Result<()> {
     let started = super::run_with(d, root, Verb::StartMysql)?;
     if !started.ok {
-        return Err(Error::Invalid(started.human.map(|h| h.message.to_string()).unwrap_or_else(|| "The database could not be started.".into())));
+        return Err(Error::Invalid(
+            started
+                .human
+                .map(|h| h.message.to_string())
+                .unwrap_or_else(|| "The database could not be started.".into()),
+        ));
     }
     let db = Db::from_repack(root, Account::Admin)?;
     let mut sql = String::new();
     for (_, schema) in DATABASES {
-        sql.push_str(&format!("CREATE DATABASE `{schema}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"));
+        sql.push_str(&format!(
+            "CREATE DATABASE `{schema}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"
+        ));
     }
     // The pattern also covers the schemas of other realms (acore_world_wildcard, ...).
     sql.push_str(&format!("CREATE USER 'acore'@'%' IDENTIFIED BY '{}';\nGRANT ALL PRIVILEGES ON `acore\\_%`.* TO 'acore'@'%';\nFLUSH PRIVILEGES;\n", s.app_password));
@@ -219,10 +340,16 @@ fn build_database(d: &dyn Docker, root: &Path, list: &[Migration], s: &Settings,
 
     for (i, (kind, schema)) in DATABASES.iter().enumerate() {
         say(83 + (i * 4) as u8, format!("Loading the {kind} database"));
-        db.import_from(schema, &root.join(BASELINE_DIR).join(format!("{kind}.sql.zst")))?;
+        db.import_from(
+            schema,
+            &root.join(BASELINE_DIR).join(format!("{kind}.sql.zst")),
+        )?;
     }
 
-    say(95 - 3, format!("Recording {} database updates as applied", list.len()));
+    say(
+        95 - 3,
+        format!("Recording {} database updates as applied", list.len()),
+    );
     // The ledger table is created by the first read of it.
     migrations::Store::load(&db)?;
     for statement in baseline_statements(list)? {
@@ -230,12 +357,17 @@ fn build_database(d: &dyn Docker, root: &Path, list: &[Migration], s: &Settings,
     }
 
     // The realm advertises the port the game server really uses on this computer.
-    db.query(&format!("UPDATE acore_auth.realmlist SET port={} WHERE id=1;", s.world_port))?;
+    db.query(&format!(
+        "UPDATE acore_auth.realmlist SET port={} WHERE id=1;",
+        s.world_port
+    ))?;
     // The server console gets its own account with a random password.
     let console_pw = db.provision_service_account()?;
     db::write_console_credentials(root, &console_pw)?;
     if !Db::from_repack(root, Account::Admin)?.ping() {
-        return Err(Error::Invalid("The database did not answer after it was set up.".into()));
+        return Err(Error::Invalid(
+            "The database did not answer after it was set up.".into(),
+        ));
     }
     Ok(())
 }
@@ -245,10 +377,19 @@ pub fn install(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
 }
 
 pub fn install_with(d: &dyn Docker, p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
-    let say = |step: &'static str, percent: u8, detail: Option<String>| report(Step { step, percent, detail });
+    let say = |step: &'static str, percent: u8, detail: Option<String>| {
+        report(Step {
+            step,
+            percent,
+            detail,
+        })
+    };
     let dest = p.dest.clone();
     let staging_root = {
-        let mut n = dest.file_name().ok_or_else(|| Error::Invalid("bad destination".into()))?.to_os_string();
+        let mut n = dest
+            .file_name()
+            .ok_or_else(|| Error::Invalid("bad destination".into()))?
+            .to_os_string();
         n.push(".installing");
         dest.with_file_name(n)
     };
@@ -258,24 +399,51 @@ pub fn install_with(d: &dyn Docker, p: &Params, report: &dyn Fn(Step)) -> Result
     super::check_docker(d)?;
     // The manifest first: it is signed, and tells us how much space we need.
     let (m, manifest_bytes) = fetch_manifest(&p.source, p.trusted_key)?;
-    if !matches!(m.kind, manifest::Kind::Base | manifest::Kind::Update) || !m.compatible_with_manager(crate::MANAGER_VERSION) {
-        return Err(Error::Invalid("This package needs a newer version of CoA Server Manager.".into()));
+    if !matches!(m.kind, manifest::Kind::Base | manifest::Kind::Update)
+        || !m.compatible_with_manager(crate::MANAGER_VERSION)
+    {
+        return Err(Error::Invalid(
+            "This package needs a newer version of CoA Server Manager.".into(),
+        ));
     }
-    let archive = m.archive.clone().ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
+    let archive = m
+        .archive
+        .clone()
+        .ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
     let download_size: u64 = archive.parts.iter().map(|x| x.size).sum();
 
-    let pre = preflight(&dest, &p.data_dir, archive.unpacked_size + download_size, p.registry);
+    let pre = preflight(
+        &dest,
+        &p.data_dir,
+        archive.unpacked_size + download_size,
+        p.registry,
+    );
     if !pre.ok {
-        return Err(Error::Invalid(pre.problems.iter().map(|x| x.message.clone()).collect::<Vec<_>>().join(" ")));
+        return Err(Error::Invalid(
+            pre.problems
+                .iter()
+                .map(|x| x.message.clone())
+                .collect::<Vec<_>>()
+                .join(" "),
+        ));
     }
 
-    let parts_dir = fetch_parts(&p.source, &m, &meta_dir.join("staging").join("download"), &p.cancel, &|frac, detail| say("Downloading server", 5 + (frac * 45.0) as u8, detail))?;
+    let parts_dir = fetch_parts(
+        &p.source,
+        &m,
+        &meta_dir.join("staging").join("download"),
+        &p.cancel,
+        &|frac, detail| say("Downloading server", 5 + (frac * 45.0) as u8, detail),
+    )?;
 
     if staging_root.exists() {
         if staging_root.join(STAGING_MARKER).is_file() {
             fs::remove_dir_all(&staging_root)?; // leftover of an earlier failed attempt that we created
         } else {
-            return Err(Error::Invalid(format!("{} already exists and was not created by the Manager.", staging_root.display())));
+            return Err(Error::Invalid(format!(
+                "{} already exists and was not created by the Manager.",
+                staging_root.display()
+            )));
         }
     }
     fs::create_dir_all(&staging_root)?;
@@ -284,13 +452,16 @@ pub fn install_with(d: &dyn Docker, p: &Params, report: &dyn Fn(Step)) -> Result
     let mut project: Option<Config> = None;
     let result = (|| -> Result<Installed> {
         say("Unpacking", 50, None);
-        crate::package::extract(&parts_dir, &m, &staging_root, &|done, total| say("Unpacking", 50 + (done * 30 / total.max(1)) as u8, None))?;
+        crate::package::extract(&parts_dir, &m, &staging_root, &|done, total| {
+            say("Unpacking", 50 + (done * 30 / total.max(1)) as u8, None)
+        })?;
         check_extracted(&staging_root)?;
 
         say("Preparing database", 82, None);
         let settings = write_settings(&staging_root, &p.data_dir)?;
         project = Some(Config::load(&staging_root)?);
-        let progress = |percent: u8, detail: String| say("Preparing database", percent, Some(detail));
+        let progress =
+            |percent: u8, detail: String| say("Preparing database", percent, Some(detail));
         let built = build_database(d, &staging_root, &m.migrations, &settings, &progress);
         let _ = super::run_with(d, &staging_root, Verb::StopAll);
         built?;
@@ -313,13 +484,21 @@ pub fn install_with(d: &dyn Docker, p: &Params, report: &dyn Fn(Step)) -> Result
         meta.database.schemas = DATABASES.iter().map(|(_, s)| s.to_string()).collect();
         meta.managed_files = m.files.iter().map(|f| f.path.clone()).collect();
         for f in &m.files {
-            meta.original_hashes.insert(f.path.clone(), f.sha256.clone());
+            meta.original_hashes
+                .insert(f.path.clone(), f.sha256.clone());
         }
         let md = MetaDir::create(&dest, &meta)?;
-        fsx::atomic_write(&md.root.join("manifests").join("base.json"), &manifest_bytes)?;
+        fsx::atomic_write(
+            &md.root.join("manifests").join("base.json"),
+            &manifest_bytes,
+        )?;
         p.registry.register(&meta.id, &dest)?;
         say("Ready", 100, None);
-        Ok(Installed { id: meta.id, path: dest.to_string_lossy().into_owned(), version: m.version.clone() })
+        Ok(Installed {
+            id: meta.id,
+            path: dest.to_string_lossy().into_owned(),
+            version: m.version.clone(),
+        })
     })();
 
     if result.is_err() && staging_root.join(STAGING_MARKER).exists() {
@@ -348,7 +527,10 @@ mod tests {
 
     impl Fake {
         fn new(unavailable: bool) -> Fake {
-            Fake { calls: Default::default(), unavailable }
+            Fake {
+                calls: Default::default(),
+                unavailable,
+            }
         }
     }
 
@@ -356,9 +538,15 @@ mod tests {
         fn run(&self, call: &Call) -> Result<Output> {
             self.calls.borrow_mut().push(call.args.clone());
             if self.unavailable {
-                return Err(Error::Invalid("docker could not be started: not found".into()));
+                return Err(Error::Invalid(
+                    "docker could not be started: not found".into(),
+                ));
             }
-            Ok(Output { code: Some(0), stdout: "27.3.1".into(), stderr: String::new() })
+            Ok(Output {
+                code: Some(0),
+                stdout: "27.3.1".into(),
+                stderr: String::new(),
+            })
         }
 
         fn pause(&self, _d: std::time::Duration) {}
@@ -368,6 +556,7 @@ mod tests {
         Registry::at(d.join("reg/installs.json"))
     }
 
+    #[allow(dead_code)]
     fn codes(p: &Preflight) -> Vec<&'static str> {
         p.problems.iter().map(|x| x.code).collect()
     }
@@ -388,11 +577,22 @@ mod tests {
             fs::write(p, content).unwrap();
         }
         let pkg = d.join("pkg");
-        let opts = BuildOptions { kind: manifest::Kind::Update, version: "0.1.0".into(), core_commit: None, built_at: "x".into(), part_size: 1 << 20, bots_commit: None, migrations: vec![] };
+        let opts = BuildOptions {
+            kind: manifest::Kind::Update,
+            version: "0.1.0".into(),
+            core_commit: None,
+            built_at: "x".into(),
+            part_size: 1 << 20,
+            bots_commit: None,
+            migrations: vec![],
+        };
         package::build(&src, &pkg, &opts, &|_| {}).unwrap();
         let key = SigningKey::generate(&mut rand_core::OsRng);
         let engine = base64::engine::general_purpose::STANDARD;
-        let sig = engine.encode(key.sign(&fs::read(pkg.join("manifest.json")).unwrap()).to_bytes());
+        let sig = engine.encode(
+            key.sign(&fs::read(pkg.join("manifest.json")).unwrap())
+                .to_bytes(),
+        );
         fs::write(pkg.join("manifest.json.sig"), sig).unwrap();
         (pkg, engine.encode(key.verifying_key().to_bytes()))
     }
@@ -413,7 +613,12 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let data = data_folder(d.path());
         let ok = |dest: &Path| codes(&preflight(dest, &data, 1000, &reg(d.path())));
-        assert!(!ok(&d.path().join("CoaServer")).iter().any(|c| *c != "space"), "a new folder is fine");
+        assert!(
+            !ok(&d.path().join("CoaServer"))
+                .iter()
+                .any(|c| *c != "space"),
+            "a new folder is fine"
+        );
         for bad in ["/usr/local/coa", "/etc", "/", "/proc/x"] {
             assert!(ok(Path::new(bad)).contains(&"system_folder"), "{bad}");
         }
@@ -427,7 +632,9 @@ mod tests {
         r.register("1", &existing).unwrap();
         assert!(codes(&preflight(&existing.join("inner"), &data, 1000, &r)).contains(&"registered"));
         // The same name in another case is another folder on Linux.
-        assert!(!codes(&preflight(&d.path().join("EXISTING"), &data, 1000, &r)).contains(&"registered"));
+        assert!(
+            !codes(&preflight(&d.path().join("EXISTING"), &data, 1000, &r)).contains(&"registered")
+        );
     }
 
     // The tests marked for unix use absolute folders of the temporary directory, which on Windows start with a drive letter and a
@@ -442,8 +649,12 @@ mod tests {
         let empty = d.path().join("empty");
         fs::create_dir_all(&empty).unwrap();
         assert!(codes(&preflight(&dest, &empty, 1, &reg)).contains(&"data_missing"));
-        assert!(codes(&preflight(&dest, Path::new("relative/data"), 1, &reg)).contains(&"data_path"));
-        assert!(!codes(&preflight(&dest, &data_folder(d.path()), 1, &reg)).iter().any(|c| c.starts_with("data")));
+        assert!(
+            codes(&preflight(&dest, Path::new("relative/data"), 1, &reg)).contains(&"data_path")
+        );
+        assert!(!codes(&preflight(&dest, &data_folder(d.path()), 1, &reg))
+            .iter()
+            .any(|c| c.starts_with("data")));
     }
 
     #[cfg(unix)]
@@ -455,7 +666,10 @@ mod tests {
         let s = write_settings(&root, &data).unwrap();
 
         let cfg = Config::load(&root).unwrap();
-        assert_eq!(cfg.bind_address, "127.0.0.1", "this computer only until the person opens it");
+        assert_eq!(
+            cfg.bind_address, "127.0.0.1",
+            "this computer only until the person opens it"
+        );
         assert_eq!(cfg.project.len(), 10);
         assert_eq!(cfg.data_path(&root), data);
 
@@ -471,12 +685,19 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(root.join("Settings/database.json")).unwrap().permissions().mode() & 0o777;
+            let mode = fs::metadata(root.join("Settings/database.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
             assert_eq!(mode, 0o600, "the passwords are for their owner only");
         }
         // Two installations never share a project name.
         let other = write_settings(&d.path().join("srv2"), &data).unwrap();
-        assert_ne!(Config::load(&d.path().join("srv2")).unwrap().project, cfg.project);
+        assert_ne!(
+            Config::load(&d.path().join("srv2")).unwrap().project,
+            cfg.project
+        );
         let _ = other;
     }
 
@@ -487,14 +708,21 @@ mod tests {
         let got = pick_port(busy).unwrap();
         assert_ne!(got, busy);
         drop(held);
-        assert_eq!(pick_port(busy).unwrap(), busy, "free again: the usual port is used");
+        assert_eq!(
+            pick_port(busy).unwrap(),
+            busy,
+            "free again: the usual port is used"
+        );
     }
 
     #[test]
     fn a_package_is_checked_for_everything_an_installation_needs() {
         let d = tempfile::tempdir().unwrap();
         let root = d.path();
-        assert!(check_extracted(root).unwrap_err().to_string().contains("Core/worldserver"));
+        assert!(check_extracted(root)
+            .unwrap_err()
+            .to_string()
+            .contains("Core/worldserver"));
         for (rel, c) in FULL {
             let p = root.join(rel);
             fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -502,27 +730,55 @@ mod tests {
         }
         check_extracted(root).unwrap();
         fs::remove_file(root.join("Database/baseline/world.sql.zst")).unwrap();
-        assert!(check_extracted(root).unwrap_err().to_string().contains("Database/baseline/world.sql.zst"));
+        assert!(check_extracted(root)
+            .unwrap_err()
+            .to_string()
+            .contains("Database/baseline/world.sql.zst"));
     }
 
     fn migration(db: &str, id: &str) -> Migration {
-        Migration { db: db.into(), id: id.into(), sha256: "ab".repeat(32), destructive: false, compatible_sha256: vec![] }
+        Migration {
+            db: db.into(),
+            id: id.into(),
+            sha256: "ab".repeat(32),
+            destructive: false,
+            compatible_sha256: vec![],
+        }
     }
 
     #[test]
     fn the_package_migrations_are_recorded_as_applied_in_a_few_statements() {
-        let list: Vec<Migration> = (0..1000).map(|i| migration(["auth", "characters", "world"][i % 3], &format!("rev_{i}"))).collect();
+        let list: Vec<Migration> = (0..1000)
+            .map(|i| migration(["auth", "characters", "world"][i % 3], &format!("rev_{i}")))
+            .collect();
         let statements = baseline_statements(&list).unwrap();
         assert_eq!(statements.len(), 3, "400 rows at most in a statement");
         assert!(statements[0].starts_with("REPLACE INTO `acore_world`.`coa_manager_migrations`"));
-        assert_eq!(statements.iter().map(|s| s.matches("'applied'").count()).sum::<usize>(), 1000);
-        assert!(statements[0].contains("('auth','rev_0',") && statements[0].contains(",NOW(),NULL,1)"), "marked as a baseline");
+        assert_eq!(
+            statements
+                .iter()
+                .map(|s| s.matches("'applied'").count())
+                .sum::<usize>(),
+            1000
+        );
+        assert!(
+            statements[0].contains("('auth','rev_0',") && statements[0].contains(",NOW(),NULL,1)"),
+            "marked as a baseline"
+        );
         assert!(baseline_statements(&[]).unwrap().is_empty());
     }
 
     #[test]
     fn a_migration_that_could_carry_sql_is_refused_before_anything_is_written() {
-        for bad in [migration("world", "x'); DROP TABLE y;--"), migration("mysql", "ok"), migration("world", ""), Migration { sha256: "zz".into(), ..migration("world", "ok") }] {
+        for bad in [
+            migration("world", "x'); DROP TABLE y;--"),
+            migration("mysql", "ok"),
+            migration("world", ""),
+            Migration {
+                sha256: "zz".into(),
+                ..migration("world", "ok")
+            },
+        ] {
             assert!(baseline_statements(&[migration("auth", "fine"), bad]).is_err());
         }
     }
@@ -534,7 +790,19 @@ mod tests {
         let dest = d.path().join("dest");
         let r = reg(d.path());
         let fake = Fake::new(true);
-        let err = install_with(&fake, &Params { source: Source::Dir(pkg), dest: dest.clone(), data_dir: data_folder(d.path()), trusted_key: &key, registry: &r, cancel: Cancel::default() }, &|_| {}).unwrap_err();
+        let err = install_with(
+            &fake,
+            &Params {
+                source: Source::Dir(pkg),
+                dest: dest.clone(),
+                data_dir: data_folder(d.path()),
+                trusted_key: &key,
+                registry: &r,
+                cancel: Cancel::default(),
+            },
+            &|_| {},
+        )
+        .unwrap_err();
         assert!(err.to_string().to_lowercase().contains("docker"), "{err}");
         assert!(!dest.exists() && !dest.with_file_name("dest.installing").exists());
     }
@@ -543,12 +811,34 @@ mod tests {
     #[test]
     fn a_package_without_the_server_is_refused_and_leaves_nothing() {
         let d = tempfile::tempdir().unwrap();
-        let (pkg, key) = signed_package(d.path(), &[("Core/configs/worldserver.conf.dist", "x"), ("README.txt", "hello")]);
+        let (pkg, key) = signed_package(
+            d.path(),
+            &[
+                ("Core/configs/worldserver.conf.dist", "x"),
+                ("README.txt", "hello"),
+            ],
+        );
         let dest = d.path().join("dest");
         let r = reg(d.path());
         let fake = Fake::new(false);
-        let err = install_with(&fake, &Params { source: Source::Dir(pkg), dest: dest.clone(), data_dir: data_folder(d.path()), trusted_key: &key, registry: &r, cancel: Cancel::default() }, &|_| {}).unwrap_err();
-        assert!(err.to_string().contains("not a complete Linux server package"), "{err}");
+        let err = install_with(
+            &fake,
+            &Params {
+                source: Source::Dir(pkg),
+                dest: dest.clone(),
+                data_dir: data_folder(d.path()),
+                trusted_key: &key,
+                registry: &r,
+                cancel: Cancel::default(),
+            },
+            &|_| {},
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("not a complete Linux server package"),
+            "{err}"
+        );
         assert!(!dest.exists() && !dest.with_file_name("dest.installing").exists());
         assert!(r.list().unwrap().is_empty());
     }
@@ -562,13 +852,40 @@ mod tests {
         let r = reg(d.path());
         // This fake docker answers every command with success and no container, so the database never becomes ready.
         let fake = Fake::new(false);
-        let err = install_with(&fake, &Params { source: Source::Dir(pkg), dest: dest.clone(), data_dir: data_folder(d.path()), trusted_key: &key, registry: &r, cancel: Cancel::default() }, &|_| {}).unwrap_err();
+        let err = install_with(
+            &fake,
+            &Params {
+                source: Source::Dir(pkg),
+                dest: dest.clone(),
+                data_dir: data_folder(d.path()),
+                trusted_key: &key,
+                registry: &r,
+                cancel: Cancel::default(),
+            },
+            &|_| {},
+        )
+        .unwrap_err();
         assert!(err.to_string().to_lowercase().contains("database"), "{err}");
-        assert!(!dest.exists() && !dest.with_file_name("dest.installing").exists(), "no half-installed server");
+        assert!(
+            !dest.exists() && !dest.with_file_name("dest.installing").exists(),
+            "no half-installed server"
+        );
         assert!(r.list().unwrap().is_empty());
         let calls = fake.calls.borrow();
-        let removed = |suffix: &str| calls.iter().any(|c| c[0] == "rm" && c.last().is_some_and(|n| n.starts_with("coa-") && n.ends_with(suffix)));
-        assert!(removed("-db") && removed("-world") && removed("-auth"), "containers removed: {calls:?}");
-        assert!(calls.iter().any(|c| c[..2] == ["volume", "rm"]) && calls.iter().any(|c| c[..2] == ["network", "rm"]));
+        let removed = |suffix: &str| {
+            calls.iter().any(|c| {
+                c[0] == "rm"
+                    && c.last()
+                        .is_some_and(|n| n.starts_with("coa-") && n.ends_with(suffix))
+            })
+        };
+        assert!(
+            removed("-db") && removed("-world") && removed("-auth"),
+            "containers removed: {calls:?}"
+        );
+        assert!(
+            calls.iter().any(|c| c[..2] == ["volume", "rm"])
+                && calls.iter().any(|c| c[..2] == ["network", "rm"])
+        );
     }
 }
