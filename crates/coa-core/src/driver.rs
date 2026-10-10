@@ -261,8 +261,13 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
 /// Background servers receive no interactive stdin. Keep CLI EOF from stopping the world server;
 /// the Manager's console uses remote access instead. The template survives launcher regeneration.
 fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
-    if !matches!(verb, Verb::StartAll | Verb::StartWorld) { return Ok(()); }
-    for relative in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+    if !matches!(verb, Verb::StartAll | Verb::StartWorld) {
+        return Ok(());
+    }
+    for relative in [
+        "Settings/worldserver.conf.template",
+        "Core/configs/worldserver.conf",
+    ] {
         let path = root.join(relative);
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
@@ -270,7 +275,11 @@ fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
             Err(e) => return Err(e.into()),
         };
         let mut config = crate::config::parser::ConfFile::parse_bytes(&bytes)?;
-        config.set("Console.Enable", "0", &["Local console is disabled for background startup; the Manager uses remote access."]);
+        config.set(
+            "Console.Enable",
+            "0",
+            &["Local console is disabled for background startup; the Manager uses remote access."],
+        );
         let text = config.to_text();
         if text.as_bytes() != bytes {
             fsx::atomic_write(&path, text.as_bytes())?;
@@ -424,7 +433,10 @@ mod tests {
         prepare_headless_world(root, Verb::StartAll).unwrap();
         std::fs::create_dir_all(root.join("Core/configs")).unwrap();
         let path = root.join("Core/configs/worldserver.conf");
-        for original in ["Ra.Enable = 1\n", "Console.Enable = 0\nConsole.Enable = 1\n"] {
+        for original in [
+            "Ra.Enable = 1\n",
+            "Console.Enable = 0\nConsole.Enable = 1\n",
+        ] {
             std::fs::write(&path, original).unwrap();
             prepare_headless_world(root, Verb::StartAll).unwrap();
             let bytes = std::fs::read(&path).unwrap();
