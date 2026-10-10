@@ -42,12 +42,13 @@ pub struct Problem { pub database: String, pub table: String, pub column: String
 /// Keep all differences for support; never change a database to match a contract automatically.
 pub fn check_with_report(db: &Db, root: &Path) -> Result<Vec<Problem>> {
     let problems = check(db, root)?;
+    if problems.is_empty() { return Ok(problems); }
     let report = serde_json::json!({
         "schema": 1, "checkedAt": chrono::Utc::now().to_rfc3339(),
         "realm": db.realm().name(), "problems": problems,
     });
     let path = crate::registry::metadata_dir_for(root)?.join("diagnostics")
-        .join(format!("schema-validation-{}.json", db.realm().name()));
+        .join(format!("schema-validation-{}-{}.json", db.realm().name(), uuid::Uuid::new_v4()));
     // A log write failure must neither hide the original mismatch nor accept an invalid schema.
     if let Err(error) = fsx::atomic_write_json(&path, &report) {
         tracing::warn!(%error, path = %path.display(), "Could not save database schema report");
