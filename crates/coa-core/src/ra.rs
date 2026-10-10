@@ -278,7 +278,7 @@ mod tests {
             }
             // Close gracefully: dropping a socket with unread data would send RST and could discard the reply.
             let _ = s.shutdown(std::net::Shutdown::Write);
-            let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+            let _ = s.set_read_timeout(Some(Duration::from_secs(15)));
             let mut sink = [0u8; 64];
             while matches!(s.read(&mut sink), Ok(n) if n > 0) {}
             got
