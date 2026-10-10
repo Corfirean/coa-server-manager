@@ -47,6 +47,13 @@ fn run() -> Result<(), String> {
     let e = |x: coa_core::Error| x.to_string();
     let part = a.get("part-size").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
+        "qualify-startup" => {
+            coa_core::release_schema::validate_startup(
+                &PathBuf::from(need(&a, "fixture")?), &PathBuf::from(need(&a, "tree")?),
+                &PathBuf::from(need(&a, "base")?), coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            ).map_err(e)?;
+            println!("authserver and worldserver passed isolated startup qualification");
+        }
         "verify-channel" => {
             let bytes = std::fs::read(need(&a, "file")?).map_err(|x| x.to_string())?;
             let pointer = coa_core::channels::verify(&bytes, need(&a, "channel")?, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;

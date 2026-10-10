@@ -72,6 +72,61 @@ pub fn capture_release(fixture: &Path, tree: &Path, sql: &[SqlFile]) -> Result<(
     }))
 }
 
+pub fn validate_startup(fixture: &Path, tree: &Path, base: &Path, trusted_key: &str) -> Result<()> {
+    use crate::update::Env;
+    if !cfg!(windows) {
+        return Err(Error::Invalid("Repack startup qualification requires a Windows runner.".into()));
+    }
+    if !fixture.file_name().is_some_and(|n| n.to_string_lossy().starts_with("coa-schema-fixture-"))
+        || std::fs::read(fixture.join(MARKER)).ok().as_deref() != Some(b"disposable release-schema fixture") {
+        return Err(Error::Invalid("Startup qualification requires a disposable release-schema fixture.".into()));
+    }
+    let metadata = crate::registry::metadata_dir_for(fixture)?;
+    if metadata.exists() { return Err(Error::Invalid("Startup fixture already has Manager metadata; use a fresh fixture.".into())); }
+    schema_check::require_release_contract(tree)?;
+    for name in ["worldserver.exe", "authserver.exe"] {
+        if !tree.join("Core").join(name).is_file() {
+            return Err(Error::Invalid(format!("Startup candidate is missing {name}.")));
+        }
+    }
+    let (manifest, _) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(base.into()), trusted_key)?;
+    if manifest.kind != Kind::Base { return Err(Error::Invalid("Startup qualification requires a signed base package.".into())); }
+    let mut directories = vec![tree.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_symlink() { return Err(Error::Invalid("Startup release tree must not contain symbolic links.".into())); }
+            let path = entry.path();
+            fsx::ensure_within(tree, &path)?;
+            if kind.is_dir() { directories.push(path); continue; }
+            if !kind.is_file() { return Err(Error::Invalid("Startup release tree contains an unsupported file type.".into())); }
+            let relative = path.strip_prefix(tree).map_err(|e| Error::Invalid(e.to_string()))?.to_path_buf();
+            let first = relative.components().next().unwrap().as_os_str().to_string_lossy();
+            if !matches!(first.as_ref(), "Core" | "Scripts" | "Data" | "Extras" | "Licenses") {
+                return Err(Error::Invalid("Startup release tree contains installation-specific files.".into()));
+            }
+            fsx::ensure_within(fixture, &fixture.join(&relative))?;
+            files.push(relative);
+        }
+    }
+    package::extract_selected(base, &manifest, fixture, &|path| path.starts_with("Data/"), &|_, _| {})?;
+    for relative in files {
+        let target = fsx::ensure_within(fixture, &fixture.join(&relative))?;
+        fsx::atomic_write(&target, &std::fs::read(tree.join(relative))?)?;
+    }
+    let meta = crate::registry::InstallMeta::new(crate::registry::InstallKind::New, fixture);
+    crate::registry::MetaDir::create(fixture, &meta)?;
+    let env = crate::update::RepackEnv { root: fixture, meta_dir: &metadata };
+    env.validate()?;
+    env.ensure_stopped()?;
+    if crate::update_isolation::pending(&metadata) {
+        return Err(Error::Invalid("Startup qualification left unfinished isolated validation.".into()));
+    }
+    Ok(())
+}
+
 pub fn verify_package(dir: &Path, trusted_key: &str) -> Result<()> {
     let (manifest, _) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(dir.into()), trusted_key)?;
     if !manifest.files.iter().any(|f| f.path == schema_check::CONTRACT && f.size > 0) {
@@ -88,6 +143,17 @@ mod tests {
     use super::*;
     use base64::{engine::general_purpose::STANDARD, Engine};
     use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    fn startup_qualification_refuses_real_server_folders_before_writes() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = directory.path().join("live-server");
+        std::fs::create_dir(&server).unwrap();
+        fsx::atomic_write(&server.join("owner-data"), b"untouched").unwrap();
+        assert!(validate_startup(&server, directory.path(), directory.path(), "unused").is_err());
+        assert_eq!(std::fs::read(server.join("owner-data")).unwrap(), b"untouched");
+        assert!(!crate::registry::metadata_dir_for(&server).unwrap().exists());
+    }
 
     #[test]
     fn signed_packages_must_carry_a_real_complete_schema_contract() {
