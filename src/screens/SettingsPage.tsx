@@ -243,6 +243,24 @@ export function SettingsPage(props: {
     });
   const pending = dirtyKeys.length + Object.keys(rawEdits).length + Object.keys(colEdits).length;
 
+  useEffect(() => {
+    if (pending > 0) {
+      props.onRegisterGuard?.({
+        isDirty: () => pending > 0,
+        save: () => saveEverything(),
+        discard: () => {
+          setDraft({});
+          setErrors({});
+          setRawEdits({});
+          setColEdits({});
+        },
+      });
+    } else {
+      props.onRegisterGuard?.(null);
+    }
+    return () => props.onRegisterGuard?.(null);
+  }, [pending, props.onRegisterGuard]);
+
   if (fatal) {
     return (
       <div className="max-w-xl">
@@ -353,24 +371,6 @@ export function SettingsPage(props: {
       setBusy(false);
     }
   }
-
-  useEffect(() => {
-    if (pending > 0) {
-      props.onRegisterGuard?.({
-        isDirty: () => pending > 0,
-        save: () => saveEverything(),
-        discard: () => {
-          setDraft({});
-          setErrors({});
-          setRawEdits({});
-          setColEdits({});
-        },
-      });
-    } else {
-      props.onRegisterGuard?.(null);
-    }
-    return () => props.onRegisterGuard?.(null);
-  }, [pending, props.onRegisterGuard]);
 
   async function openPreset(id: string) {
     setSaved(null);

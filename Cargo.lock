@@ -491,7 +491,7 @@ dependencies = [
 
 [[package]]
 name = "coa-core"
-version = "0.6.10"
+version = "0.6.11"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -520,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "coa-release"
-version = "0.6.10"
+version = "0.6.11"
 dependencies = [
  "chrono",
  "coa-core",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "coa-server-manager"
-version = "0.6.10"
+version = "0.6.11"
 dependencies = [
  "coa-core",
  "serde",
