@@ -49,6 +49,9 @@ def main():
                 if process.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError('Disposable MySQL did not start: ' + (Path(temp) / 'mysql.log').read_text())
                 time.sleep(0.5)
+            regex = sql("SELECT REGEXP_LIKE(CONVERT(0xD0AF USING utf8mb4), '^[[:alpha:]]$'), REGEXP_REPLACE('abc123', '[0-9]+', '');").stdout.strip()
+            assert regex == '1\tabc', regex
+            print('PASS: packaged MySQL starts on fresh data and supports Unicode regular expressions')
             for schema in ('fresh', 'old', 'upgraded'):
                 sql('CREATE DATABASE `' + schema + '`;')
                 sql('CREATE TABLE creature_template (entry INT PRIMARY KEY, ScriptName VARCHAR(128));', schema)

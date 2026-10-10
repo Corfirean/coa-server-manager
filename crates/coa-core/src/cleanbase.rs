@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn scaffolding_keeps_the_launcher_and_drops_runtime_state_and_live_data() {
-        for keep in ["Runtime/python/python.exe", "Scripts/manage.py", "Settings/worldserver.conf.template", "mysql/bin/mysqld.exe", "mysql/share/english/errmsg.sys", "BugReport/relay.py", "Core/libssl-3-x64.dll", "README.txt"] {
+        for keep in ["Runtime/python/python.exe", "Scripts/manage.py", "Settings/worldserver.conf.template", "mysql/bin/mysqld.exe", "mysql/share/english/errmsg.sys", "mysql/lib/private/icudt.dat", "BugReport/relay.py", "Core/libssl-3-x64.dll", "README.txt"] {
             assert!(scaffolding(keep), "{keep}");
         }
         for drop in [".state/world.json", "mysql/data/acore_world/x.ibd", "mysql/logs/error.log", "Core/worldserver.exe", "Core/Logs/Server.log", "BugReport/reports/a.json", "Source/server-source.zip", "Scripts/__pycache__/x.pyc", "Testing/notes.md", "mysql/data.7z"] {
