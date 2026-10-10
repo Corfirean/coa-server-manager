@@ -47,6 +47,16 @@ fn run() -> Result<(), String> {
     let e = |x: coa_core::Error| x.to_string();
     let part = a.get("part-size").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
+        "verify-channel" => {
+            let bytes = std::fs::read(need(&a, "file")?).map_err(|x| x.to_string())?;
+            let pointer = coa_core::channels::verify(&bytes, need(&a, "channel")?, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            println!("{}", serde_json::to_string(&pointer).map_err(|x| x.to_string())?);
+        }
+        "verify-manifest" => {
+            let source = coa_core::pkgsource::Source::Dir(PathBuf::from(need(&a, "dir")?));
+            let (manifest, _) = coa_core::pkgsource::fetch_manifest(&source, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            println!("verified signed manifest {}", manifest.version);
+        }
         "extract-schema-base" => {
             coa_core::release_schema::extract_base(
                 &PathBuf::from(need(&a, "package")?), &PathBuf::from(need(&a, "fixture")?),

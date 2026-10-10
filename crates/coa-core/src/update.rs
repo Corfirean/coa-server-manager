@@ -887,6 +887,27 @@ impl Env for RepackEnv<'_> {
 
     fn automatic_rollback(&self) -> bool { true }
     fn preflight(&self, manifest: &Manifest) -> Result<()> {
+        if let Some(compatibility) = &manifest.compatibility {
+            let (_, meta) = MetaDir::open(self.meta_dir)?;
+            if let Some(source) = meta.core.version.as_ref().and_then(|v| compatibility.source_databases.get(v)) {
+                if let Some(expected) = &source.schema_sha256 {
+                    let contract = self.root.join("Scripts/database-schema.json");
+                    if fsx::sha256_file(&contract)? != *expected {
+                        return Err(Error::Invalid("The installed database schema contract differs from the qualified upgrade source; repair the installation first.".into()));
+                    }
+                }
+                crate::backup::with_database(self.root, |db| {
+                    let mut modes = vec![crate::realms::Mode::Coa];
+                    if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
+                    for mode in modes {
+                        if let Some(problem) = crate::schema_check::check(&db.clone().for_realm(mode), self.root)?.first() {
+                            return Err(Error::Invalid(format!("The installed {} database does not match its upgrade source: {}.{}: {}", mode.name(), problem.database, problem.table, problem.detail)));
+                        }
+                    }
+                    Ok(())
+                })?;
+            }
+        }
         self.pending_migrations(manifest).map(|_| ())
     }
 
@@ -1428,7 +1449,7 @@ mod tests {
         manifest.compatibility = Some(crate::manifest::Compatibility { schema: 1,
             platform: if cfg!(windows) { "windows-x86_64" } else { "linux-x86_64" }.into(),
             core_commit: "a".repeat(40), module_commits: [("squid".into(), "b".repeat(40))].into(),
-            client_patch_version: "1.5.1".into(), source_versions: vec!["1.0.0".into()] });
+            source_databases: Default::default(), client_patch_version: "1.5.1".into(), source_versions: vec!["1.0.0".into()] });
         manifest.validate().unwrap();
         validate_candidate(&meta, &manifest).unwrap();
         manifest.compatibility.as_mut().unwrap().source_versions = vec!["0.9.0".into()];
@@ -1436,6 +1457,25 @@ mod tests {
         manifest.compatibility.as_mut().unwrap().source_versions = vec!["1.0.0".into()];
         manifest.compatibility.as_mut().unwrap().platform = if cfg!(windows) { "linux-x86_64" } else { "windows-x86_64" }.into();
         assert!(validate_candidate(&meta, &manifest).unwrap_err().to_string().contains("targets"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(unfinished(&w.meta).is_none());
+    }
+
+    #[test]
+    fn changed_installed_schema_contract_blocks_before_database_access() {
+        let w = world(&[], false);
+        write(&w.root, "Scripts/database-schema.json", b"modified schema contract");
+        let mut manifest = Manifest::parse(&fs::read(w.pkg.join("manifest.json")).unwrap()).unwrap();
+        manifest.compatibility = Some(crate::manifest::Compatibility { schema: 1,
+            platform: "windows-x86_64".into(), core_commit: "a".repeat(40),
+            module_commits: [("squid".into(), "b".repeat(40))].into(), client_patch_version: "1.5.1".into(),
+            source_versions: vec!["1.0.0".into()],
+            source_databases: [("1.0.0".into(), crate::manifest::SourceDatabase {
+                manifest_sha256: "a".repeat(64), schema_sha256: Some("b".repeat(64)) })].into() });
+        let env = RepackEnv { root: &w.root, meta_dir: &w.meta };
+        let error = env.preflight(&manifest).unwrap_err().to_string();
+        assert!(error.contains("schema contract differs"), "{error}");
+        assert!(!w.root.join("Runtime/python/python.exe").exists());
         assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
         assert!(unfinished(&w.meta).is_none());
     }
