@@ -44,8 +44,17 @@ fn introduction_rank(repo: &Path, pathspecs: &[&str]) -> std::collections::HashM
     rank
 }
 
-/// Every SQL script of a core checkout (released + pending updates, module base and update scripts), in application order.
+/// Incremental SQL of a core checkout. Installation-only module bases must never be replayed on a live database.
 pub fn collect_core_sql(core: &Path) -> Result<Vec<SqlFile>> {
+    collect_core_sql_mode(core, false)
+}
+
+/// A clean installation also needs the module tables and initial seed data.
+pub fn collect_core_install_sql(core: &Path) -> Result<Vec<SqlFile>> {
+    collect_core_sql_mode(core, true)
+}
+
+fn collect_core_sql_mode(core: &Path, include_base: bool) -> Result<Vec<SqlFile>> {
     let mut out = Vec::new();
     let mut push = |db: &str, id: String, abs: PathBuf, origin: String| -> Result<()> {
         let sha256 = fsx::sha256_file(&abs)?;
@@ -69,7 +78,7 @@ pub fn collect_core_sql(core: &Path) -> Result<Vec<SqlFile>> {
             let mname = name.replace('-', "_");
             for kind in ["auth", "characters", "world"] {
                 let base = m.path().join(format!("data/sql/db-{kind}"));
-                for f in sql_in(&base.join("base")) {
+                for f in if include_base { sql_in(&base.join("base")) } else { vec![] } {
                     let stem = f.file_stem().unwrap().to_string_lossy().into_owned();
                     let rel = format!("modules/{name}/data/sql/db-{kind}/base/{}", f.file_name().unwrap().to_string_lossy());
                     push(kind, format!("mod_{mname}__base__{stem}"), f, rel)?;
@@ -144,6 +153,9 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
 
 /// Build a cumulative update: every file of `tree` that differs from the base, plus every SQL script. Unsigned.
 pub fn pack_update(p: &UpdateParams, progress: &dyn Fn(&str)) -> Result<Manifest> {
+    if let Some(file) = p.sql.iter().find(|file| file.id.starts_with("mod_") && file.id.contains("__base__")) {
+        return Err(Error::Invalid(format!("Module installation SQL {} cannot be included in an update package.", file.id)));
+    }
     let base: BTreeMap<String, &str> = p.base_manifest.files.iter().map(|f| (f.path.to_lowercase(), f.sha256.as_str())).collect();
     let work = p.out.with_file_name(format!("{}-staging", p.out.file_name().unwrap().to_string_lossy()));
     let _ = fs::remove_dir_all(&work);
@@ -218,7 +230,7 @@ mod tests {
         write(c, "data/sql/updates/db_characters/2026_01_02_00.sql", "SELECT 3;");
         write(c, "modules/mod-x/data/sql/db-world/base/01_a.sql", "SELECT 4;");
         write(c, "modules/mod-x/data/sql/db-world/2026_02_02_00_b.sql", "SELECT 5;");
-        let v = collect_core_sql(c).unwrap();
+        let v = collect_core_install_sql(c).unwrap();
         let ids: Vec<(&str, &str)> = v.iter().map(|f| (f.db.as_str(), f.id.as_str())).collect();
         assert!(ids.contains(&("world", "2026_01_01_00")) && ids.contains(&("world", "rev_1")) && ids.contains(&("characters", "2026_01_02_00")));
         assert!(ids.contains(&("world", "mod_mod_x__base__01_a")) && ids.contains(&("world", "mod_mod_x__2026_02_02_00_b")));
@@ -226,6 +238,27 @@ mod tests {
         let base_pos = ids.iter().position(|x| x.1 == "mod_mod_x__base__01_a").unwrap();
         let upd_pos = ids.iter().position(|x| x.1 == "mod_mod_x__2026_02_02_00_b").unwrap();
         assert!(base_pos < upd_pos, "a module's base script precedes its updates");
+        let updates = collect_core_sql(c).unwrap();
+        assert!(!updates.iter().any(|f| f.id.contains("__base__")));
+        assert!(updates.iter().any(|f| f.id == "mod_mod_x__2026_02_02_00_b"));
+    }
+
+    #[test]
+    fn update_packaging_rejects_module_seed_sql_before_creating_output() {
+        let d = tempfile::tempdir().unwrap();
+        let base: Manifest = serde_json::from_value(serde_json::json!({
+            "schema": 1, "kind": "base", "version": "1.0.0", "core": {"commit": null},
+            "builtAt": "test", "minManagerVersion": "0.1.0", "files": []
+        })).unwrap();
+        let out = d.path().join("out");
+        let sql = vec![SqlFile { db: "world".into(), id: "mod_mod_raid__base__03_boss_schedule".into(),
+            origin: "modules/mod-raid/data/sql/db-world/base/03_boss_schedule.sql".into(),
+            abs: d.path().join("seed.sql"), sha256: "a".repeat(64) }];
+        let result = pack_update(&UpdateParams { tree: d.path(), base_manifest: &base, sql: &sql,
+            out: &out, version: "1.1.0".into(), core_commit: None, bots_commit: None, part_size: 1024 }, &|_| {});
+        assert!(result.unwrap_err().to_string().contains("installation SQL"));
+        assert!(!out.exists());
+        assert!(!d.path().join("out-staging").exists());
     }
 
     #[test]
