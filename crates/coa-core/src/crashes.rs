@@ -1,10 +1,10 @@
 //! Crash log discovery and human-friendly explanation for worldserver crashes.
 
+use crate::error::Result;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use serde::{Deserialize, Serialize};
-use crate::error::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CrashItem {
@@ -30,7 +30,10 @@ pub fn list(root: &Path, limit: usize) -> Result<Vec<CrashItem>> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("txt") {
-                let mtime = entry.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+                let mtime = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
                 files.push((path, mtime));
             }
         }
@@ -50,8 +53,15 @@ pub fn list(root: &Path, limit: usize) -> Result<Vec<CrashItem>> {
 
 /// Parses crash report content and generates human-friendly titles and explanations.
 pub fn parse_crash_content(path: &Path, mtime: SystemTime, content: &str) -> CrashItem {
-    let filename = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    let timestamp_ms = mtime.duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let filename = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let timestamp_ms = mtime
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
 
     let mut date_str = String::new();
     let mut exception_code = None;
@@ -77,11 +87,20 @@ pub fn parse_crash_content(path: &Path, mtime: SystemTime, content: &str) -> Cra
             if trimmed.starts_with("# Location:") {
                 let loc = trimmed.trim_start_matches("# Location:").trim();
                 let clean = loc.rsplit(['\\', '/']).take(2).collect::<Vec<_>>();
-                location = Some(if clean.len() == 2 { format!("{}/{}", clean[1], clean[0]) } else { loc.to_string() });
+                location = Some(if clean.len() == 2 {
+                    format!("{}/{}", clean[1], clean[0])
+                } else {
+                    loc.to_string()
+                });
             } else if trimmed.starts_with("# Function:") {
                 function = Some(trimmed.trim_start_matches("# Function:").trim().to_string());
             } else if trimmed.starts_with("# Condition:") {
-                condition = Some(trimmed.trim_start_matches("# Condition:").trim().to_string());
+                condition = Some(
+                    trimmed
+                        .trim_start_matches("# Condition:")
+                        .trim()
+                        .to_string(),
+                );
             } else if trimmed.starts_with("#---") && condition.is_some() {
                 in_assertion = false;
             }
@@ -96,7 +115,12 @@ pub fn parse_crash_content(path: &Path, mtime: SystemTime, content: &str) -> Cra
         }
     }
 
-    let (category, title, explanation) = explain(exception_code.as_deref(), function.as_deref(), condition.as_deref(), content);
+    let (category, title, explanation) = explain(
+        exception_code.as_deref(),
+        function.as_deref(),
+        condition.as_deref(),
+        content,
+    );
 
     let preview_lines: Vec<&str> = lines.iter().take(25).copied().collect();
     let preview = preview_lines.join("\n");
@@ -117,7 +141,12 @@ pub fn parse_crash_content(path: &Path, mtime: SystemTime, content: &str) -> Cra
     }
 }
 
-fn explain(code: Option<&str>, func: Option<&str>, cond: Option<&str>, full: &str) -> (String, String, String) {
+fn explain(
+    code: Option<&str>,
+    func: Option<&str>,
+    cond: Option<&str>,
+    full: &str,
+) -> (String, String, String) {
     let lower_full = full.to_lowercase();
     let lower_func = func.map(|f| f.to_lowercase()).unwrap_or_default();
     let lower_cond = cond.map(|c| c.to_lowercase()).unwrap_or_default();
@@ -142,7 +171,8 @@ fn explain(code: Option<&str>, func: Option<&str>, cond: Option<&str>, full: &st
                 return (
                     "assertion".into(),
                     "Ошибка в модуле ботов (Playerbots)".into(),
-                    "Внутренний сбой в логике ИИ ботов (экипировка, заклинание или поиск пути).".into(),
+                    "Внутренний сбой в логике ИИ ботов (экипировка, заклинание или поиск пути)."
+                        .into(),
                 );
             }
             let cond_label = cond.unwrap_or("Assert condition failed");
@@ -174,7 +204,8 @@ fn explain(code: Option<&str>, func: Option<&str>, cond: Option<&str>, full: &st
             return (
                 "exception".into(),
                 "Необработанное исключение C++ (C++ Exception)".into(),
-                "Произошло критическое исключение C++, которое не было перехвачено ядром сервера.".into(),
+                "Произошло критическое исключение C++, которое не было перехвачено ядром сервера."
+                    .into(),
             );
         }
     }
@@ -225,12 +256,19 @@ Assertion message: #------------------------------------------------------------
 
 Fault address:  00007FF7ECD3645E
 "#;
-        let item = parse_crash_content(Path::new("dummy_worldserver.exe_[3-10_20-20-51].txt"), SystemTime::UNIX_EPOCH, report);
+        let item = parse_crash_content(
+            Path::new("dummy_worldserver.exe_[3-10_20-20-51].txt"),
+            SystemTime::UNIX_EPOCH,
+            report,
+        );
         println!("ITEM: {item:#?}");
         assert_eq!(item.exception_code.as_deref(), Some("C0000420"));
         assert_eq!(item.category, "assertion");
         assert_eq!(item.condition.as_deref(), Some("IsInGrid()"));
-        assert_eq!(item.function.as_deref(), Some("GridObject<class Player>::RemoveFromGrid"));
+        assert_eq!(
+            item.function.as_deref(),
+            Some("GridObject<class Player>::RemoveFromGrid")
+        );
         assert!(item.title.contains("Grid"));
         assert!(item.explanation.contains("сетке карты"));
     }

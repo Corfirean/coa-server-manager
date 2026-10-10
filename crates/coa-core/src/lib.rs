@@ -4,7 +4,7 @@
     clippy::doc_overindented_list_items,
     clippy::unnecessary_sort_by,
     clippy::explicit_counter_loop,
-    clippy::large_enum_variant,
+    clippy::large_enum_variant
 )]
 
 pub mod accounts;

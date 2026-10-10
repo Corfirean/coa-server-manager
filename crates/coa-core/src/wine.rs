@@ -20,8 +20,13 @@ const DEFAULT_PREFIX: &str = "Games/umu/coa-client";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Runner {
     /// umu-launcher runs the game with a Proton build. `proton` is `None` when umu should pick and download one itself.
-    Umu { program: PathBuf, proton: Option<PathBuf> },
-    Wine { program: PathBuf },
+    Umu {
+        program: PathBuf,
+        proton: Option<PathBuf>,
+    },
+    Wine {
+        program: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,16 +92,29 @@ fn version_key(name: &str) -> Vec<u64> {
 fn newest_proton(host: &Host, home: &Path) -> Option<PathBuf> {
     proton_folders(home)
         .into_iter()
-        .flat_map(|dir| (host.list)(&dir).into_iter().filter(|n| n.starts_with("GE-Proton")).map(move |n| (n.clone(), dir.join(n))))
+        .flat_map(|dir| {
+            (host.list)(&dir)
+                .into_iter()
+                .filter(|n| n.starts_with("GE-Proton"))
+                .map(move |n| (n.clone(), dir.join(n)))
+        })
         .filter(|(_, path)| (host.is_file)(&path.join("proton")))
         .max_by_key(|(name, _)| version_key(name))
         .map(|(_, path)| path)
 }
 
 pub fn detect_with(host: &Host, overrides: &Overrides) -> Result<Launcher> {
-    let home = (host.var)("HOME").map(PathBuf::from).ok_or_else(|| Error::Invalid("The home folder of this user is not known.".into()))?;
-    let prefix = (host.var)("COA_WINEPREFIX").or_else(|| overrides.prefix.clone()).map(PathBuf::from).unwrap_or_else(|| home.join(DEFAULT_PREFIX));
-    let proton = (host.var)("COA_PROTONPATH").or_else(|| overrides.proton_path.clone()).map(PathBuf::from).or_else(|| newest_proton(host, &home));
+    let home = (host.var)("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| Error::Invalid("The home folder of this user is not known.".into()))?;
+    let prefix = (host.var)("COA_WINEPREFIX")
+        .or_else(|| overrides.prefix.clone())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(DEFAULT_PREFIX));
+    let proton = (host.var)("COA_PROTONPATH")
+        .or_else(|| overrides.proton_path.clone())
+        .map(PathBuf::from)
+        .or_else(|| newest_proton(host, &home));
     let (umu, wine) = ((host.which)("umu-run"), (host.which)("wine"));
     let runner = match (overrides.runner.as_deref(), umu, wine) {
         (Some("wine"), _, Some(program)) => Runner::Wine { program },
@@ -113,7 +131,10 @@ pub fn detect_with(host: &Host, overrides: &Overrides) -> Result<Launcher> {
 
 /// The command line that starts `exe` from the client folder.
 pub fn plan(launcher: &Launcher, client: &Path, exe: &str) -> Plan {
-    let mut env = vec![("WINEPREFIX".to_string(), launcher.prefix.to_string_lossy().into_owned())];
+    let mut env = vec![(
+        "WINEPREFIX".to_string(),
+        launcher.prefix.to_string_lossy().into_owned(),
+    )];
     // DivxTac.dll is a mixed-mode .NET assembly: loaded through wine-mono it deadlocks the client on the world loading screen
     // (100%). Disabling it has the same effect as removing the file.
     env.push(("WINEDLLOVERRIDES".into(), "divxtac=d".into()));
@@ -128,7 +149,12 @@ pub fn plan(launcher: &Launcher, client: &Path, exe: &str) -> Plan {
         Runner::Wine { program } => program.clone(),
     };
     // The client reads Data/ relative to the working directory.
-    Plan { program, args: vec![exe.to_string()], env, cwd: client.to_path_buf() }
+    Plan {
+        program,
+        args: vec![exe.to_string()],
+        env,
+        cwd: client.to_path_buf(),
+    }
 }
 
 fn system_var(k: &str) -> Option<String> {
@@ -136,15 +162,26 @@ fn system_var(k: &str) -> Option<String> {
 }
 
 fn find_on_path(program: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(program)).find(|p| p.is_file())
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|d| d.join(program))
+        .find(|p| p.is_file())
 }
 
 fn list_names(dir: &Path) -> Vec<String> {
-    fs::read_dir(dir).map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| e.file_name().into_string().ok()).collect()).unwrap_or_default()
+    fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn data_home() -> Option<PathBuf> {
-    system_var("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).or_else(|| system_var("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+    system_var("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| system_var("HOME").map(|h| PathBuf::from(h).join(".local/share")))
 }
 
 fn overrides_file() -> Option<PathBuf> {
@@ -152,8 +189,18 @@ fn overrides_file() -> Option<PathBuf> {
 }
 
 pub fn detect() -> Result<Launcher> {
-    let overrides: Overrides = overrides_file().and_then(|p| crate::fsx::read_json(&p).ok()).unwrap_or_default();
-    detect_with(&Host { var: &system_var, which: &find_on_path, list: &list_names, is_file: &|p| p.is_file() }, &overrides)
+    let overrides: Overrides = overrides_file()
+        .and_then(|p| crate::fsx::read_json(&p).ok())
+        .unwrap_or_default();
+    detect_with(
+        &Host {
+            var: &system_var,
+            which: &find_on_path,
+            list: &list_names,
+            is_file: &|p| p.is_file(),
+        },
+        &overrides,
+    )
 }
 
 /// Where what the client prints goes: the Manager's own log folder.
@@ -171,7 +218,13 @@ pub fn launch(client: &Path, exe: &str) -> Result<u32> {
                 fs::create_dir_all(dir)?;
             }
             let mut f = OpenOptions::new().create(true).append(true).open(&p)?;
-            writeln!(f, "=== {} {:?} in {}", plan.program.display(), plan.args, plan.cwd.display())?;
+            writeln!(
+                f,
+                "=== {} {:?} in {}",
+                plan.program.display(),
+                plan.args,
+                plan.cwd.display()
+            )?;
             for (k, v) in &plan.env {
                 writeln!(f, "    {k}={v}")?;
             }
@@ -180,7 +233,10 @@ pub fn launch(client: &Path, exe: &str) -> Result<u32> {
         None => None,
     };
     let mut cmd = Command::new(&plan.program);
-    cmd.args(&plan.args).current_dir(&plan.cwd).envs(plan.env.iter().map(|(k, v)| (k, v))).stdin(Stdio::null());
+    cmd.args(&plan.args)
+        .current_dir(&plan.cwd)
+        .envs(plan.env.iter().map(|(k, v)| (k, v)))
+        .stdin(Stdio::null());
     match log {
         Some(f) => {
             cmd.stderr(f.try_clone()?).stdout(f);
@@ -194,7 +250,12 @@ pub fn launch(client: &Path, exe: &str) -> Result<u32> {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0); // its own group: closing the Manager does not take the game with it
     }
-    let mut child = cmd.spawn().map_err(|e| Error::Invalid(format!("The game client could not be started ({}): {e}", plan.program.display())))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        Error::Invalid(format!(
+            "The game client could not be started ({}): {e}",
+            plan.program.display()
+        ))
+    })?;
     let pid = child.id();
     std::thread::spawn(move || {
         let _ = child.wait(); // reap it when the game closes
@@ -205,8 +266,13 @@ pub fn launch(client: &Path, exe: &str) -> Result<u32> {
 /// Is a process running this client? Under Wine its command line carries the Windows form of the path
 /// (`Z:\home\you\client\Ascension.exe`), which is the only trace of it that names the folder.
 pub fn command_line_runs(cmdline: &str, client: &Path, exe: &str) -> bool {
-    let wanted = format!("{}/{}", client.to_string_lossy().trim_end_matches('/'), exe).to_lowercase();
-    cmdline.replace('\0', " ").replace('\\', "/").to_lowercase().contains(&wanted)
+    let wanted =
+        format!("{}/{}", client.to_string_lossy().trim_end_matches('/'), exe).to_lowercase();
+    cmdline
+        .replace('\0', " ")
+        .replace('\\', "/")
+        .to_lowercase()
+        .contains(&wanted)
 }
 
 /// The folder as it was given and as the system resolves it. On an immutable distribution (SteamOS, Bazzite) `/home` is a
@@ -224,13 +290,22 @@ fn spellings(client: &Path) -> Vec<PathBuf> {
 
 pub fn is_running(client: &Path, exes: &[&str]) -> bool {
     let folders = spellings(client);
-    let Ok(rd) = fs::read_dir("/proc") else { return false };
+    let Ok(rd) = fs::read_dir("/proc") else {
+        return false;
+    };
     rd.filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+        })
         .filter_map(|e| fs::read(e.path().join("cmdline")).ok())
         .any(|raw| {
             let line = String::from_utf8_lossy(&raw);
-            folders.iter().any(|folder| exes.iter().any(|exe| command_line_runs(&line, folder, exe)))
+            folders
+                .iter()
+                .any(|folder| exes.iter().any(|exe| command_line_runs(&line, folder, exe)))
         })
 }
 
@@ -252,9 +327,14 @@ mod tests {
         assert_eq!(both[0], given);
         assert!(both[1].starts_with(dir.path().canonicalize().unwrap().join("var/home")));
         // Wine kept the name it was given, so the line holds the first one and not the resolved one.
-        let line = format!("Z:\\{}\\Ascension.exe", given.to_string_lossy().replace('/', "\\"));
+        let line = format!(
+            "Z:\\{}\\Ascension.exe",
+            given.to_string_lossy().replace('/', "\\")
+        );
         assert!(!command_line_runs(&line, &both[1], "Ascension.exe"));
-        assert!(both.iter().any(|f| command_line_runs(&line, f, "Ascension.exe")));
+        assert!(both
+            .iter()
+            .any(|f| command_line_runs(&line, f, "Ascension.exe")));
     }
 
     /// A computer described in a few lines: variables, programs on the path, folders with their entries, and `proton` scripts.
@@ -266,16 +346,37 @@ mod tests {
 
     impl Fake {
         fn new() -> Fake {
-            Fake { vars: BTreeMap::from([("HOME", "/home/ana")]), programs: BTreeSet::new(), folders: BTreeMap::new() }
+            Fake {
+                vars: BTreeMap::from([("HOME", "/home/ana")]),
+                programs: BTreeSet::new(),
+                folders: BTreeMap::new(),
+            }
         }
 
         fn detect(&self, overrides: &Overrides) -> Result<Launcher> {
             let var = |k: &str| self.vars.get(k).map(|v| v.to_string());
-            let which = |p: &str| self.programs.contains(p).then(|| PathBuf::from(format!("/usr/bin/{p}")));
-            let list = |d: &Path| self.folders.get(d.to_str().unwrap()).map(|v| v.iter().map(|s| s.to_string()).collect()).unwrap_or_default();
+            let which = |p: &str| {
+                self.programs
+                    .contains(p)
+                    .then(|| PathBuf::from(format!("/usr/bin/{p}")))
+            };
+            let list = |d: &Path| {
+                self.folders
+                    .get(d.to_str().unwrap())
+                    .map(|v| v.iter().map(|s| s.to_string()).collect())
+                    .unwrap_or_default()
+            };
             // every listed build has its `proton` script
             let is_file = |p: &Path| p.file_name().is_some_and(|n| n == "proton");
-            detect_with(&Host { var: &var, which: &which, list: &list, is_file: &is_file }, overrides)
+            detect_with(
+                &Host {
+                    var: &var,
+                    which: &which,
+                    list: &list,
+                    is_file: &is_file,
+                },
+                overrides,
+            )
         }
     }
 
@@ -285,13 +386,26 @@ mod tests {
     fn umu_with_the_newest_ge_proton_is_the_default() {
         let mut c = Fake::new();
         c.programs.extend(["umu-run", "wine"]);
-        c.folders.insert(STEAM, vec!["GE-Proton9-27", "GE-Proton10-9", "GE-Proton10-34", "Proton-Experimental", "notes.txt"]);
+        c.folders.insert(
+            STEAM,
+            vec![
+                "GE-Proton9-27",
+                "GE-Proton10-9",
+                "GE-Proton10-34",
+                "Proton-Experimental",
+                "notes.txt",
+            ],
+        );
         let l = c.detect(&Overrides::default()).unwrap();
         assert_eq!(l.prefix, PathBuf::from("/home/ana/Games/umu/coa-client"));
         match l.runner {
             Runner::Umu { proton, program } => {
                 assert_eq!(program, PathBuf::from("/usr/bin/umu-run"));
-                assert_eq!(proton, Some(PathBuf::from(format!("{STEAM}/GE-Proton10-34"))), "10-34 is newer than 10-9");
+                assert_eq!(
+                    proton,
+                    Some(PathBuf::from(format!("{STEAM}/GE-Proton10-34"))),
+                    "10-34 is newer than 10-9"
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -301,7 +415,9 @@ mod tests {
     fn without_a_proton_build_umu_is_left_to_choose_one() {
         let mut c = Fake::new();
         c.programs.insert("umu-run");
-        let Runner::Umu { proton, .. } = c.detect(&Overrides::default()).unwrap().runner else { panic!() };
+        let Runner::Umu { proton, .. } = c.detect(&Overrides::default()).unwrap().runner else {
+            panic!()
+        };
         assert_eq!(proton, None);
     }
 
@@ -309,13 +425,22 @@ mod tests {
     fn plain_wine_is_used_when_umu_is_not_installed() {
         let mut c = Fake::new();
         c.programs.insert("wine");
-        assert!(matches!(c.detect(&Overrides::default()).unwrap().runner, Runner::Wine { .. }));
+        assert!(matches!(
+            c.detect(&Overrides::default()).unwrap().runner,
+            Runner::Wine { .. }
+        ));
     }
 
     #[test]
     fn without_umu_or_wine_the_person_is_told_what_to_install() {
-        let err = Fake::new().detect(&Overrides::default()).unwrap_err().to_string();
-        assert!(err.contains("umu-launcher") && err.contains("Wine"), "{err}");
+        let err = Fake::new()
+            .detect(&Overrides::default())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("umu-launcher") && err.contains("Wine"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -323,45 +448,108 @@ mod tests {
         let mut c = Fake::new();
         c.programs.extend(["umu-run", "wine"]);
         c.folders.insert(STEAM, vec!["GE-Proton10-34"]);
-        let file = Overrides { proton_path: Some("/opt/proton-a".into()), prefix: Some("/data/prefix-a".into()), runner: None };
+        let file = Overrides {
+            proton_path: Some("/opt/proton-a".into()),
+            prefix: Some("/data/prefix-a".into()),
+            runner: None,
+        };
         let l = c.detect(&file).unwrap();
         assert_eq!(l.prefix, PathBuf::from("/data/prefix-a"));
-        assert!(matches!(&l.runner, Runner::Umu { proton: Some(p), .. } if p == Path::new("/opt/proton-a")));
+        assert!(
+            matches!(&l.runner, Runner::Umu { proton: Some(p), .. } if p == Path::new("/opt/proton-a"))
+        );
         c.vars.insert("COA_PROTONPATH", "/opt/proton-b");
         c.vars.insert("COA_WINEPREFIX", "/data/prefix-b");
         let l = c.detect(&file).unwrap();
         assert_eq!(l.prefix, PathBuf::from("/data/prefix-b"));
-        assert!(matches!(&l.runner, Runner::Umu { proton: Some(p), .. } if p == Path::new("/opt/proton-b")));
+        assert!(
+            matches!(&l.runner, Runner::Umu { proton: Some(p), .. } if p == Path::new("/opt/proton-b"))
+        );
         // Forcing Wine works when it is installed, and falls back to umu when it is not.
-        let wine = Overrides { runner: Some("wine".into()), ..Default::default() };
-        assert!(matches!(c.detect(&wine).unwrap().runner, Runner::Wine { .. }));
+        let wine = Overrides {
+            runner: Some("wine".into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            c.detect(&wine).unwrap().runner,
+            Runner::Wine { .. }
+        ));
     }
 
     #[test]
     fn the_command_is_the_one_of_the_projects_own_launcher_script() {
-        let l = Launcher { runner: Runner::Umu { program: "/usr/bin/umu-run".into(), proton: Some("/p/GE-Proton11-6".into()) }, prefix: "/home/ana/Games/umu/coa-client".into() };
-        let p = plan(&l, Path::new("/home/ana/CoaServer/client/ascension-live"), "Ascension.exe");
+        let l = Launcher {
+            runner: Runner::Umu {
+                program: "/usr/bin/umu-run".into(),
+                proton: Some("/p/GE-Proton11-6".into()),
+            },
+            prefix: "/home/ana/Games/umu/coa-client".into(),
+        };
+        let p = plan(
+            &l,
+            Path::new("/home/ana/CoaServer/client/ascension-live"),
+            "Ascension.exe",
+        );
         assert_eq!(p.program, PathBuf::from("/usr/bin/umu-run"));
         assert_eq!(p.args, ["Ascension.exe"]);
-        assert_eq!(p.cwd, PathBuf::from("/home/ana/CoaServer/client/ascension-live"), "the client reads Data/ from its working directory");
+        assert_eq!(
+            p.cwd,
+            PathBuf::from("/home/ana/CoaServer/client/ascension-live"),
+            "the client reads Data/ from its working directory"
+        );
         let env: BTreeMap<_, _> = p.env.iter().cloned().collect();
         assert_eq!(env["GAMEID"], "0");
         assert_eq!(env["PROTONPATH"], "/p/GE-Proton11-6");
         assert_eq!(env["WINEPREFIX"], "/home/ana/Games/umu/coa-client");
-        assert_eq!(env["WINEDLLOVERRIDES"], "divxtac=d", "DivxTac.dll deadlocks the world loading screen under wine-mono");
+        assert_eq!(
+            env["WINEDLLOVERRIDES"], "divxtac=d",
+            "DivxTac.dll deadlocks the world loading screen under wine-mono"
+        );
         // Wine has no GAMEID / PROTONPATH.
-        let w = plan(&Launcher { runner: Runner::Wine { program: "/usr/bin/wine".into() }, prefix: "/pre".into() }, Path::new("/c"), "Wow.exe");
-        assert!(w.env.iter().all(|(k, _)| k != "GAMEID" && k != "PROTONPATH") && w.args == ["Wow.exe"]);
+        let w = plan(
+            &Launcher {
+                runner: Runner::Wine {
+                    program: "/usr/bin/wine".into(),
+                },
+                prefix: "/pre".into(),
+            },
+            Path::new("/c"),
+            "Wow.exe",
+        );
+        assert!(
+            w.env
+                .iter()
+                .all(|(k, _)| k != "GAMEID" && k != "PROTONPATH")
+                && w.args == ["Wow.exe"]
+        );
     }
 
     #[test]
     fn a_wine_command_line_names_the_client_folder_in_windows_form() {
         let client = Path::new("/home/ana/CoaServer/client/ascension-live");
-        assert!(command_line_runs("Z:\\home\\ana\\CoaServer\\client\\ascension-live\\Ascension.exe\0", client, "Ascension.exe"));
+        assert!(command_line_runs(
+            "Z:\\home\\ana\\CoaServer\\client\\ascension-live\\Ascension.exe\0",
+            client,
+            "Ascension.exe"
+        ));
         assert!(command_line_runs("C:\\windows\\system32\\start.exe /exec Z:\\HOME\\ANA\\coaserver\\client\\ascension-live\\ascension.exe", client, "Ascension.exe"), "case does not matter");
-        assert!(!command_line_runs("Z:\\home\\ana\\CoaServer\\client\\ascension-lab\\Ascension.exe", client, "Ascension.exe"), "another client folder");
-        assert!(!command_line_runs("umu-run Ascension.exe", client, "Ascension.exe"), "the launcher alone does not name the folder");
-        assert!(!command_line_runs("Z:\\home\\ana\\CoaServer\\client\\ascension-live\\Ascension.exe.ORIGINAL", Path::new("/other"), "Ascension.exe"));
+        assert!(
+            !command_line_runs(
+                "Z:\\home\\ana\\CoaServer\\client\\ascension-lab\\Ascension.exe",
+                client,
+                "Ascension.exe"
+            ),
+            "another client folder"
+        );
+        assert!(
+            !command_line_runs("umu-run Ascension.exe", client, "Ascension.exe"),
+            "the launcher alone does not name the folder"
+        );
+        assert!(!command_line_runs(
+            "Z:\\home\\ana\\CoaServer\\client\\ascension-live\\Ascension.exe.ORIGINAL",
+            Path::new("/other"),
+            "Ascension.exe"
+        ));
     }
 
     #[test]
@@ -382,12 +570,35 @@ mod tests {
         let script = d.path().join("umu-run");
         fs::write(&script, format!("#!/bin/sh\n{{ echo \"cwd=$(pwd)\"; echo \"arg=$1\"; echo \"prefix=$WINEPREFIX\"; echo \"gameid=$GAMEID\"; echo \"dll=$WINEDLLOVERRIDES\"; }} > '{}'\n", out.display())).unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-        let launcher = Launcher { runner: Runner::Umu { program: script, proton: None }, prefix: d.path().join("prefix") };
+        let launcher = Launcher {
+            runner: Runner::Umu {
+                program: script,
+                proton: None,
+            },
+            prefix: d.path().join("prefix"),
+        };
         let p = plan(&launcher, &client, "Ascension.exe");
-        let mut child = Command::new(&p.program).args(&p.args).current_dir(&p.cwd).envs(p.env.iter().map(|(k, v)| (k, v))).spawn().unwrap();
+        let mut child = Command::new(&p.program)
+            .args(&p.args)
+            .current_dir(&p.cwd)
+            .envs(p.env.iter().map(|(k, v)| (k, v)))
+            .spawn()
+            .unwrap();
         assert!(child.wait().unwrap().success());
         let seen = fs::read_to_string(&out).unwrap();
-        assert!(seen.contains(&format!("cwd={}", fs::canonicalize(&client).unwrap().display())), "{seen}");
-        assert!(seen.contains("arg=Ascension.exe") && seen.contains("gameid=0") && seen.contains("dll=divxtac=d") && seen.contains("prefix="), "{seen}");
+        assert!(
+            seen.contains(&format!(
+                "cwd={}",
+                fs::canonicalize(&client).unwrap().display()
+            )),
+            "{seen}"
+        );
+        assert!(
+            seen.contains("arg=Ascension.exe")
+                && seen.contains("gameid=0")
+                && seen.contains("dll=divxtac=d")
+                && seen.contains("prefix="),
+            "{seen}"
+        );
     }
 }

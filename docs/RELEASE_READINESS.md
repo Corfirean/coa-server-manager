@@ -143,8 +143,8 @@ The release candidate produces standard Windows installer artifacts:
 
 | Distribution Artifact | Type | Size (Bytes) | SHA-256 Checksum | Description |
 |---|---|---|---|---|
-| `CoA-Server-Manager_0.6.7_x64-setup.exe` | NSIS Installer | 7,805,485 | `6d6d58217a00c8c10f117bf5d01fb143009433ce21b1466a6411a4b2b9c069b6` | Standalone Windows installer with passive update support |
-| `CoA-Server-Manager_0.6.7_x64.nsis.zip` | Archive | 7,787,883 | `86a02952ddaf7be9f91209982a8ae0c2e75bcf00fc18236e91074f825302fa25` | Portable binary archive for testing and verification |
+| `CoA-Server-Manager_0.6.7_x64-setup.exe` | NSIS Installer | 7,893,109 | `3fd7940f7693993c03cec2a6fba4003990429129838a3450a2b04c9e16d2f40c` | Standalone Windows installer with passive update support |
+| `CoA-Server-Manager_0.6.7_x64.nsis.zip` | Archive | 7,875,533 | `f67b26d5d7c8b8660bb1130f82d6abee74f33c15577ae5bf3155c7149fbf368f` | Portable binary archive for testing and verification |
 
 Verification command:
 ```powershell

@@ -269,8 +269,7 @@ pub(crate) async fn join_realm(
                 let caps = serde_json::to_value(&detail.capabilities)
                     .map_err(|e| fail("other", e.to_string()))?;
                 let id = character.clone();
-                let pre = portable
-                    .call(move |s| s.preflight_advert(&id, &caps))??;
+                let pre = portable.call(move |s| s.preflight_advert(&id, &caps))??;
                 out.notes = pre.notes.clone();
                 if pre.step == portable_service::Step::Blocked {
                     ch.close();
@@ -281,8 +280,8 @@ pub(crate) async fn join_realm(
                 if !here.iter().any(|(id, _)| id.to_string() == character) {
                     // Phase 12.1: Transfer canonical character to remote Host over the encrypted control channel
                     let char_id_str = character.clone();
-                    let bundle = portable
-                        .call(move |s| s.export_for_remote_transfer(&char_id_str))??;
+                    let bundle =
+                        portable.call(move |s| s.export_for_remote_transfer(&char_id_str))??;
                     let cuuid = bundle.character_id.as_uuid();
                     let _outcome = pc
                         .transfer_character(

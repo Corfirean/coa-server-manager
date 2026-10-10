@@ -428,7 +428,9 @@ pub enum DatabaseAccess {
 /// server would put Windows files in a Linux server folder. Updating a Docker server is separate work.
 fn refuse_for_docker(root: &Path) -> Result<()> {
     if crate::docker::is_docker(root) {
-        return Err(Error::Invalid("Updates are not available for Docker servers yet.".into()));
+        return Err(Error::Invalid(
+            "Updates are not available for Docker servers yet.".into(),
+        ));
     }
     Ok(())
 }
@@ -1945,17 +1947,34 @@ mod tests {
         let before = read(&w, "Core/worldserver.exe");
         let meta = InstallMeta::new(InstallKind::New, &w.root);
 
-        let err = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap_err();
+        let err = preview(
+            &w.root,
+            &meta,
+            &Source::Dir(w.pkg.clone()),
+            &w.key,
+            &BTreeMap::new(),
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("Docker"), "{err}");
         let err = run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap_err();
         assert!(err.to_string().contains("Docker"), "{err}");
         assert!(rollback(&w.root, &w.meta, "any", &Fake::ok()).is_err());
-        assert_eq!(read(&w, "Core/worldserver.exe"), before, "nothing was touched");
+        assert_eq!(
+            read(&w, "Core/worldserver.exe"),
+            before,
+            "nothing was touched"
+        );
         assert!(!w.root.join("Core/newfile.dll").exists());
 
         // The same package is applied to the same folder once it is not a Docker server.
         fs::remove_file(w.root.join("Settings/docker.json")).unwrap();
-        assert_eq!(run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap().txn.state, State::Committed);
+        assert_eq!(
+            run(&w, &Fake::ok(), BTreeMap::new(), None)
+                .unwrap()
+                .txn
+                .state,
+            State::Committed
+        );
     }
 
     #[test]

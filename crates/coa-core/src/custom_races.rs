@@ -92,17 +92,26 @@ pub fn client_patch_status(client_path: &Path) -> ClientPatchStatus {
         || client_path.join("dinput8.dll.disabled").is_file();
 
     let total = RACE_MPQS.len();
-    let current_version = fs::read_to_string(client_path.join(MANIFEST_FILENAME)).ok()
-        .is_some_and(|manifest| manifest.lines().any(|line| line == format!("# CoA Custom {CLIENT_VERSION}")));
-    let state = if enabled_count == total && current_version && client_path.join("dinput8.dll").is_file() {
-        ClientPatchState::Enabled
-    } else if disabled_count == total && current_version && client_path.join("dinput8.dll.disabled").is_file() {
-        ClientPatchState::Disabled
-    } else if (enabled_count + disabled_count) > 0 {
-        ClientPatchState::PartiallyInstalled
-    } else {
-        ClientPatchState::NotInstalled
-    };
+    let current_version = fs::read_to_string(client_path.join(MANIFEST_FILENAME))
+        .ok()
+        .is_some_and(|manifest| {
+            manifest
+                .lines()
+                .any(|line| line == format!("# CoA Custom {CLIENT_VERSION}"))
+        });
+    let state =
+        if enabled_count == total && current_version && client_path.join("dinput8.dll").is_file() {
+            ClientPatchState::Enabled
+        } else if disabled_count == total
+            && current_version
+            && client_path.join("dinput8.dll.disabled").is_file()
+        {
+            ClientPatchState::Disabled
+        } else if (enabled_count + disabled_count) > 0 {
+            ClientPatchState::PartiallyInstalled
+        } else {
+            ClientPatchState::NotInstalled
+        };
 
     ClientPatchStatus {
         state,
@@ -120,19 +129,32 @@ pub fn set_client_patch_enabled(client_path: &Path, enabled: bool) -> Result<()>
     }
 
     if crate::client::is_running(client_path) {
-        return Err(Error::Invalid("Close the game before changing custom races patches.".into()));
+        return Err(Error::Invalid(
+            "Close the game before changing custom races patches.".into(),
+        ));
     }
     if !client_path.join(MANIFEST_FILENAME).is_file()
-        && !RACE_MPQS.iter().skip(1).any(|name| client_path.join("Data").join(name).is_file()
-            || client_path.join("Data").join(format!("{name}.disabled")).is_file()) {
+        && !RACE_MPQS.iter().skip(1).any(|name| {
+            client_path.join("Data").join(name).is_file()
+                || client_path
+                    .join("Data")
+                    .join(format!("{name}.disabled"))
+                    .is_file()
+        })
+    {
         return Ok(());
     }
-    let mut paths: Vec<PathBuf> = RACE_MPQS.iter().map(|name| client_path.join("Data").join(name)).collect();
+    let mut paths: Vec<PathBuf> = RACE_MPQS
+        .iter()
+        .map(|name| client_path.join("Data").join(name))
+        .collect();
     if let Ok(manifest) = fs::read_to_string(client_path.join(MANIFEST_FILENAME)) {
         for line in manifest.lines() {
             if let Some(name) = line.strip_prefix("MPQ:") {
                 if name.contains(['/', '\\']) || !name.to_ascii_lowercase().ends_with(".mpq") {
-                    return Err(Error::Invalid("Invalid custom races patch manifest.".into()));
+                    return Err(Error::Invalid(
+                        "Invalid custom races patch manifest.".into(),
+                    ));
                 }
                 paths.push(fsx::safe_join(&client_path.join("Data"), name)?);
             }
@@ -143,18 +165,31 @@ pub fn set_client_patch_enabled(client_path: &Path, enabled: bool) -> Result<()>
     paths.push(client_path.join("dinput8.dll"));
     paths.push(client_path.join("Ascension.exe"));
     for active in paths {
-        let disabled = active.with_extension(format!("{}.disabled", active.extension().unwrap_or_default().to_string_lossy()));
-        let original = active.with_extension(format!("{}.original", active.extension().unwrap_or_default().to_string_lossy()));
+        let disabled = active.with_extension(format!(
+            "{}.disabled",
+            active.extension().unwrap_or_default().to_string_lossy()
+        ));
+        let original = active.with_extension(format!(
+            "{}.original",
+            active.extension().unwrap_or_default().to_string_lossy()
+        ));
         if enabled && disabled.is_file() {
             if active.is_file() {
                 if !original.is_file() {
-                    return Err(Error::Invalid(format!("Cannot replace existing {} without an original backup.", active.display())));
+                    return Err(Error::Invalid(format!(
+                        "Cannot replace existing {} without an original backup.",
+                        active.display()
+                    )));
                 }
                 fs::remove_file(&active)?;
             }
             fs::rename(&disabled, &active)?;
         } else if !enabled && active.is_file() && !disabled.is_file() {
-            if active.file_name().is_some_and(|name| name == "Ascension.exe") && !original.is_file() {
+            if active
+                .file_name()
+                .is_some_and(|name| name == "Ascension.exe")
+                && !original.is_file()
+            {
                 continue;
             }
             fs::rename(&active, &disabled)?;
@@ -170,13 +205,21 @@ pub fn set_client_patch_enabled(client_path: &Path, enabled: bool) -> Result<()>
 
 fn verify_archive(path: &Path, filename: &str) -> Result<()> {
     let expected = match filename {
-        "CoA-Custom-1.5-main-20261009-cb2a0ca4.zip" => "117f5d99add18191676be6648fb0f2e99019a06c18705c71454e371e7df2afd2",
-        "CoA-Custom-1.5-client-part1.zip" => "19eb372805b3268653914da03377d67f056e5b50d818a8a06a5f260aad03211e",
-        "CoA-Custom-1.5-client-part2.zip" => "122f2882da255913e01610e33c6446ded897fecbe60b6d5ee026149becf8f278",
+        "CoA-Custom-1.5-main-20261009-cb2a0ca4.zip" => {
+            "117f5d99add18191676be6648fb0f2e99019a06c18705c71454e371e7df2afd2"
+        }
+        "CoA-Custom-1.5-client-part1.zip" => {
+            "19eb372805b3268653914da03377d67f056e5b50d818a8a06a5f260aad03211e"
+        }
+        "CoA-Custom-1.5-client-part2.zip" => {
+            "122f2882da255913e01610e33c6446ded897fecbe60b6d5ee026149becf8f278"
+        }
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
     if fsx::sha256_file(path)? != expected {
-        return Err(Error::Invalid(format!("Custom races archive {filename} failed verification. Remove it and try again.")));
+        return Err(Error::Invalid(format!(
+            "Custom races archive {filename} failed verification. Remove it and try again."
+        )));
     }
     Ok(())
 }
@@ -291,11 +334,15 @@ pub fn install_client_patches(
     report: &dyn Fn(&str, f32),
 ) -> Result<()> {
     if !client_path.is_dir() {
-        return Err(Error::Invalid("Game client directory does not exist.".into()));
+        return Err(Error::Invalid(
+            "Game client directory does not exist.".into(),
+        ));
     }
 
     if crate::client::is_running(client_path) {
-        return Err(Error::Invalid("Close the game before installing custom races patches.".into()));
+        return Err(Error::Invalid(
+            "Close the game before installing custom races patches.".into(),
+        ));
     }
     let data_dir = client_path.join("Data");
     fs::create_dir_all(&data_dir)?;
@@ -388,14 +435,18 @@ pub fn install_client_patches(
                     let mut out = File::create(&dest)?;
                     io::copy(&mut zfile, &mut out)?;
                     let disabled = data_dir.join(format!("{base}.disabled"));
-                    if disabled.is_file() { fs::remove_file(disabled)?; }
+                    if disabled.is_file() {
+                        fs::remove_file(disabled)?;
+                    }
                     installed_mpqs.push(base);
                 } else if base.eq_ignore_ascii_case("dinput8.dll") {
                     let dest = client_path.join(&base);
                     let mut out = File::create(&dest)?;
                     io::copy(&mut zfile, &mut out)?;
                     let disabled = client_path.join(format!("{base}.disabled"));
-                    if disabled.is_file() { fs::remove_file(disabled)?; }
+                    if disabled.is_file() {
+                        fs::remove_file(disabled)?;
+                    }
                     installed_roots.push(base);
                 }
             } else if zname_norm.contains("files/client_root/") {
@@ -409,15 +460,22 @@ pub fn install_client_patches(
                     let mut out = File::create(&dest)?;
                     io::copy(&mut zfile, &mut out)?;
                     let disabled = client_path.join(format!("{base}.disabled"));
-                    if disabled.is_file() { fs::remove_file(disabled)?; }
+                    if disabled.is_file() {
+                        fs::remove_file(disabled)?;
+                    }
                     installed_roots.push(base);
                 }
             }
         }
     }
 
-    if !RACE_MPQS.iter().all(|name| installed_mpqs.iter().any(|installed| installed == name)) {
-        return Err(Error::Invalid("Custom races archives are missing required client patches.".into()));
+    if !RACE_MPQS
+        .iter()
+        .all(|name| installed_mpqs.iter().any(|installed| installed == name))
+    {
+        return Err(Error::Invalid(
+            "Custom races archives are missing required client patches.".into(),
+        ));
     }
 
     // 4. Record manifest
@@ -457,28 +515,46 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let data = temp.path().join("Data");
         fs::create_dir_all(&data).unwrap();
-        for path in [data.join("patch-T.MPQ"), temp.path().join("Ascension.exe"), temp.path().join("dinput8.dll")] {
+        for path in [
+            data.join("patch-T.MPQ"),
+            temp.path().join("Ascension.exe"),
+            temp.path().join("dinput8.dll"),
+        ] {
             fs::write(&path, b"custom").unwrap();
-            let backup = path.with_extension(format!("{}.original", path.extension().unwrap().to_string_lossy()));
+            let backup = path.with_extension(format!(
+                "{}.original",
+                path.extension().unwrap().to_string_lossy()
+            ));
             fs::write(&backup, b"original").unwrap();
         }
         fs::write(temp.path().join(MANIFEST_FILENAME), "MPQ:patch-T.MPQ\n").unwrap();
         set_client_patch_enabled(temp.path(), false).unwrap();
         assert_eq!(fs::read(data.join("patch-T.MPQ")).unwrap(), b"original");
-        assert_eq!(fs::read(temp.path().join("Ascension.exe")).unwrap(), b"original");
+        assert_eq!(
+            fs::read(temp.path().join("Ascension.exe")).unwrap(),
+            b"original"
+        );
         set_client_patch_enabled(temp.path(), true).unwrap();
         assert_eq!(fs::read(data.join("patch-T.MPQ")).unwrap(), b"custom");
-        assert_eq!(fs::read(temp.path().join("Ascension.exe")).unwrap(), b"custom");
+        assert_eq!(
+            fs::read(temp.path().join("Ascension.exe")).unwrap(),
+            b"custom"
+        );
     }
 
     #[test]
     fn an_old_complete_installation_requires_an_update() {
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir_all(temp.path().join("Data")).unwrap();
-        for name in RACE_MPQS { fs::write(temp.path().join("Data").join(name), b"old patch").unwrap(); }
+        for name in RACE_MPQS {
+            fs::write(temp.path().join("Data").join(name), b"old patch").unwrap();
+        }
         fs::write(temp.path().join("dinput8.dll"), b"old runtime").unwrap();
         fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.4\n").unwrap();
-        assert_eq!(client_patch_status(temp.path()).state, ClientPatchState::PartiallyInstalled);
+        assert_eq!(
+            client_patch_status(temp.path()).state,
+            ClientPatchState::PartiallyInstalled
+        );
     }
 
     #[test]
@@ -487,7 +563,10 @@ mod tests {
         fs::create_dir_all(temp.path().join("Data")).unwrap();
         fs::write(temp.path().join("Data/patch-T.MPQ"), b"original").unwrap();
         set_client_patch_enabled(temp.path(), false).unwrap();
-        assert_eq!(fs::read(temp.path().join("Data/patch-T.MPQ")).unwrap(), b"original");
+        assert_eq!(
+            fs::read(temp.path().join("Data/patch-T.MPQ")).unwrap(),
+            b"original"
+        );
     }
 
     #[test]
@@ -508,7 +587,11 @@ mod tests {
         let st = client_patch_status(client_path);
         assert_eq!(st.state, ClientPatchState::NotInstalled);
 
-        fs::write(client_path.join(MANIFEST_FILENAME), format!("# CoA Custom {CLIENT_VERSION}\n")).unwrap();
+        fs::write(
+            client_path.join(MANIFEST_FILENAME),
+            format!("# CoA Custom {CLIENT_VERSION}\n"),
+        )
+        .unwrap();
         // 2. Create MPQs and root files
         for mpq in RACE_MPQS {
             fs::write(data_dir.join(mpq), b"test mpq content").unwrap();

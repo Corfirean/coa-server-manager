@@ -324,7 +324,7 @@ fn handle_world_client(mut client: TcpStream, local_world_port: u16) -> Result<(
     }
     done.store(true, Ordering::Relaxed);
     if let Some(c) = client_shutdown {
-        let _ = c.shutdown(std::net::Shutdown::Both);
+        let _ = c.shutdown(std::net::Shutdown::Write);
     }
 
     let _ = t_c2s.join();
@@ -363,6 +363,7 @@ mod tests {
             let n = stream.read(&mut buf).unwrap();
             assert_eq!(&buf[..n], b"WORLD_PING");
             stream.write_all(b"WORLD_PONG").unwrap();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
         });
 
         let mut client_world = TcpStream::connect(format!("127.0.0.1:{ingress_world}")).unwrap();

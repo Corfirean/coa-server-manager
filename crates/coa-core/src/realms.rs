@@ -79,7 +79,11 @@ pub fn state(root: &Path) -> Result<RealmState> {
 /// The world server executable of this folder: `worldserver.exe` in a repack, `worldserver` in a Docker server.
 fn world_binary(root: &Path) -> std::path::PathBuf {
     let exe = root.join("Core/worldserver.exe");
-    if exe.exists() { exe } else { root.join("Core/worldserver") }
+    if exe.exists() {
+        exe
+    } else {
+        root.join("Core/worldserver")
+    }
 }
 
 pub fn view(root: &Path) -> Result<View> {
@@ -415,7 +419,9 @@ pub fn select(root: &Path, mode: Mode) -> Result<View> {
 /// Adapt the bundled launcher's canonical schema and realm choices without changing its supervision logic.
 pub fn prepare_launcher(root: &Path) -> Result<()> {
     // A Docker server has no launcher to adapt: the Docker backend reads the active realm itself.
-    if crate::docker::is_docker(root) { return Ok(()); }
+    if crate::docker::is_docker(root) {
+        return Ok(());
+    }
     let path = root.join("Scripts/manage.py");
     let source = fs::read_to_string(&path)?;
     let patched = patch_launcher(&source)?;
@@ -550,13 +556,28 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir_all(d.path().join("Core")).unwrap();
         fs::create_dir_all(d.path().join("Settings")).unwrap();
-        fs::write(d.path().join("Settings/docker.json"), br#"{"project":"t1"}"#).unwrap();
-        fs::write(d.path().join("Core/worldserver"), b"ELF...Wildcard synergy settings...").unwrap();
-        assert!(view(d.path()).unwrap().supported, "worldserver without .exe is read too");
+        fs::write(
+            d.path().join("Settings/docker.json"),
+            br#"{"project":"t1"}"#,
+        )
+        .unwrap();
+        fs::write(
+            d.path().join("Core/worldserver"),
+            b"ELF...Wildcard synergy settings...",
+        )
+        .unwrap();
+        assert!(
+            view(d.path()).unwrap().supported,
+            "worldserver without .exe is read too"
+        );
         fs::write(d.path().join("Core/worldserver"), b"ELF...an older build").unwrap();
         assert!(!view(d.path()).unwrap().supported);
         // The repack's executable still wins when both exist, so a repack is read as before.
-        fs::write(d.path().join("Core/worldserver.exe"), b"MZ...Wildcard synergy settings").unwrap();
+        fs::write(
+            d.path().join("Core/worldserver.exe"),
+            b"MZ...Wildcard synergy settings",
+        )
+        .unwrap();
         assert!(view(d.path()).unwrap().supported);
     }
 
@@ -566,7 +587,11 @@ mod tests {
         fs::create_dir_all(d.path().join("Settings")).unwrap();
         // No Scripts/manage.py anywhere: on a repack this fails, on a Docker server there is nothing to do.
         assert!(prepare_launcher(d.path()).is_err());
-        fs::write(d.path().join("Settings/docker.json"), br#"{"project":"t1"}"#).unwrap();
+        fs::write(
+            d.path().join("Settings/docker.json"),
+            br#"{"project":"t1"}"#,
+        )
+        .unwrap();
         prepare_launcher(d.path()).unwrap();
     }
 

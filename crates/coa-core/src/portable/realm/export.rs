@@ -454,7 +454,13 @@ fn items(
             ));
         }
         let mut enchantments = Vec::new();
-        for (slot, chunk) in enchantment_numbers.as_chunks::<3>().0.iter().take(12).enumerate() {
+        for (slot, chunk) in enchantment_numbers
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .take(12)
+            .enumerate()
+        {
             if chunk.iter().any(|v| *v != 0) {
                 let to = |v: i64| {
                     u32::try_from(v).map_err(|_| {

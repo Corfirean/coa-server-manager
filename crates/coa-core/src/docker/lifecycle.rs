@@ -500,7 +500,10 @@ fn database_env(s: &Secrets, world: bool, realm: crate::realms::Mode) -> Vec<(St
         // The databases of the selected realm (the Wildcard realm has its own world and characters databases).
         let schema = |kind: &str| realm.schema(kind).unwrap_or("acore_world");
         env.push(("AC_WORLD_DATABASE_INFO".into(), info(schema("world"))));
-        env.push(("AC_CHARACTER_DATABASE_INFO".into(), info(schema("characters"))));
+        env.push((
+            "AC_CHARACTER_DATABASE_INFO".into(),
+            info(schema("characters")),
+        ));
     }
     env
 }
@@ -594,7 +597,10 @@ fn game_args(
         a.extend(["--volume".into(), format!("{}:{DATA}:ro", data.display())]);
         let races = host.join("Data/dbc_races");
         if races.is_dir() && races != data.join("dbc_races") {
-            a.extend(["--volume".into(), format!("{}:{DATA}/dbc_races:ro", races.display())]);
+            a.extend([
+                "--volume".into(),
+                format!("{}:{DATA}/dbc_races:ro", races.display()),
+            ]);
         }
         a.extend(env("AC_DATA_DIR", DATA));
         // The remote console is only ever reachable from this computer.
@@ -1115,16 +1121,36 @@ mod tests {
 
     #[test]
     fn the_containers_use_the_databases_of_the_selected_realm() {
-        let s = Secrets { root: "r".into(), app: "apppw".into() };
-        let get = |env: &[(String, String)], k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let s = Secrets {
+            root: "r".into(),
+            app: "apppw".into(),
+        };
+        let get = |env: &[(String, String)], k: &str| {
+            env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
+        };
         let coa = database_env(&s, true, crate::realms::Mode::Coa);
-        assert_eq!(get(&coa, "AC_WORLD_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_world");
-        assert_eq!(get(&coa, "AC_CHARACTER_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_characters");
+        assert_eq!(
+            get(&coa, "AC_WORLD_DATABASE_INFO").unwrap(),
+            "db;3306;acore;apppw;acore_world"
+        );
+        assert_eq!(
+            get(&coa, "AC_CHARACTER_DATABASE_INFO").unwrap(),
+            "db;3306;acore;apppw;acore_characters"
+        );
         let wild = database_env(&s, true, crate::realms::Mode::Wildcard);
-        assert_eq!(get(&wild, "AC_WORLD_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_world_wildcard");
-        assert_eq!(get(&wild, "AC_CHARACTER_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_characters_wildcard");
+        assert_eq!(
+            get(&wild, "AC_WORLD_DATABASE_INFO").unwrap(),
+            "db;3306;acore;apppw;acore_world_wildcard"
+        );
+        assert_eq!(
+            get(&wild, "AC_CHARACTER_DATABASE_INFO").unwrap(),
+            "db;3306;acore;apppw;acore_characters_wildcard"
+        );
         // Accounts are shared by both realms; the auth server never sees the others.
-        assert_eq!(get(&wild, "AC_LOGIN_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_auth");
+        assert_eq!(
+            get(&wild, "AC_LOGIN_DATABASE_INFO").unwrap(),
+            "db;3306;acore;apppw;acore_auth"
+        );
         let auth = database_env(&s, false, crate::realms::Mode::Wildcard);
         assert_eq!(auth.len(), 1);
     }

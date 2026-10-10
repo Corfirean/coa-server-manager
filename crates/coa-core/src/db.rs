@@ -271,7 +271,13 @@ impl Db {
         match code {
             ErrorCode::DatabaseNotRunning => Error::Invalid(format!(
                 "The database is not running. Start the server first. ({})",
-                text.trim().lines().last().unwrap_or("").chars().take(300).collect::<String>()
+                text.trim()
+                    .lines()
+                    .last()
+                    .unwrap_or("")
+                    .chars()
+                    .take(300)
+                    .collect::<String>()
             )),
             _ => Error::Invalid(format!(
                 "database command failed: {}",

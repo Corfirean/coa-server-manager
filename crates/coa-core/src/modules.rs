@@ -266,7 +266,9 @@ pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     }
     if id == "custom-races" {
         if let Ok(meta_content) = fs::read_to_string(meta.join("install.json")) {
-            if let Ok(install_meta) = serde_json::from_str::<crate::registry::InstallMeta>(&meta_content) {
+            if let Ok(install_meta) =
+                serde_json::from_str::<crate::registry::InstallMeta>(&meta_content)
+            {
                 if let Some(cp) = install_meta.client_path {
                     let client_path = PathBuf::from(cp);
                     if client_path.is_dir() {

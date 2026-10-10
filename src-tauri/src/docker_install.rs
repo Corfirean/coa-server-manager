@@ -28,32 +28,58 @@ pub fn default_dir() -> String {
 }
 
 fn default_dir_in(home: Option<&str>) -> String {
-    match home.map(|h| h.trim_end_matches('/')).filter(|h| !h.is_empty()) {
+    match home
+        .map(|h| h.trim_end_matches('/'))
+        .filter(|h| !h.is_empty())
+    {
         Some(h) => format!("{h}/CoaServer"),
         None => "/srv/coa".into(),
     }
 }
 
 pub fn docker_problem() -> Option<String> {
-    docker::check_docker(&SystemDocker).err().map(|e| e.to_string())
+    docker::check_docker(&SystemDocker)
+        .err()
+        .map(|e| e.to_string())
 }
 
 pub fn environment() -> Environment {
-    Environment { flavor: coa_core::platform::flavor(), default_dir: default_dir(), docker_problem: docker_problem() }
+    Environment {
+        flavor: coa_core::platform::flavor(),
+        default_dir: default_dir(),
+        docker_problem: docker_problem(),
+    }
 }
 
-pub fn preflight(dest: &str, data: Option<String>, needed: Option<u64>, registry: &Registry) -> Preflight {
+pub fn preflight(
+    dest: &str,
+    data: Option<String>,
+    needed: Option<u64>,
+    registry: &Registry,
+) -> Preflight {
     // The size comes from the signed package list when the screen already has it; it is checked again at install time.
-    core_install::preflight(Path::new(dest), Path::new(data.as_deref().unwrap_or("")), needed.unwrap_or(1024 * 1024 * 1024), registry)
+    core_install::preflight(
+        Path::new(dest),
+        Path::new(data.as_deref().unwrap_or("")),
+        needed.unwrap_or(1024 * 1024 * 1024),
+        registry,
+    )
 }
 
 /// The Linux package has no default address yet: it is published only after the maintainer has signed it.
 pub fn package_source(custom: Option<String>) -> Result<Source> {
-    let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_PACKAGE_SOURCE").ok().filter(|s| !s.trim().is_empty()));
+    let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| {
+        std::env::var("COA_PACKAGE_SOURCE")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+    });
     match pick {
         Some(p) if p.to_ascii_lowercase().starts_with("http") => Ok(Source::Url(p)),
         Some(p) => Ok(Source::Dir(PathBuf::from(p))),
-        None => Err(Error::Invalid("Choose the Linux server package (a folder or an address): none is published yet.".into())),
+        None => Err(Error::Invalid(
+            "Choose the Linux server package (a folder or an address): none is published yet."
+                .into(),
+        )),
     }
 }
 
@@ -69,26 +95,54 @@ pub fn trusted_key() -> String {
     coa_core::signing::EMBEDDED_PUBLIC_KEY.to_string()
 }
 
-pub async fn requirements(package: Option<String>) -> std::result::Result<InstallRequirements, UiError> {
+pub async fn requirements(
+    package: Option<String>,
+) -> std::result::Result<InstallRequirements, UiError> {
     blocking(move || {
-        let (m, _) = coa_core::pkgsource::fetch_manifest(&package_source(package)?, &trusted_key())?;
-        let archive = m.archive.ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
-        Ok(InstallRequirements { download_bytes: archive.parts.iter().map(|p| p.size).sum(), unpacked_bytes: archive.unpacked_size, version: m.version })
+        let (m, _) =
+            coa_core::pkgsource::fetch_manifest(&package_source(package)?, &trusted_key())?;
+        let archive = m
+            .archive
+            .ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
+        Ok(InstallRequirements {
+            download_bytes: archive.parts.iter().map(|p| p.size).sum(),
+            unpacked_bytes: archive.unpacked_size,
+            version: m.version,
+        })
     })
     .await
 }
 
-pub async fn install(app: AppHandle, state: State<'_, AppState>, dest: String, package: Option<String>, data: Option<String>) -> std::result::Result<ServerSummary, UiError> {
+pub async fn install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    dest: String,
+    package: Option<String>,
+    data: Option<String>,
+) -> std::result::Result<ServerSummary, UiError> {
     let source = package_source(package)?;
-    let data_dir_path = PathBuf::from(data.filter(|d| !d.trim().is_empty()).ok_or_else(|| Error::Invalid("Choose the folder that holds the game data.".into()))?);
+    let data_dir_path = PathBuf::from(
+        data.filter(|d| !d.trim().is_empty())
+            .ok_or_else(|| Error::Invalid("Choose the folder that holds the game data.".into()))?,
+    );
     let cancel = Cancel::default();
-    *state.install_cancel.lock().map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
+    *state
+        .install_cancel
+        .lock()
+        .map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
     let registry = Registry::at(data_dir().join("installs.json"));
     let dest_path = PathBuf::from(dest);
     let key = trusted_key();
     let result = tauri::async_runtime::spawn_blocking(move || {
         core_install::install(
-            &core_install::Params { source, dest: dest_path, data_dir: data_dir_path, trusted_key: &key, registry: &registry, cancel },
+            &core_install::Params {
+                source,
+                dest: dest_path,
+                data_dir: data_dir_path,
+                trusted_key: &key,
+                registry: &registry,
+                cancel,
+            },
             &|step| {
                 let _ = app.emit("install-progress", step);
             },
@@ -119,7 +173,13 @@ mod tests {
         std::env::remove_var("COA_PACKAGE_SOURCE");
         assert!(package_source(None).is_err());
         assert!(package_source(Some("   ".into())).is_err());
-        assert!(matches!(package_source(Some("/tmp/pkg".into())).unwrap(), Source::Dir(_)));
-        assert!(matches!(package_source(Some("https://example.org/pkg".into())).unwrap(), Source::Url(_)));
+        assert!(matches!(
+            package_source(Some("/tmp/pkg".into())).unwrap(),
+            Source::Dir(_)
+        ));
+        assert!(matches!(
+            package_source(Some("https://example.org/pkg".into())).unwrap(),
+            Source::Url(_)
+        ));
     }
 }
