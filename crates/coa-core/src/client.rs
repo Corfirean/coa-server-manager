@@ -17,6 +17,9 @@ pub const ADDON_NAME: &str = "CoABotUI";
 const EXECUTABLES: [&str; 3] = ["Ascension.exe", "Wow.exe", "WoW.exe"];
 
 pub fn is_running(client: &Path) -> bool {
+    if crate::platform::flavor() == crate::platform::Flavor::Docker {
+        return crate::wine::is_running(client, &EXECUTABLES);
+    }
     EXECUTABLES.iter().any(|exe| {
         let path = client.join(exe);
         let path = dunce::canonicalize(&path).unwrap_or(path);
@@ -307,6 +310,9 @@ pub fn install_addon(client: &Path, meta: &Path, source: &Path) -> Result<()> {
 /// Start the game client. The caller is responsible for making sure the server is ready first.
 pub fn launch(client: &Path) -> Result<u32> {
     let exe = find_exe(client).ok_or_else(|| Error::Invalid("The game client was not found.".into()))?;
+    if crate::platform::flavor() == crate::platform::Flavor::Docker {
+        return crate::wine::launch(client, exe);
+    }
     let child = Command::new(client.join(exe)).current_dir(client).spawn()?;
     Ok(child.id())
 }
