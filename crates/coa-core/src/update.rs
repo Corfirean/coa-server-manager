@@ -851,11 +851,19 @@ impl RepackEnv<'_> {
         if !crate::backup::verify(self.meta_dir, &point.id)?.ok { return Err(Error::Invalid("The recovery point failed verification.".into())); }
         crate::backup::with_database(self.root, |db| {
             let db = db.clone().for_realm(crate::realms::Mode::Coa);
+            let mut objects = Vec::new();
             for component in point.components.iter().filter(|c| c.sha256.is_some()) {
                 let schema = if component.name.contains('-') || component.name == "playerbots" { crate::db::schema_of(&component.name)? } else { point.realm.schema(&component.name)? };
-                if db.extra_objects(schema)? != 0 {
-                    return Err(Error::Invalid(format!("Database {schema} has routines, triggers or views that automatic recovery cannot restore. The update was not started.")));
+                objects.extend(db.recovery_objects(schema)?);
+            }
+            if !objects.is_empty() {
+                let path = self.meta_dir.join("diagnostics").join(format!("database-recovery-{}.json", uuid::Uuid::new_v4()));
+                let report = serde_json::json!({ "schema": 1, "checkedAt": chrono::Utc::now().to_rfc3339(), "recoveryPoint": point.id, "objects": objects });
+                if let Err(error) = fsx::atomic_write_json(&path, &report) {
+                    tracing::warn!(%error, "Could not save database recovery compatibility report");
                 }
+                let sample = objects.iter().take(3).map(|object| format!("{}.{} ({})", object["database"].as_str().unwrap_or("?"), object["name"].as_str().unwrap_or("?"), object["kind"].as_str().unwrap_or("?"))).collect::<Vec<_>>().join(", ");
+                return Err(Error::Invalid(format!("Automatic recovery does not support {} database objects: {sample}. Export diagnostics for the complete list. The update was not started.", objects.len())));
             }
             Ok(())
         })
