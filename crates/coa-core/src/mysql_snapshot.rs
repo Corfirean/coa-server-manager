@@ -26,6 +26,8 @@ fn reject_link(metadata: &fs::Metadata) -> Result<()> {
 }
 
 fn directories(root: &Path) -> Result<BTreeSet<String>> {
+    let canonical = fsx::canonicalize_lenient(root)?;
+    let root = canonical.as_path();
     let mut result = BTreeSet::new();
     let mut pending = vec![root.to_path_buf()];
     while let Some(directory) = pending.pop() {
@@ -105,6 +107,8 @@ fn compress(source: &Path, point: &Path, snapshot: &mut Snapshot) -> Result<()> 
 }
 
 pub(crate) fn inventory(root: &Path) -> Result<BTreeMap<String, String>> {
+    let canonical = fsx::canonicalize_lenient(root)?;
+    let root = canonical.as_path();
     let mut files = BTreeMap::new();
     let mut directories = vec![root.to_path_buf()];
     while let Some(directory) = directories.pop() {
