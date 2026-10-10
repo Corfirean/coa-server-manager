@@ -31,6 +31,7 @@ fn hidden(key: &str) -> bool {
     k.contains("password")
         || k.contains("databaseinfo")
         || k.ends_with("port")
+        || k == "console.enable"
         || k.starts_with("ra.")
         || k.starts_with("logger.")
         || k.starts_with("appender.")
@@ -229,7 +230,7 @@ mod tests {
 
     #[test]
     fn what_belongs_to_the_manager_is_hidden() {
-        for k in ["LoginDatabaseInfo", "WorldServerPort", "BindIP", "Ra.Enable", "Ra.Password", "Logger.root", "Appender.Console", "DataDir", "Updates.EnableDatabases", "LoginDatabase.WorkerThreads", "InstanceServerPort"] {
+        for k in ["LoginDatabaseInfo", "WorldServerPort", "BindIP", "Ra.Enable", "Ra.Password", "Console.Enable", "console.enable", "Logger.root", "Appender.Console", "DataDir", "Updates.EnableDatabases", "LoginDatabase.WorkerThreads", "InstanceServerPort"] {
             assert!(hidden(k), "{k}");
         }
         for k in ["Rate.XP.Kill", "PlayerLimit", "SupportEnabled", "Instance.ResetTimeHour", "Warden.Enabled", "CharacterCreating.Disabled"] {

@@ -1,7 +1,7 @@
 {
   "name": "coa-server-manager",
   "private": true,
-  "version": "0.6.11",
+  "version": "0.6.12",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
