@@ -405,6 +405,8 @@ pub fn export_package(root: &Path, meta_dir: &Path, manager_log: &Path, meta: &I
         .into_iter().filter(|(path, _, _)| path.file_name().is_some_and(|name| {
             let name = name.to_string_lossy();
             name.starts_with("schema-validation-") || name.starts_with("database-recovery-")
+                || name.starts_with("database-rehearsal-") || name.starts_with("database-restore-")
+                || name.starts_with("database-repair-")
         })).take(10) {
         if size <= 4 * 1024 * 1024 {
             if let Ok(text) = fs::read_to_string(&path) {

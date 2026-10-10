@@ -45,6 +45,7 @@ pub mod report;
 pub mod release_schema;
 pub mod update;
 mod update_isolation;
+mod mysql_snapshot;
 pub mod wine;
 pub mod upnp;
 pub mod signing;

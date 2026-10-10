@@ -13,6 +13,7 @@ impl crate::update::Env for QualificationEnv<'_> {
     fn preflight(&self, manifest: &crate::manifest::Manifest) -> Result<()> { self.0.preflight(manifest) }
     fn snapshot(&self) -> Result<String> { self.0.snapshot() }
     fn verify_snapshot(&self, id: &str) -> Result<()> { self.0.verify_snapshot(id) }
+    fn rehearse(&self, manifest: &crate::manifest::Manifest, tree: &Path, items: &[crate::update::PlanItem], point: &str) -> Result<()> { self.0.rehearse(manifest, tree, items, point) }
     fn restore_snapshot(&self, id: &str) -> Result<()> { self.0.restore_snapshot(id) }
     fn migrate(&self, manifest: &crate::manifest::Manifest, staged: &Path) -> Result<crate::migrations::ApplyReport> { self.0.migrate(manifest, staged) }
     fn validate(&self) -> Result<()> { self.0.validate() }
@@ -76,7 +77,7 @@ pub fn qualify_upgrade(base: &Path, source: &Path, candidate: &Path, fixture: &P
         "schema": 1, "result": "passed", "fromVersion": source_manifest.version,
         "toVersion": candidate_manifest.version, "fromManifestSha256": fsx::sha256_bytes(&source_bytes),
         "fromSchemaSha256": source_manifest.files.iter().find(|file| file.path == schema_check::CONTRACT).map(|file| &file.sha256),
-        "checks": ["manager-transaction", "database-schema", "private-auth-world-startup", "user-file-preservation"],
+        "checks": ["manager-transaction", "private-user-database-rehearsal", "database-schema", "private-auth-world-startup", "existing-identities", "user-file-preservation"],
     }))
 }
 

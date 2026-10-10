@@ -85,6 +85,46 @@ pub fn capture(db: &Db, root: &Path) -> Result<()> {
     fsx::atomic_write_json(&root.join(CONTRACT), &Contract { schema: 1, columns })
 }
 
+fn missing_default(expected: &str, actual: &str) -> Option<String> {
+    let expected: Vec<_> = expected.split('|').collect();
+    let actual: Vec<_> = actual.split('|').collect();
+    if expected.len() != 4 || actual.len() != 4 || expected[0] != actual[0]
+        || expected[1] != "NO" || actual[1] != "NO" || expected[3] != "<NONE>" || actual[3] != "<NONE>"
+        || actual[2] != "<NULL>" || matches!(expected[2], "<NULL>" | "<NONE>") { return None; }
+    String::from_utf8(hex::decode(expected[2]).ok()?).ok()
+}
+
+/// Only restore a missing literal default from the exact signed target contract. Never alter data or custom defaults.
+pub(crate) fn repair_missing_defaults(db: &Db, root: &Path, signed_hash: Option<&str>) -> Result<()> {
+    let Some(signed_hash) = signed_hash else { return Ok(()); };
+    if fsx::sha256_file(&root.join(CONTRACT))? != signed_hash {
+        return Err(crate::Error::Invalid("The target schema contract differs from the signed update.".into()));
+    }
+    let contract = require_release_contract(root)?;
+    let mut repaired = Vec::new();
+    let quote = |identifier: &str| format!("`{}`", identifier.replace('`', "``"));
+    for (kind, tables) in &contract.columns {
+        let schema = db.realm_schema(crate::db::schema_of(kind)?);
+        let actual = read_columns(db, kind)?;
+        let base_tables: BTreeSet<_> = db.tables(crate::db::schema_of(kind)?)?.into_iter().collect();
+        for (table, columns) in tables {
+            if !base_tables.contains(table) { continue; }
+            if matches!(table.as_str(), "updates" | "updates_include" | "coa_manager_migrations") { continue; }
+            for (column, expected) in columns {
+                let Some(found) = actual.get(table).and_then(|columns| columns.get(column)) else { continue; };
+                let Some(value) = missing_default(expected, found) else { continue; };
+                db.query(&format!("SET SESSION sql_mode=CONCAT_WS(',',@@SESSION.sql_mode,'NO_BACKSLASH_ESCAPES'); ALTER TABLE {}.{} ALTER COLUMN {} SET DEFAULT '{}';", quote(schema), quote(table), quote(column), value.replace('\'', "''")))?;
+                repaired.push(serde_json::json!({"database":schema,"table":table,"column":column,"action":"restore-missing-default"}));
+            }
+        }
+    }
+    if !repaired.is_empty() {
+        let path = crate::registry::metadata_dir_for(root)?.join("diagnostics").join(format!("database-repair-{}.json", uuid::Uuid::new_v4()));
+        fsx::atomic_write_json(&path, &serde_json::json!({"schema":1,"checkedAt":chrono::Utc::now().to_rfc3339(),"contractSha256":signed_hash,"repairs":repaired}))?;
+    }
+    Ok(())
+}
+
 pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
     let contract = if root.join(CONTRACT).is_file() {
         let contract: Contract = fsx::read_json(&root.join(CONTRACT))?;
@@ -175,6 +215,15 @@ fn missing_coa_starts(rows: &str) -> Vec<Problem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_repair_only_accepts_missing_literal_defaults_without_other_schema_changes() {
+        assert_eq!(missing_default("int unsigned|NO|30|<NONE>", "int unsigned|NO|<NULL>|<NONE>"), Some("0".into()));
+        for actual in ["int unsigned|NO|3939|<NONE>", "int|NO|<NULL>|<NONE>", "int unsigned|YES|<NULL>|<NONE>", "int unsigned|NO|<NULL>|6175746f5f696e6372656d656e74"] {
+            assert!(missing_default("int unsigned|NO|30|<NONE>", actual).is_none());
+        }
+        assert!(missing_default("timestamp|NO|43555252454e545f54494d455354414d50|44454641554c545f47454e455241544544", "timestamp|NO|<NULL>|<NONE>").is_none());
+        assert!(missing_default("int|NO|zz|<NONE>", "int|NO|<NULL>|<NONE>").is_none());
+    }
 
     #[test]
     fn schema_defaults_are_readable_and_not_conflated() {

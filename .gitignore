@@ -4,3 +4,5 @@ dist
 *.log
 .env
 src-tauri/gen
+# Disposable database fixtures and private recovery data
+.cache/

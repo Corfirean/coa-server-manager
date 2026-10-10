@@ -92,6 +92,7 @@ pub trait Env {
     fn ensure_stopped(&self) -> Result<()>;
     fn preflight(&self, _manifest: &Manifest) -> Result<()> { Ok(()) }
     fn verify_snapshot(&self, _id: &str) -> Result<()> { Ok(()) }
+    fn rehearse(&self, _manifest: &Manifest, _tree: &Path, _items: &[PlanItem], _point: &str) -> Result<()> { Ok(()) }
     /// Create a recovery point for the databases and configuration; returns its id.
     fn snapshot(&self) -> Result<String>;
     fn restore_snapshot(&self, id: &str) -> Result<()>;
@@ -493,6 +494,14 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     txn.recovery_point = Some(p.env.snapshot().map_err(|e| Error::Invalid(format!("The update was not applied because the safety backup failed: {e}")))?);
     let point_meta = crate::backup::point_json(meta_dir, txn.recovery_point.as_deref().unwrap())?;
     if point_meta.is_file() { txn.recovery_hashes.insert("@point".into(), fsx::sha256_file(&point_meta)?); }
+    save(meta_dir, &txn)?;
+    step(report, "Testing the update on a private copy of your server", 54);
+    if let Err(error) = p.env.rehearse(&m, &tree, &items, txn.recovery_point.as_deref().unwrap()) {
+        txn.state = State::Failed;
+        txn.message = Some(format!("The private update rehearsal failed: {error}. The installed server was not updated."));
+        save(meta_dir, &txn)?;
+        return Err(Error::Invalid(txn.message.unwrap()));
+    }
 
     txn.ops = items
         .iter()
@@ -516,7 +525,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
 
     // MySQL DDL can commit before a later statement fails. Restore the full recovery point on failure.
     let mut migrated = None;
-    if !m.migrations.is_empty() {
+    if !m.migrations.is_empty() || m.files.iter().any(|file| file.path == crate::schema_check::CONTRACT) {
         step(report, "Updating the database", 75);
         txn.databases_started = true;
         save(meta_dir, &txn)?;
@@ -535,6 +544,9 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     }
 
     step(report, "Starting the updated server", 85);
+    // Core startup can apply SQL and write character data even when the package has no explicit migrations.
+    txn.databases_started = true;
+    save(meta_dir, &txn)?;
     if let Err(e) = p.env.validate() {
         if p.env.automatic_rollback() {
             return fail_after_apply(p, &mut txn, &before, &tree,
@@ -849,6 +861,12 @@ impl RepackEnv<'_> {
             return Err(Error::Invalid("The update recovery point does not contain every required database and configuration.".into()));
         }
         if !crate::backup::verify(self.meta_dir, &point.id)?.ok { return Err(Error::Invalid("The recovery point failed verification.".into())); }
+        if let Some(snapshot) = &point.mysql_snapshot {
+            if fsx::sha256_file(&self.root.join("mysql/bin/mysqld.exe"))? != snapshot.server_sha256 {
+                return Err(Error::Invalid("The MySQL executable differs from the recovery point.".into()));
+            }
+            return Ok(());
+        }
         crate::backup::with_database(self.root, |db| {
             let db = db.clone().for_realm(crate::realms::Mode::Coa);
             let mut objects = Vec::new();
@@ -894,7 +912,79 @@ impl Env for RepackEnv<'_> {
     }
 
     fn automatic_rollback(&self) -> bool { true }
+    fn rehearse(&self, manifest: &Manifest, tree: &Path, items: &[PlanItem], id: &str) -> Result<()> {
+        if items.iter().any(|item| item.action != Action::Skip && item.path.to_ascii_lowercase().starts_with("mysql/")) {
+            return Err(Error::Invalid("A server update cannot replace MySQL while using a cold recovery copy; a separate database engine upgrade is required.".into()));
+        }
+        let point = crate::backup::get(self.meta_dir, id)?;
+        let Some(snapshot) = &point.mysql_snapshot else {
+            // Docker uses its separate experimental release channel until its clone runner is qualified.
+            if crate::docker::is_docker(self.root) { return Ok(()); }
+            return Err(Error::Invalid("This installation has no complete MySQL recovery copy for an update rehearsal.".into()));
+        };
+        crate::mysql_snapshot::validate_connections(self.root, self.root)?;
+        crate::mysql_snapshot::stop(self.root)?;
+        let point_dir = crate::backup::point_json(self.meta_dir, id)?.parent().unwrap().to_path_buf();
+        let fixture = crate::mysql_snapshot::rehearsal_copy(self.root, self.meta_dir, &point_dir, snapshot)?;
+        let metadata = crate::registry::metadata_dir_for(&fixture)?;
+        let env = RepackEnv { root: &fixture, meta_dir: &metadata };
+        let result = crate::install::with_scratch_ports(&fixture, || {
+            let mut txn = Txn { id: "rehearsal".into(), state: State::Applying, from_version: None,
+                to_version: manifest.version.clone(), recovery_point: None, databases_started: false,
+                ops: items.iter().filter(|item| item.action != Action::Skip).map(|item| Op {
+                    path: item.path.clone(), action: item.action, reason: item.reason.clone(),
+                    new_sha256: manifest.files.iter().find(|file| file.path == item.path).unwrap().sha256.clone(),
+                    had_previous: fsx::safe_join(&fixture, &item.path).is_ok_and(|path| path.is_file()), started:false, done:false,
+                }).collect(), message:None, recovery_hashes:BTreeMap::new() };
+            let before = txn_dir(&metadata, &txn.id)?.join("before");
+            fs::create_dir_all(&before)?;
+            apply_ops(&fixture, tree, &before, &manifest.files, &mut txn, &metadata, None)?;
+            crate::mysql_snapshot::validate_connections(&fixture, self.root)?;
+            crate::mysql_snapshot::isolate_connections(&fixture)?;
+            let identities = crate::backup::with_database(&fixture, |db| {
+                let identities = database_identities(db)?;
+                let realms = crate::realms::state(&fixture)?;
+                let mut modes = vec![realms.active];
+                if realms.wildcard_created { modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa }); }
+                for (index, mode) in modes.into_iter().enumerate() {
+                    let db = db.clone().for_realm(mode);
+                    crate::schema_check::repair_missing_defaults(&db, &fixture, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
+                    let list: Vec<_> = manifest.migrations.iter().filter(|migration| index == 0 || migration.db != "auth").cloned().collect();
+                    let report = crate::migrations::apply_pending(&db, &list, &tree.join("_migrations"), &|| Ok("private rehearsal".into()))?;
+                    if let Some((migration, error)) = report.failed { return Err(Error::Invalid(format!("Rehearsal migration {migration} failed: {error}"))); }
+                    crate::schema_check::repair_missing_defaults(&db, &fixture, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
+                }
+                verify_database_identities(db, &identities)?;
+                Ok(identities)
+            })?;
+            env.validate()?;
+            crate::backup::with_database(&fixture, |db| verify_database_identities(db, &identities))?;
+            env.ensure_stopped()
+        });
+        let stopped = crate::mysql_snapshot::stop(&fixture);
+        let live_state = if result.is_ok() { crate::mysql_snapshot::stop(self.root).and_then(|()| crate::mysql_snapshot::unchanged(self.root, snapshot)) } else { Ok(()) };
+        let logs: BTreeMap<_, _> = ["Core/Logs/auth-console.log", "Core/Logs/world-console.log", "Core/Logs/supervisor.log", "mysql/logs/mysql-error.log"].into_iter()
+            .map(|path| (path, crate::diag::redact(&crate::health::tail(&fixture.join(path), 32768)))).collect();
+        let mut schema_reports = Vec::<serde_json::Value>::new();
+        if let Ok(entries) = fs::read_dir(metadata.join("diagnostics")) {
+            for entry in entries.flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with("schema-validation-")) {
+                let path = fsx::ensure_within(&metadata, &entry.path())?;
+                if fs::metadata(&path)?.len() <= 4 * 1024 * 1024 { schema_reports.push(fsx::read_json(&path)?); }
+            }
+        }
+        let report = serde_json::json!({"schema":1,"checkedAt":chrono::Utc::now().to_rfc3339(),"toVersion":manifest.version,"recoveryPoint":id,
+            "result":if result.is_ok() && stopped.is_ok() && live_state.is_ok() {"passed"} else {"failed"}, "error":result.as_ref().err().map(ToString::to_string), "stopError":stopped.as_ref().err().map(ToString::to_string), "liveStateError":live_state.as_ref().err().map(ToString::to_string), "logs":logs,"schemaReports":schema_reports,"fixture":fixture});
+        let report_path = self.meta_dir.join("diagnostics").join(format!("database-rehearsal-{}.json", uuid::Uuid::new_v4()));
+        fsx::atomic_write_json(&report_path, &report)?;
+        stopped?;
+        let parent = fixture.parent().unwrap();
+        let owned = fsx::ensure_within(&self.meta_dir.join("rehearsals"), parent)?;
+        fs::remove_dir_all(owned)?;
+        live_state?;
+        result
+    }
     fn preflight(&self, manifest: &Manifest) -> Result<()> {
+        crate::mysql_snapshot::stop_previous_rehearsals(self.meta_dir)?;
         if let Some(compatibility) = &manifest.compatibility {
             let (_, meta) = MetaDir::open(self.meta_dir)?;
             if let Some(source) = meta.core.version.as_ref().and_then(|v| compatibility.source_databases.get(v)) {
@@ -909,7 +999,10 @@ impl Env for RepackEnv<'_> {
                     if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
                     for mode in modes {
                         if let Some(problem) = crate::schema_check::check_with_report(&db.clone().for_realm(mode), self.root)?.first() {
-                            return Err(Error::Invalid(format!("The installed {} database does not match its upgrade source: {}.{}: {}", mode.name(), problem.database, problem.table, problem.detail)));
+                            if crate::docker::is_docker(self.root) {
+                                return Err(Error::Invalid(format!("The installed {} database does not match its upgrade source: {}.{}: {}", mode.name(), problem.database, problem.table, problem.detail)));
+                            }
+                            tracing::warn!(realm = mode.name(), table = %problem.table, "Installed schema differs; the private candidate rehearsal must qualify this database");
                         }
                     }
                     Ok(())
@@ -949,6 +1042,13 @@ impl Env for RepackEnv<'_> {
         if !["characters", "auth", "world", "configs"].iter().all(|name| point.components.iter().any(|c| c.name == *name)) || !crate::backup::verify(self.meta_dir, id)?.ok {
             return Err(Error::Invalid("The full database recovery point is incomplete or damaged.".into()));
         }
+        if let Some(snapshot) = &point.mysql_snapshot {
+            crate::mysql_snapshot::stop(self.root)?;
+            let point_dir = crate::backup::point_json(self.meta_dir, id)?.parent().unwrap().to_path_buf();
+            crate::mysql_snapshot::swap(self.root, self.meta_dir, &point_dir, snapshot, false)?;
+            crate::backup::restore_configs(self.root, self.meta_dir, id)?;
+            return Ok(());
+        }
         for component in point.components.iter().filter(|c| c.sha256.is_some()) {
             crate::backup::restore_database(self.root, self.meta_dir, id, &component.name)?;
         }
@@ -960,12 +1060,17 @@ impl Env for RepackEnv<'_> {
         let root = self.root;
         crate::backup::with_database(root, |db| {
             let realms = crate::realms::state(root)?;
+            if let Some(contract) = manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT) {
+                self.migration_snapshot()?;
+                crate::schema_check::repair_missing_defaults(db, root, Some(&contract.sha256))?;
+            }
             let mut result = crate::migrations::apply_pending(db, &manifest.migrations, staged, &|| {
                 self.migration_snapshot()
             })?;
             if realms.wildcard_created && result.failed.is_none() {
                 let other = if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa };
                 let other_db = db.clone().for_realm(other);
+                crate::schema_check::repair_missing_defaults(&other_db, root, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
                 let shared_snapshot = result.snapshot.clone();
                 let migrations: Vec<_> = manifest.migrations.iter().filter(|m| m.db != "auth").cloned().collect();
                 let extra = crate::migrations::apply_pending(&other_db, &migrations, staged, &|| {
@@ -976,12 +1081,14 @@ impl Env for RepackEnv<'_> {
                 result.failed = extra.failed;
                 if result.snapshot.is_none() { result.snapshot = extra.snapshot; }
                 if result.failed.is_none() {
+                    crate::schema_check::repair_missing_defaults(&other_db, root, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
                     if let Some(p) = crate::schema_check::check_with_report(&other_db, root)?.first() {
                         return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", other.name(), p.table, p.column, p.detail)));
                     }
                 }
             }
             if result.failed.is_none() {
+                crate::schema_check::repair_missing_defaults(db, root, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
                 let problems = crate::schema_check::check_with_report(db, root)?;
                 if let Some(p) = problems.first() {
                     return Err(Error::Invalid(format!("Database validation failed: {}.{}.{}: {} ({} problems).", p.database, p.table, p.column, p.detail, problems.len())));
@@ -992,6 +1099,16 @@ impl Env for RepackEnv<'_> {
     }
 
     fn validate(&self) -> Result<()> {
+        self.validate_server(true)
+    }
+
+    fn validate_recovery(&self) -> Result<()> {
+        self.validate_server(false)
+    }
+}
+
+impl RepackEnv<'_> {
+    fn validate_server(&self, check_schema: bool) -> Result<()> {
         let stopped = crate::driver::run(self.root, crate::driver::Verb::StopAll)?;
         if !stopped.ok { return Err(Error::Invalid("Could not stop the server before isolated validation.".into())); }
         self.ensure_stopped()?;
@@ -999,7 +1116,7 @@ impl Env for RepackEnv<'_> {
         let result = (|| -> Result<()> {
             crate::update_isolation::begin(self.root, self.meta_dir)?;
             use crate::process::{observe, ServiceState};
-            crate::backup::with_database(self.root, |db| {
+            if check_schema { crate::backup::with_database(self.root, |db| {
                 let mut modes = vec![crate::realms::Mode::Coa];
                 if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
                 for mode in modes {
@@ -1008,7 +1125,7 @@ impl Env for RepackEnv<'_> {
                     }
                 }
                 Ok(())
-            })?;
+            })?; }
             // The check start is the first start of the new build: give the module configs the settings the update added
             // (as a normal start does), or the server logs a "missing property" line for every one of them.
             match crate::registry::MetaDir::open(self.meta_dir) {
@@ -1064,6 +1181,31 @@ impl Env for RepackEnv<'_> {
 
 }
 
+fn database_identities(db: &crate::db::Db) -> Result<BTreeMap<String, std::collections::BTreeSet<String>>> {
+    let db = db.clone().for_realm(crate::realms::Mode::Coa);
+    let mut identities = BTreeMap::new();
+    for (schema, table, columns) in [
+        ("acore_characters", "characters", "guid,account,HEX(name)"),
+        ("acore_characters_wildcard", "characters", "guid,account,HEX(name)"),
+        ("acore_auth", "account", "id,HEX(username)"),
+    ] {
+        if !db.schema_exists(schema)? || !db.tables(schema)?.iter().any(|name| name == table) { continue; }
+        let rows = db.query(&format!("SELECT {columns} FROM `{schema}`.`{table}`;"))?;
+        identities.insert(schema.into(), rows.lines().map(str::to_string).collect());
+    }
+    Ok(identities)
+}
+
+fn verify_database_identities(db: &crate::db::Db, before: &BTreeMap<String, std::collections::BTreeSet<String>>) -> Result<()> {
+    let after = database_identities(db)?;
+    for (schema, expected) in before {
+        if after.get(schema).is_none_or(|actual| !expected.is_subset(actual)) {
+            return Err(Error::Invalid(format!("The private update changed or removed existing character or account identities in {schema}.")));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1086,15 +1228,19 @@ mod tests {
         migrate_fail: Cell<bool>,
         preflight_fail: Cell<bool>,
         restore_fail: Cell<bool>,
+        rehearsal_fail: Cell<bool>,
     }
 
     impl Fake {
         fn ok() -> Fake {
-            Fake { activation_expected: RefCell::new(None), activation_failed: Cell::new(false), activated: Cell::new(false), automatic_rollback: Cell::new(false), recovery_healthy: Cell::new(true), stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false) }
+            Fake { activation_expected: RefCell::new(None), activation_failed: Cell::new(false), activated: Cell::new(false), automatic_rollback: Cell::new(false), recovery_healthy: Cell::new(true), stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false), rehearsal_fail: Cell::new(false) }
         }
     }
 
     impl Env for Fake {
+        fn rehearse(&self, _: &Manifest, _: &Path, _: &[PlanItem], _: &str) -> Result<()> {
+            if self.rehearsal_fail.get() { Err(Error::Invalid("SQL failed in the private copy".into())) } else { Ok(()) }
+        }
         fn activate(&self) -> Result<()> {
             if let Some((meta, version)) = self.activation_expected.borrow().as_ref() {
                 ensure_recovered(meta)?;
@@ -1693,6 +1839,23 @@ mod tests {
         assert_eq!(fsx::sha256_file(&w.meta.join("install.json")).unwrap(), original);
         assert!(env.calls.borrow().is_empty());
         assert!(fs::read_dir(w.meta.join("updates")).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn failed_rehearsal_preserves_installed_files_version_and_recovery_point() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.rehearsal_fail.set(true);
+        let original = fsx::sha256_file(&w.meta.join("install.json")).unwrap();
+        let error = run(&w, &env, BTreeMap::new(), None).unwrap_err();
+        assert!(error.to_string().contains("installed server was not updated"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert_eq!(fsx::sha256_file(&w.meta.join("install.json")).unwrap(), original);
+        assert_eq!(&*env.calls.borrow(), &["stop", "snapshot"]);
+        assert!(pending_checked(&w.meta).unwrap().is_none());
+        let journal = journals(&w.meta).unwrap().remove(0);
+        assert_eq!(journal.recovery_point.as_deref(), Some("rp-1"));
+        assert!(!journal.databases_started && journal.ops.is_empty());
     }
 
     #[test]
