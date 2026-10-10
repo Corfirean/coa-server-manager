@@ -261,7 +261,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                         onClick={() => void installClientPatch()}
                       >
                         {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                        {locale === "ru" ? "Установить патч клиента" : "Install Client Patch"}
+                        {locale === "ru" ? "Установить патч клиента" : "Install Client Patch 1.5"}
                       </Button>
                     )}
                   </div>
