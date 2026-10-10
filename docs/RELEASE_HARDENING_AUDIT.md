@@ -1,6 +1,6 @@
 # Release & Security Hardening Audit (Phase 15)
 
-**Version:** 0.6.7-rc1  
+**Version:** 0.7.0-rc1  
 **Status:** Pre-Release Freeze & Hardening Audit  
 **Target Branch:** `feat/portable-characters`  
 **Date:** October 2026  

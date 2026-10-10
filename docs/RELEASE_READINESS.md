@@ -2,7 +2,7 @@
 
 **Release Candidate Target**: `feat/portable-characters` (Phase 15 Hardened)  
 **Date**: October 10, 2026  
-**Evaluation Target**: CoA Server Manager Release Candidate v0.6.7  
+**Evaluation Target**: CoA Server Manager Release Candidate v0.7.0  
 **Verdict**: **RELEASE READY**
 
 ---
@@ -72,20 +72,21 @@ All P0 and P1 security, correctness, and reliability findings identified during 
 
 All tests executed with `--locked` dependencies and strict warnings:
 
-- **`coa-core`**: **593 PASSED**, 0 failed, 50 ignored (real-server live tests).
+- **`coa-core`**: **608 PASSED**, 0 failed, 50 ignored (real-server live tests).
 - **`coa-registry-proto`**: **19 PASSED**, 0 failed.
-- **`coa-control-proto`**: **20 PASSED**, 0 failed (including 6 new hostile-input & fuzz smoke tests).
-- **`coa-coordinator`**: **12 PASSED**, 0 failed (including 3 new SSRF & probe attack tests).
-- **`coa-registry`**: **12 PASSED**, 0 failed.
-- **`coa-relay`**: **10 PASSED**, 0 failed (including memory bounds, port exhaustion, and MySQL/RA forbidden access tests).
+- **`coa-control-proto`**: **20 PASSED**, 0 failed (14 lib unit tests + 6 hostile-input & fuzz smoke tests).
+- **`coa-server-manager-lib`**: **2 PASSED**, 0 failed.
+- **`coa-coordinator`**: **14 PASSED**, 0 failed (including 3 new SSRF & probe attack tests).
+- **`coa-registry`**: **13 PASSED**, 0 failed, 2 ignored.
+- **`coa-relay`**: **11 PASSED**, 0 failed (including memory bounds, port exhaustion, and MySQL/RA forbidden access tests).
 - **`coa-control-e2e`**: **18 PASSED**, 0 failed (12 control + 6 phase 14 direct and relay tests).
 - **Frontend TypeScript (`tsc --noEmit`)**: **PASSED (0 errors)**.
-- **Frontend Production Bundling (`npm run build`)**: **PASSED (built in 8.06s)**.
+- **Frontend Production Bundling (`npm run build`)**: **PASSED (built in 7.08s)**.
 - **Code Formatting (`cargo fmt --all -- --check`)**: **PASSED (0 diffs)**.
 - **Code Linter (`cargo clippy --workspace --all-targets -- -D warnings`)**: **PASSED (0 warnings, 0 errors)**.
 - **Dependency Audit (`npm audit --omit=dev`)**: **0 vulnerabilities found**.
 
-**Total automated passing tests**: **684 tests**.
+**Total automated passing tests**: **705 tests** (649 in workspace crates, 56 in standalone services).
 
 ---
 
@@ -109,13 +110,13 @@ All tests executed with `--locked` dependencies and strict warnings:
    - **Result**: **PASSED**.
 
 4. **Gate 15.2 (Clean Windows Installation)**:
-   - Executed production installer `CoA-Server-Manager_0.6.7_x64-setup.exe` on a clean Windows x86_64 environment with no prior Manager AppData or registry entries.
+   - Executed production installer `CoA-Server-Manager_0.7.0_x64-setup.exe` on a clean Windows x86_64 environment with no prior Manager AppData or registry entries.
    - Verified binaries placed in `%LOCALAPPDATA%\Programs\CoA Server Manager` with valid start menu and desktop shortcuts created.
    - First launch verified: initialized clean `%APPDATA%\com.coa.servermanager` data hierarchy, initialized Windows DPAPI `SecretStore`, generated fresh player identity without prompts or missing DLL / runtime errors.
    - **Result**: **PASSED**.
 
 5. **Gate 15.3 (In-Place Upgrade & Key Migration)**:
-   - Executed `CoA-Server-Manager_0.6.7_x64-setup.exe` over an existing v0.6.6 installation containing existing account configurations and legacy `{realm_id}.key` file.
+   - Executed `CoA-Server-Manager_0.7.0_x64-setup.exe` over an existing v0.6.12 installation containing existing account configurations and legacy `{realm_id}.key` file.
    - Verified binary upgrade completed without requiring server reinstallation.
    - Startup verification: `ProtectedKeyStore` detected legacy plaintext key, verified that the public key matched the configured `RealmId`, securely encrypted the 32-byte Ed25519 private seed into Windows DPAPI storage, verified successful decryption round-trip, and atomically retired the plaintext key file.
    - Server configurations, accounts, and SQLite stores remained completely intact.
@@ -143,13 +144,13 @@ The release candidate produces standard Windows installer artifacts:
 
 | Distribution Artifact | Type | Size (Bytes) | SHA-256 Checksum | Description |
 |---|---|---|---|---|
-| `CoA-Server-Manager_0.6.7_x64-setup.exe` | NSIS Installer | 7,889,518 | `b9e9ac066080655d97d99bb7597eee1f1a390ddd918c7dd4d2355f0d70f1e9db` | Standalone Windows installer with passive update support |
-| `CoA-Server-Manager_0.6.7_x64.nsis.zip` | Archive | 7,871,944 | `309b7d0a00f4f963a072af04d6a58184f65324217a8153025c2536cd051b7008` | Portable binary archive for testing and verification |
+| `CoA-Server-Manager_0.7.0_x64-setup.exe` | NSIS Installer | 7,888,725 | `947944d95c2a8f80b1d4cc09182f1ea0cb1332d0ee6d77de6f9c65930ce274d5` | Standalone Windows installer with passive update support |
+| `CoA-Server-Manager_0.7.0_x64.nsis.zip` | Archive | 7,871,146 | `f29680b3ba3b51437fed3a4b33a5c9cda01adf37235ca63cdf51d2adf23cdfbd` | Portable binary archive for testing and verification |
 
 Verification command:
 ```powershell
-Get-FileHash -Algorithm SHA256 target\release\CoA-Server-Manager_0.6.7_x64-setup.exe
-Get-FileHash -Algorithm SHA256 target\release\CoA-Server-Manager_0.6.7_x64.nsis.zip
+Get-FileHash -Algorithm SHA256 target\release\CoA-Server-Manager_0.7.0_x64-setup.exe
+Get-FileHash -Algorithm SHA256 target\release\CoA-Server-Manager_0.7.0_x64.nsis.zip
 ```
 
 ---
@@ -172,4 +173,4 @@ In the event of an operational issue after deployment:
 
 **Verdict: RELEASE READY**
 
-CoA Server Manager v0.6.7 meets all release quality, security, and stability gates. All critical paths are hardened against hostile input, sensitive secrets are guarded by Windows DPAPI with zero log leakage, direct connectivity is verified with graceful Relay fallback, and the entire workspace builds and passes 100% of automated tests.
+CoA Server Manager v0.7.0 meets all release quality, security, and stability gates. All critical paths are hardened against hostile input, sensitive secrets are guarded by Windows DPAPI with zero log leakage, direct connectivity is verified with graceful Relay fallback, and the entire workspace builds and passes 100% of automated tests.

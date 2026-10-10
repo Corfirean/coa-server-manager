@@ -7,19 +7,21 @@ Node facts: [INFRASTRUCTURE.md](INFRASTRUCTURE.md), [VPS_BASELINE.md](VPS_BASELI
 
 ```
 Internet
-  |  22/tcp (sshd)   80/tcp (redirect to 443), 443/tcp (Caddy, the only container with published ports)
+  |  22/tcp (sshd)   80/tcp (redirect to 443), 443/tcp (Caddy), 40000-43999/tcp (Game Relay dynamic pool)
   v
 Caddy  :443  /registry/*  ->  coa-registry:8080      network coa-ingress   (HTTPS; ACME Let's Encrypt)
        :443  /coord/*     ->  coa-coordinator:8081   network coa-ingress   (WSS WebSocket; Phase 12)
+       :443  /relay/v1/*  ->  coa-relay:8082         network coa-ingress   (Host WSS control session)
                                    |
-Registry container  (coa-registry)  +--- network coa-db (internal) ---+
+Registry / Coordinator / Relay     +--- network coa-db (internal) ---+
                                                                        v
                                                       PostgreSQL container (alias coa-postgres:5432)
 ```
 
-* Registry and PostgreSQL publish **no host port**. `docker ps` shows `8080/tcp` and `5432/tcp` (exposed inside Docker networks only), and `ss -tulnH` lists only 22, 80, 443.
-  Never add `5432:5432` or `8080:8080`.
+* Registry and PostgreSQL publish **no host port**. `docker ps` shows `8080/tcp` and `5432/tcp` (exposed inside Docker networks only).
+* Public listening surface of the host (`ss -tulnH`) is strictly limited to `22/tcp` (SSH), `80/tcp` (HTTP redirect), `443/tcp` (Caddy HTTPS / WSS), and `40000-43999/tcp` (Game Relay TCP game traffic pool). Never add `5432:5432` or `8080:8080`.
 * The Registry joins `coa-ingress` (to be reached by Caddy) and `coa-db` (to reach PostgreSQL). PostgreSQL joins only `coa-db`, which is `--internal`.
+* The Game Relay container (`coa-relay`) handles the host-networked port pool `40000-43999/tcp` for direct client Auth/World byte forwarding, with its control WebSocket bridged via Caddy at `/relay/v1/host`.
 * Caddy serves public HTTPS and WSS on `coa-manager.duckdns.org` with automatic Let's Encrypt ACME certificate management. Port 80 automatically redirects (308 Permanent Redirect) to HTTPS. Certificate state and ACME account metadata are stored in persistent Docker volumes `coa-caddy_caddy_data` and `coa-caddy_caddy_config`.
 
 ## Files (in git: `services/coa-registry/deploy/`)

@@ -264,8 +264,10 @@ fn handle_world_client(mut client: TcpStream, local_world_port: u16) -> Result<(
     let mut server = TcpStream::connect(format!("127.0.0.1:{local_world_port}"))
         .map_err(|e| Error::Invalid(format!("Cannot connect to local worldserver: {e}")))?;
 
-    let _ = client.set_read_timeout(Some(Duration::from_millis(500)));
-    let _ = server.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = client.set_nonblocking(false);
+    let _ = server.set_nonblocking(false);
+    let _ = client.set_read_timeout(None);
+    let _ = server.set_read_timeout(None);
 
     let mut client_read = client
         .try_clone()
@@ -274,58 +276,13 @@ fn handle_world_client(mut client: TcpStream, local_world_port: u16) -> Result<(
         .try_clone()
         .map_err(|e| Error::Invalid(e.to_string()))?;
 
-    let done = Arc::new(AtomicBool::new(false));
-    let done_c = done.clone();
-    let server_shutdown = server.try_clone().ok();
-
     let t_c2s = std::thread::spawn(move || {
-        let mut buf = [0u8; 8192];
-        while !done_c.load(Ordering::Relaxed) {
-            match client_read.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if server_write.write_all(&buf[..n]).is_err() {
-                        break;
-                    }
-                }
-                Err(ref e)
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut =>
-                {
-                    continue;
-                }
-                Err(_) => break,
-            }
-        }
-        done_c.store(true, Ordering::Relaxed);
-        if let Some(s) = server_shutdown {
-            let _ = s.shutdown(std::net::Shutdown::Both);
-        }
+        let _ = std::io::copy(&mut client_read, &mut server_write);
+        let _ = server_write.shutdown(std::net::Shutdown::Both);
     });
 
-    let client_shutdown = client.try_clone().ok();
-    let mut buf = [0u8; 8192];
-    while !done.load(Ordering::Relaxed) {
-        match server.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                if client.write_all(&buf[..n]).is_err() {
-                    break;
-                }
-            }
-            Err(ref e)
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                continue;
-            }
-            Err(_) => break,
-        }
-    }
-    done.store(true, Ordering::Relaxed);
-    if let Some(c) = client_shutdown {
-        let _ = c.shutdown(std::net::Shutdown::Write);
-    }
+    let _ = std::io::copy(&mut server, &mut client);
+    let _ = client.shutdown(std::net::Shutdown::Both);
 
     let _ = t_c2s.join();
     Ok(())

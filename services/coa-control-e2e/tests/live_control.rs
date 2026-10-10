@@ -65,7 +65,7 @@ fn register_realm(client: &RegistryClient, realm: &RealmId, key: &SigningKey) ->
         rates: Rates::default(),
         modules: vec![],
         account_provisioning: AccountProvisioning { automatic: true, existing_only: false },
-        manager_version: "0.6.7".into(),
+        manager_version: "0.7.0".into(),
     };
     let capabilities = sample_caps(60);
     let req = RegisterRequest {
