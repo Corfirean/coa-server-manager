@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
-import { api, asUiError, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
+import { api, asUiError, type CustomRacesClientStatus, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -86,18 +87,55 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
   const [changed, setChanged] = useState(false);
+  const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
+  const [racesInstalling, setRacesInstalling] = useState(false);
+  const [racesProgress, setRacesProgress] = useState<CustomRacesProgress | null>(null);
+
+  const loadRacesStatus = useCallback(async () => {
+    try {
+      const st = await api.customRacesStatus(serverId);
+      setRacesPatchStatus(st);
+    } catch {
+      // ignore
+    }
+  }, [serverId]);
 
   const load = useCallback(async () => {
     try {
       setModules((await api.modulesList(serverId)).filter((m) => !m.hidden));
+      await loadRacesStatus();
     } catch (e) {
       setError(asUiError(e));
     }
-  }, [serverId]);
+  }, [serverId, loadRacesStatus]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+    const un = listen<CustomRacesProgress>("custom-races-progress", (e) => {
+      if (e.payload.id === serverId) {
+        setRacesProgress(e.payload);
+      }
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, [load, serverId]);
+
+  async function installClientPatch() {
+    setRacesInstalling(true);
+    setError(null);
+    try {
+      await api.customRacesInstall(serverId);
+      await loadRacesStatus();
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setError(asUiError(e));
+    } finally {
+      setRacesInstalling(false);
+      setRacesProgress(null);
+    }
+  }
 
   async function toggle(m: ModuleView) {
     setError(null);
@@ -105,6 +143,9 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
       await api.moduleSetEnabled(serverId, m.id, !m.enabled);
       setChanged(true);
       await load();
+      if (m.id === "custom-races") {
+        await loadRacesStatus();
+      }
       onChanged?.();
     } catch (e) {
       setError(asUiError(e));
@@ -146,8 +187,9 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
                   role="switch"
                   aria-checked={m.enabled}
                   aria-label={t("mod.switch", { name: m.name })}
+                  disabled={m.id === "custom-races" && racesInstalling}
                   onClick={() => void toggle(m)}
-                  className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", m.enabled ? "bg-gold" : "bg-white/15")}
+                  className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", m.enabled ? "bg-gold" : "bg-white/15", (m.id === "custom-races" && racesInstalling) && "opacity-50 cursor-not-allowed")}
                 >
                   <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", m.enabled ? "left-[22px]" : "left-0.5")} />
                 </button>
@@ -155,6 +197,70 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
               {m.installed && !m.switchable && m.status !== "soon" && m.compatibility !== "unsupported" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
               {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
+            {m.id === "custom-races" && (
+              <div className="w-full">
+                {racesInstalling && racesProgress ? (
+                  <div className="rounded-lg border border-gold/30 bg-gold/5 p-3">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gold" />
+                        <span className="truncate">{racesProgress.step}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-xs font-semibold text-gold">
+                        {Math.round(racesProgress.percent * 100)}%
+                      </span>
+                    </div>
+                    <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={Math.round(racesProgress.percent * 100)} aria-valuemin={0} aria-valuemax={100}>
+                      <div
+                        className="h-full rounded-full bg-gold transition-all duration-300"
+                        style={{ width: `${Math.round(racesProgress.percent * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/40 pt-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      {racesPatchStatus?.state === "enabled" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+                          {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
+                        </span>
+                      )}
+                      {racesPatchStatus?.state === "disabled" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted border border-white/15" title="MPQ files disabled with .disabled suffix">
+                          <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+                          {locale === "ru" ? "Патч клиента: Отключен (.disabled)" : "Client Patch: Disabled (.disabled)"}
+                        </span>
+                      )}
+                      {racesPatchStatus?.state === "not-installed" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                          {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
+                        </span>
+                      )}
+                      {racesPatchStatus?.state === "partially-installed" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                          {locale === "ru" ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ` : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
+                        </span>
+                      )}
+                    </div>
+                    {(!racesPatchStatus || racesPatchStatus.state === "not-installed" || racesPatchStatus.state === "partially-installed") && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
+                        disabled={racesInstalling}
+                        onClick={() => void installClientPatch()}
+                      >
+                        {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        {locale === "ru" ? "Установить патч клиента" : "Install Client Patch"}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mt-auto flex items-center gap-2">
               <button
                 onClick={() => void api.openLink(m.repo)}

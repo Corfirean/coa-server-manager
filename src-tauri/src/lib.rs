@@ -639,6 +639,48 @@ async fn module_set_enabled(state: State<'_, AppState>, id: String, module: Stri
     })
     .await
 }
+ 
+#[tauri::command]
+async fn custom_races_status(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::custom_races::ClientPatchStatus>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let client = linked_client(&root)?;
+        Ok(client.as_deref().map(coa_core::custom_races::client_patch_status))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn custom_races_install(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    let cancel = begin_client_job(&state)?;
+    let sid = id.clone();
+    let result = blocking(move || {
+        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is linked to this server.".into()))?;
+        coa_core::custom_races::install_client_patches(&client, &cancel, &|step, percent| {
+            let _ = app.emit("custom-races-progress", serde_json::json!({
+                "id": sid,
+                "step": step,
+                "percent": percent,
+            }));
+        })
+    })
+    .await;
+    end_client_job(&state);
+    result
+}
+
+#[tauri::command]
+async fn custom_races_toggle_client(state: State<'_, AppState>, id: String, enabled: bool) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is linked to this server.".into()))?;
+        coa_core::custom_races::set_client_patch_enabled(&client, enabled)
+    })
+    .await
+}
 
 #[tauri::command]
 async fn module_settings(state: State<'_, AppState>, id: String, module: String) -> std::result::Result<Vec<coa_core::modules::Setting>, UiError> {
@@ -1679,7 +1721,10 @@ pub fn run() {
             export_diagnostics,
             console_tail,
             console_risk,
-            console_command
+            console_command,
+            custom_races_status,
+            custom_races_install,
+            custom_races_toggle_client
         ])
         .run(tauri::generate_context!())
         .expect("error while running CoA Server Manager");

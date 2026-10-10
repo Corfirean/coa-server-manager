@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod backup;
 pub mod cleanbase;
 pub mod companions;
+pub mod custom_races;
 pub mod client;
 pub mod remote_client;
 pub mod clientdl;

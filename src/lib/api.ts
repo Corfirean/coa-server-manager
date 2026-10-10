@@ -379,6 +379,22 @@ export interface ClientDownloadCheck {
   dest: string;
 }
 
+export type ClientPatchState = "not-installed" | "enabled" | "disabled" | "partially-installed";
+
+export interface CustomRacesClientStatus {
+  state: ClientPatchState;
+  installedMpqs: number;
+  totalMpqs: number;
+  hasRootFiles: boolean;
+  clientPath: string | null;
+}
+
+export interface CustomRacesProgress {
+  id: string;
+  step: string;
+  percent: number;
+}
+
 export type FriendsMode = "local" | "lan" | "direct" | "private";
 
 export interface LanAddress {
@@ -503,6 +519,9 @@ export const api = {
   clientSync: (id: string, keepModified: boolean) => invoke<void>("client_sync", { id, keepModified }),
   clientDownload: (id: string, parent: string) => invoke<ClientInfo>("client_download", { id, parent }),
   clientCancel: () => invoke<void>("client_cancel"),
+  customRacesStatus: (id: string) => invoke<CustomRacesClientStatus | null>("custom_races_status", { id }),
+  customRacesInstall: (id: string) => invoke<void>("custom_races_install", { id }),
+  customRacesToggleClient: (id: string, enabled: boolean) => invoke<void>("custom_races_toggle_client", { id, enabled }),
   play: (id: string) => invoke<DriverOutcome>("play", { id }),
   friendsStatus: (id: string) => invoke<FriendsStatus>("friends_status", { id }),
   friendsCheckInternet: () => invoke<InternetCheck>("friends_check_internet"),
