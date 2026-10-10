@@ -686,7 +686,9 @@ async fn custom_races_install(app: AppHandle, state: State<'_, AppState>, id: St
                 "step": step,
                 "percent": percent,
             }));
-        })
+        })?;
+        let enabled = coa_core::modules::list(&root).iter().any(|module| module.id == "custom-races" && module.enabled);
+        coa_core::custom_races::set_client_patch_enabled(&client, enabled)
     })
     .await;
     end_client_job(&state);

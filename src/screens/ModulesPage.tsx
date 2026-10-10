@@ -257,7 +257,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                         size="sm"
                         variant="secondary"
                         className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
-                        disabled={racesInstalling}
+                        disabled={racesInstalling || !racesPatchStatus?.clientPath}
                         onClick={() => void installClientPatch()}
                       >
                         {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}

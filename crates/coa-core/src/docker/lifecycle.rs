@@ -428,6 +428,10 @@ fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, data: &Path, 
     a.extend(env("AC_UPDATES_ENABLE_DATABASES", "0"));
     if kind == GameKind::World {
         a.extend(["--volume".into(), format!("{}:{DATA}:ro", data.display())]);
+        let races = host.join("Data/dbc_races");
+        if races.is_dir() && races != data.join("dbc_races") {
+            a.extend(["--volume".into(), format!("{}:{DATA}/dbc_races:ro", races.display())]);
+        }
         a.extend(env("AC_DATA_DIR", DATA));
         // The remote console is only ever reachable from this computer.
         a.extend(["--publish".into(), format!("127.0.0.1:{ra_port}:{RA_PORT}")]);
