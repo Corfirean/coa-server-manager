@@ -214,6 +214,16 @@ pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
                 }
             }
         }
+        if !on {
+            let _ = crate::custom_races::sync_bot_races_config(root, false);
+        } else {
+            let allow = crate::custom_races::is_bot_custom_races_allowed(root).unwrap_or_else(|| {
+                read(&dir(root).join("coa_custom_races.conf"))
+                    .and_then(|c| c.get("CoACustomRaces.BotsEnable").map(truthy))
+                    .unwrap_or(false)
+            });
+            let _ = crate::custom_races::sync_bot_races_config(root, allow);
+        }
     }
     set_enabled_in(&catalog(), root, meta, id, on)
 }
@@ -290,14 +300,27 @@ fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
             }
         }
     }
+    let bot_custom_races_allowed = if id == "custom-races" {
+        crate::custom_races::is_bot_custom_races_allowed(root)
+    } else {
+        None
+    };
     Ok(effective
         .entries()
-        .map(|(k, v)| Setting {
-            key: k.to_string(),
-            value: fields.get(k).and_then(|field| field.default_if_missing.as_ref()).filter(|_| active.get(k).is_none()).and_then(crate::squid::scalar).unwrap_or_else(|| v.to_string()),
-            default: fields.get(k).and_then(|field| crate::squid::scalar(&field.default)).or_else(|| dist.as_ref().and_then(|d| d.get(k)).map(str::to_string)),
-            field: fields.get(k).cloned(),
-            doc: dist.as_ref().map(|d| d.doc_for(k)).filter(|d| !d.is_empty()).unwrap_or_else(|| active.doc_for(k)).join(" "),
+        .map(|(k, v)| {
+            let mut val = fields.get(k).and_then(|field| field.default_if_missing.as_ref()).filter(|_| active.get(k).is_none()).and_then(crate::squid::scalar).unwrap_or_else(|| v.to_string());
+            if k == "CoACustomRaces.BotsEnable" {
+                if let Some(allowed) = bot_custom_races_allowed {
+                    val = if allowed { "1".into() } else { "0".into() };
+                }
+            }
+            Setting {
+                key: k.to_string(),
+                value: val,
+                default: fields.get(k).and_then(|field| crate::squid::scalar(&field.default)).or_else(|| dist.as_ref().and_then(|d| d.get(k)).map(str::to_string)),
+                field: fields.get(k).cloned(),
+                doc: dist.as_ref().map(|d| d.doc_for(k)).filter(|d| !d.is_empty()).unwrap_or_else(|| active.doc_for(k)).join(" "),
+            }
         })
         .collect())
 }
@@ -351,6 +374,12 @@ fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: 
         }
         if file.get(key).map(str::trim) != Some(value) {
             changed.push((key.clone(), value.to_string()));
+        }
+    }
+    if id == "custom-races" {
+        if let Some(bots_enable) = changes.get("CoACustomRaces.BotsEnable") {
+            let allow = truthy(bots_enable);
+            crate::custom_races::sync_bot_races_config(root, allow)?;
         }
     }
     if changed.is_empty() {
@@ -672,4 +701,39 @@ mod tests {
         assert!(fs::read_to_string(dir(&root).join("war_games.conf")).unwrap().contains("WarGames.Enable = 0"));
         assert!(!list_in(&cat, &root).into_iter().find(|m| m.id == "war-games").unwrap().enabled);
     }
+    #[test]
+    fn custom_races_bot_settings_synchronize_playerbots_conf() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let cat = catalog();
+        fs::write(dir(&root).join("coa_custom_races.conf.dist"), "CoACustomRaces.Enable = 1\nCoACustomRaces.BotsEnable = 0\n").unwrap();
+        fs::write(dir(&root).join("coa_custom_races.conf"), "CoACustomRaces.Enable = 1\nCoACustomRaces.BotsEnable = 0\n").unwrap();
+        fs::write(dir(&root).join("playerbots.conf"), "AiPlayerbot.Enabled = 1\n").unwrap();
+
+        // 1. Initially CoACustomRaces.BotsEnable is 0
+        let s = settings_in(&cat, &root, "custom-races").unwrap();
+        assert_eq!(s.iter().find(|s| s.key == "CoACustomRaces.BotsEnable").unwrap().value, "0");
+
+        // 2. Enable bots for custom races: should write experimental exclusions to playerbots.conf
+        let change_on = BTreeMap::from([("CoACustomRaces.BotsEnable".into(), "1".into())]);
+        assert_eq!(save_settings_in(&cat, &root, &meta, "custom-races", &change_on).unwrap(), ["CoACustomRaces.BotsEnable"]);
+        let pb = fs::read_to_string(dir(&root).join("playerbots.conf")).unwrap();
+        assert!(pb.contains("AiPlayerbot.ExcludedBotRaces"));
+        assert!(pb.contains(crate::custom_races::EXCLUDED_BOT_RACES_EXPERIMENTAL));
+
+        // Settings view now sees "1"
+        let s = settings_in(&cat, &root, "custom-races").unwrap();
+        assert_eq!(s.iter().find(|s| s.key == "CoACustomRaces.BotsEnable").unwrap().value, "1");
+
+        // 3. Disable bots for custom races: should write recommended exclusions to playerbots.conf
+        let change_off = BTreeMap::from([("CoACustomRaces.BotsEnable".into(), "0".into())]);
+        assert_eq!(save_settings_in(&cat, &root, &meta, "custom-races", &change_off).unwrap(), ["CoACustomRaces.BotsEnable"]);
+        let pb = fs::read_to_string(dir(&root).join("playerbots.conf")).unwrap();
+        assert!(pb.contains(crate::custom_races::EXCLUDED_BOT_RACES_RECOMMENDED));
+
+        // Settings view now sees "0"
+        let s = settings_in(&cat, &root, "custom-races").unwrap();
+        assert_eq!(s.iter().find(|s| s.key == "CoACustomRaces.BotsEnable").unwrap().value, "0");
+    }
 }
+
