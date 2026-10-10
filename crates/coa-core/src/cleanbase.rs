@@ -10,7 +10,7 @@ use crate::backup;
 use crate::error::{Error, Result};
 use crate::fsx;
 use crate::migrations::{apply_pending, status, Status};
-use crate::release::{collect_bots_sql, collect_core_sql};
+use crate::release::{collect_bots_sql, collect_core_install_sql};
 
 pub struct Params<'a> {
     pub repack: &'a Path,
@@ -177,7 +177,7 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
     }
     fsx::atomic_write_json(&repack_json, &cfg)?;
 
-    let mut sql = collect_core_sql(p.core)?;
+    let mut sql = collect_core_install_sql(p.core)?;
     if let Some(b) = p.bots {
         sql.extend(collect_bots_sql(b)?);
     }
