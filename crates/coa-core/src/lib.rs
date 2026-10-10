@@ -47,6 +47,7 @@ pub mod update;
 pub mod wine;
 pub mod upnp;
 pub mod signing;
+pub mod channels;
 pub mod srp6;
 
 pub use error::{Error, ErrorCode, Result};

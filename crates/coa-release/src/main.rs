@@ -112,6 +112,16 @@ fn run() -> Result<(), String> {
             coa_core::release_schema::verify_package(&dir, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
             println!("signature, archive contents and database schema contract OK");
         }
+        "sign-channel" => {
+            let pointer = coa_core::channels::Pointer {
+                schema: 1, channel: need(&a, "channel")?.clone(),
+                version: need(&a, "version")?.clone(),
+                release_tag: format!("server-{}", need(&a, "version")?),
+                snapshot: need(&a, "snapshot")?.clone(),
+            };
+            let bytes = coa_core::channels::sign(&pointer, &signing_key()?).map_err(e)?;
+            coa_core::fsx::atomic_write(&PathBuf::from(need(&a, "out")?), &bytes).map_err(e)?;
+        }
         other => return Err(format!("unknown command {other}")),
     }
     Ok(())

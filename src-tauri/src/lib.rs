@@ -39,12 +39,16 @@ struct AppState {
 /// Where signed update packages are published; override with COA_UPDATE_SOURCE (URL or local package folder).
 const DEFAULT_UPDATE_URL: &str = "https://github.com/Corfirean/coa-server-build/releases/download/stable";
 
-fn update_source(custom: Option<String>) -> Source {
+fn update_source(custom: Option<String>) -> Result<Source> {
     let pick = custom.filter(|s| !s.trim().is_empty()).or_else(|| std::env::var("COA_UPDATE_SOURCE").ok());
     match pick {
-        Some(p) if p.to_ascii_lowercase().starts_with("http") => Source::Url(p),
-        Some(p) => Source::Dir(PathBuf::from(p)),
-        None => Source::Url(DEFAULT_UPDATE_URL.into()),
+        Some(p) if p.to_ascii_lowercase().starts_with("http") => Ok(Source::Url(p)),
+        Some(p) => Ok(Source::Dir(PathBuf::from(p))),
+        None => match coa_core::channels::resolve("stable") {
+            Ok(source) => Ok(source),
+            Err(Error::PackageNotPublished(_)) => Ok(Source::Url(DEFAULT_UPDATE_URL.into())),
+            Err(error) => Err(error),
+        },
     }
 }
 
@@ -645,7 +649,7 @@ async fn repair_server(app: AppHandle, state: State<'_, AppState>, id: String) -
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let dir = meta_dir(&root)?;
-        coa_core::repair::run(&root, &dir, &package_source(None), &update_source(None), coa_core::signing::EMBEDDED_PUBLIC_KEY, &|step,percent| {
+        coa_core::repair::run(&root, &dir, &package_source(None), &update_source(None)?, coa_core::signing::EMBEDDED_PUBLIC_KEY, &|step,percent| {
             let _ = app.emit("repair-progress", serde_json::json!({ "id": id, "step": step, "percent": percent }));
         })
     }).await
@@ -797,11 +801,12 @@ fn install_meta(root: &std::path::Path) -> Result<(PathBuf, InstallMeta)> {
 #[tauri::command]
 async fn check_update(state: State<'_, AppState>, id: String, source: Option<String>, background: Option<bool>) -> std::result::Result<update::Preview, UiError> {
     let root = path_of(&state, &id)?;
-    let src = update_source(source);
+
     // The check that repeats every few minutes must not start and stop the database of a stopped server.
     let access = if background.unwrap_or(false) { update::DatabaseAccess::OnlyIfRunning } else { update::DatabaseAccess::Start };
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
+        let src = update_source(source)?;
         update::preview_with(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default(), access)
     })
     .await
@@ -822,9 +827,10 @@ async fn apply_update(
     resolutions: BTreeMap<String, Resolution>,
 ) -> std::result::Result<update::Outcome, UiError> {
     let root = path_of(&state, &id)?;
-    let src = update_source(source);
+
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
+        let src = update_source(source)?;
         let (dir, _) = install_meta(&root)?;
         // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
         let observed = coa_core::process::observe(&root, &layout::read_ports(&root));
