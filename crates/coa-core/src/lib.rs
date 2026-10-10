@@ -44,6 +44,7 @@ pub mod release;
 pub mod report;
 pub mod release_schema;
 pub mod update;
+mod update_isolation;
 pub mod wine;
 pub mod upnp;
 pub mod signing;

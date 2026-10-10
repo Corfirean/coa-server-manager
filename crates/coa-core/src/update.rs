@@ -85,6 +85,8 @@ fn legacy_databases_started() -> bool { true }
 
 /// Everything the transaction needs from the outside world; tests provide a fake.
 pub trait Env {
+    fn activate(&self) -> Result<()> { Ok(()) }
+    fn recover_validation(&self) -> Result<()> { Ok(()) }
     fn automatic_rollback(&self) -> bool { false }
     fn validate_recovery(&self) -> Result<()> { self.validate() }
     fn ensure_stopped(&self) -> Result<()>;
@@ -179,6 +181,9 @@ pub fn unfinished(meta: &Path) -> Option<Txn> {
 }
 
 pub fn ensure_recovered(meta: &Path) -> Result<()> {
+    if crate::update_isolation::pending(meta) {
+        return Err(Error::Invalid("Interrupted startup validation must be recovered before starting the server.".into()));
+    }
     if let Some(t) = pending_checked(meta)? {
         return Err(Error::Invalid(format!("Resolve unfinished update {} before changing or starting the server.", t.id)));
     }
@@ -542,6 +547,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     }
 
     finish(root, meta_dir, &mut meta, &m, &tree, &mut txn)?;
+    p.env.activate()?;
     step(report, "Done", 100);
     let _ = archive;
     Ok(Outcome { txn, migrations: migrated })
@@ -614,6 +620,7 @@ pub fn retry_validation(root: &Path, meta_dir: &Path, id: &str, fallback: &Sourc
     }
     let (_, mut meta) = MetaDir::open(meta_dir)?;
     finish(root, meta_dir, &mut meta, &manifest, &dir.join("tree"), &mut txn)?;
+    env.activate()?;
     Ok(txn)
 }
 
@@ -627,7 +634,10 @@ fn fail_after_apply(p: &Params, txn: &mut Txn, before: &Path, tree: &Path, why: 
     txn.state = if restored.is_ok() { State::RolledBack } else { State::Failed };
     txn.message = Some(match &restored { Ok(()) => why.clone(), Err(e) => format!("{why} Recovery failed: {e}") });
     save(p.meta_dir, txn)?;
-    if restored.is_ok() { let _ = fs::remove_dir_all(tree); }
+    if restored.is_ok() {
+        let _ = fs::remove_dir_all(tree);
+        if p.env.automatic_rollback() { p.env.activate()?; }
+    }
     let _ = report;
     Err(Error::Invalid(match restored {
         Ok(()) if txn.databases_started => format!("{why} The server files and databases were restored to the recovery point."),
@@ -651,6 +661,7 @@ fn restore_transaction(root: &Path, meta: &Path, before: &Path, txn: &mut Txn, e
     }
     if !before.join("manager-install.json").is_file() { return Err(Error::Invalid("The saved installation metadata is missing; no restoration was started.".into())); }
     env.ensure_stopped()?;
+    env.recover_validation()?;
     if txn.databases_started {
         let id = txn.recovery_point.as_deref().ok_or_else(|| Error::Invalid("The database recovery point is missing.".into()))?;
         env.restore_snapshot(id)?;
@@ -862,6 +873,18 @@ impl RepackEnv<'_> {
 }
 
 impl Env for RepackEnv<'_> {
+    fn recover_validation(&self) -> Result<()> {
+        crate::update_isolation::restore(self.root, self.meta_dir)
+    }
+
+    fn activate(&self) -> Result<()> {
+        ensure_recovered(self.meta_dir)?;
+        let outcome = crate::driver::validate_update(self.root)?;
+        if outcome.ok { Ok(()) } else {
+            Err(Error::Invalid(format!("The update transaction finished, but the server could not start: {}", crate::driver::startup_failure(self.root, &outcome))))
+        }
+    }
+
     fn automatic_rollback(&self) -> bool { true }
     fn preflight(&self, manifest: &Manifest) -> Result<()> {
         self.pending_migrations(manifest).map(|_| ())
@@ -940,61 +963,76 @@ impl Env for RepackEnv<'_> {
     }
 
     fn validate(&self) -> Result<()> {
-        use crate::process::{observe, ServiceState};
-        crate::backup::with_database(self.root, |db| {
-            let mut modes = vec![crate::realms::Mode::Coa];
-            if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
-            for mode in modes {
-                if let Some(p) = crate::schema_check::check(&db.clone().for_realm(mode), self.root)?.first() {
-                    return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.database, p.table, p.detail)));
+        let stopped = crate::driver::run(self.root, crate::driver::Verb::StopAll)?;
+        if !stopped.ok { return Err(Error::Invalid("Could not stop the server before isolated validation.".into())); }
+        self.ensure_stopped()?;
+        self.recover_validation()?;
+        let result = (|| -> Result<()> {
+            crate::update_isolation::begin(self.root, self.meta_dir)?;
+            use crate::process::{observe, ServiceState};
+            crate::backup::with_database(self.root, |db| {
+                let mut modes = vec![crate::realms::Mode::Coa];
+                if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
+                for mode in modes {
+                    if let Some(p) = crate::schema_check::check(&db.clone().for_realm(mode), self.root)?.first() {
+                        return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.database, p.table, p.detail)));
+                    }
+                }
+                Ok(())
+            })?;
+            // The check start is the first start of the new build: give the module configs the settings the update added
+            // (as a normal start does), or the server logs a "missing property" line for every one of them.
+            match crate::registry::MetaDir::open(self.meta_dir) {
+                Ok((_, meta)) if meta.kind == crate::registry::InstallKind::New => {
+                    let _ = crate::config::materialize_module_configs(self.root);
+                }
+                // An imported server gets the files it lacks (nothing it has is changed).
+                _ => {
+                    let _ = crate::config::create_missing_module_configs(self.root);
                 }
             }
-            Ok(())
-        })?;
-        // The check start is the first start of the new build: give the module configs the settings the update added
-        // (as a normal start does), or the server logs a "missing property" line for every one of them.
-        match crate::registry::MetaDir::open(self.meta_dir) {
-            Ok((_, meta)) if meta.kind == crate::registry::InstallKind::New => {
-                let _ = crate::config::materialize_module_configs(self.root);
+            let started = match crate::driver::validate_update(self.root) {
+                Ok(out) => out,
+                Err(e) => {
+                    let _ = crate::driver::run(self.root, crate::driver::Verb::StopAll);
+                    return Err(e);
+                }
+            };
+            let ports = crate::layout::read_ports(self.root);
+            let healthy = started.ok && {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+                let mut ready_since = None;
+                loop {
+                    let o = observe(self.root, &ports);
+                    if o.mysql.state == ServiceState::Running && o.auth.state == ServiceState::Running && o.world.state == ServiceState::Running && o.secondary_world.as_ref().is_none_or(|s| s.state == ServiceState::Running) {
+                        let since = ready_since.get_or_insert_with(std::time::Instant::now);
+                        if since.elapsed() >= std::time::Duration::from_secs(10) { break true; }
+                    } else {
+                        ready_since = None;
+                    }
+                    if std::time::Instant::now() > deadline {
+                        break false;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                }
+            };
+            if healthy {
+                return Ok(());
             }
-            // An imported server gets the files it lacks (nothing it has is changed).
-            _ => {
-                let _ = crate::config::create_missing_module_configs(self.root);
-            }
+            let cause = crate::driver::startup_failure(self.root, &started);
+            // Leave the files unlocked so that a rollback can replace them.
+            let _ = crate::driver::run(self.root, crate::driver::Verb::StopAll);
+            Err(Error::Invalid(cause))
+        })();
+        let stopped = crate::driver::run(self.root, crate::driver::Verb::StopAll)?;
+        if !stopped.ok {
+            return Err(Error::Invalid("Isolated validation could not stop the server; recovery configurations were preserved.".into()));
         }
-        let started = match crate::driver::validate_update(self.root) {
-            Ok(out) => out,
-            Err(e) => {
-                let _ = crate::driver::run(self.root, crate::driver::Verb::StopAll);
-                return Err(e);
-            }
-        };
-        let ports = crate::layout::read_ports(self.root);
-        let healthy = started.ok && {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
-            let mut ready_since = None;
-            loop {
-                let o = observe(self.root, &ports);
-                if o.mysql.state == ServiceState::Running && o.auth.state == ServiceState::Running && o.world.state == ServiceState::Running && o.secondary_world.as_ref().is_none_or(|s| s.state == ServiceState::Running) {
-                    let since = ready_since.get_or_insert_with(std::time::Instant::now);
-                    if since.elapsed() >= std::time::Duration::from_secs(10) { break true; }
-                } else {
-                    ready_since = None;
-                }
-                if std::time::Instant::now() > deadline {
-                    break false;
-                }
-                std::thread::sleep(std::time::Duration::from_secs(2));
-            }
-        };
-        if healthy {
-            return Ok(());
-        }
-        let cause = crate::driver::startup_failure(self.root, &started);
-        // Leave the files unlocked so that a rollback can replace them.
-        let _ = crate::driver::run(self.root, crate::driver::Verb::StopAll);
-        Err(Error::Invalid(cause))
+        self.ensure_stopped()?;
+        self.recover_validation()?;
+        result
     }
+
 }
 
 #[cfg(test)]
@@ -1007,6 +1045,9 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     struct Fake {
+        activation_expected: RefCell<Option<(PathBuf, String)>>,
+        activation_failed: Cell<bool>,
+        activated: Cell<bool>,
         automatic_rollback: Cell<bool>,
         recovery_healthy: Cell<bool>,
         stopped: Cell<bool>,
@@ -1020,11 +1061,19 @@ mod tests {
 
     impl Fake {
         fn ok() -> Fake {
-            Fake { automatic_rollback: Cell::new(false), recovery_healthy: Cell::new(true), stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false) }
+            Fake { activation_expected: RefCell::new(None), activation_failed: Cell::new(false), activated: Cell::new(false), automatic_rollback: Cell::new(false), recovery_healthy: Cell::new(true), stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false) }
         }
     }
 
     impl Env for Fake {
+        fn activate(&self) -> Result<()> {
+            if let Some((meta, version)) = self.activation_expected.borrow().as_ref() {
+                ensure_recovered(meta)?;
+                assert_eq!(MetaDir::open(meta)?.1.core.version.as_ref(), Some(version));
+            }
+            self.activated.set(true);
+            if self.activation_failed.get() { Err(Error::Invalid("Public startup failed".into())) } else { Ok(()) }
+        }
         fn automatic_rollback(&self) -> bool { self.automatic_rollback.get() }
         fn validate_recovery(&self) -> Result<()> {
             self.calls.borrow_mut().push("validate-recovery");
@@ -1224,6 +1273,26 @@ mod tests {
         assert_eq!(meta.original_hashes["Core/worldserver.exe"], fsx::sha256_bytes(b"world-v2"));
         assert_eq!(*env.calls.borrow(), ["stop", "snapshot", "validate"]);
         assert!(!w.root.join("Core/worldserver.exe.coa-new").exists());
+    }
+
+    #[test]
+    fn public_startup_requires_a_completed_transaction_and_saved_version() {
+        let w = world(&[], false);
+        let env = Fake::ok();
+        *env.activation_expected.borrow_mut() = Some((w.meta.clone(), "2.0.0".into()));
+        run(&w, &env, BTreeMap::new(), None).unwrap();
+        assert!(env.activated.get());
+    }
+
+    #[test]
+    fn startup_failure_after_commit_does_not_restore_a_live_database() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.activation_failed.set(true);
+        assert!(run(&w, &env, BTreeMap::new(), None).is_err());
+        assert!(ensure_recovered(&w.meta).is_ok());
+        assert_eq!(MetaDir::open(&w.meta).unwrap().1.core.version.as_deref(), Some("2.0.0"));
+        assert!(!env.calls.borrow().contains(&"restore-databases"));
     }
 
     #[test]
