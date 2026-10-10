@@ -5,6 +5,81 @@ use crate::{backup, fsx, install, manifest::{Kind, Migration}, migrations, packa
 
 const MARKER: &str = ".release-schema-fixture";
 
+struct QualificationEnv<'a>(crate::update::RepackEnv<'a>);
+
+impl crate::update::Env for QualificationEnv<'_> {
+    fn activate(&self) -> Result<()> { Ok(()) }
+    fn ensure_stopped(&self) -> Result<()> { self.0.ensure_stopped() }
+    fn preflight(&self, manifest: &crate::manifest::Manifest) -> Result<()> { self.0.preflight(manifest) }
+    fn snapshot(&self) -> Result<String> { self.0.snapshot() }
+    fn verify_snapshot(&self, id: &str) -> Result<()> { self.0.verify_snapshot(id) }
+    fn restore_snapshot(&self, id: &str) -> Result<()> { self.0.restore_snapshot(id) }
+    fn migrate(&self, manifest: &crate::manifest::Manifest, staged: &Path) -> Result<crate::migrations::ApplyReport> { self.0.migrate(manifest, staged) }
+    fn validate(&self) -> Result<()> { self.0.validate() }
+    fn validate_recovery(&self) -> Result<()> { self.0.validate_recovery() }
+    fn recover_validation(&self) -> Result<()> { self.0.recover_validation() }
+    fn automatic_rollback(&self) -> bool { true }
+    // Health checks use the normal private validation; qualification never opens game ports after commit.
+}
+
+pub fn qualify_upgrade(base: &Path, source: &Path, candidate: &Path, fixture: &Path, trusted_key: &str) -> Result<serde_json::Value> {
+    use crate::update::Env;
+    if !cfg!(windows) { return Err(Error::Invalid("Manager upgrade qualification requires a Windows fixture.".into())); }
+    if fixture.exists() || !fixture.file_name().is_some_and(|name| name.to_string_lossy().starts_with("coa-schema-fixture-")) {
+        return Err(Error::Invalid("Upgrade qualification requires a new disposable coa-schema-fixture-* directory.".into()));
+    }
+    let metadata = crate::registry::metadata_dir_for(fixture)?;
+    if metadata.exists() { return Err(Error::Invalid("Upgrade fixture metadata already exists.".into())); }
+    let (base_manifest, base_bytes) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(base.into()), trusted_key)?;
+    let (source_manifest, source_bytes) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(source.into()), trusted_key)?;
+    let (candidate_manifest, _) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(candidate.into()), trusted_key)?;
+    if candidate_manifest.kind != Kind::Update || !matches!(source_manifest.kind, Kind::Base | Kind::Update)
+        || (source_manifest.kind == Kind::Base && fsx::sha256_bytes(&base_bytes) != fsx::sha256_bytes(&source_bytes)) {
+        return Err(Error::Invalid("Invalid source or candidate package for upgrade qualification.".into()));
+    }
+    extract_base(base, fixture, trusted_key)?;
+    package::extract_selected(base, &base_manifest, fixture, &|path| path.starts_with("Data/"), &|_, _| {})?;
+    let mut meta = crate::registry::InstallMeta::new(crate::registry::InstallKind::New, fixture);
+    meta.core.version = Some(base_manifest.version.clone());
+    meta.core.commit = base_manifest.core.commit.clone();
+    meta.original_hashes = base_manifest.files.iter().map(|file| (file.path.clone(), file.sha256.clone())).collect();
+    crate::registry::MetaDir::create(fixture, &meta)?;
+    let env = QualificationEnv(crate::update::RepackEnv { root: fixture, meta_dir: &metadata });
+    let apply = |package: &Path| -> Result<()> {
+        let outcome = crate::update::apply(&crate::update::Params {
+            root: fixture, meta_dir: &metadata, source: pkgsource::Source::Dir(package.into()),
+            trusted_key, cancel: crate::download::Cancel::default(), resolutions: Default::default(),
+            env: &env, fail_after_ops: None,
+        }, &|_, _| {})?;
+        if outcome.txn.state != crate::update::State::Committed {
+            return Err(Error::Invalid("Upgrade qualification did not commit.".into()));
+        }
+        env.ensure_stopped()
+    };
+    install::with_scratch_ports(fixture, || {
+        if source_manifest.kind == Kind::Update { apply(source)?; }
+        let user_file = fixture.join("Core/configs/coa-qualification-user.conf");
+        let user_bytes = b"Qualification.UserSetting = 7391\r\n";
+        fsx::atomic_write(&user_file, user_bytes)?;
+        apply(candidate)?;
+        if std::fs::read(&user_file)?.as_slice() != user_bytes {
+            return Err(Error::Invalid("The update changed a user configuration file.".into()));
+        }
+        let (_, installed) = crate::registry::MetaDir::open(&metadata)?;
+        if installed.core.version.as_deref() != Some(candidate_manifest.version.as_str())
+            || crate::update_isolation::pending(&metadata) || crate::update::pending_checked(&metadata)?.is_some() {
+            return Err(Error::Invalid("The update left inconsistent metadata or an unfinished transaction.".into()));
+        }
+        Ok(())
+    })?;
+    Ok(serde_json::json!({
+        "schema": 1, "result": "passed", "fromVersion": source_manifest.version,
+        "toVersion": candidate_manifest.version, "fromManifestSha256": fsx::sha256_bytes(&source_bytes),
+        "fromSchemaSha256": source_manifest.files.iter().find(|file| file.path == schema_check::CONTRACT).map(|file| &file.sha256),
+        "checks": ["manager-transaction", "database-schema", "private-auth-world-startup", "user-file-preservation"],
+    }))
+}
+
 pub fn collect(core: &Path, bots: Option<&Path>, repairs: Option<&Path>) -> Result<Vec<SqlFile>> {
     let mut files = release::collect_core_sql(core)?;
     if let Some(bots) = bots { files.extend(release::collect_bots_sql(bots)?); }
@@ -138,6 +213,19 @@ pub fn verify_package(dir: &Path, trusted_key: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn verify_upgrade_fixture(dir: &Path, trusted_key: &str) -> Result<()> {
+    let (manifest, _) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(dir.into()), trusted_key)?;
+    if !matches!(manifest.kind, Kind::Base | Kind::Update) {
+        return Err(Error::Invalid("Upgrade fixtures must be base or server update packages.".into()));
+    }
+    let scratch = tempfile::tempdir()?;
+    package::extract_selected(dir, &manifest, scratch.path(), &|path| path == schema_check::CONTRACT, &|_, _| {})?;
+    if manifest.kind == Kind::Update || manifest.files.iter().any(|file| file.path == schema_check::CONTRACT) {
+        schema_check::require_release_contract(scratch.path())?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +281,31 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(extract_base(dir.path(), dir.path(), "irrelevant").is_err());
         assert!(capture_release(dir.path(), dir.path(), &[]).is_err());
+        assert!(qualify_upgrade(dir.path(), dir.path(), dir.path(), dir.path(), "irrelevant").is_err());
         assert!(!dir.path().join(schema_check::CONTRACT).exists());
+    }
+
+    #[test]
+    fn only_legacy_base_fixtures_may_omit_the_schema_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path().join("tree");
+        let out = dir.path().join("package");
+        fsx::atomic_write(&tree.join("Core/example.txt"), b"fixture").unwrap();
+        let key = SigningKey::from_bytes(&[29; 32]);
+        let public = STANDARD.encode(key.verifying_key().as_bytes());
+        let options = package::BuildOptions { kind: Kind::Base, version: "0.2.0".into(), core_commit: None, bots_commit: None, built_at: "test".into(), part_size: 1024 * 1024, migrations: vec![] };
+        package::build(&tree, &out, &options, &|_| {}).unwrap();
+        let sign = || {
+            let bytes = std::fs::read(out.join("manifest.json")).unwrap();
+            fsx::atomic_write(&out.join("manifest.json.sig"), STANDARD.encode(key.sign(&bytes).to_bytes()).as_bytes()).unwrap();
+        };
+        sign();
+        verify_upgrade_fixture(&out, &public).unwrap();
+        assert!(verify_package(&out, &public).is_err());
+        let mut manifest: serde_json::Value = fsx::read_json(&out.join("manifest.json")).unwrap();
+        manifest["kind"] = "update".into();
+        fsx::atomic_write_json(&out.join("manifest.json"), &manifest).unwrap();
+        sign();
+        assert!(verify_upgrade_fixture(&out, &public).is_err());
     }
 }

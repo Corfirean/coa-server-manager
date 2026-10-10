@@ -47,6 +47,15 @@ fn run() -> Result<(), String> {
     let e = |x: coa_core::Error| x.to_string();
     let part = a.get("part-size").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
+        "qualify-upgrade" => {
+            let report = coa_core::release_schema::qualify_upgrade(
+                &PathBuf::from(need(&a, "base")?), &PathBuf::from(need(&a, "source")?),
+                &PathBuf::from(need(&a, "candidate")?), &PathBuf::from(need(&a, "fixture")?),
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            ).map_err(e)?;
+            coa_core::fsx::atomic_write_json(&PathBuf::from(need(&a, "report")?), &report).map_err(e)?;
+            println!("Manager upgrade transaction passed isolated qualification");
+        }
         "qualify-startup" => {
             coa_core::release_schema::validate_startup(
                 &PathBuf::from(need(&a, "fixture")?), &PathBuf::from(need(&a, "tree")?),
@@ -63,6 +72,10 @@ fn run() -> Result<(), String> {
             let source = coa_core::pkgsource::Source::Dir(PathBuf::from(need(&a, "dir")?));
             let (manifest, _) = coa_core::pkgsource::fetch_manifest(&source, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
             println!("verified signed manifest {}", manifest.version);
+        }
+        "verify-upgrade-fixture" => {
+            coa_core::release_schema::verify_upgrade_fixture(&PathBuf::from(need(&a, "dir")?), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            println!("verified signed upgrade fixture and every archive file");
         }
         "extract-schema-base" => {
             coa_core::release_schema::extract_base(
