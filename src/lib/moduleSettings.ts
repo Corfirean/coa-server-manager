@@ -87,7 +87,14 @@ for (let n = 1; n <= 3; n++) add(`EC.P${n}`, "string", [`NPC phrase ${n}`, `Ре
 
 add("CoACustomRaces.BotsEnable", "bool",
   ["Bots can be custom races", "Боты кастомных рас", "Bots benutzerdefinierter Völker", "Bots de races personnalisées", "Bots de razas personalizadas", "允许机器人为自定义种族"],
-  ["Allow Playerbots to spawn as custom races.", "Разрешает ботам-игрокам появляться кастомными расами.", "Erlaubt Spieler-Bots, benutzerdefinierte Völker zu nutzen.", "Autorise les bots joueurs à s’incarner avec des races personnalisées.", "Permite a los bots jugadores crearse con razas personalizadas.", "允许玩家机器人扮演自定义种族。"]
+  [
+    "Allow Playerbots to spawn as custom races (experimental). Off excludes all custom races; on allows stable custom races.",
+    "Разрешает ботам-игрокам появляться кастомными расами (экспериментально). Выключено — исключает все кастомные расы, включено — разрешает стабильные.",
+    "Erlaubt Spieler-Bots, benutzerdefinierte Völker zu nutzen (experimentell). Aus schließt alle benutzerdefinierten Völker aus; An erlaubt stabile.",
+    "Autorise les bots joueurs à s’incarner avec des races personnalisées (expérimental). Désactivé exclut toutes les races personnalisées ; activé autorise les stables.",
+    "Permite a los bots jugadores crearse con razas personalizadas (experimental). Desactivado excluye todas las razas personalizadas; activado permite las estables.",
+    "允许玩家机器人扮演自定义种族（实验性）。关闭将排除所有自定义种族，开启允许稳定的自定义种族。"
+  ]
 );
 
 const ah = "AuctionHouseBot.";

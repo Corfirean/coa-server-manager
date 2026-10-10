@@ -54,6 +54,85 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZZR.MPQ",
 ];
 
+pub const EXCLUDED_BOT_RACES_RECOMMENDED: &str =
+    "19,27,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128";
+
+pub const EXCLUDED_BOT_RACES_EXPERIMENTAL: &str =
+    "16,19,27,32,50,52,53,65,66,67,68,69,70,71,72,74,77,80,81";
+
+/// Finds all active playerbots.conf files on this server (root, coa-bots folder, and secondary realm).
+pub fn playerbots_conf_paths(root: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let candidates = [
+        root.join("Core/configs/modules/playerbots.conf"),
+        root.join("coa-bots/Core/configs/modules/playerbots.conf"),
+        root.join("coa-bots/core/configs/modules/playerbots.conf"),
+        crate::multiworld::root(root).join("Core/configs/modules/playerbots.conf"),
+    ];
+    for path in candidates {
+        if path.is_file() {
+            paths.push(path);
+        }
+    }
+    if paths.is_empty() {
+        for dist in [
+            root.join("Core/configs/modules/playerbots.conf.dist"),
+            root.join("coa-bots/Core/configs/modules/playerbots.conf.dist"),
+        ] {
+            if dist.is_file() {
+                let target = dist.with_extension("");
+                if fs::copy(&dist, &target).is_ok() {
+                    paths.push(target);
+                    break;
+                }
+            }
+        }
+    }
+    paths
+}
+
+/// Checks whether playerbots are configured to allow custom races.
+/// Returns true if AiPlayerbot.ExcludedBotRaces exists and does not exclude general custom races.
+pub fn is_bot_custom_races_allowed(root: &Path) -> Option<bool> {
+    for path in playerbots_conf_paths(root) {
+        if let Ok(bytes) = fs::read(&path) {
+            if let Ok(conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
+                if let Some(val) = conf.get("AiPlayerbot.ExcludedBotRaces") {
+                    let clean = val.trim().trim_matches(['"', '\'']);
+                    return Some(!clean.contains("33") && !clean.contains("128"));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Sets AiPlayerbot.ExcludedBotRaces in all discovered playerbots.conf files.
+pub fn sync_bot_races_config(root: &Path, allow_custom_races: bool) -> Result<()> {
+    let excluded = if allow_custom_races {
+        EXCLUDED_BOT_RACES_EXPERIMENTAL
+    } else {
+        EXCLUDED_BOT_RACES_RECOMMENDED
+    };
+    for path in playerbots_conf_paths(root) {
+        if let Ok(bytes) = fs::read(&path) {
+            if let Ok(mut conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
+                conf.set(
+                    "AiPlayerbot.ExcludedBotRaces",
+                    &format!("\"{excluded}\""),
+                    &[
+                        "CoA Custom: races new random bots never get",
+                        "Off (recommended): excludes all added races",
+                        "On (experimental): allows stable added races",
+                    ],
+                );
+                fsx::atomic_write(&path, conf.to_text().as_bytes())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ClientPatchState {
