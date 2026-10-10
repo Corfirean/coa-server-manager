@@ -39,6 +39,35 @@ pub fn require_release_contract(root: &Path) -> Result<Contract> {
 #[derive(Debug, Serialize)]
 pub struct Problem { pub database: String, pub table: String, pub column: String, pub detail: String }
 
+/// Keep all differences for support; never change a database to match a contract automatically.
+pub fn check_with_report(db: &Db, root: &Path) -> Result<Vec<Problem>> {
+    let problems = check(db, root)?;
+    if problems.is_empty() { return Ok(problems); }
+    let report = serde_json::json!({
+        "schema": 1, "checkedAt": chrono::Utc::now().to_rfc3339(),
+        "realm": db.realm().name(), "problems": problems,
+    });
+    let path = crate::registry::metadata_dir_for(root)?.join("diagnostics")
+        .join(format!("schema-validation-{}-{}.json", db.realm().name(), uuid::Uuid::new_v4()));
+    // A log write failure must neither hide the original mismatch nor accept an invalid schema.
+    if let Err(error) = fsx::atomic_write_json(&path, &report) {
+        tracing::warn!(%error, path = %path.display(), "Could not save database schema report");
+    }
+    Ok(problems)
+}
+
+fn describe_signature(signature: &str) -> String {
+    let fields: Vec<_> = signature.split('|').collect();
+    if fields.len() != 4 { return signature.into(); }
+    let decode = |value: &str| -> String {
+        if value == "<NULL>" { return "no default".into(); }
+        if value == "<NONE>" { return "none".into(); }
+        hex::decode(value).ok().and_then(|bytes| String::from_utf8(bytes).ok())
+            .map(|text| format!("{text:?}")).unwrap_or_else(|| value.into())
+    };
+    format!("type={}, nullable={}, default={}, extra={}", fields[0], fields[1], decode(fields[2]), decode(fields[3]))
+}
+
 fn read_columns(db: &Db, kind: &str) -> Result<BTreeMap<String, BTreeMap<String, String>>> {
     let schema = db.realm_schema(crate::db::schema_of(kind)?);
     let text = db.query(&format!("SELECT TABLE_NAME,COLUMN_NAME,CONCAT(COLUMN_TYPE,'|',IS_NULLABLE,'|',IF(COLUMN_DEFAULT IS NULL,'<NULL>',HEX(COLUMN_DEFAULT)),'|',IF(EXTRA='','<NONE>',HEX(EXTRA))) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='{schema}' ORDER BY TABLE_NAME,ORDINAL_POSITION;"))?;
@@ -54,6 +83,46 @@ pub fn capture(db: &Db, root: &Path) -> Result<()> {
     let mut columns = Columns::new();
     for kind in ["auth", "characters", "world"] { columns.insert(kind.into(), read_columns(db, kind)?); }
     fsx::atomic_write_json(&root.join(CONTRACT), &Contract { schema: 1, columns })
+}
+
+fn missing_default(expected: &str, actual: &str) -> Option<String> {
+    let expected: Vec<_> = expected.split('|').collect();
+    let actual: Vec<_> = actual.split('|').collect();
+    if expected.len() != 4 || actual.len() != 4 || expected[0] != actual[0]
+        || expected[1] != "NO" || actual[1] != "NO" || expected[3] != "<NONE>" || actual[3] != "<NONE>"
+        || actual[2] != "<NULL>" || matches!(expected[2], "<NULL>" | "<NONE>") { return None; }
+    String::from_utf8(hex::decode(expected[2]).ok()?).ok()
+}
+
+/// Only restore a missing literal default from the exact signed target contract. Never alter data or custom defaults.
+pub(crate) fn repair_missing_defaults(db: &Db, root: &Path, signed_hash: Option<&str>) -> Result<()> {
+    let Some(signed_hash) = signed_hash else { return Ok(()); };
+    if fsx::sha256_file(&root.join(CONTRACT))? != signed_hash {
+        return Err(crate::Error::Invalid("The target schema contract differs from the signed update.".into()));
+    }
+    let contract = require_release_contract(root)?;
+    let mut repaired = Vec::new();
+    let quote = |identifier: &str| format!("`{}`", identifier.replace('`', "``"));
+    for (kind, tables) in &contract.columns {
+        let schema = db.realm_schema(crate::db::schema_of(kind)?);
+        let actual = read_columns(db, kind)?;
+        let base_tables: BTreeSet<_> = db.tables(crate::db::schema_of(kind)?)?.into_iter().collect();
+        for (table, columns) in tables {
+            if !base_tables.contains(table) { continue; }
+            if matches!(table.as_str(), "updates" | "updates_include" | "coa_manager_migrations") { continue; }
+            for (column, expected) in columns {
+                let Some(found) = actual.get(table).and_then(|columns| columns.get(column)) else { continue; };
+                let Some(value) = missing_default(expected, found) else { continue; };
+                db.query(&format!("SET SESSION sql_mode=CONCAT_WS(',',@@SESSION.sql_mode,'NO_BACKSLASH_ESCAPES'); ALTER TABLE {}.{} ALTER COLUMN {} SET DEFAULT '{}';", quote(schema), quote(table), quote(column), value.replace('\'', "''")))?;
+                repaired.push(serde_json::json!({"database":schema,"table":table,"column":column,"action":"restore-missing-default"}));
+            }
+        }
+    }
+    if !repaired.is_empty() {
+        let path = crate::registry::metadata_dir_for(root)?.join("diagnostics").join(format!("database-repair-{}.json", uuid::Uuid::new_v4()));
+        fsx::atomic_write_json(&path, &serde_json::json!({"schema":1,"checkedAt":chrono::Utc::now().to_rfc3339(),"contractSha256":signed_hash,"repairs":repaired}))?;
+    }
+    Ok(())
 }
 
 pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
@@ -98,7 +167,7 @@ pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
             for (column, want) in cols {
                 let found = actual[table].get(column);
                 if found.is_none() || (!want.is_empty() && found != Some(want)) {
-                    problems.push(Problem { database: kind.clone(), table: table.clone(), column: column.clone(), detail: found.map(|s| format!("Expected {want}, found {s}")).unwrap_or_else(|| "Missing column".into()) });
+                    problems.push(Problem { database: kind.clone(), table: table.clone(), column: column.clone(), detail: found.map(|s| format!("Expected {}, found {}", describe_signature(want), describe_signature(s))).unwrap_or_else(|| "Missing column".into()) });
                 }
             }
         }
@@ -146,6 +215,23 @@ fn missing_coa_starts(rows: &str) -> Vec<Problem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_repair_only_accepts_missing_literal_defaults_without_other_schema_changes() {
+        assert_eq!(missing_default("int unsigned|NO|30|<NONE>", "int unsigned|NO|<NULL>|<NONE>"), Some("0".into()));
+        for actual in ["int unsigned|NO|3939|<NONE>", "int|NO|<NULL>|<NONE>", "int unsigned|YES|<NULL>|<NONE>", "int unsigned|NO|<NULL>|6175746f5f696e6372656d656e74"] {
+            assert!(missing_default("int unsigned|NO|30|<NONE>", actual).is_none());
+        }
+        assert!(missing_default("timestamp|NO|43555252454e545f54494d455354414d50|44454641554c545f47454e455241544544", "timestamp|NO|<NULL>|<NONE>").is_none());
+        assert!(missing_default("int|NO|zz|<NONE>", "int|NO|<NULL>|<NONE>").is_none());
+    }
+
+    #[test]
+    fn schema_defaults_are_readable_and_not_conflated() {
+        assert_eq!(describe_signature("int unsigned|NO|30|<NONE>"), "type=int unsigned, nullable=NO, default=\"0\", extra=none");
+        assert!(describe_signature("int unsigned|NO|<NULL>|<NONE>").contains("default=no default"));
+        assert!(describe_signature("varchar(8)|YES||<NONE>").contains("default=\"\""));
+        assert_eq!(describe_signature("legacy"), "legacy");
+    }
 
     #[test]
     fn a_release_cannot_use_a_partial_or_empty_schema_contract() {

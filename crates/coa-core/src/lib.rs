@@ -44,9 +44,12 @@ pub mod release;
 pub mod report;
 pub mod release_schema;
 pub mod update;
+mod update_isolation;
+mod mysql_snapshot;
 pub mod wine;
 pub mod upnp;
 pub mod signing;
+pub mod channels;
 pub mod srp6;
 
 pub use error::{Error, ErrorCode, Result};

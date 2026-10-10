@@ -247,6 +247,13 @@ impl Db {
         self.query(&sql)?.trim().parse().map_err(|_| Error::Invalid("unexpected reply".into()))
     }
 
+    pub fn recovery_objects(&self, schema: &str) -> Result<Vec<serde_json::Value>> {
+        let schema = self.realm_schema(schema);
+        if !ident_ok(schema) { return Err(Error::Invalid("bad schema name".into())); }
+        let sql = format!("SELECT routine_type,HEX(routine_name) FROM information_schema.routines WHERE routine_schema='{schema}' UNION ALL SELECT 'TRIGGER',HEX(trigger_name) FROM information_schema.triggers WHERE trigger_schema='{schema}' UNION ALL SELECT 'VIEW',HEX(table_name) FROM information_schema.views WHERE table_schema='{schema}' ORDER BY 1,2;");
+        parse_recovery_objects(&schema, &self.query(&sql)?)
+    }
+
     /// Consistent dump of one schema, zstd-compressed to `out`. Returns (compressed bytes, sha256 of the file).
     pub fn dump_to(&self, schema: &str, out: &Path) -> Result<(u64, String)> {
         let schema = self.realm_schema(schema);
@@ -332,6 +339,18 @@ impl Db {
         copied?;
         Ok(())
     }
+}
+
+fn parse_recovery_objects(schema: &str, text: &str) -> Result<Vec<serde_json::Value>> {
+    text.lines().filter(|line| !line.is_empty()).map(|line| {
+        let (kind, name) = line.split_once('\t').ok_or_else(|| Error::Invalid("unexpected database object reply".into()))?;
+        if !matches!(kind, "PROCEDURE" | "FUNCTION" | "TRIGGER" | "VIEW") {
+            return Err(Error::Invalid("unexpected database object type".into()));
+        }
+        let name = hex::decode(name).ok().and_then(|bytes| String::from_utf8(bytes).ok())
+            .filter(|name| !name.is_empty()).ok_or_else(|| Error::Invalid("unexpected database object name".into()))?;
+        Ok(serde_json::json!({ "database": schema, "kind": kind, "name": name }))
+    }).collect()
 }
 
 /// Name of the service account the Manager uses for the server console (RA). Accounts are stored upper-case.
@@ -420,6 +439,19 @@ mod tests {
 
     const ROOT_PW: &str = "rootpw-ZZ1";
     const APP_PW: &str = "apppw-QQ2";
+
+    #[test]
+    fn recovery_object_names_preserve_unicode_and_delimiters() {
+        let name = "view\tперсонажи\n";
+        let text = format!("VIEW\t{}\nTRIGGER\t74726967676572\n", hex::encode(name));
+        let objects = parse_recovery_objects("acore_characters", &text).unwrap();
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0]["name"], name);
+        assert_eq!(objects[1]["kind"], "TRIGGER");
+        assert!(parse_recovery_objects("test", "VIEW\tzz").is_err());
+        assert!(parse_recovery_objects("test", "UNKNOWN\t61").is_err());
+        assert!(parse_recovery_objects("test", "VIEW").is_err());
+    }
 
     fn folder(docker: bool) -> (tempfile::TempDir, PathBuf) {
         let d = tempfile::tempdir().unwrap();

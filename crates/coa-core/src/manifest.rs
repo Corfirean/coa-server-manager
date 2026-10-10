@@ -79,8 +79,30 @@ pub struct Revision {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceDatabase {
+    pub manifest_sha256: String,
+    pub schema_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Compatibility {
+    pub schema: u32,
+    pub platform: String,
+    pub core_commit: String,
+    pub module_commits: std::collections::BTreeMap<String, String>,
+    pub client_patch_version: String,
+    pub source_versions: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub source_databases: std::collections::BTreeMap<String, SourceDatabase>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<Compatibility>,
     pub schema: u32,
     pub kind: Kind,
     pub version: String,
@@ -135,6 +157,26 @@ impl Manifest {
         }
         if parse_version(&self.min_manager_version).is_none() {
             return bad(format!("bad minManagerVersion {:?}", self.min_manager_version));
+        }
+        if let Some(c) = &self.compatibility {
+            if parse_version(&self.min_manager_version).is_none_or(|v| v < (0, 6, 13)) {
+                return bad("Release compatibility matrices require Manager 0.6.13 or newer".into());
+            }
+            if c.schema != 1 || !matches!(c.platform.as_str(), "windows-x86_64" | "linux-x86_64")
+                || !is_commit(&c.core_commit) || self.core.commit.as_deref() != Some(&c.core_commit)
+                || c.module_commits.is_empty() || c.module_commits.values().any(|sha| !is_commit(sha))
+                || self.bots.as_ref().and_then(|r| r.commit.as_ref()).is_some_and(|sha| c.module_commits.get("bots") != Some(sha))
+                || parse_version(&c.client_patch_version).is_none()
+                || c.source_versions.is_empty() || c.source_versions.iter().any(|v| parse_version(v).is_none())
+                || c.source_versions.iter().collect::<HashSet<_>>().len() != c.source_versions.len() {
+                return bad("Invalid release compatibility matrix".into());
+            }
+            if !c.source_databases.is_empty() && (c.source_databases.len() != c.source_versions.len()
+                || c.source_versions.iter().any(|v| !c.source_databases.contains_key(v))
+                || c.source_databases.values().any(|s| !is_sha256(&s.manifest_sha256)
+                    || s.schema_sha256.as_ref().is_some_and(|sha| !is_sha256(sha)))) {
+                return bad("Invalid source database compatibility".into());
+            }
         }
         for migration in &self.migrations {
             if !is_sha256(&migration.sha256) || migration.compatible_sha256.iter().any(|h| !is_sha256(h) || h == &"0".repeat(64)) {
@@ -230,6 +272,53 @@ mod tests {
         assert_eq!(m.files.len(), 1);
         assert!(m.compatible_with_manager("0.1.0"));
         assert!(!m.compatible_with_manager("0.0.9"));
+    }
+
+    #[test]
+    fn compatibility_matrix_binds_core_and_requires_tested_sources() {
+        let mut m = Manifest::parse(sample("").as_bytes()).unwrap();
+        m.min_manager_version = "0.6.13".into();
+        m.compatibility = Some(Compatibility { schema: 1, platform: "windows-x86_64".into(),
+            core_commit: "a".repeat(40), module_commits: [("squid".into(), "b".repeat(40))].into(),
+            source_databases: Default::default(), client_patch_version: "1.5.1".into(), source_versions: vec!["0.261010.32".into()] });
+        m.validate().unwrap();
+        m.compatibility.as_mut().unwrap().core_commit = "c".repeat(40);
+        assert!(m.validate().is_err());
+        m.compatibility.as_mut().unwrap().core_commit = "a".repeat(40);
+        m.compatibility.as_mut().unwrap().source_versions.clear();
+        assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn compatibility_cannot_claim_a_different_packaged_bot_revision() {
+        let mut m = Manifest::parse(sample("").as_bytes()).unwrap();
+        m.min_manager_version = "0.6.13".into();
+        m.bots = Some(Revision { commit: Some("b".repeat(40)) });
+        m.compatibility = Some(Compatibility { schema: 1, platform: "windows-x86_64".into(),
+            core_commit: "a".repeat(40), module_commits: [("bots".into(), "c".repeat(40))].into(),
+            source_databases: Default::default(), client_patch_version: "1.5.1".into(), source_versions: vec!["0.2.0".into()] });
+        assert!(m.validate().is_err());
+        m.compatibility.as_mut().unwrap().module_commits.insert("bots".into(), "b".repeat(40));
+        m.validate().unwrap();
+        m.compatibility.as_mut().unwrap().source_versions.push("0.2.0".into());
+        assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn source_database_contracts_must_cover_the_exact_upgrade_versions() {
+        let mut m = Manifest::parse(sample("").as_bytes()).unwrap();
+        m.min_manager_version = "0.6.13".into();
+        m.compatibility = Some(Compatibility { schema: 1, platform: "windows-x86_64".into(),
+            core_commit: "a".repeat(40), module_commits: [("squid".into(), "b".repeat(40))].into(),
+            client_patch_version: "1.5.1".into(), source_versions: vec!["0.2.0".into()],
+            source_databases: [("0.2.0".into(), SourceDatabase { manifest_sha256: "a".repeat(64), schema_sha256: None })].into() });
+        m.validate().unwrap();
+        m.compatibility.as_mut().unwrap().source_databases.get_mut("0.2.0").unwrap().schema_sha256 = Some("bad".into());
+        assert!(m.validate().is_err());
+        let c = m.compatibility.as_mut().unwrap();
+        c.source_databases.get_mut("0.2.0").unwrap().schema_sha256 = None;
+        c.source_versions = vec!["0.2.1".into()];
+        assert!(m.validate().is_err());
     }
 
     #[test]

@@ -217,6 +217,7 @@ pub fn build(src: &Path, out: &Path, opts: &BuildOptions, progress: &dyn Fn(&str
     split.close_current()?;
 
     let manifest = Manifest {
+        compatibility: None,
         schema: crate::manifest::SCHEMA,
         kind: opts.kind,
         version: opts.version.clone(),
@@ -503,6 +504,7 @@ mod tests {
         fs::write(d.path().join(name), &bytes).unwrap();
         let ok_sha = fsx::sha256_bytes(b"data");
         let m = Manifest {
+            compatibility: None,
             schema: 1,
             kind: Kind::Base,
             version: "0.1.0".into(),

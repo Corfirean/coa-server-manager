@@ -186,6 +186,7 @@ export interface RecoveryPoint {
   label: string | null;
   created_at: string;
   components: { name: string; path: string; bytes: number; tables: number | null; files: string[] | null }[];
+  mysql_snapshot?: { bytes: number } | null;
 }
 
 export interface DbRestore {
