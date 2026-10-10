@@ -223,6 +223,10 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         return Ok(());
     }
 
+    // Realm profiles (CoA / Wildcard): the database is running and healthy here (started and waited for above), which the
+    // realm list update below needs. Finish an interrupted switch, then make the realm list say what is selected. The repack's
+    // launcher did this when it started; here nothing else would.
+    let realm = prepare_realm(root, log)?;
     ensure_image(d, log)?;
     super::ensure_main_configs(root).map_err(|e| Failure { code: ErrorCode::ServerFilesIncomplete, output: e.to_string() })?;
     std::fs::create_dir_all(root.join("Core/Logs")).map_err(|e| Failure { code: ErrorCode::ServerFilesIncomplete, output: e.to_string() })?;
@@ -234,7 +238,7 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         remove(d, &n.world);
         let mut call = Call::new(&[], Duration::from_secs(60));
         call.args = game_args(cfg, &n, GameKind::World, &host, &cfg.data_path(&host), ports.world, ports.ra, owner.as_deref());
-        call.env = database_env(&secrets, true);
+        call.env = database_env(&secrets, true, realm);
         run_container(d, &call, &n.world, log)?;
     }
     wait_listening(d, cfg, &n.world, ports.world, WORLD_WAIT, log)?;
@@ -243,7 +247,7 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         remove(d, &n.auth);
         let mut call = Call::new(&[], Duration::from_secs(60));
         call.args = game_args(cfg, &n, GameKind::Auth, &host, &cfg.data_path(&host), ports.auth, 0, owner.as_deref());
-        call.env = database_env(&secrets, false);
+        call.env = database_env(&secrets, false, realm);
         run_container(d, &call, &n.auth, log)?;
     }
     wait_listening(d, cfg, &n.auth, ports.auth, AUTH_WAIT, log)?;
@@ -372,14 +376,30 @@ enum GameKind {
 }
 
 /// Connection strings: host;port;user;password;database. They hold the password, so they travel by environment.
-fn database_env(s: &Secrets, world: bool) -> Vec<(String, String)> {
+fn database_env(s: &Secrets, world: bool, realm: crate::realms::Mode) -> Vec<(String, String)> {
     let info = |db: &str| format!("db;3306;acore;{};{db}", s.app);
     let mut env = vec![("AC_LOGIN_DATABASE_INFO".to_string(), info("acore_auth"))];
     if world {
-        env.push(("AC_WORLD_DATABASE_INFO".into(), info("acore_world")));
-        env.push(("AC_CHARACTER_DATABASE_INFO".into(), info("acore_characters")));
+        // The databases of the selected realm (the Wildcard realm has its own world and characters databases).
+        let schema = |kind: &str| realm.schema(kind).unwrap_or("acore_world");
+        env.push(("AC_WORLD_DATABASE_INFO".into(), info(schema("world"))));
+        env.push(("AC_CHARACTER_DATABASE_INFO".into(), info(schema("characters"))));
     }
     env
+}
+
+/// Realm profiles are only in play once a profile has been chosen on this server (`Settings/realm-profile.json`).
+fn prepare_realm(root: &Path, log: &mut Log) -> Step<crate::realms::Mode> {
+    let fail_with = |e: crate::error::Error| Failure { code: ErrorCode::StartupFailed, output: e.to_string() };
+    crate::realms::before_start(root).map_err(fail_with)?;
+    let active = crate::realms::state(root).map_err(fail_with)?.active;
+    if root.join("Settings/realm-profile.json").exists() {
+        crate::realms::setup_realmlist(root).map_err(fail_with)?;
+        let db = crate::db::Db::from_repack(root, crate::db::Account::Admin).map_err(fail_with)?;
+        db.query("UPDATE acore_auth.realmlist SET name='Conquest of Azeroth' WHERE id=1; UPDATE acore_auth.realmlist SET name='Wildcard' WHERE id=2;").map_err(fail_with)?;
+        log.say(format!("realm {}", active.name()));
+    }
+    Ok(active)
 }
 
 fn game_args(cfg: &Config, n: &Names, kind: GameKind, host: &Path, data: &Path, port: u16, ra_port: u16, owner: Option<&str>) -> Vec<String> {
@@ -731,6 +751,22 @@ mod tests {
         let plain = &sim2.calls_of("run")[0].args;
         assert!(plain.windows(2).any(|w| w == ["--volume", "coa-t2-db:/var/lib/mysql"]), "{plain:?}");
         assert!(!plain.iter().any(|a| a == "--lower-case-table-names=1" || a == "--user"));
+    }
+
+    #[test]
+    fn the_containers_use_the_databases_of_the_selected_realm() {
+        let s = Secrets { root: "r".into(), app: "apppw".into() };
+        let get = |env: &[(String, String)], k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let coa = database_env(&s, true, crate::realms::Mode::Coa);
+        assert_eq!(get(&coa, "AC_WORLD_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_world");
+        assert_eq!(get(&coa, "AC_CHARACTER_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_characters");
+        let wild = database_env(&s, true, crate::realms::Mode::Wildcard);
+        assert_eq!(get(&wild, "AC_WORLD_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_world_wildcard");
+        assert_eq!(get(&wild, "AC_CHARACTER_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_characters_wildcard");
+        // Accounts are shared by both realms; the auth server never sees the others.
+        assert_eq!(get(&wild, "AC_LOGIN_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_auth");
+        let auth = database_env(&s, false, crate::realms::Mode::Wildcard);
+        assert_eq!(auth.len(), 1);
     }
 
     #[test]
