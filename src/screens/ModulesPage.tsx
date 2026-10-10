@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { useHuman, useI18n, useSchemaText, type Key } from "@/i18n";
 import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField } from "@/lib/moduleSettings";
 import { AuctionTypes } from "@/screens/AuctionTypes";
+import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 /** The GitHub mark (lucide dropped its brand icons). */
 function GithubMark(props: { className?: string }) {
@@ -78,13 +79,19 @@ function Tile({ icon, off }: { icon: string; off: boolean }) {
 }
 
 /** The server's optional modules: square cards with a switch, the module's status, a link to GitHub and its settings. */
-export function ModulesPage({ serverId, onChanged }: { serverId: string; onChanged?: () => void }) {
+export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId: string; onChanged?: () => void; onRegisterGuard?: (guard: UnsavedChangesGuard | null) => void }) {
   const { t, locale } = useI18n();
   const human = useHuman();
   const [modules, setModules] = useState<ModuleView[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
   const [changed, setChanged] = useState(false);
+  const [guard, setGuard] = useState<UnsavedChangesGuard | null>(null);
+
+  useEffect(() => {
+    onRegisterGuard?.(guard);
+    return () => onRegisterGuard?.(null);
+  }, [guard, onRegisterGuard]);
 
   const load = useCallback(async () => {
     try {
@@ -174,7 +181,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
           {selected?.has_settings && !selected.page && selectedAt >= 0 && Math.floor(selectedAt / 2) === Math.floor(i / 2) && (i % 2 === 1 || i === modules.length - 1) && (
             <SettingsPanel key={selected.id} className="sm:col-span-2">
               <h2 className="font-semibold">{t("mod.settingsOf", { name: selected.name })}</h2>
-              <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} />
+              <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} onRegisterGuard={setGuard} />
             </SettingsPanel>
           )}
           </Fragment>
@@ -184,8 +191,8 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
   );
 }
 
-function ModuleSettings({ serverId, module, onSaved }: { serverId: string; module: ModuleView; onSaved: () => void }) {
-  const { t, locale } = useI18n();
+function ModuleSettings({ serverId, module, onSaved, onRegisterGuard }: { serverId: string; module: ModuleView; onSaved: () => void; onRegisterGuard?: (guard: UnsavedChangesGuard | null) => void }) {
+  const { t, tn, locale } = useI18n();
   const sx = useSchemaText();
   const human = useHuman();
   const [advanced, setAdvanced] = useState(false);
@@ -208,7 +215,7 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
     return () => { cancelled = true; };
   }, [serverId, module.id]);
 
-  async function save() {
+  async function save(): Promise<boolean> {
     const errors: Record<string, string> = {};
     for (const [key, value] of Object.entries(edits)) {
       const field = moduleField(key, locale, items?.find(item => item.key === key)?.field);
@@ -222,7 +229,7 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
       }
     }
     setFieldErrors(errors);
-    if (Object.keys(errors).length) return;
+    if (Object.keys(errors).length) return false;
     setBusy(true);
     setError(null);
     setNote(null);
@@ -234,14 +241,33 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
         onSaved();
         setNote(t("mod.saved", { n: done.length }));
       }
+      return true;
     } catch (e) {
       setError(asUiError(e));
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
   const dirty = Object.keys(edits).length > 0;
+
+  useEffect(() => {
+    if (dirty) {
+      onRegisterGuard?.({
+        isDirty: () => Object.keys(edits).length > 0,
+        save: () => save(),
+        discard: () => {
+          setEdits({});
+          setFieldErrors({});
+          setNote(null);
+        },
+      });
+    } else {
+      onRegisterGuard?.(null);
+    }
+    return () => onRegisterGuard?.(null);
+  }, [dirty, edits, onRegisterGuard]);
   const edit = (key: string, value: string) => setEdits(previous => {
     const next = { ...previous };
     if (value === items?.find(item => item.key === key)?.value) delete next[key];
@@ -324,6 +350,20 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
         {note && <span className="text-sm text-ok" role="status">{note}</span>}
       </div>}
       {error && <p className="mt-2 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
+      {dirty && (
+        <div className="fixed bottom-0 left-60 right-0 z-40 flex items-center justify-between border-t border-line bg-[#0b0c0e]/95 px-10 py-3 shadow-lg">
+          <span className="text-sm text-muted">{tn("set.unsaved", Object.keys(edits).length)}</span>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEdits({}); setFieldErrors({}); setNote(null); }}>
+              {t("set.discard")}
+            </Button>
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void save()}>
+              {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />}
+              {t("acc.save")}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

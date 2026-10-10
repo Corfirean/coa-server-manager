@@ -91,6 +91,7 @@ export {};
       if(cmd==="report_targets") return [{id:"manager",repo:"Corfirean/coa-server-manager",ours:true},{id:"companions",repo:"Corfirean/mod-coa-playerbots",ours:true},{id:"squid",repo:"Zyth45/mod-playerbots",ours:false}];
       if(cmd==="open_link"){(window as any).__lastLink=args.url;return null;}
       if(cmd==="export_diagnostics") return "C:\\Users\\you\\Desktop\\CoA-Diagnostics-20261001-140000.zip";
+      if(cmd==="list_crashes") return [];
       if(cmd==="install_environment"){const docker=new URLSearchParams(location.search).get("flavor")==="docker";return docker?{flavor:"docker",default_dir:"/home/you/CoaServer",docker_problem:new URLSearchParams(location.search).has("nodocker")?"permission denied while trying to connect to the Docker daemon socket":null}:{flavor:"repack",default_dir:"C:\\Games\\CoA Server",docker_problem:null};}
       if(cmd==="install_preflight") return {ok:true,problems:[],free_bytes:210*2**30};
       if(cmd==="install_requirements") return {download_bytes:Math.round(5.9*2**30),unpacked_bytes:Math.round(11.4*2**30),version:"0.2.0"};

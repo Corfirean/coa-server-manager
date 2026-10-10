@@ -898,6 +898,21 @@ const en = {
   "fr.lan.unavailable": "Selected address unavailable",
   "fr.lan.unavailableText": "The selected address is not currently assigned to a detected local interface. Choose another address or switch to Automatic, or keep this address intentionally.",
   "fr.lan.invalid": "Invalid IPv4 address",
+  "unsaved.title": "Unsaved changes",
+  "unsaved.message": "You have unsaved changes. Do you want to save them before leaving this page?",
+  "unsaved.saveFailed": "Failed to save changes. Please check fields for errors.",
+  "crash.autoRestart": "Auto-restart on crash",
+  "crash.autoRestartDesc": "Automatically restart the world server if it crashes or stops unexpectedly.",
+  "crash.badge": "Crashes: {n}",
+  "crash.historyTitle": "Server Crash History",
+  "crash.noCrashes": "No crash reports found.",
+  "crash.restartNotice": "Server crashed and was automatically restarted (Crash #{n}).",
+  "crash.loopPaused": "Auto-restart paused: the server crashed repeatedly in a short period.",
+  "crash.details": "Crash Details",
+  "crash.viewRaw": "View full crash report",
+  "crash.hideRaw": "Hide full report",
+  "crash.copyReport": "Copy crash report",
+  "crash.copied": "Copied!",
 } as const;
 
 export default en;

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Archive, BarChart3, Bot, Bug, Gauge, Globe, Puzzle, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Archive, BarChart3, Bot, Bug, Gauge, Globe, Loader2, Puzzle, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
 import { api, type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
 import logo from "@/assets/logo.png";
@@ -16,8 +16,10 @@ import { ModulesPage } from "@/screens/ModulesPage";
 import { ConsolePage } from "@/screens/ConsolePage";
 import { DashboardPage } from "@/screens/DashboardPage";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
 import { startClientPolling } from "@/lib/clientUpdate";
+import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 type Page = "overview" | "bots" | "dashboard" | "server" | "modules" | "players" | "friends" | "backups" | "console" | "report" | "settings";
 
@@ -51,6 +53,22 @@ export function Shell(props: {
   // A module that is switched off takes its page away (the companions' "Bots" page, for one).
   const [botModule, setBotModule] = useState<"companions" | "playerbots">("companions");
   const [hiddenPages, setHiddenPages] = useState<string[]>([]);
+  const guardRef = useRef<UnsavedChangesGuard | null>(null);
+  const registerGuard = useCallback((g: UnsavedChangesGuard | null) => {
+    guardRef.current = g;
+  }, []);
+  const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
+  const [modalSaving, setModalSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  const requestNavigation = (action: () => void) => {
+    if (guardRef.current && guardRef.current.isDirty()) {
+      setPendingNav(() => action);
+    } else {
+      action();
+    }
+  };
+
   const reloadModules = useCallback(() => {
     void api
       .modulesList(props.activeId)
@@ -89,7 +107,7 @@ export function Shell(props: {
           {NAV.filter((n) => !hiddenPages.includes(n.id) && (n.id !== "dashboard" || botModule === "playerbots")).map(({ id, label, icon: Icon }) => (
             <li key={id}>
               <button
-                onClick={() => setPage(id)}
+                onClick={() => requestNavigation(() => setPage(id))}
                 aria-current={page === id ? "page" : undefined}
                 className={cn(
                   "flex h-10 w-full cursor-pointer items-center gap-3 rounded-md px-3 text-left text-[15px] transition-colors",
@@ -111,7 +129,7 @@ export function Shell(props: {
             <select
               className="mb-2 w-full rounded-md border border-line bg-card px-2 py-2 text-sm"
               value={props.activeId}
-              onChange={(e) => props.onSelect(e.target.value)}
+              onChange={(e) => requestNavigation(() => props.onSelect(e.target.value))}
               aria-label={t("nav.serverPicker")}
             >
               {props.servers.map((s) => (
@@ -121,7 +139,7 @@ export function Shell(props: {
               ))}
             </select>
           )}
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={props.onAddAnother}>
+          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => requestNavigation(props.onAddAnother)}>
             {t("nav.addAnother")}
           </Button>
         </div>
@@ -129,15 +147,15 @@ export function Shell(props: {
 
       <main className="relative h-full flex-1 overflow-y-auto px-10 py-8">
         {page === "overview" ? (
-          <Overview key={server.id} server={server} companions={botModule === "companions" && !hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => setPage("settings")} onRealmChanged={reloadModules} onReport={() => setPage("report")} />
+          <Overview key={server.id} server={server} companions={botModule === "companions" && !hiddenPages.includes("bots")} onForget={() => props.onForget(server.id)} onOpenUpdates={() => requestNavigation(() => setPage("settings"))} onRealmChanged={reloadModules} onReport={() => requestNavigation(() => setPage("report"))} />
         ) : page === "bots" || page === "server" ? (
-          <SettingsPage key={`${server.id}-${page}-${botModule}`} serverId={server.id} scope={page} botModule={botModule} title={t(current.label)} question={t(current.question)} />
+          <SettingsPage key={`${server.id}-${page}-${botModule}`} serverId={server.id} scope={page} botModule={botModule} title={t(current.label)} question={t(current.question)} onRegisterGuard={registerGuard} />
         ) : page === "dashboard" ? (
           <DashboardPage key={server.id} serverId={server.id} />
         ) : page === "console" ? (
           <ConsolePage key={server.id} serverId={server.id} />
         ) : page === "modules" ? (
-          <ModulesPage key={server.id} serverId={server.id} onChanged={reloadModules} />
+          <ModulesPage key={server.id} serverId={server.id} onChanged={reloadModules} onRegisterGuard={registerGuard} />
         ) : page === "report" ? (
           <ReportPage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (
@@ -152,6 +170,52 @@ export function Shell(props: {
           <Placeholder title={t(current.label)} question={t(current.question)} />
         )}
       </main>
+
+      {pendingNav && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" role="presentation">
+          <Card className="w-full max-w-md p-6 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("unsaved.title")}>
+            <h2 className="text-lg font-semibold">{t("unsaved.title")}</h2>
+            <p className="mt-2 text-sm text-muted">{t("unsaved.message")}</p>
+            {modalError && <p className="mt-3 text-sm text-bad" role="alert">{modalError}</p>}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button variant="ghost" disabled={modalSaving} onClick={() => { setPendingNav(null); setModalError(null); }}>
+                {t("common.cancel")}
+              </Button>
+              <Button variant="ghost" disabled={modalSaving} onClick={() => {
+                guardRef.current?.discard();
+                const act = pendingNav;
+                setPendingNav(null);
+                setModalError(null);
+                act?.();
+              }}>
+                {t("set.discard")}
+              </Button>
+              <Button variant="primary" disabled={modalSaving} onClick={async () => {
+                if (!guardRef.current) return;
+                setModalSaving(true);
+                setModalError(null);
+                try {
+                  const ok = await guardRef.current.save();
+                  if (ok) {
+                    const act = pendingNav;
+                    setPendingNav(null);
+                    act?.();
+                  } else {
+                    setModalError(t("unsaved.saveFailed"));
+                  }
+                } catch (e) {
+                  setModalError(String(e));
+                } finally {
+                  setModalSaving(false);
+                }
+              }}>
+                {modalSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />}
+                {t("acc.save")}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
