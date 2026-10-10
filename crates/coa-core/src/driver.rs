@@ -133,6 +133,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         crate::modules::ensure_bot_exclusivity(&root)?;
     }
     if crate::docker::is_docker(&root) {
+        prepare_headless_world(&root, verb)?;
         return crate::docker::run(&root, verb);
     }
     if verb == Verb::StopAll {
@@ -155,6 +156,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         crate::modules::ensure_bot_exclusivity(&root)?;
     }
     let (python, script) = launcher(&root)?;
+    prepare_headless_world(&root, verb)?;
     let original = std::fs::read_to_string(&script)?;
     let patched = patch_launcher_imports(&original)?;
     if original != patched {
@@ -254,6 +256,27 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         human: code.map(ErrorCode::human),
         output,
     })
+}
+
+/// Background servers receive no interactive stdin. Keep CLI EOF from stopping the world server;
+/// the Manager's console uses remote access instead. The template survives launcher regeneration.
+fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
+    if !matches!(verb, Verb::StartAll | Verb::StartWorld) { return Ok(()); }
+    for relative in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+        let path = root.join(relative);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        };
+        let mut config = crate::config::parser::ConfFile::parse_bytes(&bytes)?;
+        config.set("Console.Enable", "0", &["Local console is disabled for background startup; the Manager uses remote access."]);
+        let text = config.to_text();
+        if text.as_bytes() != bytes {
+            fsx::atomic_write(&path, text.as_bytes())?;
+        }
+    }
+    Ok(())
 }
 
 /// The launcher keeps one JSON record per service in `.state`. A crash or power loss while it writes one can leave
@@ -362,6 +385,55 @@ pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_start_disables_cli_in_template_and_rendered_config() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        std::fs::create_dir_all(root.join("Settings")).unwrap();
+        std::fs::create_dir_all(root.join("Core/configs")).unwrap();
+        let template = root.join("Settings/worldserver.conf.template");
+        let rendered = root.join("Core/configs/worldserver.conf");
+        let original = "\u{feff}# Custom settings\r\nConsole.Enable = 1\r\nRa.Enable = 1\r\nPlayerLimit = 42\r\n";
+        std::fs::write(&template, original).unwrap();
+        std::fs::write(&rendered, original).unwrap();
+        let auth = root.join("Core/configs/authserver.conf");
+        std::fs::write(&auth, "custom auth config").unwrap();
+        for verb in [Verb::StartMysql, Verb::StopAll] {
+            prepare_headless_world(root, verb).unwrap();
+            assert_eq!(std::fs::read_to_string(&template).unwrap(), original);
+            assert_eq!(std::fs::read_to_string(&rendered).unwrap(), original);
+        }
+        for verb in [Verb::StartAll, Verb::StartWorld] {
+            std::fs::write(&template, original).unwrap();
+            std::fs::write(&rendered, original).unwrap();
+            prepare_headless_world(root, verb).unwrap();
+            let expected = original.replace("Console.Enable = 1", "Console.Enable = 0");
+            assert_eq!(std::fs::read_to_string(&template).unwrap(), expected);
+            assert_eq!(std::fs::read_to_string(&rendered).unwrap(), expected);
+            prepare_headless_world(root, verb).unwrap();
+            assert_eq!(std::fs::read_to_string(&template).unwrap(), expected);
+        }
+        assert_eq!(std::fs::read_to_string(auth).unwrap(), "custom auth config");
+    }
+
+    #[test]
+    fn background_start_overrides_an_absent_or_duplicate_console_setting() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        prepare_headless_world(root, Verb::StartAll).unwrap();
+        std::fs::create_dir_all(root.join("Core/configs")).unwrap();
+        let path = root.join("Core/configs/worldserver.conf");
+        for original in ["Ra.Enable = 1\n", "Console.Enable = 0\nConsole.Enable = 1\n"] {
+            std::fs::write(&path, original).unwrap();
+            prepare_headless_world(root, Verb::StartAll).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let config = crate::config::parser::ConfFile::parse_bytes(&bytes).unwrap();
+            assert_eq!(config.get("Console.Enable"), Some("0"));
+            prepare_headless_world(root, Verb::StartAll).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+    }
 
     #[test]
     fn large_squid_provisioning_has_time_to_finish_without_extending_shutdown() {

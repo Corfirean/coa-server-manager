@@ -3,7 +3,6 @@ resolver = "2"
 members = ["crates/coa-core", "crates/coa-release", "crates/coa-registry-proto", "crates/coa-control-proto", "src-tauri"]
 exclude = ["services/coa-registry", "services/coa-registry-e2e", "services/coa-coordinator", "services/coa-relay"]
 
-
 [workspace.package]
 version = "0.6.7"
 edition = "2021"

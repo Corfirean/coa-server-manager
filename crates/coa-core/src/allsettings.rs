@@ -31,6 +31,7 @@ fn hidden(key: &str) -> bool {
     k.contains("password")
         || k.contains("databaseinfo")
         || k.ends_with("port")
+        || k == "console.enable"
         || k.starts_with("ra.")
         || k.starts_with("logger.")
         || k.starts_with("appender.")
@@ -328,6 +329,8 @@ mod tests {
             "BindIP",
             "Ra.Enable",
             "Ra.Password",
+            "Console.Enable",
+            "console.enable",
             "Logger.root",
             "Appender.Console",
             "DataDir",
