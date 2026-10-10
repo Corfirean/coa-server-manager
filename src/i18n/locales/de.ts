@@ -867,6 +867,21 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "fr.lan.unavailable": "Ausgewählte Adresse nicht verfügbar",
   "fr.lan.unavailableText": "Die ausgewählte Adresse ist derzeit keinem erkannten lokalen Netzwerkadapter zugewiesen. Wählen Sie eine andere Adresse oder Automatisch, oder behalten Sie diese Adresse bewusst bei.",
   "fr.lan.invalid": "Ungültige IPv4-Adresse",
+  "unsaved.title": "Nicht gespeicherte Änderungen",
+  "unsaved.message": "Sie haben nicht gespeicherte Änderungen. Möchten Sie diese vor dem Verlassen der Seite speichern?",
+  "unsaved.saveFailed": "Änderungen konnten nicht gespeichert werden. Bitte Eingaben überprüfen.",
+  "crash.autoRestart": "Automatischer Neustart bei Absturz",
+  "crash.autoRestartDesc": "Startet den Server automatisch neu, falls er unerwartet abstürzt.",
+  "crash.badge": "Abstürze: {n}",
+  "crash.historyTitle": "Absturzverlauf des Servers",
+  "crash.noCrashes": "Keine Absturzberichte gefunden.",
+  "crash.restartNotice": "Der Server ist abgestürzt und wurde automatisch neu gestartet (Absturz #{n}).",
+  "crash.loopPaused": "Automatischer Neustart pausiert: Der Server ist mehrfach kurz hintereinander abgestürzt.",
+  "crash.details": "Absturzdetails",
+  "crash.viewRaw": "Vollständigen Bericht anzeigen",
+  "crash.hideRaw": "Vollständigen Bericht verbergen",
+  "crash.copyReport": "Bericht kopieren",
+  "crash.copied": "Kopiert!",
 };
 
 export default de;

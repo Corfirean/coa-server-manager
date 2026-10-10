@@ -869,6 +869,21 @@ const zh = {
   "fr.lan.unavailable": "所选地址不可用",
   "fr.lan.unavailableText": "所选地址目前未分配给检测到的本地网络接口。请选择其他地址、切换到自动，或有意保留此地址。",
   "fr.lan.invalid": "无效的 IPv4 地址",
+  "unsaved.title": "未保存的修改",
+  "unsaved.message": "您有未保存的修改。是否在离开前保存？",
+  "unsaved.saveFailed": "保存失败，请检查填写内容。",
+  "crash.autoRestart": "崩溃后自动重启",
+  "crash.autoRestartDesc": "如果服务器意外崩溃或停止，自动重新拉起。",
+  "crash.badge": "崩溃次数: {n}",
+  "crash.historyTitle": "服务器崩溃记录",
+  "crash.noCrashes": "未找到崩溃日志。",
+  "crash.restartNotice": "服务器崩溃并已自动重新拉起（崩溃 #{n}）。",
+  "crash.loopPaused": "自动重启已暂停：服务器在短时间内连续崩溃。",
+  "crash.details": "崩溃详情",
+  "crash.viewRaw": "查看完整日志",
+  "crash.hideRaw": "隐藏完整日志",
+  "crash.copyReport": "复制崩溃报告",
+  "crash.copied": "已复制！",
 } as const;
 
 export default zh;

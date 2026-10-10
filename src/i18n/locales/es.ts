@@ -867,6 +867,21 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "fr.lan.unavailable": "Dirección seleccionada no disponible",
   "fr.lan.unavailableText": "La dirección seleccionada no está asignada actualmente a ninguna interfaz local detectada. Elige otra dirección o Automática, o conserva esta dirección si así lo deseas.",
   "fr.lan.invalid": "Dirección IPv4 no válida",
+  "unsaved.title": "Cambios sin guardar",
+  "unsaved.message": "¿Tienes cambios sin guardar. ¿Quieres guardarlos antes de salir de esta página?",
+  "unsaved.saveFailed": "Error al guardar los cambios. Revisa los campos.",
+  "crash.autoRestart": "Reinicio automático tras caída",
+  "crash.autoRestartDesc": "Reinicia automáticamente el servidor si se detiene de forma inesperada.",
+  "crash.badge": "Caídas: {n}",
+  "crash.historyTitle": "Historial de caídas del servidor",
+  "crash.noCrashes": "No se encontraron informes de caídas.",
+  "crash.restartNotice": "El servidor se cayó y se reinició automáticamente (Caída #{n}).",
+  "crash.loopPaused": "Reinicio automático pausado: el servidor se ha caído varias veces en poco tiempo.",
+  "crash.details": "Detalles de la caída",
+  "crash.viewRaw": "Ver informe completo",
+  "crash.hideRaw": "Ocultar informe completo",
+  "crash.copyReport": "Copiar informe",
+  "crash.copied": "¡Copiado!",
 };
 
 export default es;

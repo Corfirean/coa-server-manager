@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { CollectionRows, RawRows, collectionsOf } from "@/screens/ExtraRows";
 import { CompanionsCard } from "@/screens/CompanionsCard";
 import { useHuman, useI18n, useSchemaText, useT, type Key } from "@/i18n";
+import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 type T = (k: Key, v?: Record<string, string | number>) => string;
 
@@ -154,7 +155,14 @@ function Row(props: { s: SettingView; value: JsonValue; error: string | null; on
   );
 }
 
-export function SettingsPage(props: { serverId: string; scope: Scope; botModule?: "companions" | "playerbots"; title: string; question: string }) {
+export function SettingsPage(props: {
+  serverId: string;
+  scope: Scope;
+  botModule?: "companions" | "playerbots";
+  title: string;
+  question: string;
+  onRegisterGuard?: (guard: UnsavedChangesGuard | null) => void;
+}) {
   const { serverId, scope } = props;
   const { t, tn, locale } = useI18n();
   const squid = scope === "bots" && props.botModule === "playerbots";
@@ -317,10 +325,10 @@ export function SettingsPage(props: { serverId: string; scope: Scope; botModule?
   }
 
   /** The save bar saves all three kinds of edits: the curated settings, the collection switches and the other documented ones. */
-  async function saveEverything() {
-    if (dirtyKeys.length && !(await save(Object.fromEntries(dirtyKeys.map((k) => [k, draft[k]]))))) return;
+  async function saveEverything(): Promise<boolean> {
+    if (dirtyKeys.length && !(await save(Object.fromEntries(dirtyKeys.map((k) => [k, draft[k]]))))) return false;
     const extra = [...Object.keys(rawEdits), ...Object.keys(colEdits)];
-    if (!extra.length) return;
+    if (!extra.length) return true;
     setBusy(true);
     setSaveErr(null);
     try {
@@ -337,12 +345,32 @@ export function SettingsPage(props: { serverId: string; scope: Scope; botModule?
       const more = extra.map((key) => ({ key, title: key, restart: "world" as const, dangerous: false }));
       setSaved((prev) => ({ changed: [...(prev?.changed ?? []), ...more], restart: prev?.restart ?? "world", snapshot: prev?.snapshot ?? null }));
       void api.status(serverId).then((st) => setRunning(st.observed.world.state === "running"));
+      return true;
     } catch (e) {
       setSaveErr(asUiError(e));
+      return false;
     } finally {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (pending > 0) {
+      props.onRegisterGuard?.({
+        isDirty: () => pending > 0,
+        save: () => saveEverything(),
+        discard: () => {
+          setDraft({});
+          setErrors({});
+          setRawEdits({});
+          setColEdits({});
+        },
+      });
+    } else {
+      props.onRegisterGuard?.(null);
+    }
+    return () => props.onRegisterGuard?.(null);
+  }, [pending, props.onRegisterGuard]);
 
   async function openPreset(id: string) {
     setSaved(null);

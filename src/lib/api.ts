@@ -265,6 +265,16 @@ export interface ReportTarget {
   ours: boolean;
 }
 
+/** The kind of server this computer installs: a repack (Windows) or Docker containers (Linux). */
+export type Flavor = "repack" | "docker";
+
+export interface InstallEnvironment {
+  flavor: Flavor;
+  default_dir: string;
+  /** Why Docker cannot be used, in its own words; null when it works. */
+  docker_problem: string | null;
+}
+
 export interface InstallRequirements {
   download_bytes: number;
   unpacked_bytes: number;
@@ -437,6 +447,21 @@ export interface ConsoleLine {
   level: "info" | "warn" | "error";
 }
 
+export interface CrashItem {
+  id: string;
+  timestamp_ms: number;
+  date_str: string;
+  title: string;
+  explanation: string;
+  category: "assertion" | "access_violation" | "stack_overflow" | "out_of_memory" | "database" | "network" | "exception" | "generic";
+  exception_code?: string | null;
+  location?: string | null;
+  function?: string | null;
+  condition?: string | null;
+  preview: string;
+  full_log: string;
+}
+
 export const api = {
   remoteConnection: () => invoke<RemoteConnection>("remote_connection"),
   remoteConnect: (host: string) => invoke<RemoteConnection>("remote_connect", { host }),
@@ -470,7 +495,8 @@ export const api = {
   deleteBackup: (id: string, backupId: string) => invoke<void>("delete_backup", { id, backupId }),
   restoreConfigs: (id: string, backupId: string) => invoke<RecoveryPoint>("restore_backup_configs", { id, backupId }),
   restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
-  installPreflight: (dest: string, needed?: number) => invoke<Preflight>("install_preflight", { dest, needed: needed ?? null }),
+  installEnvironment: () => invoke<InstallEnvironment>("install_environment"),
+  installPreflight: (dest: string, needed?: number, gameData?: string) => invoke<Preflight>("install_preflight", { dest, needed: needed ?? null, gameData: gameData ?? null }),
   installRequirements: (pkg?: string) => invoke<InstallRequirements>("install_requirements", { package: pkg ?? null }),
   realmlistProfiles: (id: string) => invoke<{ profiles: RealmProfile[]; active: string | null }>("realmlist_profiles", { id }),
   realmlistSave: (id: string, profileId: string | null, name: string, data: string) => invoke<RealmProfile>("realmlist_save", { id, profileId, name, data }),
@@ -489,7 +515,7 @@ export const api = {
   accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),
   accountRename: (id: string, name: string, newName: string, password: string) => invoke<void>("account_rename", { id, name, newName, password }),
   accountDelete: (id: string, name: string) => invoke<void>("account_delete", { id, name }),
-  installNew: (dest: string, pkg?: string) => invoke<ServerSummary>("install_new", { dest, package: pkg ?? null }),
+  installNew: (dest: string, pkg?: string, gameData?: string) => invoke<ServerSummary>("install_new", { dest, package: pkg ?? null, gameData: gameData ?? null }),
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),
@@ -531,6 +557,7 @@ export const api = {
   runDiagnostics: (id: string) => invoke<{ checks: DiagCheck[]; problems: number }>("run_diagnostics", { id }),
   verifyFiles: (id: string) => invoke<{ path: string; kind: "missing" | "changed" }[]>("verify_files", { id }),
   exportDiagnostics: (id: string) => invoke<string>("export_diagnostics", { id }),
+  listCrashes: (id: string, limit?: number) => invoke<CrashItem[]>("list_crashes", { id, limit: limit ?? null }),
   consoleTail: (id: string, source: ConsoleSource, filter?: string, lines = 300) =>
     invoke<ConsoleLine[]>("console_tail", { id, source, filter: filter ?? null, lines }),
   consoleRisk: (command: string) => invoke<"normal" | "dangerous">("console_risk", { command }),

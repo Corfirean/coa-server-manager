@@ -5,11 +5,14 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+mod docker_install;
+
 use coa_core::backup::{self, Kind, RecoveryPoint, Trigger, VerifyReport};
 use coa_core::config::{self, Scope, SettingsView};
 use coa_core::download::Cancel;
 use coa_core::driver::{self, DriverOutcome, Verb};
 use coa_core::install::{self, Preflight, Source};
+use coa_core::platform::{self, Flavor};
 use coa_core::ra::Ra;
 use coa_core::update::{self, Resolution};
 use coa_core::error::UiError;
@@ -105,7 +108,17 @@ fn summary(id: String, path: PathBuf) -> ServerSummary {
 
 #[tauri::command]
 fn default_install_dir() -> String {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::default_dir();
+    }
     "C:\\Games\\CoA Server".into()
+}
+
+/// What the install screen needs to know about this computer: the kind of server it installs, the suggested folder, and
+/// whether Docker can be used.
+#[tauri::command]
+async fn install_environment() -> docker_install::Environment {
+    tauri::async_runtime::spawn_blocking(docker_install::environment).await.unwrap_or_else(|_| docker_install::Environment { flavor: platform::flavor(), default_dir: default_install_dir(), docker_problem: None })
 }
 
 #[tauri::command]
@@ -450,7 +463,10 @@ async fn restore_backup_database(state: State<'_, AppState>, id: String, backup_
 }
 
 #[tauri::command]
-fn install_preflight(state: State<'_, AppState>, dest: String, needed: Option<u64>) -> Preflight {
+fn install_preflight(state: State<'_, AppState>, dest: String, needed: Option<u64>, game_data: Option<String>) -> Preflight {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::preflight(&dest, game_data, needed, &state.registry);
+    }
     // `needed` is the real size from the signed package list when the screen already has it; the real size is checked
     // again at install time either way.
     install::preflight(std::path::Path::new(&dest), needed.unwrap_or(6 * 1024 * 1024 * 1024), &state.registry)
@@ -468,6 +484,9 @@ struct InstallRequirements {
 /// How big the server is, read from the package's signed list before anything is downloaded.
 #[tauri::command]
 async fn install_requirements(package: Option<String>) -> std::result::Result<InstallRequirements, UiError> {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::requirements(package).await;
+    }
     blocking(move || {
         let (m, _) = coa_core::pkgsource::fetch_manifest(&package_source(package), coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
         let archive = m.archive.ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
@@ -477,7 +496,10 @@ async fn install_requirements(package: Option<String>) -> std::result::Result<In
 }
 
 #[tauri::command]
-async fn install_new(app: AppHandle, state: State<'_, AppState>, dest: String, package: Option<String>) -> std::result::Result<ServerSummary, UiError> {
+async fn install_new(app: AppHandle, state: State<'_, AppState>, dest: String, package: Option<String>, game_data: Option<String>) -> std::result::Result<ServerSummary, UiError> {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::install(app, state, dest, package, game_data).await;
+    }
     let cancel = Cancel::default();
     *state.install_cancel.lock().map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
     let source = package_source(package);
@@ -1585,6 +1607,12 @@ async fn export_diagnostics(state: State<'_, AppState>, id: String) -> std::resu
     .await
 }
 
+#[tauri::command]
+async fn list_crashes(state: State<'_, AppState>, id: String, limit: Option<usize>) -> std::result::Result<Vec<coa_core::crashes::CrashItem>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::crashes::list(&root, limit.unwrap_or(10))).await
+}
+
 
 #[tauri::command]
 async fn console_tail(
@@ -1632,6 +1660,7 @@ pub fn run() {
         .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
+            install_environment,
             scan_server,
             add_server,
             list_servers,
@@ -1719,6 +1748,7 @@ pub fn run() {
             run_diagnostics,
             verify_files,
             export_diagnostics,
+            list_crashes,
             console_tail,
             console_risk,
             console_command,
