@@ -6,7 +6,7 @@ This file never contains private keys, passwords, DB credentials, transfer PINs,
 
 ## Role
 
-`coa-infra-01` (OVHcloud VPS, Ubuntu 24.04 LTS) is the shared infrastructure node for the planned services:
+`coa-infra-01` (OVHcloud VPS, Ubuntu 24.04 LTS) is the shared infrastructure node for the deployed backend services:
 
 ```
 Registry API   Relay   Coordinator   PostgreSQL   Caddy (ingress)   monitoring
@@ -43,14 +43,16 @@ Rules:
 - Game Relay publishes the dedicated TCP port range `40000:43999/tcp` for relayed WoW client game streams (Auth & World).
 - No admin dashboards or the Docker API on public interfaces. Caddy's admin API is disabled.
 
-## Public ports
+## Public surface
 
-| Port | Proto | Service |
-|---|---|---|
-| 22 | tcp | SSH, key only |
-| 80 | tcp | Caddy HTTP (redirects to HTTPS) |
-| 443 | tcp | Caddy HTTPS / WSS |
-| 40000-43999 | tcp | Game Relay WoW game traffic (Auth & World) |
+The public surface of `coa-infra-01` is strictly limited to:
+
+| Port | Proto | Service | Access / Security |
+|---|---|---|---|
+| 22 | tcp | SSH | Key authentication only (Ed25519), root login disabled |
+| 80 | tcp | Caddy HTTP | Redirects automatically to HTTPS (`443/tcp`) |
+| 443 | tcp | Caddy HTTPS / WSS | Reverse proxy for Registry (`/registry/v2/`), Coordinator (`/coord/v1/`), Relay Host WS (`/relay/v1/host`) |
+| 40000–43999 | tcp | Game Relay | Dynamic TCP port pool for client Auth & World game traffic (dumb byte forwarding) |
 
 ## Filesystem layout
 
@@ -141,11 +143,11 @@ cd /opt/coa/coordinator && sudo docker compose up -d
 
 - Provider backup is not a substitute for application-level backups. What OVH actually includes for this plan
   (automatic backup, snapshot, KVM/rescue) still has to be confirmed in the Control Panel.
-- Planned (not implemented yet):
-  1. PostgreSQL logical backup: `pg_dump` to `/opt/coa/backups`, copied off the node.
-  2. Infrastructure config backup: `/opt/coa` except `secrets/` and volumes.
-  3. Secrets are backed up separately and never together with the config archive.
-- Portable Characters are not backed up here: the VPS is not their source of truth.
+- Automated PostgreSQL backup & restore (implemented in Phase 15, Gate 15.5 passed):
+  1. Logical database backup: `/opt/coa/registry/backup-db.sh` executes `pg_dump --format=custom --blobs` into `/opt/coa/backups`, verifies minimum size (> 1024 bytes), creates `.sha256` checksum file, touches `.complete` atomic marker, and prunes dumps older than 14 days.
+  2. Database restore: `/opt/coa/registry/restore-db.sh` verifies SHA-256 checksum, terminates existing database connections, and restores cleanly via `pg_restore --clean --if-exists --no-owner`. Disposable test restore verified with 100% table and schema integrity (Gate 15.5).
+  3. Secrets are backed up separately in `/opt/coa/secrets` (0700 root:root) and never placed in public repositories.
+- Portable Characters are not backed up here: the VPS is not their source of truth (characters are stored canonically on their respective Owners/Hosts).
 
 ## Recovery
 

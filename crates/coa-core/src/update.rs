@@ -424,6 +424,15 @@ pub enum DatabaseAccess {
     OnlyIfRunning,
 }
 
+/// The update packages are those of the Windows repack (executables, a bundled MySQL, a launcher): applying one to a Docker
+/// server would put Windows files in a Linux server folder. Updating a Docker server is separate work.
+fn refuse_for_docker(root: &Path) -> Result<()> {
+    if crate::docker::is_docker(root) {
+        return Err(Error::Invalid("Updates are not available for Docker servers yet.".into()));
+    }
+    Ok(())
+}
+
 /// Describe the update; a managed launcher may need a one-time authenticated payload check.
 pub fn preview(
     root: &Path,
@@ -450,6 +459,7 @@ pub fn preview_with(
     resolutions: &BTreeMap<String, Resolution>,
     access: DatabaseAccess,
 ) -> Result<Preview> {
+    refuse_for_docker(root)?;
     let meta_dir = crate::registry::metadata_dir_for(root)?;
     let _lock = operation_lock(&meta_dir)?;
     ensure_recovered(&meta_dir)?;
@@ -609,6 +619,7 @@ fn step(report: &dyn Fn(&str, u8), name: &str, pct: u8) {
 /// Run the whole update. On failure before the new build is validated the files are rolled back automatically;
 /// a build that is applied but unhealthy is left in `NeedsDecision` so the owner chooses.
 pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
+    refuse_for_docker(p.root)?;
     let (root, meta_dir) = (p.root, p.meta_dir);
     let _lock = operation_lock(meta_dir)?;
     ensure_recovered(meta_dir)?;
@@ -1143,6 +1154,7 @@ fn restore_files(root: &Path, before: &Path, txn: &mut Txn) -> Result<()> {
 
 /// Restore the database recovery point first, then restore binaries and configuration.
 pub fn rollback(root: &Path, meta_dir: &Path, id: &str, env: &dyn Env) -> Result<Txn> {
+    refuse_for_docker(root)?;
     let _lock = operation_lock(meta_dir)?;
     let mut txn = load(meta_dir, id)?;
     if matches!(txn.state, State::Committed | State::RolledBack) {
@@ -1923,6 +1935,27 @@ mod tests {
             Action::Replace
         );
         assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+    }
+
+    #[test]
+    fn a_docker_server_is_never_given_the_repack_files() {
+        // Found by trying the installer: the update check of a Docker server read the Windows channel and offered its files.
+        let w = world(&[], false);
+        write(&w.root, "Settings/docker.json", br#"{"project":"t1"}"#);
+        let before = read(&w, "Core/worldserver.exe");
+        let meta = InstallMeta::new(InstallKind::New, &w.root);
+
+        let err = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap_err();
+        assert!(err.to_string().contains("Docker"), "{err}");
+        let err = run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap_err();
+        assert!(err.to_string().contains("Docker"), "{err}");
+        assert!(rollback(&w.root, &w.meta, "any", &Fake::ok()).is_err());
+        assert_eq!(read(&w, "Core/worldserver.exe"), before, "nothing was touched");
+        assert!(!w.root.join("Core/newfile.dll").exists());
+
+        // The same package is applied to the same folder once it is not a Docker server.
+        fs::remove_file(w.root.join("Settings/docker.json")).unwrap();
+        assert_eq!(run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap().txn.state, State::Committed);
     }
 
     #[test]

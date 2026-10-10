@@ -80,8 +80,7 @@ sudo sh /opt/coa/registry/src/services/coa-registry/deploy/audit-db.sh          
 ```
 
 Logs are structured JSON: `realm`, `endpoint`, `status`, `error` (code), `latency_ms`, and the first 8 characters of the capabilities hash. They never contain keys,
-signatures, headers, request bodies or the database credentials (checked: 0 occurrences of either password in any container's log). Backups: not yet automated
-(`pg_dump coa_registry` to `/opt/coa/backups`, see INFRASTRUCTURE.md); the data is discovery metadata that every Host re-announces by itself within a heartbeat or two.
+signatures, headers, request bodies or the database credentials (checked: 0 occurrences of either password in any container's log). Backups: automated via `backup-db.sh` into `/opt/coa/backups` with SHA-256 verification and atomic markers (verified in Gate 15.5; see INFRASTRUCTURE.md); the data is discovery metadata that every Host re-announces by itself within a heartbeat or two.
 
 ## The Phase-10 gate
 

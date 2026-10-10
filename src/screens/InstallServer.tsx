@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { api, asUiError, type InstallRequirements, type InstallStep, type Preflight, type ServerSummary, type UiError } from "@/lib/api";
+import { api, asUiError, type InstallEnvironment, type InstallRequirements, type InstallStep, type Preflight, type ServerSummary, type UiError } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,6 +33,19 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
   const [pkg, setPkg] = useState("");
   const [installed, setInstalled] = useState<ServerSummary | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  // What this computer installs. A repack (Windows) needs nothing more than a folder; Docker (Linux) also needs the game data
+  // folder and a package, and Docker itself.
+  const [env, setEnv] = useState<InstallEnvironment | null>(null);
+  const [gameData, setGameData] = useState("");
+  const docker = env?.flavor === "docker";
+
+  function loadEnvironment(first: boolean) {
+    void api.installEnvironment().then((e) => {
+      setEnv(e);
+      if (first && e.flavor === "docker") setDest(e.default_dir);
+    }).catch(() => setEnv(null));
+  }
+  useEffect(() => loadEnvironment(true), []);
 
   // how big the server is, from the package's signed list (re-read when another package source is entered)
   useEffect(() => {
@@ -43,9 +56,9 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
   // room for the unpacked server plus the download that is removed afterwards
   const needed = req ? req.unpacked_bytes + req.download_bytes : undefined;
   useEffect(() => {
-    const timer = setTimeout(() => void api.installPreflight(dest, needed).then(setPre).catch(() => setPre(null)), 250);
+    const timer = setTimeout(() => void api.installPreflight(dest, needed, docker ? gameData.trim() : undefined).then(setPre).catch(() => setPre(null)), 250);
     return () => clearTimeout(timer);
-  }, [dest, needed]);
+  }, [dest, needed, docker, gameData]);
 
   useEffect(() => {
     const un = listen<InstallStep>("install-progress", (e) => setStep(e.payload));
@@ -56,7 +69,12 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
 
   async function browse() {
     const picked = await open({ directory: true, multiple: false, title: t("install.dialogTitle") });
-    if (typeof picked === "string") setDest(picked.replace(/[\\/]+$/, "") + (picked.toLowerCase().includes("coa") ? "" : "\\CoA Server"));
+    if (typeof picked === "string") setDest(picked.replace(/[\\/]+$/, "") + (picked.toLowerCase().includes("coa") ? "" : docker ? "/CoaServer" : "\\CoA Server"));
+  }
+
+  async function browseGameData() {
+    const picked = await open({ directory: true, multiple: false, title: t("install.data.dialogTitle") });
+    if (typeof picked === "string") setGameData(picked);
   }
 
   async function browsePackage() {
@@ -69,7 +87,7 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
     setPhase("installing");
     setStep({ step: "Preparing your server", percent: 0, detail: null });
     try {
-      const s = await api.installNew(dest, pkg.trim() || undefined);
+      const s = await api.installNew(dest, pkg.trim() || undefined, docker ? gameData.trim() : undefined);
       setInstalled(s);
       setPhase("done");
     } catch (e) {
@@ -139,9 +157,34 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
         </div>
       </div>
 
-      {pre && pre.problems.length > 0 && (
+      {docker && (
+        <div>
+          <label htmlFor="gamedata" className="text-sm text-muted">{t("install.data.label")}</label>
+          <div className="mt-1 flex gap-2">
+            <input id="gamedata" value={gameData} onChange={(e) => setGameData(e.target.value)} className="selectable flex-1 rounded-md border border-line bg-card px-3 py-2.5 text-[15px] outline-none focus:border-gold" />
+            <Button onClick={browseGameData}>{t("install.browse")}</Button>
+          </div>
+          <p className="mt-1 text-xs text-muted">{t("install.data.hint")}</p>
+          <label htmlFor="linuxpkg" className="mt-4 block text-sm text-muted">{t("install.linuxPkg.label")}</label>
+          <div className="mt-1 flex gap-2">
+            <input id="linuxpkg" value={pkg} onChange={(e) => setPkg(e.target.value)} placeholder={t("install.linuxPkg.hint")} className="selectable flex-1 rounded-md border border-line bg-card px-3 py-2.5 text-[15px] outline-none focus:border-gold" />
+            <Button onClick={browsePackage}>{t("install.browse")}</Button>
+          </div>
+        </div>
+      )}
+
+      {docker && env?.docker_problem && (
         <Card className="border-warn/40 p-4" role="alert">
-          {pre.problems.map((p) => (
+          <p className="font-medium text-warn">{t("install.docker.title")}</p>
+          <p className="mt-1 text-sm text-muted">{t("install.docker.text")}</p>
+          <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs">{env.docker_problem}</pre>
+          <Button className="mt-3" size="sm" onClick={() => loadEnvironment(false)}>{t("install.docker.retry")}</Button>
+        </Card>
+      )}
+
+      {pre && pre.problems.some((p) => !(docker && !gameData.trim() && p.code.startsWith("data"))) && (
+        <Card className="border-warn/40 p-4" role="alert">
+          {pre.problems.filter((p) => !(docker && !gameData.trim() && p.code.startsWith("data"))).map((p) => (
             <p key={p.code} className="text-sm text-warn">{p.message}</p>
           ))}
         </Card>
@@ -170,7 +213,7 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
         </Card>
       )}
 
-      <div>
+      {!docker && <div>
         <button onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced} className="flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
           {showAdvanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
           {t("install.advanced")}
@@ -184,10 +227,10 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
             </div>
           </div>
         )}
-      </div>
+      </div>}
 
       <div className="flex items-center gap-3">
-        <Button variant="primary" size="md" disabled={!pre?.ok} onClick={() => void install()}>
+        <Button variant="primary" size="md" disabled={!pre?.ok || (docker && (!!env?.docker_problem || !gameData.trim() || !pkg.trim()))} onClick={() => void install()}>
           {t("install.button")}
         </Button>
         {props.canCancel && (

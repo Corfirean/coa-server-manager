@@ -5,10 +5,13 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+mod docker_install;
+
 use coa_core::backup::{self, Kind, RecoveryPoint, Trigger, VerifyReport};
 use coa_core::config::{self, Scope, SettingsView};
 use coa_core::download::Cancel;
 use coa_core::driver::{self, DriverOutcome, Verb};
+use coa_core::platform::{self, Flavor};
 use coa_core::error::UiError;
 use coa_core::install::{self, Preflight, Source};
 use coa_core::layout::{self, Classification, ScanReport};
@@ -328,7 +331,17 @@ fn summary(id: String, path: PathBuf) -> ServerSummary {
 
 #[tauri::command]
 fn default_install_dir() -> String {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::default_dir();
+    }
     "C:\\Games\\CoA Server".into()
+}
+
+/// What the install screen needs to know about this computer: the kind of server it installs, the suggested folder, and
+/// whether Docker can be used.
+#[tauri::command]
+async fn install_environment() -> docker_install::Environment {
+    tauri::async_runtime::spawn_blocking(docker_install::environment).await.unwrap_or_else(|_| docker_install::Environment { flavor: platform::flavor(), default_dir: default_install_dir(), docker_problem: None })
 }
 
 #[tauri::command]
@@ -814,7 +827,10 @@ async fn restore_backup_database(
 }
 
 #[tauri::command]
-fn install_preflight(state: State<'_, AppState>, dest: String, needed: Option<u64>) -> Preflight {
+fn install_preflight(state: State<'_, AppState>, dest: String, needed: Option<u64>, game_data: Option<String>) -> Preflight {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::preflight(&dest, game_data, needed, &state.registry);
+    }
     // `needed` is the real size from the signed package list when the screen already has it; the real size is checked
     // again at install time either way.
     install::preflight(
@@ -838,6 +854,9 @@ struct InstallRequirements {
 async fn install_requirements(
     package: Option<String>,
 ) -> std::result::Result<InstallRequirements, UiError> {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::requirements(package).await;
+    }
     blocking(move || {
         let (m, _) = coa_core::pkgsource::fetch_manifest(
             &package_source(package),
@@ -861,7 +880,11 @@ async fn install_new(
     state: State<'_, AppState>,
     dest: String,
     package: Option<String>,
+    game_data: Option<String>,
 ) -> std::result::Result<ServerSummary, UiError> {
+    if platform::flavor() == Flavor::Docker {
+        return docker_install::install(app, state, dest, package, game_data).await;
+    }
     let cancel = Cancel::default();
     *state
         .install_cancel
@@ -1109,6 +1132,50 @@ async fn module_set_enabled(
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
         coa_core::modules::set_enabled(&root, &dir, &module, enabled)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn custom_races_status(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::custom_races::ClientPatchStatus>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let client = linked_client(&root)?;
+        Ok(client.as_deref().map(coa_core::custom_races::client_patch_status))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn custom_races_install(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    let cancel = begin_client_job(&state)?;
+    let sid = id.clone();
+    let result = blocking(move || {
+        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is linked to this server.".into()))?;
+        coa_core::custom_races::install_client_patches(&client, &cancel, &|step, percent| {
+            let _ = app.emit("custom-races-progress", serde_json::json!({
+                "id": sid,
+                "step": step,
+                "percent": percent,
+            }));
+        })?;
+        let enabled = coa_core::modules::list(&root).iter().any(|module| module.id == "custom-races" && module.enabled);
+        coa_core::custom_races::set_client_patch_enabled(&client, enabled)
+    })
+    .await;
+    end_client_job(&state);
+    result
+}
+
+#[tauri::command]
+async fn custom_races_toggle_client(state: State<'_, AppState>, id: String, enabled: bool) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is linked to this server.".into()))?;
+        coa_core::custom_races::set_client_patch_enabled(&client, enabled)
     })
     .await
 }
@@ -2434,6 +2501,15 @@ async fn export_diagnostics(
 }
 
 #[tauri::command]
+async fn list_crashes(
+    state: State<'_, AppState>,
+    id: String,
+    limit: Option<usize>,
+) -> std::result::Result<Vec<coa_core::crashes::CrashItem>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::crashes::list(&root, limit.unwrap_or(10))).await
+}
+#[tauri::command]
 async fn console_tail(
     state: State<'_, AppState>,
     id: String,
@@ -2504,6 +2580,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
+            install_environment,
             scan_server,
             add_server,
             list_servers,
@@ -2591,9 +2668,13 @@ pub fn run() {
             run_diagnostics,
             verify_files,
             export_diagnostics,
+            list_crashes,
             console_tail,
             console_risk,
             console_command,
+            custom_races_status,
+            custom_races_install,
+            custom_races_toggle_client,
             portable_state,
             portable_preflight,
             portable_play,

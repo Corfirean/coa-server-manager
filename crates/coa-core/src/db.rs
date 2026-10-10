@@ -256,19 +256,23 @@ impl Db {
 
     fn fail(&self, stderr: &[u8]) -> Error {
         let text = String::from_utf8_lossy(stderr);
-        let down = text.contains("2003")
-            || text.contains("Can't connect")
-            || text.contains("is not running")
-            || text.contains("No such container");
+        // Only the client's own connection errors mean "not running": the number 2003 or the words can also appear inside
+        // the message of an ordinary SQL error (a duplicate entry, a row number) and must not hide it.
+        let down = text.contains("ERROR 2003")
+            || text.contains("ERROR 2002")
+            || text.contains("Can't connect to MySQL server")
+            || text.contains("No such container")
+            || text.contains("is not running");
         let code = if down {
             ErrorCode::DatabaseNotRunning
         } else {
             ErrorCode::Unknown
         };
         match code {
-            ErrorCode::DatabaseNotRunning => {
-                Error::Invalid("The database is not running. Start the server first.".into())
-            }
+            ErrorCode::DatabaseNotRunning => Error::Invalid(format!(
+                "The database is not running. Start the server first. ({})",
+                text.trim().lines().last().unwrap_or("").chars().take(300).collect::<String>()
+            )),
             _ => Error::Invalid(format!(
                 "database command failed: {}",
                 text.trim().lines().last().unwrap_or("")

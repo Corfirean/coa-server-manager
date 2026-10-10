@@ -401,8 +401,29 @@ hand over to `coa_core::docker`; nothing else needed to change for start, stop, 
   produces `Database/baseline` without anyone's live database. The migration checksums recorded in the base are those of
   files checked out on Windows (CRLF line endings, `core.autocrlf`): the SQL of the core, the modules and SQUID must be
   checked out the same way for the checksums to match, or every applied migration looks edited.
-* **Not done yet**: wiring the installer into the screens, downloading the game data, updates, port conflict detection,
-  the firewall and exposure checks, the Wildcard realm profiles, and the client under Wine/Proton.
+* **In the screens** the host is asked once per command (`coa_core::platform::flavor()`: repack on Windows, Docker
+  elsewhere) and the Docker half lives in `src-tauri/src/docker_install.rs`; the repack arm of each install command is the
+  code that was there. `install_environment` tells the install screen the kind of server, the suggested folder
+  (`~/CoaServer`) and why Docker cannot be used, if it cannot. On Docker the screen also asks for the game data folder and
+  the package, and there is no default package address until a signed Linux package is published. Packages are checked with
+  the embedded key; only a debug build (`tauri dev`) accepts another one, named in `COA_DEV_TRUSTED_KEY`, to try the
+  installer on a package signed with a throwaway key.
+* **Updates are refused for a Docker server, never half done.** `update::preview`, `apply` and `rollback` refuse it: the
+  update packages are the repack's (executables, a bundled MySQL, a launcher) and applying one would put Windows files in a
+  Linux folder. Found by installing a server with the screen: the update check had read the Windows channel and offered one.
+* **Realm profiles (CoA / Wildcard) work on a Docker server.** What the repack's patched launcher did at each start is done
+  by the Docker backend: finish an interrupted switch (`realms::before_start`), name the realms in the realm list, and give
+  the containers the databases of the selected realm (`acore_world_wildcard` ...). The switch itself (configuration swap,
+  database copy, journal) is the shared code; `prepare_launcher` has nothing to patch, and Wildcard support is read from
+  `Core/worldserver` as it is from `Core/worldserver.exe`.
+* **The game client starts under Wine on a Linux host** (`wine.rs`; `client::launch` and `client::is_running` hand over):
+  umu-launcher with a Proton build when `umu-run` is installed (the newest GE-Proton found for Steam, or umu's own choice),
+  else plain Wine; `WINEPREFIX` defaults to `~/Games/umu/coa-client`; `WINEDLLOVERRIDES=divxtac=d` is always set, because
+  DivxTac.dll deadlocks the world loading screen under wine-mono. `COA_PROTONPATH`, `COA_WINEPREFIX` or
+  `client-launch.json` in the Manager's folder (`proton_path`, `prefix`, `runner`) override the detection. Whether the client
+  runs is read from `/proc` (under Wine the command line holds the Windows form of the path). Output goes to `client.log`.
+* **Not done yet**: downloading the game data, updates, port conflict detection, the firewall and exposure checks, the
+  Wildcard realm profiles, and the client under Wine/Proton.
 
 ### D14. Keeping Windows and Linux apart
 

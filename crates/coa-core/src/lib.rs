@@ -17,6 +17,8 @@ pub mod companions;
 pub mod config;
 pub mod console;
 pub mod control;
+pub mod crashes;
+pub mod custom_races;
 pub mod dashboard;
 pub mod db;
 pub mod diag;
@@ -38,6 +40,7 @@ pub mod multiworld;
 pub mod net;
 pub mod package;
 pub mod pkgsource;
+pub mod platform;
 pub mod population;
 pub mod portable;
 pub mod process;
@@ -53,12 +56,12 @@ pub mod repair;
 pub mod report;
 pub mod schema_check;
 pub mod signing;
+pub mod squid;
 pub mod srp6;
 pub mod update;
 pub mod upnp;
+pub mod wine;
 
 pub use error::{Error, ErrorCode, Result};
 
 pub const MANAGER_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-pub mod squid;

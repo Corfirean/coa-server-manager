@@ -1,12 +1,14 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
-import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, type LucideProps } from "lucide-react";
-import { api, asUiError, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
+import { listen } from "@tauri-apps/api/event";
+import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
+import { api, asUiError, type CustomRacesClientStatus, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useI18n, useSchemaText, type Key } from "@/i18n";
 import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField } from "@/lib/moduleSettings";
 import { AuctionTypes } from "@/screens/AuctionTypes";
+import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 /** The GitHub mark (lucide dropped its brand icons). */
 function GithubMark(props: { className?: string }) {
@@ -27,6 +29,7 @@ const TILES: Record<string, { icon: ComponentType<LucideProps>; from: string; to
   gavel: { icon: Gavel, from: "from-yellow-500", to: "to-amber-700" },
   sparkles: { icon: Sparkles, from: "from-fuchsia-500", to: "to-purple-700" },
   swords: { icon: Swords, from: "from-rose-500", to: "to-red-800" },
+  races: { icon: Users, from: "from-cyan-500", to: "to-blue-800" },
 };
 const DEFAULT_TILE = { icon: Puzzle, from: "from-slate-500", to: "to-slate-700" };
 
@@ -78,25 +81,68 @@ function Tile({ icon, off }: { icon: string; off: boolean }) {
 }
 
 /** The server's optional modules: square cards with a switch, the module's status, a link to GitHub and its settings. */
-export function ModulesPage({ serverId, onChanged }: { serverId: string; onChanged?: () => void }) {
+export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId: string; onChanged?: () => void; onRegisterGuard?: (guard: UnsavedChangesGuard | null) => void }) {
   const { t, locale } = useI18n();
   const human = useHuman();
   const [modules, setModules] = useState<ModuleView[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
   const [changed, setChanged] = useState(false);
+  const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
+  const [racesInstalling, setRacesInstalling] = useState(false);
+  const [racesProgress, setRacesProgress] = useState<CustomRacesProgress | null>(null);
+
+  const loadRacesStatus = useCallback(async () => {
+    try {
+      const st = await api.customRacesStatus(serverId);
+      setRacesPatchStatus(st);
+    } catch {
+      // ignore
+    }
+  }, [serverId]);
+  const [guard, setGuard] = useState<UnsavedChangesGuard | null>(null);
+
+  useEffect(() => {
+    onRegisterGuard?.(guard);
+    return () => onRegisterGuard?.(null);
+  }, [guard, onRegisterGuard]);
 
   const load = useCallback(async () => {
     try {
       setModules((await api.modulesList(serverId)).filter((m) => !m.hidden));
+      await loadRacesStatus();
     } catch (e) {
       setError(asUiError(e));
     }
-  }, [serverId]);
+  }, [serverId, loadRacesStatus]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+    const un = listen<CustomRacesProgress>("custom-races-progress", (e) => {
+      if (e.payload.id === serverId) {
+        setRacesProgress(e.payload);
+      }
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, [load, serverId]);
+
+  async function installClientPatch() {
+    setRacesInstalling(true);
+    setError(null);
+    try {
+      await api.customRacesInstall(serverId);
+      await loadRacesStatus();
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setError(asUiError(e));
+    } finally {
+      setRacesInstalling(false);
+      setRacesProgress(null);
+    }
+  }
 
   async function toggle(m: ModuleView) {
     setError(null);
@@ -104,6 +150,9 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
       await api.moduleSetEnabled(serverId, m.id, !m.enabled);
       setChanged(true);
       await load();
+      if (m.id === "custom-races") {
+        await loadRacesStatus();
+      }
       onChanged?.();
     } catch (e) {
       setError(asUiError(e));
@@ -145,8 +194,9 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
                   role="switch"
                   aria-checked={m.enabled}
                   aria-label={t("mod.switch", { name: m.name })}
+                  disabled={m.id === "custom-races" && racesInstalling}
                   onClick={() => void toggle(m)}
-                  className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", m.enabled ? "bg-gold" : "bg-white/15")}
+                  className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", m.enabled ? "bg-gold" : "bg-white/15", (m.id === "custom-races" && racesInstalling) && "opacity-50 cursor-not-allowed")}
                 >
                   <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", m.enabled ? "left-[22px]" : "left-0.5")} />
                 </button>
@@ -154,6 +204,70 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
               {m.installed && !m.switchable && m.status !== "soon" && m.compatibility !== "unsupported" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
               {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
+            {m.id === "custom-races" && (
+              <div className="w-full">
+                {racesInstalling && racesProgress ? (
+                  <div className="rounded-lg border border-gold/30 bg-gold/5 p-3">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gold" />
+                        <span className="truncate">{racesProgress.step}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-xs font-semibold text-gold">
+                        {Math.round(racesProgress.percent * 100)}%
+                      </span>
+                    </div>
+                    <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={Math.round(racesProgress.percent * 100)} aria-valuemin={0} aria-valuemax={100}>
+                      <div
+                        className="h-full rounded-full bg-gold transition-all duration-300"
+                        style={{ width: `${Math.round(racesProgress.percent * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/40 pt-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      {racesPatchStatus?.state === "enabled" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+                          {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
+                        </span>
+                      )}
+                      {racesPatchStatus?.state === "disabled" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted border border-white/15" title="MPQ files disabled with .disabled suffix">
+                          <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+                          {locale === "ru" ? "Патч клиента: Отключен (.disabled)" : "Client Patch: Disabled (.disabled)"}
+                        </span>
+                      )}
+                      {racesPatchStatus?.state === "not-installed" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                          {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
+                        </span>
+                      )}
+                      {racesPatchStatus?.state === "partially-installed" && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                          {locale === "ru" ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ` : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
+                        </span>
+                      )}
+                    </div>
+                    {(!racesPatchStatus || racesPatchStatus.state === "not-installed" || racesPatchStatus.state === "partially-installed") && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
+                        disabled={racesInstalling || !racesPatchStatus?.clientPath}
+                        onClick={() => void installClientPatch()}
+                      >
+                        {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        {locale === "ru" ? "Установить патч клиента" : "Install Client Patch 1.5"}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mt-auto flex items-center gap-2">
               <button
                 onClick={() => void api.openLink(m.repo)}
@@ -174,7 +288,7 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
           {selected?.has_settings && !selected.page && selectedAt >= 0 && Math.floor(selectedAt / 2) === Math.floor(i / 2) && (i % 2 === 1 || i === modules.length - 1) && (
             <SettingsPanel key={selected.id} className="sm:col-span-2">
               <h2 className="font-semibold">{t("mod.settingsOf", { name: selected.name })}</h2>
-              <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} />
+              <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} onRegisterGuard={setGuard} />
             </SettingsPanel>
           )}
           </Fragment>
@@ -184,8 +298,8 @@ export function ModulesPage({ serverId, onChanged }: { serverId: string; onChang
   );
 }
 
-function ModuleSettings({ serverId, module, onSaved }: { serverId: string; module: ModuleView; onSaved: () => void }) {
-  const { t, locale } = useI18n();
+function ModuleSettings({ serverId, module, onSaved, onRegisterGuard }: { serverId: string; module: ModuleView; onSaved: () => void; onRegisterGuard?: (guard: UnsavedChangesGuard | null) => void }) {
+  const { t, tn, locale } = useI18n();
   const sx = useSchemaText();
   const human = useHuman();
   const [advanced, setAdvanced] = useState(false);
@@ -208,7 +322,7 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
     return () => { cancelled = true; };
   }, [serverId, module.id]);
 
-  async function save() {
+  async function save(): Promise<boolean> {
     const errors: Record<string, string> = {};
     for (const [key, value] of Object.entries(edits)) {
       const field = moduleField(key, locale, items?.find(item => item.key === key)?.field);
@@ -222,7 +336,7 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
       }
     }
     setFieldErrors(errors);
-    if (Object.keys(errors).length) return;
+    if (Object.keys(errors).length) return false;
     setBusy(true);
     setError(null);
     setNote(null);
@@ -234,14 +348,33 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
         onSaved();
         setNote(t("mod.saved", { n: done.length }));
       }
+      return true;
     } catch (e) {
       setError(asUiError(e));
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
   const dirty = Object.keys(edits).length > 0;
+
+  useEffect(() => {
+    if (dirty) {
+      onRegisterGuard?.({
+        isDirty: () => Object.keys(edits).length > 0,
+        save: () => save(),
+        discard: () => {
+          setEdits({});
+          setFieldErrors({});
+          setNote(null);
+        },
+      });
+    } else {
+      onRegisterGuard?.(null);
+    }
+    return () => onRegisterGuard?.(null);
+  }, [dirty, edits, onRegisterGuard]);
   const edit = (key: string, value: string) => setEdits(previous => {
     const next = { ...previous };
     if (value === items?.find(item => item.key === key)?.value) delete next[key];
@@ -324,6 +457,20 @@ function ModuleSettings({ serverId, module, onSaved }: { serverId: string; modul
         {note && <span className="text-sm text-ok" role="status">{note}</span>}
       </div>}
       {error && <p className="mt-2 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
+      {dirty && (
+        <div className="fixed bottom-0 left-60 right-0 z-40 flex items-center justify-between border-t border-line bg-[#0b0c0e]/95 px-10 py-3 shadow-lg">
+          <span className="text-sm text-muted">{tn("set.unsaved", Object.keys(edits).length)}</span>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEdits({}); setFieldErrors({}); setNote(null); }}>
+              {t("set.discard")}
+            </Button>
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void save()}>
+              {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />}
+              {t("acc.save")}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
