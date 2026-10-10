@@ -831,7 +831,9 @@ async fn apply_update(
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let src = update_source(source)?;
-        let (dir, _) = install_meta(&root)?;
+        let (dir, meta) = install_meta(&root)?;
+        let (manifest, _) = coa_core::pkgsource::fetch_manifest(&src, coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
+        update::validate_candidate(&meta, &manifest)?;
         // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
         let observed = coa_core::process::observe(&root, &layout::read_ports(&root));
         if observed.world.state != coa_core::process::ServiceState::Stopped || observed.auth.state != coa_core::process::ServiceState::Stopped || coa_core::multiworld::is_running(&root) {

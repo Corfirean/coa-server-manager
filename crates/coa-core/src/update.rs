@@ -85,6 +85,8 @@ fn legacy_databases_started() -> bool { true }
 
 /// Everything the transaction needs from the outside world; tests provide a fake.
 pub trait Env {
+    fn automatic_rollback(&self) -> bool { false }
+    fn validate_recovery(&self) -> Result<()> { self.validate() }
     fn ensure_stopped(&self) -> Result<()>;
     fn preflight(&self, _manifest: &Manifest) -> Result<()> { Ok(()) }
     fn verify_snapshot(&self, _id: &str) -> Result<()> { Ok(()) }
@@ -360,6 +362,15 @@ fn launcher_already_integrated(root: &Path, meta_dir: &Path, meta: &InstallMeta,
 }
 
 fn reject_downgrade(meta: &InstallMeta, manifest: &Manifest) -> Result<()> {
+    if let Some(c) = &manifest.compatibility {
+        let platform = if cfg!(windows) { "windows-x86_64" } else { "linux-x86_64" };
+        if c.platform != platform {
+            return Err(Error::Invalid(format!("This package targets {} rather than {platform}.", c.platform)));
+        }
+        if meta.core.version.as_ref().is_none_or(|version| !c.source_versions.contains(version)) {
+            return Err(Error::Invalid("This server version is outside the release's tested compatibility matrix.".into()));
+        }
+    }
     if let Some(installed) = meta.core.version.as_deref() {
         if let (Some(have), Some(candidate)) = (crate::manifest::parse_version(installed), crate::manifest::parse_version(&manifest.version)) {
             if candidate < have {
@@ -378,6 +389,11 @@ fn check_manifest(m: &Manifest) -> Result<()> {
         return Err(Error::Invalid("This update needs a newer version of CoA Server Manager.".into()));
     }
     Ok(())
+}
+
+pub fn validate_candidate(meta: &InstallMeta, manifest: &Manifest) -> Result<()> {
+    check_manifest(manifest)?;
+    reject_downgrade(meta, manifest)
 }
 
 pub struct Params<'a> {
@@ -515,6 +531,10 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
 
     step(report, "Starting the updated server", 85);
     if let Err(e) = p.env.validate() {
+        if p.env.automatic_rollback() {
+            return fail_after_apply(p, &mut txn, &before, &tree,
+                format!("The updated server did not start correctly: {e}"), migrated);
+        }
         txn.state = State::NeedsDecision;
         txn.message = Some(format!("The updated server did not start correctly: {e}"));
         save(meta_dir, &txn)?;
@@ -599,7 +619,10 @@ pub fn retry_validation(root: &Path, meta_dir: &Path, id: &str, fallback: &Sourc
 
 fn fail_after_apply(p: &Params, txn: &mut Txn, before: &Path, tree: &Path, why: String, report: Option<ApplyReport>) -> Result<Outcome> {
     tracing::error!(transaction = %txn.id, databases_started = txn.databases_started, "server update failed; restoring recovery point");
-    let restored = restore_transaction(p.root, p.meta_dir, before, txn, p.env);
+    let restored = restore_transaction(p.root, p.meta_dir, before, txn, p.env).and_then(|()| {
+        if p.env.automatic_rollback() { p.env.validate_recovery() } else { Ok(()) }
+    });
+    if restored.is_err() { let _ = p.env.ensure_stopped(); }
     tracing::info!(transaction = %txn.id, recovered = restored.is_ok(), "server update recovery finished");
     txn.state = if restored.is_ok() { State::RolledBack } else { State::Failed };
     txn.message = Some(match &restored { Ok(()) => why.clone(), Err(e) => format!("{why} Recovery failed: {e}") });
@@ -839,6 +862,7 @@ impl RepackEnv<'_> {
 }
 
 impl Env for RepackEnv<'_> {
+    fn automatic_rollback(&self) -> bool { true }
     fn preflight(&self, manifest: &Manifest) -> Result<()> {
         self.pending_migrations(manifest).map(|_| ())
     }
@@ -983,6 +1007,8 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     struct Fake {
+        automatic_rollback: Cell<bool>,
+        recovery_healthy: Cell<bool>,
         stopped: Cell<bool>,
         healthy: Cell<bool>,
         snapshot_ok: Cell<bool>,
@@ -994,11 +1020,16 @@ mod tests {
 
     impl Fake {
         fn ok() -> Fake {
-            Fake { stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false) }
+            Fake { automatic_rollback: Cell::new(false), recovery_healthy: Cell::new(true), stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false) }
         }
     }
 
     impl Env for Fake {
+        fn automatic_rollback(&self) -> bool { self.automatic_rollback.get() }
+        fn validate_recovery(&self) -> Result<()> {
+            self.calls.borrow_mut().push("validate-recovery");
+            if self.recovery_healthy.get() { Ok(()) } else { Err(Error::Invalid("Restored server is unhealthy".into())) }
+        }
         fn preflight(&self, _: &Manifest) -> Result<()> {
             if self.preflight_fail.get() { Err(Error::Invalid("Conflicting migration history".into())) } else { Ok(()) }
         }
@@ -1302,6 +1333,56 @@ mod tests {
         assert!(!w.root.join("Core/newfile.dll").exists());
         assert!(unfinished(&w.meta).is_none());
         assert!(rollback(&w.root, &w.meta, &out.txn.id, &env).is_err(), "already rolled back");
+    }
+
+    #[test]
+    fn automatic_health_failure_restores_databases_files_and_checks_recovery() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.automatic_rollback.set(true);
+        env.healthy.set(false);
+        assert!(run(&w, &env, BTreeMap::new(), None).unwrap_err().to_string().contains("restored"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(!w.root.join("Core/newfile.dll").exists());
+        assert!(env.calls.borrow().contains(&"restore-databases"));
+        assert!(env.calls.borrow().contains(&"validate-recovery"));
+        assert!(unfinished(&w.meta).is_none());
+    }
+
+    #[test]
+    fn incompatible_source_or_platform_is_rejected_without_touching_installation() {
+        let w = world(&[], false);
+        let (_, meta) = MetaDir::open(&w.meta).unwrap();
+        let mut manifest = Manifest::parse(&fs::read(w.pkg.join("manifest.json")).unwrap()).unwrap();
+        manifest.min_manager_version = "0.6.13".into();
+        manifest.core.commit = Some("a".repeat(40));
+        manifest.compatibility = Some(crate::manifest::Compatibility { schema: 1,
+            platform: if cfg!(windows) { "windows-x86_64" } else { "linux-x86_64" }.into(),
+            core_commit: "a".repeat(40), module_commits: [("squid".into(), "b".repeat(40))].into(),
+            client_patch_version: "1.5.1".into(), source_versions: vec!["1.0.0".into()] });
+        manifest.validate().unwrap();
+        validate_candidate(&meta, &manifest).unwrap();
+        manifest.compatibility.as_mut().unwrap().source_versions = vec!["0.9.0".into()];
+        assert!(validate_candidate(&meta, &manifest).unwrap_err().to_string().contains("compatibility matrix"));
+        manifest.compatibility.as_mut().unwrap().source_versions = vec!["1.0.0".into()];
+        manifest.compatibility.as_mut().unwrap().platform = if cfg!(windows) { "linux-x86_64" } else { "windows-x86_64" }.into();
+        assert!(validate_candidate(&meta, &manifest).unwrap_err().to_string().contains("targets"));
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(unfinished(&w.meta).is_none());
+    }
+
+    #[test]
+    fn unhealthy_restoration_preserves_recovery_and_blocks_startup() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.automatic_rollback.set(true);
+        env.healthy.set(false);
+        env.recovery_healthy.set(false);
+        assert!(run(&w, &env, BTreeMap::new(), None).unwrap_err().to_string().contains("Recovery failed"));
+        let pending = unfinished(&w.meta).unwrap();
+        assert_eq!(pending.state, State::Failed);
+        assert!(txn_dir(&w.meta, &pending.id).unwrap().join("before").exists());
+        assert!(ensure_recovered(&w.meta).is_err());
     }
 
     #[test]
