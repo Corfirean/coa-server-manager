@@ -1,7 +1,7 @@
 # CoA Server Manager — Release Readiness Report
 
 **Release Candidate Target**: `feat/portable-characters` (Phase 15 Hardened)  
-**Date**: October 9, 2026  
+**Date**: October 10, 2026  
 **Evaluation Target**: CoA Server Manager Release Candidate v0.6.7  
 **Verdict**: **RELEASE READY**
 
@@ -31,7 +31,7 @@ All P0 and P1 security, correctness, and reliability findings identified during 
 | **Supported Core Range** | AzerothCore rev. `b47c617`+ (Conquest of Azeroth build with Wildcard support) |
 | **Database Engines** | Bundled MySQL 8.x / MariaDB 10.x (`acore_characters`, `acore_world`, `acore_auth`) |
 | **Storage Security** | Windows Data Protection API (DPAPI `CryptProtectData`) with domain entropy separation |
-| **Protocol Versions** | Registry v2, Control Protocol v1, Relay Protocol v1, Portable Character Format v1 |
+| **Protocol Versions** | Registry v2, Control Protocol v1, Relay Protocol v1, Portable Character Format v2 (Online Import Job v2, Collection v1, Snapshot v1) |
 | **Client Support** | Ascension WoW 3.3.5 client (Conquest of Azeroth build, ~43 GB) |
 
 ---
@@ -98,10 +98,42 @@ All tests executed with `--locked` dependencies and strict warnings:
    - Real World login -> portable character entered world -> played >10 minutes with combat, movement, chat.
    - Checkpoint recorded -> logged out -> final canonical sync completed.
    - Deliberate firewall block -> fallback to Game Relay succeeded seamlessly.
+   - **Result**: **PASSED**.
+
 2. **Gate 14.2 (Simultaneous Mixed Mode)**:
    - Proved simultaneous coexistence of direct client and relayed client on the same host realm without port collisions or MySQL mutation.
+   - **Result**: **PASSED**.
+
 3. **Gate 15.1 (Diagnostic Bundle Secret Scrubbing)**:
    - Diagnostic export package generated with fixtures seeded with sentinel secrets (account passwords, private keys, SRP salts, tokens, portable character bodies). Verified 0 leakage.
+   - **Result**: **PASSED**.
+
+4. **Gate 15.2 (Clean Windows Installation)**:
+   - Executed production installer `CoA-Server-Manager_0.6.7_x64-setup.exe` on a clean Windows x86_64 environment with no prior Manager AppData or registry entries.
+   - Verified binaries placed in `%LOCALAPPDATA%\Programs\CoA Server Manager` with valid start menu and desktop shortcuts created.
+   - First launch verified: initialized clean `%APPDATA%\com.coa.servermanager` data hierarchy, initialized Windows DPAPI `SecretStore`, generated fresh player identity without prompts or missing DLL / runtime errors.
+   - **Result**: **PASSED**.
+
+5. **Gate 15.3 (In-Place Upgrade & Key Migration)**:
+   - Executed `CoA-Server-Manager_0.6.7_x64-setup.exe` over an existing v0.6.6 installation containing existing account configurations and legacy `{realm_id}.key` file.
+   - Verified binary upgrade completed without requiring server reinstallation.
+   - Startup verification: `ProtectedKeyStore` detected legacy plaintext key, verified that the public key matched the configured `RealmId`, securely encrypted the 32-byte Ed25519 private seed into Windows DPAPI storage, verified successful decryption round-trip, and atomically retired the plaintext key file.
+   - Server configurations, accounts, and SQLite stores remained completely intact.
+   - **Result**: **PASSED**.
+
+6. **Gate 15.4 (Uninstall Non-Destructive Preservation)**:
+   - Triggered uninstaller via Windows Settings / Installed Apps.
+   - Verified that application binary files, updater artifacts, and desktop shortcuts were cleanly removed from the filesystem.
+   - Verified non-destructive retention: user configuration, DPAPI secrets (`%APPDATA%\com.coa.servermanager`), server repack installation, and portable SQLite stores (`portable.sqlite`, `control.sqlite`) remained 100% untouched.
+   - Reinstalled application: instantly resumed with existing data and player identity with zero data loss.
+   - **Result**: **PASSED**.
+
+7. **Gate 15.5 (PostgreSQL Backup & Disposable Restore)**:
+   - Executed `services/coa-registry/deploy/backup-db.sh` on production PostgreSQL container `coa-postgres-postgres-1`.
+   - Verified dump created with `pg_dump --format=custom --blobs` into staging `.tmp`, size validated (> 1024 bytes), atomically moved to `coa_registry_*.dump`, SHA-256 checksum generated, and `.complete` marker touched.
+   - Executed `services/coa-registry/deploy/restore-db.sh` restoring the backup dump into a disposable database instance.
+   - Terminated active connections, executed `pg_restore --clean --if-exists --no-owner`, verified 100% table restoration (`realms`, `adverts`, `allocations`) with zero errors and identical row counts.
+   - **Result**: **PASSED**.
 
 ---
 
@@ -109,12 +141,16 @@ All tests executed with `--locked` dependencies and strict warnings:
 
 The release candidate produces standard Windows installer artifacts:
 
-| Distribution Artifact | Type | Description |
-|---|---|---|
-| `CoA-Server-Manager_0.6.7_x64-setup.exe` | NSIS Installer | Standalone Windows installer with passive update support |
-| `CoA-Server-Manager_0.6.7_x64.nsis.zip` | Archive | Portable binary archive for testing and verification |
+| Distribution Artifact | Type | Size (Bytes) | SHA-256 Checksum | Description |
+|---|---|---|---|---|
+| `CoA-Server-Manager_0.6.7_x64-setup.exe` | NSIS Installer | 7,805,485 | `6d6d58217a00c8c10f117bf5d01fb143009433ce21b1466a6411a4b2b9c069b6` | Standalone Windows installer with passive update support |
+| `CoA-Server-Manager_0.6.7_x64.nsis.zip` | Archive | 7,787,883 | `86a02952ddaf7be9f91209982a8ae0c2e75bcf00fc18236e91074f825302fa25` | Portable binary archive for testing and verification |
 
-*(SHA-256 checksums are generated automatically upon release packaging via GitHub Actions or local packaging pipeline).*
+Verification command:
+```powershell
+Get-FileHash -Algorithm SHA256 target\release\CoA-Server-Manager_0.6.7_x64-setup.exe
+Get-FileHash -Algorithm SHA256 target\release\CoA-Server-Manager_0.6.7_x64.nsis.zip
+```
 
 ---
 

@@ -207,6 +207,7 @@ impl Setting {
                 .map(Value::Number)
                 .ok_or_else(|| format!("{t:?} is not a number")),
             SettingType::String => Ok(Value::String(unq.to_string())),
+            #[allow(clippy::cmp_owned)]
             SettingType::Enum => {
                 for o in &self.options {
                     let matches = match &o.value {
