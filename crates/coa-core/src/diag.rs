@@ -401,6 +401,14 @@ pub fn export_package(root: &Path, meta_dir: &Path, manager_log: &Path, meta: &I
     add("processes.txt", processes_report(root, &ports).as_bytes())?;
 
     // The newest update journals: the state of each update and the reason it failed.
+    for (path, size, _) in newest_files(&meta_dir.join("diagnostics"), "json", usize::MAX)
+        .into_iter().filter(|(path, _, _)| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("schema-validation-"))).take(10) {
+        if size <= 4 * 1024 * 1024 {
+            if let Ok(text) = fs::read_to_string(&path) {
+                add(&format!("schema/{}", path.file_name().unwrap().to_string_lossy()), redact_json(&text).as_bytes())?;
+            }
+        }
+    }
     let mut journals: Vec<_> = fs::read_dir(meta_dir.join("updates")).into_iter().flatten().flatten()
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()) && e.file_name().to_string_lossy().chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')))
         .collect();
@@ -586,6 +594,8 @@ real error
         fs::write(root.join("Core/configs/worldserver.conf"), "LoginDatabaseInfo = \"127.0.0.1;3307;acore;SECRETPW;auth\"\nRate.XP.Kill = 1\n").unwrap();
         let meta_dir = d.path().join("srv.manager");
         fs::create_dir_all(&meta_dir).unwrap();
+        fs::create_dir_all(meta_dir.join("diagnostics")).unwrap();
+        fs::write(meta_dir.join("diagnostics/schema-validation-CoA-test.json"), r#"{"problems":[{"table":"creature_display_preset","column":"display_id","detail":"default mismatch"}],"password":"schema-secret"}"#).unwrap();
         let meta = InstallMeta::new(InstallKind::Imported, &root);
         let report = run(&root, &meta);
         let zip_path = d.path().join("diag.zip");
@@ -600,6 +610,8 @@ real error
         }
         assert!(all.contains("boom") && all.contains("Rate.XP.Kill"), "keys and ordinary log lines are included");
         assert!(all.contains("v1.8") && all.contains("48c4786a"));
+        assert!(all.contains("creature_display_preset") && all.contains("default mismatch"));
+        assert!(!all.contains("schema-secret"));
         assert!(!all.contains("hunter2") && !all.contains("SECRETPW") && !all.contains("upstream-secret"));
     }
 }
