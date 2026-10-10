@@ -900,7 +900,7 @@ impl Env for RepackEnv<'_> {
                     let mut modes = vec![crate::realms::Mode::Coa];
                     if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
                     for mode in modes {
-                        if let Some(problem) = crate::schema_check::check(&db.clone().for_realm(mode), self.root)?.first() {
+                        if let Some(problem) = crate::schema_check::check_with_report(&db.clone().for_realm(mode), self.root)?.first() {
                             return Err(Error::Invalid(format!("The installed {} database does not match its upgrade source: {}.{}: {}", mode.name(), problem.database, problem.table, problem.detail)));
                         }
                     }
@@ -968,13 +968,13 @@ impl Env for RepackEnv<'_> {
                 result.failed = extra.failed;
                 if result.snapshot.is_none() { result.snapshot = extra.snapshot; }
                 if result.failed.is_none() {
-                    if let Some(p) = crate::schema_check::check(&other_db, root)?.first() {
+                    if let Some(p) = crate::schema_check::check_with_report(&other_db, root)?.first() {
                         return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", other.name(), p.table, p.column, p.detail)));
                     }
                 }
             }
             if result.failed.is_none() {
-                let problems = crate::schema_check::check(db, root)?;
+                let problems = crate::schema_check::check_with_report(db, root)?;
                 if let Some(p) = problems.first() {
                     return Err(Error::Invalid(format!("Database validation failed: {}.{}.{}: {} ({} problems).", p.database, p.table, p.column, p.detail, problems.len())));
                 }
@@ -995,7 +995,7 @@ impl Env for RepackEnv<'_> {
                 let mut modes = vec![crate::realms::Mode::Coa];
                 if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
                 for mode in modes {
-                    if let Some(p) = crate::schema_check::check(&db.clone().for_realm(mode), self.root)?.first() {
+                    if let Some(p) = crate::schema_check::check_with_report(&db.clone().for_realm(mode), self.root)?.first() {
                         return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.database, p.table, p.detail)));
                     }
                 }

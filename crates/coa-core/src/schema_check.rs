@@ -39,6 +39,34 @@ pub fn require_release_contract(root: &Path) -> Result<Contract> {
 #[derive(Debug, Serialize)]
 pub struct Problem { pub database: String, pub table: String, pub column: String, pub detail: String }
 
+/// Keep all differences for support; never change a database to match a contract automatically.
+pub fn check_with_report(db: &Db, root: &Path) -> Result<Vec<Problem>> {
+    let problems = check(db, root)?;
+    let report = serde_json::json!({
+        "schema": 1, "checkedAt": chrono::Utc::now().to_rfc3339(),
+        "realm": db.realm().name(), "problems": problems,
+    });
+    let path = crate::registry::metadata_dir_for(root)?.join("diagnostics")
+        .join(format!("schema-validation-{}.json", db.realm().name()));
+    // A log write failure must neither hide the original mismatch nor accept an invalid schema.
+    if let Err(error) = fsx::atomic_write_json(&path, &report) {
+        tracing::warn!(%error, path = %path.display(), "Could not save database schema report");
+    }
+    Ok(problems)
+}
+
+fn describe_signature(signature: &str) -> String {
+    let fields: Vec<_> = signature.split('|').collect();
+    if fields.len() != 4 { return signature.into(); }
+    let decode = |value: &str| -> String {
+        if value == "<NULL>" { return "no default".into(); }
+        if value == "<NONE>" { return "none".into(); }
+        hex::decode(value).ok().and_then(|bytes| String::from_utf8(bytes).ok())
+            .map(|text| format!("{text:?}")).unwrap_or_else(|| value.into())
+    };
+    format!("type={}, nullable={}, default={}, extra={}", fields[0], fields[1], decode(fields[2]), decode(fields[3]))
+}
+
 fn read_columns(db: &Db, kind: &str) -> Result<BTreeMap<String, BTreeMap<String, String>>> {
     let schema = db.realm_schema(crate::db::schema_of(kind)?);
     let text = db.query(&format!("SELECT TABLE_NAME,COLUMN_NAME,CONCAT(COLUMN_TYPE,'|',IS_NULLABLE,'|',IF(COLUMN_DEFAULT IS NULL,'<NULL>',HEX(COLUMN_DEFAULT)),'|',IF(EXTRA='','<NONE>',HEX(EXTRA))) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='{schema}' ORDER BY TABLE_NAME,ORDINAL_POSITION;"))?;
@@ -98,7 +126,7 @@ pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
             for (column, want) in cols {
                 let found = actual[table].get(column);
                 if found.is_none() || (!want.is_empty() && found != Some(want)) {
-                    problems.push(Problem { database: kind.clone(), table: table.clone(), column: column.clone(), detail: found.map(|s| format!("Expected {want}, found {s}")).unwrap_or_else(|| "Missing column".into()) });
+                    problems.push(Problem { database: kind.clone(), table: table.clone(), column: column.clone(), detail: found.map(|s| format!("Expected {}, found {}", describe_signature(want), describe_signature(s))).unwrap_or_else(|| "Missing column".into()) });
                 }
             }
         }
@@ -146,6 +174,14 @@ fn missing_coa_starts(rows: &str) -> Vec<Problem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_defaults_are_readable_and_not_conflated() {
+        assert_eq!(describe_signature("int unsigned|NO|30|<NONE>"), "type=int unsigned, nullable=NO, default=\"0\", extra=none");
+        assert!(describe_signature("int unsigned|NO|<NULL>|<NONE>").contains("default=no default"));
+        assert!(describe_signature("varchar(8)|YES||<NONE>").contains("default=\"\""));
+        assert_eq!(describe_signature("legacy"), "legacy");
+    }
 
     #[test]
     fn a_release_cannot_use_a_partial_or_empty_schema_contract() {

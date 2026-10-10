@@ -12,6 +12,7 @@ def main():
     parser.add_argument('--mysql-bin', required=True, type=Path)
     parser.add_argument('--core', required=True, type=Path)
     parser.add_argument('--before', required=True)
+    parser.add_argument('--display-repair', type=Path)
     args = parser.parse_args()
     suffix = '.exe' if (args.mysql_bin / 'mysqld.exe').exists() else ''
     server = args.mysql_bin / ('mysqld' + suffix)
@@ -66,6 +67,21 @@ def main():
                 effects = sql('SELECT effect_d0,effect_d1,effect_d2,effect_d3 FROM coa_boss_schedule WHERE entry=12264 AND idx=6;', schema).stdout.strip()
                 assert effects == '2105613\t2105614\t2105615\t2105616', effects
             print('PASS: original SQL reproduces ERROR 1136 after migration; fixed SQL supports fresh, repeated and old-layout initialization')
+            if args.display_repair:
+                repair = args.display_repair.read_text()
+                sql('CREATE DATABASE display_fixture;')
+                sql(repair, 'display_fixture')  # An absent table is not created by a default repair.
+                sql('CREATE TABLE creature_display_preset (entry INT UNSIGNED NOT NULL, display_id INT UNSIGNED NOT NULL, PRIMARY KEY(entry,display_id)); INSERT INTO creature_display_preset VALUES(42,123);', 'display_fixture')
+                before_rows = sql('SELECT * FROM creature_display_preset;', 'display_fixture').stdout
+                sql(repair, 'display_fixture')
+                sql(repair, 'display_fixture')
+                default = sql("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='creature_display_preset' AND COLUMN_NAME='display_id';", 'display_fixture').stdout.strip()
+                assert default == '0', default
+                assert sql('SELECT * FROM creature_display_preset;', 'display_fixture').stdout == before_rows
+                sql('ALTER TABLE creature_display_preset ALTER COLUMN display_id SET DEFAULT 99;', 'display_fixture')
+                sql(repair, 'display_fixture')
+                assert sql("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='creature_display_preset' AND COLUMN_NAME='display_id';", 'display_fixture').stdout.strip() == '99'
+                print('PASS: display default repair is repeatable, keeps rows and custom defaults, and tolerates absent tables')
         finally:
             subprocess.run([str(admin), *connection, 'shutdown'], capture_output=True, creationflags=flags)
             try:
