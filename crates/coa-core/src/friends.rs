@@ -125,7 +125,8 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
     Ok(true)
 }
 
-/// Make the realm list advertise `host` (the launcher resets it to 127.0.0.1 at every start, so this runs after each start).
+/// Make the realm list advertise `host` to remote clients (the launcher resets it to 127.0.0.1 at every start, so this
+/// runs after each start).
 pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     if !host_ok(host) {
         return Err(Error::Invalid("That address is not valid.".into()));
@@ -133,7 +134,7 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     let db = Db::from_repack(root, Account::Admin)?;
     let realm = crate::realms::state(root)?.active.realm_id();
     let where_realms = if crate::realms::state(root)?.simultaneous { "id IN (1,2)".into() } else { format!("id={realm}") };
-    db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}', localAddress='{host}' WHERE {where_realms};"))?;
+    db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}' WHERE {where_realms};"))?;
     Ok(())
 }
 
