@@ -244,7 +244,8 @@ mod tests {
     #[test]
     fn relative_startup_fixture_targets_replace_the_original_location() {
         let directory = tempfile::Builder::new().prefix("coa-schema-fixture-path-test-").tempdir_in(".").unwrap();
-        let relative = directory.path();
+        let current = std::env::current_dir().unwrap();
+        let relative = directory.path().strip_prefix(&current).unwrap();
         fsx::atomic_write(&relative.join("Core/worldserver.exe"), b"old").unwrap();
         let root = fsx::canonicalize_lenient(relative).unwrap();
         let target = fsx::ensure_within(&root, &root.join("Core/worldserver.exe")).unwrap();
