@@ -228,6 +228,8 @@ pub(crate) fn verify(point: &Path, snapshot: &Snapshot) -> Result<()> {
 
 pub(crate) fn rehearsal_copy(root: &Path, meta: &Path, point: &Path, snapshot: &Snapshot) -> Result<PathBuf> {
     verify(point, snapshot)?;
+    let canonical = fsx::canonicalize_lenient(root)?;
+    let root = canonical.as_path();
     let destination = meta.join("rehearsals").join(uuid::Uuid::new_v4().simple().to_string()).join("server");
     let mut files = BTreeMap::new();
     let mut directories = vec![root.to_path_buf()];
@@ -474,5 +476,18 @@ mod tests {
         unchanged(&root, &snapshot).unwrap();
         fsx::atomic_write(&root.join("mysql/data/extra.ibd"), b"new data").unwrap();
         assert!(unchanged(&root, &snapshot).is_err());
+    }
+
+    #[test]
+    fn rehearsal_copy_succeeds_with_nested_directories_and_unnormalized_root() {
+        let (_temp, root, meta, point, snapshot) = fixture();
+        let meta_obj = crate::registry::InstallMeta::new(crate::registry::InstallKind::New, &root);
+        fsx::atomic_write_json(&meta.join("install.json"), &meta_obj).unwrap();
+        fsx::atomic_write(&root.join("Core/worldserver.exe"), b"exe").unwrap();
+        fsx::atomic_write(&root.join("Core/configs/worldserver.conf"), b"conf").unwrap();
+        fsx::atomic_write(&root.join("Settings/repack.json"), b"{}").unwrap();
+        let dest = rehearsal_copy(&root, &meta, &point, &snapshot).unwrap();
+        assert_eq!(fs::read(dest.join("Core/configs/worldserver.conf")).unwrap(), b"conf");
+        assert_eq!(fs::read(dest.join("mysql/data/characters.ibd")).unwrap(), b"saved");
     }
 }
