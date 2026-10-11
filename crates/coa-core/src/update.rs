@@ -687,6 +687,25 @@ fn restore_transaction(root: &Path, meta: &Path, before: &Path, txn: &mut Txn, e
 }
 
 fn apply_ops(root: &Path, tree: &Path, before: &Path, files: &[FileEntry], txn: &mut Txn, meta_dir: &Path, fail_after: Option<usize>) -> Result<()> {
+    if fail_after == Some(0) && !txn.ops.is_empty() {
+        return Err(Error::Invalid("simulated failure".into()));
+    }
+    let entries: BTreeMap<_, _> = files.iter().map(|entry| (entry.path.as_str(), entry)).collect();
+    // Prepare every recovery copy before changing any destination. One durable journal
+    // can then cover the entire file phase: recovery restores old files even if their
+    // replacement was not reached, and removes newly created files only by exact hash.
+    // Rewriting the full journal twice per file makes large navigation updates quadratic.
+    for op in &txn.ops {
+        let target = fsx::ensure_within(root, &fsx::safe_join(root, &op.path)?)?;
+        if op.had_previous {
+            let keep = fsx::safe_join(before, &op.path)?;
+            fs::create_dir_all(keep.parent().unwrap())?;
+            fsx::atomic_write(&keep, &fs::read(&target)?)?;
+            txn.recovery_hashes.insert(op.path.clone(), fsx::sha256_file(&keep)?);
+        }
+    }
+    for op in &mut txn.ops { op.started = true; }
+    save(meta_dir, txn)?;
     let mut completed = 0usize;
     for i in 0..txn.ops.len() {
         if fail_after == Some(completed) {
@@ -695,17 +714,7 @@ fn apply_ops(root: &Path, tree: &Path, before: &Path, files: &[FileEntry], txn: 
         let (path, action) = (txn.ops[i].path.clone(), txn.ops[i].action);
         let target = fsx::ensure_within(root, &fsx::safe_join(root, &path)?)?;
         let staged = fsx::safe_join(tree, &path)?;
-        let entry = files.iter().find(|f| f.path == path).expect("listed");
-        if target.is_file() {
-            let keep = fsx::safe_join(before, &path)?;
-            fs::create_dir_all(keep.parent().unwrap())?;
-            fsx::atomic_write(&keep, &fs::read(&target)?)?;
-            txn.recovery_hashes.insert(path.clone(), fsx::sha256_file(&keep)?);
-        }
-        // Journal only after the old bytes are safely saved; a crash during backup must not
-        // turn an untouched file into a rollback operation with a missing saved copy.
-        txn.ops[i].started = true;
-        save(meta_dir, txn)?;
+        let entry = entries.get(path.as_str()).expect("listed");
         fs::create_dir_all(target.parent().unwrap())?;
         match action {
             Action::Create | Action::Replace => {
@@ -730,10 +739,9 @@ fn apply_ops(root: &Path, tree: &Path, before: &Path, files: &[FileEntry], txn: 
             Action::Skip | Action::Conflict => {}
         }
         txn.ops[i].done = true;
-        save(meta_dir, txn)?;
         completed += 1;
     }
-    Ok(())
+    save(meta_dir, txn)
 }
 
 /// Put every touched file back the way it was. Files created by the update (no previous version) are removed only if
@@ -1542,6 +1550,46 @@ mod tests {
         assert!(t.is_none());
         let saved = fs::read_dir(w2.meta.join("updates")).unwrap().flatten().next().unwrap().path().join("before/Core/worldserver.exe");
         assert_eq!(fs::read(saved).unwrap(), b"my-custom-build", "the replaced custom build is kept for rollback");
+    }
+
+    #[test]
+    fn power_loss_during_bulk_files_restores_written_and_unwritten_files() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("root");
+        let meta = d.path().join("meta");
+        let tree = d.path().join("tree");
+        let before = meta.join("updates/bulk/before");
+        let mut files = Vec::new();
+        let mut ops = Vec::new();
+        for (path, previous) in [("Data/maps/first.map", true), ("Data/maps/new.map", false), ("Data/maps/last.map", true)] {
+            if previous { write(&root, path, b"old"); }
+            write(&tree, path, b"new");
+            let hash = fsx::sha256_file(&tree.join(path)).unwrap();
+            files.push(FileEntry { path: path.into(), sha256: hash.clone(), size: 3, policy: ReplacePolicy::Replace, owner: crate::manifest::Owner::Core });
+            ops.push(Op { path: path.into(), action: if previous { Action::Replace } else { Action::Create }, reason: None,
+                new_sha256: hash, had_previous: previous, started: false, done: false });
+        }
+        let mut txn = Txn { id: "bulk".into(), state: State::Applying, from_version: Some("1".into()), to_version: "2".into(),
+            recovery_point: None, databases_started: false, ops, message: None, recovery_hashes: BTreeMap::new() };
+        fs::create_dir_all(before.parent().unwrap()).unwrap();
+        assert!(apply_ops(&root, &tree, &before, &files, &mut txn, &meta, Some(2)).is_err());
+        // A power loss sees the pre-write checkpoint, not the in-memory completed flags.
+        let mut durable = load(&meta, "bulk").unwrap();
+        assert!(durable.ops.iter().all(|op| op.started && !op.done));
+        assert_eq!(fs::read(root.join("Data/maps/last.map")).unwrap(), b"old");
+        restore_files(&root, &before, &mut durable).unwrap();
+        assert_eq!(fs::read(root.join("Data/maps/first.map")).unwrap(), b"old");
+        assert_eq!(fs::read(root.join("Data/maps/last.map")).unwrap(), b"old");
+        assert!(!root.join("Data/maps/new.map").exists());
+        // If preparing any recovery copy fails, no destination may be changed.
+        for op in &mut durable.ops { op.started = false; op.done = false; }
+        durable.recovery_hashes.clear();
+        save(&meta, &durable).unwrap();
+        fs::remove_file(root.join("Data/maps/last.map")).unwrap();
+        assert!(apply_ops(&root, &tree, &before, &files, &mut durable, &meta, None).is_err());
+        assert_eq!(fs::read(root.join("Data/maps/first.map")).unwrap(), b"old");
+        assert!(!root.join("Data/maps/new.map").exists());
+        assert!(load(&meta, "bulk").unwrap().ops.iter().all(|op| !op.started));
     }
 
     #[test]
