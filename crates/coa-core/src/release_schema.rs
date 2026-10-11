@@ -29,6 +29,14 @@ pub fn qualify_upgrade(base: &Path, source: &Path, candidate: &Path, fixture: &P
     if fixture.exists() || !fixture.file_name().is_some_and(|name| name.to_string_lossy().starts_with("coa-schema-fixture-")) {
         return Err(Error::Invalid("Upgrade qualification requires a new disposable coa-schema-fixture-* directory.".into()));
     }
+    let fixture_root = std::path::absolute(fixture)?;
+    let fixture = fixture_root.as_path();
+    let base_root = fsx::canonicalize_lenient(base)?;
+    let base = base_root.as_path();
+    let source_root = fsx::canonicalize_lenient(source)?;
+    let source = source_root.as_path();
+    let candidate_root = fsx::canonicalize_lenient(candidate)?;
+    let candidate = candidate_root.as_path();
     let metadata = crate::registry::metadata_dir_for(fixture)?;
     if metadata.exists() { return Err(Error::Invalid("Upgrade fixture metadata already exists.".into())); }
     let (base_manifest, base_bytes) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(base.into()), trusted_key)?;
