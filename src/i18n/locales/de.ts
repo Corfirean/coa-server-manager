@@ -195,6 +195,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "comp.saved": "Gespeichert. {n} Begleiter werden beim Serverstart erstellt.",
 
   // Client
+  "client.races.install": "Patch für benutzerdefinierte Völker installieren",
   "client.title": "Spielclient",
   "client.looking": "Suche …",
   "client.intro": "Sag dem Manager, wo dein Spiel installiert ist, um einen SPIELEN-Button zu erhalten. Deine Spieldateien werden nie geändert, außer der Serveradresse und dem Begleiter-Addon.",

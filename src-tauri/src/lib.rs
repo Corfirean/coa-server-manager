@@ -668,9 +668,9 @@ async fn module_set_enabled(state: State<'_, AppState>, id: String, module: Stri
  
 #[tauri::command]
 async fn custom_races_status(state: State<'_, AppState>, id: String) -> std::result::Result<Option<coa_core::custom_races::ClientPatchStatus>, UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     blocking(move || {
-        let client = linked_client(&root)?;
+        let client = ctx.linked();
         Ok(client.as_deref().map(coa_core::custom_races::client_patch_status))
     })
     .await
@@ -678,12 +678,12 @@ async fn custom_races_status(state: State<'_, AppState>, id: String) -> std::res
 
 #[tauri::command]
 async fn custom_races_install(app: AppHandle, state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let sid = id.clone();
     let result = blocking(move || {
-        let client = linked_client(&root)?.ok_or_else(|| Error::Invalid("No game client is linked to this server.".into()))?;
+        let client = ctx.require()?;
         coa_core::custom_races::install_client_patches(&client, &cancel, &|step, percent| {
             let _ = app.emit("custom-races-progress", serde_json::json!({
                 "id": sid,
@@ -691,7 +691,7 @@ async fn custom_races_install(app: AppHandle, state: State<'_, AppState>, id: St
                 "percent": percent,
             }));
         })?;
-        let enabled = coa_core::modules::list(&root).iter().any(|module| module.id == "custom-races" && module.enabled);
+        let enabled = ctx.root.as_ref().map_or(true, |root| coa_core::modules::list(root).iter().any(|module| module.id == "custom-races" && module.enabled));
         coa_core::custom_races::set_client_patch_enabled(&client, enabled)
     })
     .await;

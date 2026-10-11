@@ -207,6 +207,7 @@ const zh = {
   "comp.saved": "已保存。{n} 名随从将在服务器启动时创建。",
 
   // Client
+  "client.races.install": "安装自定义种族补丁",
   "client.title": "游戏客户端",
   "client.looking": "正在寻找…",
   "client.intro": "指定游戏客户端安装路径即可启用“开始游戏”按钮。除服务器地址和随从插件外，你的游戏文件绝不会被修改。",
