@@ -157,6 +157,10 @@ pub fn validate_startup(fixture: &Path, tree: &Path, base: &Path, trusted_key: &
         || std::fs::read(fixture.join(MARKER)).ok().as_deref() != Some(b"disposable release-schema fixture") {
         return Err(Error::Invalid("Startup qualification requires a disposable release-schema fixture.".into()));
     }
+    let fixture_root = fsx::canonicalize_lenient(fixture)?;
+    let fixture = fixture_root.as_path();
+    let tree_root = fsx::canonicalize_lenient(tree)?;
+    let tree = tree_root.as_path();
     let metadata = crate::registry::metadata_dir_for(fixture)?;
     if metadata.exists() { return Err(Error::Invalid("Startup fixture already has Manager metadata; use a fresh fixture.".into())); }
     schema_check::require_release_contract(tree)?;
@@ -190,7 +194,11 @@ pub fn validate_startup(fixture: &Path, tree: &Path, base: &Path, trusted_key: &
     package::extract_selected(base, &manifest, fixture, &|path| path.starts_with("Data/"), &|_, _| {})?;
     for relative in files {
         let target = fsx::ensure_within(fixture, &fixture.join(&relative))?;
-        fsx::atomic_write(&target, &std::fs::read(tree.join(relative))?)?;
+        fsx::atomic_write(&target, &std::fs::read(tree.join(&relative))?)?;
+        let expected = fsx::sha256_file(&tree.join(relative))?;
+        if fsx::sha256_file(&target)? != expected {
+            return Err(Error::Invalid("Startup candidate copy failed verification.".into()));
+        }
     }
     let meta = crate::registry::InstallMeta::new(crate::registry::InstallKind::New, fixture);
     crate::registry::MetaDir::create(fixture, &meta)?;
@@ -232,6 +240,19 @@ mod tests {
     use super::*;
     use base64::{engine::general_purpose::STANDARD, Engine};
     use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    fn relative_startup_fixture_targets_replace_the_original_location() {
+        let directory = tempfile::Builder::new().prefix("coa-schema-fixture-path-test-").tempdir_in(".").unwrap();
+        let current = std::env::current_dir().unwrap();
+        let relative = directory.path().strip_prefix(&current).unwrap();
+        fsx::atomic_write(&relative.join("Core/worldserver.exe"), b"old").unwrap();
+        let root = fsx::canonicalize_lenient(relative).unwrap();
+        let target = fsx::ensure_within(&root, &root.join("Core/worldserver.exe")).unwrap();
+        fsx::atomic_write(&target, b"candidate").unwrap();
+        assert_eq!(std::fs::read(relative.join("Core/worldserver.exe")).unwrap(), b"candidate");
+        assert!(!root.join(relative).join("Core/worldserver.exe").exists());
+    }
 
     #[test]
     fn startup_qualification_refuses_real_server_folders_before_writes() {
