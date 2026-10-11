@@ -22,6 +22,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 tar = "0.4"
 num-bigint = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1.0"
 sha1 = "0.10"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 tempfile = "3"

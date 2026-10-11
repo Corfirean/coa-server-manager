@@ -594,6 +594,7 @@ dependencies = [
  "coa-registry-proto",
  "dunce",
  "ed25519-dalek",
+ "flate2",
  "fs4",
  "hex",
  "if-addrs",

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::fsx;
+pub use crate::glue_config;
 
 pub const ADDON_NAME: &str = "CoABotUI";
 const EXECUTABLES: [&str; 3] = ["Ascension.exe", "Wow.exe", "WoW.exe"];

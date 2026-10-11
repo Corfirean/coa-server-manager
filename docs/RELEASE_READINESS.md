@@ -72,7 +72,7 @@ All P0 and P1 security, correctness, and reliability findings identified during 
 
 All tests executed with `--locked` dependencies and strict warnings:
 
-- **`coa-core`**: **608 PASSED**, 0 failed, 50 ignored (real-server live tests).
+- **`coa-core`**: **614 PASSED**, 0 failed, 50 ignored (real-server live tests).
 - **`coa-registry-proto`**: **19 PASSED**, 0 failed.
 - **`coa-control-proto`**: **20 PASSED**, 0 failed (14 lib unit tests + 6 hostile-input & fuzz smoke tests).
 - **`coa-server-manager-lib`**: **2 PASSED**, 0 failed.
@@ -86,7 +86,7 @@ All tests executed with `--locked` dependencies and strict warnings:
 - **Code Linter (`cargo clippy --workspace --all-targets -- -D warnings`)**: **PASSED (0 warnings, 0 errors)**.
 - **Dependency Audit (`npm audit --omit=dev`)**: **0 vulnerabilities found**.
 
-**Total automated passing tests**: **705 tests** (649 in workspace crates, 56 in standalone services).
+**Total automated passing tests**: **711 tests** (655 in workspace crates, 56 in standalone services).
 
 ---
 
@@ -144,8 +144,8 @@ The release candidate produces standard Windows installer artifacts:
 
 | Distribution Artifact | Type | Size (Bytes) | SHA-256 Checksum | Description |
 |---|---|---|---|---|
-| `CoA-Server-Manager_0.7.0_x64-setup.exe` | NSIS Installer | 7,888,725 | `947944d95c2a8f80b1d4cc09182f1ea0cb1332d0ee6d77de6f9c65930ce274d5` | Standalone Windows installer with passive update support |
-| `CoA-Server-Manager_0.7.0_x64.nsis.zip` | Archive | 7,871,146 | `f29680b3ba3b51437fed3a4b33a5c9cda01adf37235ca63cdf51d2adf23cdfbd` | Portable binary archive for testing and verification |
+| `CoA-Server-Manager_0.7.0_x64-setup.exe` | NSIS Installer | 7,898,742 | `f94aa232ce1f34427af648d11246009d785b74f57f8afa00f557aba9f74d2fd8` | Standalone Windows installer with passive update support |
+| `CoA-Server-Manager_0.7.0_x64.nsis.zip` | Archive | 7,881,163 | `6f3a0734391607dcda449a6fe2ef0c7d461f9dff59ec67e95ef07fe254d31e1e` | Portable binary archive for testing and verification |
 
 Verification command:
 ```powershell

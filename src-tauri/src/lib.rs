@@ -212,7 +212,9 @@ async fn portable_launch(
     state: State<'_, AppState>,
     realm: String,
 ) -> std::result::Result<(), ServiceError> {
-    let (install, address) = portable_call(&state, move |s| s.realm_launch_info(&realm)).await?;
+    let realm_launch = realm.clone();
+    let (install, address) =
+        portable_call(&state, move |s| s.realm_launch_info(&realm_launch)).await?;
     let other = |e: UiError| ServiceError {
         code: "launch".into(),
         message: e.technical,
@@ -227,6 +229,19 @@ async fn portable_launch(
                     coa_core::remote_client::load(&dir).map_err(|e| other(e.into()))?;
                 profile.host = address;
                 coa_core::remote_client::save(&dir, &profile).map_err(|e| other(e.into()))?;
+                if let Some(ref cp) = profile.client_path {
+                    if let Ok(pc) = control_cmds::player(&state) {
+                        if let Ok(rid) = control_cmds::realm_id(&realm) {
+                            if let Ok(Some(creds)) = pc.credentials(&rid) {
+                                let _ = coa_core::glue_config::prefill_login(
+                                    std::path::Path::new(cp),
+                                    &creds.username,
+                                    &creds.password,
+                                );
+                            }
+                        }
+                    }
+                }
             }
             play(state, REMOTE_CLIENT_ID.to_string())
                 .await
@@ -2189,6 +2204,10 @@ async fn play(
                 "Close the game client before pressing Play so its selected realm can be updated."
                     .into(),
             ));
+        }
+        let existing = coa_core::glue_config::read_glue_config(&client).unwrap_or_default();
+        if existing.is_empty() {
+            let _ = coa_core::glue_config::prefill_login(&client, "local", "local");
         }
         coa_core::client::launch(&client)?;
         Ok(DriverOutcome {

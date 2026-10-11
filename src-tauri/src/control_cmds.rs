@@ -39,7 +39,7 @@ fn registry_url() -> Result<String, ServiceError> {
         .unwrap_or_else(|| settings.effective_url().to_string()))
 }
 
-fn player(state: &State<'_, AppState>) -> Result<Arc<PlayerControl>, ServiceError> {
+pub(crate) fn player(state: &State<'_, AppState>) -> Result<Arc<PlayerControl>, ServiceError> {
     state.control.clone().ok_or_else(|| {
         fail(
             "stopped",
@@ -48,7 +48,7 @@ fn player(state: &State<'_, AppState>) -> Result<Arc<PlayerControl>, ServiceErro
     })
 }
 
-fn realm_id(text: &str) -> Result<RealmId, ServiceError> {
+pub(crate) fn realm_id(text: &str) -> Result<RealmId, ServiceError> {
     RealmId::parse(text).map_err(|e| fail("invalid", e.to_string()))
 }
 
@@ -238,22 +238,25 @@ pub(crate) async fn join_realm(
     let prefer = Some(load_prefs().preferred_username).filter(|n| !n.is_empty());
     let character_for_check = character.clone();
     let portable = state.portable.clone();
+    let pc_bg = pc.clone();
+    let rid_bg = rid;
     let mut outcome =
         tauri::async_runtime::spawn_blocking(move || -> Result<JoinOutcome, ServiceError> {
             let url = registry_url()?;
-            let (target, detail) = target_of(&url, &rid)?;
-            let mut ch = pc.connect(&target).map_err(from_control)?;
-            let (_automatic, existing_only, route) = pc.welcome(&mut ch).map_err(from_control)?;
-            if pc
-                .credentials(&rid)
+            let (target, detail) = target_of(&url, &rid_bg)?;
+            let mut ch = pc_bg.connect(&target).map_err(from_control)?;
+            let (_automatic, existing_only, route) =
+                pc_bg.welcome(&mut ch).map_err(from_control)?;
+            if pc_bg
+                .credentials(&rid_bg)
                 .map_err(|e| fail("other", e.to_string()))?
                 .is_none()
                 && existing_only
             {
                 return Ok(JoinOutcome::stop("needs_link", None));
             }
-            let account = pc
-                .ensure_account(&mut ch, &rid, prefer.as_deref())
+            let account = pc_bg
+                .ensure_account(&mut ch, &rid_bg, prefer.as_deref())
                 .map_err(from_control)?;
             let mut out = JoinOutcome {
                 status: "ready".into(),
@@ -276,14 +279,14 @@ pub(crate) async fn join_realm(
                     out.status = "incompatible".into();
                     return Ok(out);
                 }
-                let here = pc.claimed_here(&rid).map_err(from_control)?;
+                let here = pc_bg.claimed_here(&rid_bg).map_err(from_control)?;
                 if !here.iter().any(|(id, _)| id.to_string() == character) {
                     // Phase 12.1: Transfer canonical character to remote Host over the encrypted control channel
                     let char_id_str = character.clone();
                     let bundle =
                         portable.call(move |s| s.export_for_remote_transfer(&char_id_str))??;
                     let cuuid = bundle.character_id.as_uuid();
-                    let _outcome = pc
+                    let _outcome = pc_bg
                         .transfer_character(
                             &mut ch,
                             cuuid,
@@ -293,7 +296,7 @@ pub(crate) async fn join_realm(
                             bundle.collections,
                         )
                         .map_err(from_control)?;
-                    let _ = pc.acknowledge(&mut ch, cuuid, &rid, &character);
+                    let _ = pc_bg.acknowledge(&mut ch, cuuid, &rid_bg, &character);
                 }
             }
             // Phase 14: Try direct route if provided, with quick TCP probe. If direct fails or unavailable, fall back to Relay.
@@ -316,7 +319,7 @@ pub(crate) async fn join_realm(
                 }
             }
             if !direct_worked {
-                match pc.allocate_relay(&mut ch) {
+                match pc_bg.allocate_relay(&mut ch) {
                     Ok(relay_alloc) => {
                         let r = format!("{}:{}", relay_alloc.relay_host, relay_alloc.auth_port);
                         out.route = Some(r);
@@ -335,27 +338,38 @@ pub(crate) async fn join_realm(
 
     if outcome.status == "ready" {
         let host = outcome.route.clone().unwrap_or_default();
-        let client_ready = {
+        let client_path = {
             let profile = coa_core::remote_client::load(&remote_dir())
                 .map_err(|e| fail("other", e.to_string()))?;
-            profile
-                .client_path
-                .as_deref()
-                .is_some_and(|p| coa_core::client::detect(std::path::Path::new(p), None).is_some())
+            profile.client_path
         };
+        let client_ready = client_path
+            .as_deref()
+            .is_some_and(|p| coa_core::client::detect(std::path::Path::new(p), None).is_some());
         if !client_ready {
             outcome.status = "needs_client".into();
-        } else if launch {
-            let dir = remote_dir();
-            let mut profile =
-                coa_core::remote_client::load(&dir).map_err(|e| fail("other", e.to_string()))?;
-            profile.host = host;
-            coa_core::remote_client::save(&dir, &profile)
-                .map_err(|e| fail("launch", e.to_string()))?;
-            super::play(state, REMOTE_CLIENT_ID.to_string())
-                .await
-                .map_err(|e| fail("launch", e.technical))?;
-            outcome.status = "launched".into();
+        } else {
+            if let Some(ref cp) = client_path {
+                if let Ok(Some(creds)) = pc.credentials(&rid) {
+                    let _ = coa_core::glue_config::prefill_login(
+                        std::path::Path::new(cp),
+                        &creds.username,
+                        &creds.password,
+                    );
+                }
+            }
+            if launch {
+                let dir = remote_dir();
+                let mut profile = coa_core::remote_client::load(&dir)
+                    .map_err(|e| fail("other", e.to_string()))?;
+                profile.host = host;
+                coa_core::remote_client::save(&dir, &profile)
+                    .map_err(|e| fail("launch", e.to_string()))?;
+                super::play(state, REMOTE_CLIENT_ID.to_string())
+                    .await
+                    .map_err(|e| fail("launch", e.technical))?;
+                outcome.status = "launched".into();
+            }
         }
     }
     Ok(outcome)

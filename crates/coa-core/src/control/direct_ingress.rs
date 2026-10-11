@@ -325,9 +325,9 @@ mod tests {
 
         let mut client_world = TcpStream::connect(format!("127.0.0.1:{ingress_world}")).unwrap();
         client_world.write_all(b"WORLD_PING").unwrap();
-        let mut resp = [0u8; 16];
-        let n = client_world.read(&mut resp).unwrap();
-        assert_eq!(&resp[..n], b"WORLD_PONG");
+        let mut resp = [0u8; 10];
+        client_world.read_exact(&mut resp).unwrap();
+        assert_eq!(&resp, b"WORLD_PONG");
         drop(client_world);
         t_world.join().unwrap();
 

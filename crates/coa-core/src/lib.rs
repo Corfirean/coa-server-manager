@@ -29,6 +29,7 @@ pub mod error;
 pub mod firewall;
 pub mod friends;
 pub mod fsx;
+pub mod glue_config;
 pub mod health;
 pub mod install;
 pub mod layout;
