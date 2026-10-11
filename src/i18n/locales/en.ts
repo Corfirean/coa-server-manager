@@ -238,6 +238,7 @@ const en = {
   "comp.saved": "Saved. {n} companions will be created when the server starts.",
 
   // Client
+  "client.races.install": "Install custom race patch",
   "client.title": "Game client",
   "client.looking": "Looking…",
   "client.intro": "Tell Manager where your game is installed to get a PLAY button. Your game files are never changed except the server address and the companion addon.",
