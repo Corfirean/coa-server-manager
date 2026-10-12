@@ -14,6 +14,11 @@ const text = (values: string[], locale: Locale) => values[locales.indexOf(locale
 type Entry = { key: string; type: string; title: string[]; description: string[]; min?: number; max?: number; advanced?: boolean; options?: { value: string; label: string[] }[] };
 export const moduleSettingDefinitions: Entry[] = [];
 const fields = moduleSettingDefinitions;
+add("CoACustomRaces.EnabledRaces", "string", ["Enabled race IDs", "ID разрешённых рас"], ["Comma-separated race IDs; * allows all installed custom races. Stock races always remain available. Requires the custom race module.", "ID рас через запятую; * разрешает все установленные дополнительные расы. Стандартные расы остаются доступны. Требуется включённый модуль рас."]);
+add("TimeIsTime.Announce", "bool", ["Announce on login", "Сообщение при входе"], ["Show a module notice when a character logs in.", "Показывать сообщение о модуле при входе персонажа."]);
+add("TimeIsTime.SpeedRate", "float", ["Day/night speed", "Скорость смены дня и ночи"], ["1 follows real time; 60 gives one game day every 24 minutes. Changes only the client visual clock.", "1 — реальное время; 60 — игровые сутки за 24 минуты. Меняет только визуальное время клиента."], { min: 0.01, max: 60 });
+add("TimeIsTime.HourOffset", "float", ["Hour offset", "Смещение часов"], ["Offset applied to the visual client clock, in hours.", "Смещение визуальных часов клиента в часах."], { min: -24, max: 24 });
+add("TimeIsTime.TimeStart", "int", ["Starting time", "Начальное время"], ["Unix timestamp used at every login; 0 uses the server clock.", "Unix-время при каждом входе; 0 использует часы сервера."], { min: 0, max: 2147483647 });
 function add(key: string, type: string, title: string[], description: string[], extra: Partial<Entry> = {}) {
   fields.push({ key, type, title, description, ...extra });
 }
@@ -69,8 +74,11 @@ add(scaling + "LFG.DefaultChallengeSize", "int", ["Challenge group size", "Ра�
 add(scaling + "GroupScaling.LockOnEncounterStart", "bool", ["Lock scaling during combat", "Фиксировать скейлинг на время боя", "Skalierung im Kampf sperren", "Figer l’adaptation en combat", "Fijar ajuste durante combate", "战斗期间锁定缩放"], ["Joining or leaving during a boss fight does not change its scaling.", "Вход и выход игроков во время боя с боссом не меняют скейлинг.", "Beitreten oder Verlassen während eines Bosskampfs ändert die Skalierung nicht.", "Les arrivées et départs pendant un boss ne changent pas l’adaptation.", "Entrar o salir durante un jefe no cambia el ajuste.", "首领战期间玩家进出不会改变缩放。"], { advanced: true });
 add(scaling + "Progression.Mode", "enum", ["Progression boundaries", "Границы прогрессии", "Fortschrittsgrenzen", "Limites de progression", "Límites de progresión", "进度边界"], ["Automatic boundaries follow the level cap and enabled expansions. Custom uses the levels below.", "Автоматические границы зависят от максимального уровня и включённых дополнений. Ручные используют уровни ниже.", "Automatisch folgt der Maximalstufe und Erweiterungen. Benutzerdefiniert nutzt die folgenden Stufen.", "Automatique suit le niveau maximal et les extensions. Manuel utilise les niveaux ci-dessous.", "Automático sigue el nivel máximo y las expansiones. Manual usa los niveles siguientes.", "自动边界按等级上限和启用的资料片计算，自定义使用以下等级。"], { advanced: true, options: [
   { value: "Auto", label: ["Automatic", "Автоматически", "Automatisch", "Automatique", "Automático", "自动"] },
+  { value: "Parallel", label: ["Parallel: Classic 1–60, TBC/WotLK 45–60", "Параллельно: классика 1–60, БК/ЛК 45–60", "Parallel: Classic 1–60, TBC/WotLK 45–60", "Parallèle : Classic 1–60, TBC/WotLK 45–60", "Paralelo: Classic 1–60, TBC/WotLK 45–60", "并行：经典1–60，TBC/WotLK45–60"] },
+  { value: "Global", label: ["Global: all eras 1–60", "Всё содержимое 1–60", "Alle Erweiterungen 1–60", "Toutes les extensions 1–60", "Todas las expansiones 1–60", "全部资料片1–60"] },
   { value: "Custom", label: ["Custom", "Вручную", "Benutzerdefiniert", "Manuel", "Manual", "自定义"] },
 ] });
+add(scaling + "Items.RemoveClassRestrictions", "bool", ["Remove item class requirements", "Убрать классовые ограничения предметов"], ["Allow all classes to equip class-restricted items, including tier sets. Requires a world server restart.", "Разрешает всем классам надевать предметы с классовыми ограничениями, включая комплекты T10. Требуется перезапуск игрового сервера."]);
 for (const era of ["Classic", "Tbc"]) add(scaling + `Progression.${era}End`, "int", [`${era} last level`, `Последний уровень ${era}`, `${era}-Endstufe`, `Dernier niveau ${era}`, `Último nivel ${era}`, `${era} 最高等级`], ["Used in custom progression. 0 chooses automatically.", "Для ручной прогрессии. 0 — автоматически.", "Für benutzerdefinierten Fortschritt. 0 wählt automatisch.", "Pour la progression manuelle. 0 choisit automatiquement.", "Para progresión manual. 0 elige automáticamente.", "用于自定义进度，0为自动。"], { min: 0, max: 80, advanced: true });
 add(scaling + "Debug", "bool", ["Detailed scaling logs", "Подробные логи скейлинга", "Ausführliche Skalierungsprotokolle", "Journaux détaillés", "Registros detallados", "详细缩放日志"], ["Log scaling calculations for troubleshooting.", "Записывает расчёты скейлинга для диагностики.", "Protokolliert Berechnungen zur Fehleranalyse.", "Enregistre les calculs pour le diagnostic.", "Registra cálculos para diagnóstico.", "记录缩放计算以排查问题。"], { advanced: true });
 
@@ -203,6 +211,6 @@ export function canonicalModuleValue(key: string, value: string): string {
   const v = value.trim().replace(/^"|"$/g, "");
   if (key === scaling + "SoloAssist.Mode") return ({ "0": "None", "1": "Light", "2": "Full", none: "None", light: "Light", full: "Full" } as Record<string, string>)[v.toLowerCase()] ?? v;
   if (key === scaling + "LFG.DefaultMode") return ({ "0": "Matchmaking", "1": "BotFill", "2": "CurrentParty", matchmaking: "Matchmaking", botfill: "BotFill", currentparty: "CurrentParty" } as Record<string, string>)[v.toLowerCase()] ?? v;
-  if (key === scaling + "Progression.Mode") return v.toLowerCase() === "auto" ? "Auto" : v.toLowerCase() === "custom" ? "Custom" : v;
+  if (key === scaling + "Progression.Mode") return ({ auto: "Auto", custom: "Custom", parallel: "Parallel", global: "Global" } as Record<string, string>)[v.toLowerCase()] ?? v;
   return v;
 }

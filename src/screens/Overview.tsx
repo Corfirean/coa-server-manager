@@ -196,6 +196,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         if (alive.current) setPop(null);
         if (
           wasWorldRunningRef.current &&
+          s.observed.world.state === "crashed" &&
           !userStoppedRef.current &&
           actionRef.current === null
         ) {

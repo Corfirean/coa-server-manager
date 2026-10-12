@@ -2,6 +2,42 @@
   "schema": 1,
   "modules": [
     {
+      "id": "vanilla-classes",
+      "name": "Classic classes",
+      "description": {
+        "en": "Enable the stock client class-page switch without custom race assets. Offers nine classic classes through the client development flag.",
+        "ru": "Кнопка смены классов штатного клиента без дополнительных рас. Девять классических классов через клиентский флаг разработки.",
+        "de": "Aktiviert die klassischen Klassen ohne zusätzliche Völkerdateien.",
+        "fr": "Active les classes classiques sans les fichiers de races supplémentaires.",
+        "es": "Activa las clases clásicas sin archivos de razas adicionales."
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
+      "conf": "coa.conf",
+      "enable_key": "CoA.VanillaClasses.Enable",
+      "switchable": true,
+      "default_on": false,
+      "status": "beta",
+      "icon": "swords"
+    },
+    {
+      "id": "time-is-time",
+      "name": "TimeIsTime",
+      "description": {
+        "en": "Adjust the visual day and night cycle without changing server timers.",
+        "ru": "Настройка визуального цикла дня и ночи без изменения серверных таймеров.",
+        "de": "Passt den sichtbaren Tag-Nacht-Zyklus an, ohne Serverzeiten zu ändern.",
+        "fr": "Ajuste le cycle visuel jour-nuit sans modifier les minuteries du serveur.",
+        "es": "Ajusta el ciclo visual día-noche sin cambiar los temporizadores del servidor."
+      },
+      "repo": "https://github.com/dunjeon/mod-TimeIsTime",
+      "conf": "mod-time_is_time.conf",
+      "enable_key": "TimeIsTime.Enable",
+      "switchable": true,
+      "default_on": false,
+      "status": "beta",
+      "icon": "clock"
+    },
+    {
       "id": "companions",
       "name": "CoA Companions",
       "description": {

@@ -68,6 +68,24 @@ pub fn read_state_record(root: &Path, name: &str) -> Option<ProcessIdentity> {
     fsx::read_json(&root.join(".state").join(format!("{name}.json"))).ok()
 }
 
+#[derive(Deserialize)]
+struct ProcessExit {
+    process: ProcessIdentity,
+    exit_code: i64,
+}
+
+fn exited_state(root: &Path, name: &str, expected: &[String]) -> ServiceState {
+    let exit: Option<ProcessExit> = fsx::read_json(&root.join(".state").join(format!("{name}-exit.json"))).ok();
+    let record = read_state_record(root, name);
+    match (exit, record) {
+        (Some(exit), Some(record))
+            if exit.process.same_as(&record)
+                && expected.iter().any(|exe| record.exe.eq_ignore_ascii_case(exe))
+                && exit.exit_code != 0 && exit.exit_code != 2 => ServiceState::Crashed,
+        _ => ServiceState::Stopped,
+    }
+}
+
 #[cfg(windows)]
 mod sys {
     use super::ProcessIdentity;
@@ -304,7 +322,7 @@ fn service_with(root: &Path, name: &'static str, exe: PathBuf, alternatives: &[P
         (None, Some(o)) => {
             (ServiceState::Stopped, false, Some(PortConflict { port, pid: o, exe: identity(o).map(|i| i.exe) }))
         }
-        (None, None) => (ServiceState::Stopped, false, None),
+        (None, None) => (exited_state(root, name, &expected), false, None),
     };
     ServiceStatus {
         name,
@@ -399,5 +417,26 @@ mod tests {
         let o = observe(dir.path(), &Ports::default());
         assert_eq!(o.world.state, ServiceState::Stopped);
         assert!(o.world.pid.is_none());
+    }
+
+    #[test]
+    fn only_matching_abnormal_exits_are_crashes() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join(".state");
+        std::fs::create_dir_all(&state).unwrap();
+        let record = ProcessIdentity { pid: 42, created: 123, exe: "C:\\server\\worldserver.exe".into() };
+        let expected = vec![record.exe.clone()];
+        std::fs::write(state.join("world.json"), serde_json::to_vec(&record).unwrap()).unwrap();
+        for (code, want) in [(0i64, ServiceState::Stopped), (2, ServiceState::Stopped), (1, ServiceState::Crashed),
+            (3221225477, ServiceState::Crashed)] {
+            std::fs::write(state.join("world-exit.json"), serde_json::to_vec(&serde_json::json!({
+                "process": record, "exit_code": code
+            })).unwrap()).unwrap();
+            assert_eq!(exited_state(dir.path(), "world", &expected), want);
+        }
+        let newer = ProcessIdentity { created: 124, ..record };
+        std::fs::write(state.join("world.json"), serde_json::to_vec(&newer).unwrap()).unwrap();
+        assert_eq!(exited_state(dir.path(), "world", &expected), ServiceState::Stopped);
+        assert_eq!(exited_state(dir.path(), "world", &["C:\\other.exe".into()]), ServiceState::Stopped);
     }
 }
