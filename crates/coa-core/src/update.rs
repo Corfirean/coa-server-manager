@@ -308,9 +308,12 @@ pub fn preview(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &s
 pub fn preview_with(root: &Path, meta: &InstallMeta, source: &Source, trusted_key: &str, resolutions: &BTreeMap<String, Resolution>, access: DatabaseAccess) -> Result<Preview> {
     refuse_for_docker(root)?;
     let meta_dir = crate::registry::metadata_dir_for(root)?;
-    let _lock = operation_lock(&meta_dir)?;
-    ensure_recovered(&meta_dir)?;
+    let observed_version = MetaDir::open(&meta_dir)?.1.core.version;
     let (m, _) = fetch_manifest(source, trusted_key)?;
+    let _lock = operation_lock_for(&meta_dir, "checking updates", false)?;
+    ensure_recovered(&meta_dir)?;
+    let (_, current_meta) = MetaDir::open(&meta_dir)?;
+    let meta = if current_meta.core.version != observed_version { &current_meta } else { meta };
     check_manifest(&m)?;
     reject_downgrade(meta, &m)?;
     let mut items = plan(root, meta, &m, resolutions, None)?;
@@ -780,11 +783,26 @@ pub fn rollback(root: &Path, meta_dir: &Path, id: &str, env: &dyn Env) -> Result
 }
 
 pub(crate) fn operation_lock(meta_dir: &Path) -> Result<fs::File> {
+    operation_lock_for(meta_dir, "server maintenance", false)
+}
+
+pub(crate) fn operation_lock_for(meta_dir: &Path, operation: &str, wait_for_check: bool) -> Result<fs::File> {
     fs::create_dir_all(meta_dir)?;
     let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(meta_dir.join("update.lock"))?;
-    if !fs4::fs_std::FileExt::try_lock_exclusive(&lock)? {
-        return Err(Error::Invalid("Another update, repair or recovery is in progress.".into()));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        if fs4::fs_std::FileExt::try_lock_exclusive(&lock)? { break; }
+        let owner = fsx::read_json::<serde_json::Value>(&meta_dir.join("update-lock-owner.json")).ok();
+        let checking = owner.as_ref().and_then(|owner| owner.get("operation")).and_then(|value| value.as_str()) == Some("checking updates");
+        if wait_for_check && checking && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            continue;
+        }
+        let details = owner.as_ref().and_then(|owner| Some(format!(" Operation: {}; Manager process: {}; started: {}.", owner.get("operation")?.as_str()?, owner.get("pid")?.as_u64()?, owner.get("started")?.as_str()?))).unwrap_or_default();
+        return Err(Error::Invalid(format!("Another update, repair or recovery is in progress.{details} Wait for that operation to finish, then retry.")));
     }
+    let record = serde_json::json!({"operation": operation, "pid": std::process::id(), "started": chrono::Utc::now().to_rfc3339()});
+    fsx::atomic_write_json(&meta_dir.join("update-lock-owner.json"), &record)?;
     Ok(lock)
 }
 
@@ -1356,6 +1374,25 @@ mod tests {
         meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(LEGACY_LAUNCHER.as_bytes()));
         fsx::atomic_write_json(&w.meta.join("install.json"), &meta).unwrap();
         w
+    }
+
+    #[test]
+    fn startup_waits_for_an_update_check_but_not_for_active_maintenance() {
+        let temp = tempfile::tempdir().unwrap();
+        let checker = operation_lock_for(temp.path(), "checking updates", false).unwrap();
+        let root = temp.path().to_path_buf();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            drop(checker);
+        });
+        let start = operation_lock_for(&root, "starting server", true).unwrap();
+        release.join().unwrap();
+        let error = operation_lock(&root).unwrap_err().to_string();
+        assert!(error.contains("starting server"));
+        assert!(error.contains(&std::process::id().to_string()));
+        drop(start);
+        // Stale owner metadata is harmless once the OS lock is released.
+        operation_lock(&root).unwrap();
     }
 
     #[test]
