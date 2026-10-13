@@ -100,7 +100,7 @@ pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
 fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
     let _update_lock = if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
-        Some(crate::update::operation_lock(&crate::registry::metadata_dir_for(&root)?)?)
+        Some(crate::update::operation_lock_for(&crate::registry::metadata_dir_for(&root)?, "starting server", true)?)
     } else { None };
     if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
         crate::update::ensure_recovered(&crate::registry::metadata_dir_for(&root)?)?;
