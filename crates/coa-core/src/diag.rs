@@ -347,6 +347,15 @@ pub fn export_package(root: &Path, meta_dir: &Path, manager_log: &Path, meta: &I
         "wow_client_set": meta.client_path.is_some(),
     });
     add("summary.json", serde_json::to_string_pretty(&summary)?.as_bytes())?;
+    let owner = fs::read_to_string(meta_dir.join("update-lock-owner.json")).ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&redact_json(&text)).ok());
+    let maintenance = serde_json::json!({
+        "lockFilePresent": meta_dir.join("update.lock").is_file(),
+        "lastRecordedOwner": owner,
+        "note": "The lock file and owner record may remain after completion. Their presence does not establish whether the OS lock is currently held."
+    });
+    add("maintenance.json", serde_json::to_string_pretty(&maintenance)?.as_bytes())?;
+
 
     // Logs. The newest update logs of the repack's own updater are added under their own names.
     let mut logs: Vec<(String, PathBuf)> = vec![
@@ -599,6 +608,8 @@ real error
         fs::write(root.join("Core/configs/worldserver.conf"), "LoginDatabaseInfo = \"127.0.0.1;3307;acore;SECRETPW;auth\"\nRate.XP.Kill = 1\n").unwrap();
         let meta_dir = d.path().join("srv.manager");
         fs::create_dir_all(&meta_dir).unwrap();
+        fs::write(meta_dir.join("update.lock"), b"").unwrap();
+        fs::write(meta_dir.join("update-lock-owner.json"), r#"{"operation":"checking updates","pid":1234,"started":"2026-10-13T01:00:00Z","token":"owner-secret"}"#).unwrap();
         fs::create_dir_all(meta_dir.join("diagnostics")).unwrap();
         fs::write(meta_dir.join("diagnostics/schema-validation-CoA-test.json"), r#"{"problems":[{"table":"creature_display_preset","column":"display_id","detail":"default mismatch"}],"password":"schema-secret"}"#).unwrap();
         fs::write(meta_dir.join("diagnostics/database-recovery-test.json"), r#"{"objects":[{"database":"acore_characters","kind":"TRIGGER","name":"user_character_trigger"}],"password":"recovery-secret"}"#).unwrap();
@@ -620,6 +631,10 @@ real error
         assert!(!all.contains("schema-secret"));
         assert!(all.contains("user_character_trigger") && all.contains("acore_characters"));
         assert!(!all.contains("recovery-secret"));
+        assert!(all.contains("checking updates") && all.contains("1234"));
+        assert!(all.contains("lockFilePresent") && all.contains("does not establish"));
+        assert!(!all.contains("owner-secret"));
+        assert_eq!(fs::read(meta_dir.join("update.lock")).unwrap(), b"");
         assert!(!all.contains("hunter2") && !all.contains("SECRETPW") && !all.contains("upstream-secret"));
     }
 }

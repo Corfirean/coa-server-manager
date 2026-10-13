@@ -90,7 +90,12 @@ fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
 
 /// Run a launcher verb to completion (blocking; call from a worker thread).
 pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
-    run_inner(root, verb, false)
+    tracing::info!(?verb, root = %root.display(), "driver: launcher requested");
+    let result = run_inner(root, verb, false);
+    if let Err(error) = &result {
+        tracing::warn!(?verb, root = %root.display(), %error, "driver: launcher request failed before completion");
+    }
+    result
 }
 
 pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
@@ -297,6 +302,31 @@ pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_blocked_start_is_logged_before_any_launcher_is_spawned() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        struct Capture(Arc<Mutex<Vec<u8>>>);
+        impl Write for Capture {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> { self.0.lock().unwrap().extend_from_slice(bytes); Ok(bytes.len()) }
+            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        std::fs::create_dir(&root).unwrap();
+        let metadata = crate::registry::metadata_dir_for(&root).unwrap();
+        let _maintenance = crate::update::operation_lock(&metadata).unwrap();
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer = Arc::clone(&buffer);
+        let subscriber = tracing_subscriber::fmt().without_time().with_ansi(false).with_writer(move || Capture(Arc::clone(&writer))).finish();
+        let error = tracing::subscriber::with_default(subscriber, || run(&root, Verb::StartAll)).unwrap_err();
+        assert!(error.to_string().contains("in progress"));
+        let text = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
+        assert!(text.contains("launcher requested") && text.contains("StartAll"));
+        assert!(text.contains("launcher request failed before completion") && text.contains("in progress"));
+        assert!(!text.contains("starting launcher verb"));
+    }
 
     #[test]
     fn background_start_disables_cli_in_template_and_rendered_config() {
