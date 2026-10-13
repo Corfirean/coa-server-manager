@@ -46,21 +46,22 @@ function Row({ label, s }: { label: string; s: ServiceStatus }) {
   const t = useT();
   const running = s.state === "running";
   const starting = s.state === "starting";
+  const crashed = s.state === "crashed";
   return (
     <div className="flex items-center justify-between py-2.5">
       <span>{label}</span>
       <span
-        className={cn("flex items-center gap-2 text-sm", running ? "text-ok" : starting ? "text-warn" : "text-muted")}
+        className={cn("flex items-center gap-2 text-sm", running ? "text-ok" : starting || crashed ? "text-warn" : "text-muted")}
         role="status"
       >
         <span
           aria-hidden
           className={cn(
             "h-2 w-2 rounded-full",
-            running ? "bg-ok" : starting ? "animate-[pulse-dot_1.2s_ease-in-out_infinite] bg-warn" : "bg-muted/50",
+            running ? "bg-ok" : starting ? "animate-[pulse-dot_1.2s_ease-in-out_infinite] bg-warn" : crashed ? "bg-warn" : "bg-muted/50",
           )}
         />
-        {running ? t("status.running") : starting ? t("status.starting") : t("status.stopped")}
+        {running ? t("status.running") : starting ? t("status.starting") : crashed ? t("status.crashed") : t("status.stopped")}
       </span>
     </div>
   );

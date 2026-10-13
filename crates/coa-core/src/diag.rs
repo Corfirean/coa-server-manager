@@ -109,7 +109,8 @@ pub fn run(root: &Path, meta: &InstallMeta) -> Report {
         c.push(if crate::client::detect(Path::new(path), None).is_some() { check("client", "Game client", Level::Ok, path.clone()) } else { check("client", "Game client", Level::Warn, "The saved game folder was not found; choose it again in Settings.") });
     }
 
-    let exposed: Vec<&str> = crate::net::exposure(&ports).iter().filter(|e| (e.what == "database" || e.what == "server console") && e.reachable_from_network).map(|e| e.what).collect();
+    let exposure = if crate::docker::is_docker(root) { crate::docker::exposure(root, &ports) } else { crate::net::exposure(&ports) };
+    let exposed: Vec<&str> = exposure.iter().filter(|e| (e.what == "database" || e.what == "server console") && e.reachable_from_network).map(|e| e.what).collect();
     c.push(if exposed.is_empty() { check("exposure", "Private services", Level::Ok, "Database and server console are not reachable from the network.") } else { check("exposure", "Private services", Level::Fail, format!("Reachable from the network: {}.", exposed.join(", "))) });
 
     let problems = c.iter().filter(|x| x.level != Level::Ok).count();
@@ -473,15 +474,52 @@ pub fn stamp() -> String {
     chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
 }
 
+#[cfg(windows)]
 pub fn desktop_or_temp() -> PathBuf {
     let d = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Desktop");
     if d.is_dir() { d } else { std::env::temp_dir() }
+}
+
+/// Where a file meant for the person goes on Linux: the desktop folder they have (the XDG user directories file names it), else
+/// `~/Desktop`, else `~/Downloads`, else the temporary folder.
+#[cfg(not(windows))]
+pub fn desktop_or_temp() -> PathBuf {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return std::env::temp_dir() };
+    let dirs = std::fs::read_to_string(home.join(".config/user-dirs.dirs")).ok();
+    pick_desktop(&home, dirs.as_deref(), &|p| p.is_dir())
+}
+
+#[cfg(not(windows))]
+fn pick_desktop(home: &Path, user_dirs: Option<&str>, exists: &dyn Fn(&Path) -> bool) -> PathBuf {
+    let named = user_dirs.and_then(|t| {
+        t.lines().find_map(|l| {
+            let v = l.trim().strip_prefix("XDG_DESKTOP_DIR=")?.trim_matches('"');
+            Some(PathBuf::from(v.replace("$HOME", &home.to_string_lossy())))
+        })
+    });
+    // A user without a desktop sets XDG_DESKTOP_DIR to the home folder itself: that is not a place to drop files into.
+    [named, Some(home.join("Desktop")), Some(home.join("Downloads"))].into_iter().flatten().filter(|p| p != home).find(|p| exists(p)).unwrap_or_else(std::env::temp_dir)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::registry::{InstallKind, InstallMeta};
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_desktop_folder_on_linux_follows_the_users_own_directories() {
+        let home = Path::new("/home/ana");
+        let only = |wanted: &'static [&'static str]| move |p: &Path| wanted.contains(&p.to_str().unwrap());
+        let dirs = "# comment\nXDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\nXDG_DESKTOP_DIR=\"$HOME/Bureau\"\n";
+        assert_eq!(pick_desktop(home, Some(dirs), &only(&["/home/ana/Bureau", "/home/ana/Desktop"])), PathBuf::from("/home/ana/Bureau"));
+        assert_eq!(pick_desktop(home, None, &only(&["/home/ana/Desktop"])), PathBuf::from("/home/ana/Desktop"));
+        assert_eq!(pick_desktop(home, Some(dirs), &only(&["/home/ana/Downloads"])), PathBuf::from("/home/ana/Downloads"));
+        assert_eq!(pick_desktop(home, None, &only(&[])), std::env::temp_dir());
+        // No desktop: the user directories file names the home folder itself.
+        let none = "XDG_DESKTOP_DIR=\"$HOME/\"\n";
+        assert_eq!(pick_desktop(home, Some(none), &only(&["/home/ana", "/home/ana/Downloads"])), PathBuf::from("/home/ana/Downloads"));
+    }
 
     #[test]
     fn repeated_config_warnings_are_folded() {

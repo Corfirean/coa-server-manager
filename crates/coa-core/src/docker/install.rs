@@ -112,7 +112,7 @@ pub fn preflight(dest: &Path, data_dir: &Path, needed_bytes: u64, registry: &Reg
     Preflight { ok: problems.is_empty(), problems, free_bytes }
 }
 
-fn data_problems(data_dir: &Path) -> Vec<crate::install::Problem> {
+pub(crate) fn data_problems(data_dir: &Path) -> Vec<crate::install::Problem> {
     let s = data_dir.to_string_lossy();
     if !data_dir.is_absolute() || s.contains(':') {
         return vec![problem("data_path", "Choose the game data folder with its full path, without a colon in it.")];

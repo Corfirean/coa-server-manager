@@ -212,7 +212,7 @@ pub fn config_files(root: &Path) -> Vec<String> {
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
             // database.json holds generated database passwords; it is launcher state, not configuration.
-            if e.path().is_file() && (n.contains(".template") || n == "repack.json") {
+            if e.path().is_file() && (n.contains(".template") || n == "repack.json" || n == "docker.json") {
                 out.push(format!("Settings/{n}"));
             }
         }
