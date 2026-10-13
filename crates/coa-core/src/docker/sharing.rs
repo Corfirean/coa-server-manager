@@ -59,10 +59,11 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
     if changed {
         fsx::atomic_write_json(&root.join(MARKER), &cfg)?;
     }
+    let remote_changed = coa_edit.is_some();
     if let Some(text) = coa_edit {
         fsx::atomic_write(&coa_conf, text.as_bytes())?;
     }
-    Ok(changed)
+    Ok(changed || remote_changed)
 }
 
 /// What each service can be reached from, computed from how the containers publish their ports: the database is never published,
@@ -108,6 +109,15 @@ mod tests {
         assert!(set_open(&root, &meta, false).unwrap());
         assert!(!bind_is_open(&root));
         assert_eq!(Config::load(&root).unwrap().bind_address, "127.0.0.1");
+    }
+
+    #[test]
+    fn enabling_remote_client_protocol_requires_restart_even_when_ports_are_open() {
+        let (_d, root, meta) = server(Some("0.0.0.0"));
+        fs::write(root.join("Core/configs/modules/coa.conf"), "CoA.Enable = 1\nCoA.AllowRemoteClients = 0\n").unwrap();
+        assert!(set_open(&root, &meta, true).unwrap());
+        assert_eq!(Config::load(&root).unwrap().bind_address, "0.0.0.0");
+        assert!(!set_open(&root, &meta, true).unwrap());
     }
 
     #[test]
