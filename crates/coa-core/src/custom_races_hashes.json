@@ -1,11 +1,4 @@
 {
-  "Data/patch-ZE1.MPQ": "69d79dbbea54ec0312c37770debc79c7bc9ce2e21eedef99c03cd8d911955283",
-  "Data/patch-ZE2.MPQ": "1a41cae77ad730e9cf69e8d63fd12ae3a579418bb550d351fff469573a97ac3c",
-  "Data/patch-ZE3.MPQ": "b587202c21b6f580682b601b7c2e905fbfa766276e74733db55c1bddbffb7f87",
-  "Data/patch-ZEA.MPQ": "78fd10ec5262ae2417eba9700d2172553bbc1e5cfb0b597aada8f1753ca46d9d",
-  "Data/patch-ZHA.MPQ": "0fc6ebeafe1d14192dc64bafc90bde3c49230df1297f98bf65900a3bcf953617",
-  "Data/patch-ZZE.MPQ": "4b1e289e12c82644cb78f50170e6b5fd53918eb2de834f9e0cebddd81873a8bb",
-  "Data/patch-ZZR.MPQ": "5a7575e592dc0c8a6913e0d946bbe06fa0ca2e4d817ef1f8548d3d13142bcbd3",
   "Ascension.exe": "e2c347019d554a59639e5978fd68e50e906973ab313c6573cc56ca82e8e3c547",
   "EsteriaAppearance.bin": "b3fb7c69b7600c39f888ea1925701be5667097dcb02bb6ddd830e5489306bb50",
   "EsteriaAppearance.dll": "392c5a2a25f9a69d705bdf841bb899aab768d4a3ee62734d576286c7198710d8",
@@ -46,5 +39,14 @@
   "Data/patch-ZHM.MPQ": "317d3ae00f0bd674b358af07544976acb7804aa6d8b19d1788ad96030e8c9bf0",
   "Data/patch-ZJ.MPQ": "f821e99add86ef68d108c5ec466328c97677d3ed52f7944e200f3fe38c13b4de",
   "Data/patch-ZM.MPQ": "424ab1978986e854551633983a94bd15beba6328aabea8c02f98eaa32f6f0b61",
-  "Data/patch-ZVU.MPQ": "c679b85a2e97344395756b54d2cf6abefe4e80e74944cb55b6e573ad17b7d020"
+  "Data/patch-ZVU.MPQ": "c679b85a2e97344395756b54d2cf6abefe4e80e74944cb55b6e573ad17b7d020",
+  "Data/patch-ZE1.MPQ": "69d79dbbea54ec0312c37770debc79c7bc9ce2e21eedef99c03cd8d911955283",
+  "Data/patch-ZE2.MPQ": "1a41cae77ad730e9cf69e8d63fd12ae3a579418bb550d351fff469573a97ac3c",
+  "Data/patch-ZE3.MPQ": "b587202c21b6f580682b601b7c2e905fbfa766276e74733db55c1bddbffb7f87",
+  "Data/patch-ZEA.MPQ": "78fd10ec5262ae2417eba9700d2172553bbc1e5cfb0b597aada8f1753ca46d9d",
+  "Data/patch-ZHA.MPQ": "0fc6ebeafe1d14192dc64bafc90bde3c49230df1297f98bf65900a3bcf953617",
+  "Data/patch-ZZE.MPQ": "4b1e289e12c82644cb78f50170e6b5fd53918eb2de834f9e0cebddd81873a8bb",
+  "Data/patch-ZZR.MPQ": "5a7575e592dc0c8a6913e0d946bbe06fa0ca2e4d817ef1f8548d3d13142bcbd3",
+  "Data/patch-ZZS.MPQ": "533fd69d5784d83e872a5a28d27301dc9ab5d0cb925f8b2116926854e4a0a5b8",
+  "Data/patch-ZZT.MPQ": "aef3bbe4951333d62fb55224484724fbaa9c35773a19944ffb9935e250cfb59c"
 }
