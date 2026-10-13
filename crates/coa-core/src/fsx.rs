@@ -28,6 +28,19 @@ pub fn normalize_lexical(path: &Path) -> PathBuf {
 fn key(path: &Path) -> Vec<String> {
     path.components()
         .map(|c| {
+            #[cfg(windows)]
+            if let Component::Prefix(prefix) = c {
+                use std::path::Prefix;
+                match prefix.kind() {
+                    Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => {
+                        return format!("{}:", char::from(drive).to_ascii_lowercase());
+                    }
+                    Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+                        return format!("\\\\{}\\{}", server.to_string_lossy(), share.to_string_lossy()).to_lowercase();
+                    }
+                    _ => {}
+                }
+            }
             let c = c.as_os_str().to_string_lossy();
             if cfg!(windows) { c.to_lowercase() } else { c.into_owned() }
         })
@@ -260,6 +273,35 @@ mod tests {
         if cfg!(windows) {
             assert!(ensure_within(&root, &upper).is_ok());
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn containment_matches_verbatim_drive_and_unc_prefixes() {
+        assert!(starts_with_ci(Path::new(r"\\?\C:\server\Extras\file.sql"), Path::new(r"C:\server")));
+        assert!(starts_with_ci(Path::new(r"C:\server\Extras\file.sql"), Path::new(r"\\?\c:\server")));
+        assert!(starts_with_ci(Path::new(r"\\?\UNC\host\share\server\file.sql"), Path::new(r"\\host\share\server")));
+        assert!(!starts_with_ci(Path::new(r"\\?\D:\server\file.sql"), Path::new(r"C:\server")));
+        assert!(!starts_with_ci(Path::new(r"\\?\C:\server-other\file.sql"), Path::new(r"C:\server")));
+        assert!(!starts_with_ci(Path::new(r"\\?\UNC\host\other\server\file.sql"), Path::new(r"\\host\share\server")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ensure_within_accepts_long_rehearsal_sql_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("server");
+        fs::create_dir_all(&root).unwrap();
+        let mut candidate = root.clone();
+        for _ in 0..5 {
+            candidate.push("long-private-rehearsal-directory-name-20261013");
+        }
+        fs::create_dir_all(&candidate).unwrap();
+        candidate.push("2026_06_13_00_ai_playerbot_missing_group_buff_reagent.sql");
+        fs::write(&candidate, b"SELECT 1;").unwrap();
+        assert!(candidate.as_os_str().len() > 260);
+        assert!(ensure_within(&root, &candidate).is_ok());
+        assert!(ensure_within(&root, &std::fs::canonicalize(candidate).unwrap()).is_ok());
     }
 
     #[test]
