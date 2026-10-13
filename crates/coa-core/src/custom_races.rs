@@ -236,6 +236,7 @@ impl<'a> PatchTransaction<'a> {
     }
     fn copy(&mut self, source: &Path, target: &Path) -> Result<()> {
         self.save(target)?;
+        fs::create_dir_all(target.parent().ok_or_else(|| Error::Invalid("Patch file has no parent directory.".into()))?)?;
         fs::copy(source, target)?;
         Ok(())
     }
@@ -727,11 +728,13 @@ mod tests {
             let mut tx = PatchTransaction::new(root).unwrap();
             tx.save(&file).unwrap();
             fs::write(&file, b"replacement").unwrap();
-            tx.save(&root.join("new.dll")).unwrap();
-            fs::write(root.join("new.dll"), b"new").unwrap();
+            let staged = root.join("staged.dll");
+            fs::write(&staged, b"new").unwrap();
+            tx.copy(&staged, &root.join("Data/new.dll")).unwrap();
+            assert_eq!(fs::read(root.join("Data/new.dll")).unwrap(), b"new");
         }
         assert_eq!(fs::read(&file).unwrap(), b"previous");
-        assert!(!root.join("new.dll").exists());
+        assert!(!root.join("Data/new.dll").exists());
         let mut tx = PatchTransaction::new(root).unwrap();
         tx.save(&file).unwrap();
         fs::write(&file, b"interrupted").unwrap();
