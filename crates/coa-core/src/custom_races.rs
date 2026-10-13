@@ -146,6 +146,7 @@ pub enum ClientPatchState {
 #[serde(rename_all = "camelCase")]
 pub struct ClientPatchStatus {
     pub state: ClientPatchState,
+    pub version: Option<String>,
     pub installed_mpqs: usize,
     pub total_mpqs: usize,
     pub has_root_files: bool,
@@ -210,7 +211,8 @@ pub fn client_patch_status(client_path: &Path) -> ClientPatchStatus {
     } else if !manifest.is_empty() || patch_files(client_path).is_ok_and(|files| files.iter().filter(|file| file.path.starts_with("Data/") && file.path != "Data/patch-T.MPQ").any(|file| matches_patch(&client_path.join(&file.path), file) || matches_patch(&suffix(&client_path.join(&file.path), "disabled"), file))) {
         ClientPatchState::PartiallyInstalled
     } else { ClientPatchState::NotInstalled };
-    ClientPatchStatus { state, installed_mpqs, total_mpqs: RACE_MPQS.len(), has_root_files,
+    let version = manifest.lines().find_map(|line| line.strip_prefix("# CoA Custom ").map(str::to_string));
+    ClientPatchStatus { state, version, installed_mpqs, total_mpqs: RACE_MPQS.len(), has_root_files,
         client_path: Some(client_path.to_string_lossy().into_owned()) }
 }
 

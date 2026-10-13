@@ -119,7 +119,26 @@ fn conf_name(root: &Path, e: &Entry) -> String {
     }
 }
 
+fn installed_module_commits(root: &Path) -> BTreeMap<String, String> {
+    let Ok(directory) = crate::registry::metadata_dir_for(root) else { return Default::default() };
+    let Ok((_, meta)) = crate::registry::MetaDir::open(&directory) else { return Default::default() };
+    let Some(version) = meta.core.version else { return Default::default() };
+    let candidates = [directory.join("manifests").join(format!("update-{version}.json")), directory.join("manifests/base.json")];
+    for path in candidates {
+        let Ok(manifest) = crate::fsx::read_json::<serde_json::Value>(&path) else { continue };
+        if manifest.get("version").and_then(|value| value.as_str()) != Some(&version) { continue; }
+        if let Some(commits) = manifest.get("compatibility").and_then(|value| value.get("moduleCommits")).and_then(|value| value.as_object()) {
+            return commits.iter().filter_map(|(name, commit)| {
+                let commit = commit.as_str()?;
+                (commit.len() == 40 && commit.bytes().all(|byte| byte.is_ascii_hexdigit())).then(|| (name.clone(), commit.chars().take(8).collect()))
+            }).collect();
+        }
+    }
+    Default::default()
+}
+
 fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
+    let installed_commits = installed_module_commits(root);
     let wildcard = crate::realms::state(root).map(|s| s.active == crate::realms::Mode::Wildcard).unwrap_or(true);
     cat.iter()
         .cloned()
@@ -141,6 +160,8 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             let version = if e.id == "playerbots" { crate::squid::release(root).map(|release| {
                 [release.tag, release.commit.map(|commit| commit.chars().take(8).collect())].into_iter().flatten().collect::<Vec<_>>().join(" · ")
             }) } else { None };
+            let key = match e.id.as_str() { "companions" => "bots", "playerbots" => "squid", "content-scaling" => "scaling", "custom-races" => "races", id => id };
+            let version = if installed { version.or_else(|| installed_commits.get(key).cloned()) } else { None };
             ModuleView {
                 version,
                 compatibility: if blocked { "unsupported" } else if wildcard && e.id != "client-compat" { "experimental" } else { "compatible" }.into(),
@@ -423,6 +444,22 @@ mod tests {
         fs::create_dir_all(&meta).unwrap();
         fs::write(m.join("war_games.conf.dist"), "# Turns War Games on.\r\n# Second line.\r\nWarGames.Enable = 1\r\n\r\n# How long a challenge stays open.\r\nWarGames.ChallengeSeconds = 60\r\n").unwrap();
         (root, meta)
+    }
+
+    #[test]
+    fn module_revisions_come_from_the_installed_release_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        fs::create_dir_all(&root).unwrap();
+        let mut meta = crate::registry::InstallMeta::new(crate::registry::InstallKind::Imported, &root);
+        meta.core.version = Some("2.0.0".into());
+        let directory = crate::registry::MetaDir::create(&root, &meta).unwrap();
+        let value = serde_json::json!({"version": "2.0.0", "compatibility": {"moduleCommits": {"races": "a".repeat(40), "bots": "b".repeat(40)}}});
+        fsx::atomic_write_json(&directory.root.join("manifests/update-2.0.0.json"), &value).unwrap();
+        assert_eq!(installed_module_commits(&root).get("races").map(String::as_str), Some("aaaaaaaa"));
+        let stale = serde_json::json!({"version": "1.0.0", "compatibility": {"moduleCommits": {"races": "c".repeat(40)}}});
+        fsx::atomic_write_json(&directory.root.join("manifests/update-2.0.0.json"), &stale).unwrap();
+        assert!(installed_module_commits(&root).is_empty());
     }
 
     #[test]
