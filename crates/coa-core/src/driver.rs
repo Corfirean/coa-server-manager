@@ -279,8 +279,19 @@ pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
     let title = code.map(|c| c.human().title).unwrap_or("The server did not become ready");
     let output = crate::diag::redact(&started.output);
     let lines: Vec<_> = output.lines().rev().take(12).collect();
-    if lines.is_empty() { title.into() }
-    else { format!("{title}\n{}", lines.into_iter().rev().collect::<Vec<_>>().join("\n")) }
+    let mut reason = if lines.is_empty() { title.into() }
+        else { format!("{title}\n{}", lines.into_iter().rev().collect::<Vec<_>>().join("\n")) };
+    for relative in ["Core/Logs/world-console.log", "Core/Logs/auth-console.log", "mysql/logs/mysql-error.log"] {
+        let tail = crate::health::tail(&root.join(relative), 64 * 1024);
+        let failures: Vec<_> = tail.lines().filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            crate::health::diagnose(line).is_some() || lower.contains("fatal") || lower.contains("error") || lower.contains("aborting")
+        }).rev().take(8).collect();
+        if !failures.is_empty() {
+            reason.push_str(&format!("\n{relative}:\n{}", crate::diag::redact(&failures.into_iter().rev().collect::<Vec<_>>().join("\n"))));
+        }
+    }
+    reason
 }
 
 #[cfg(test)]
@@ -379,6 +390,18 @@ mod tests {
     fn refuses_folder_without_launcher() {
         let dir = tempfile::tempdir().unwrap();
         assert!(run(dir.path(), Verb::StartAll).is_err());
+    }
+
+    #[test]
+    fn startup_failure_reports_late_world_errors_after_launcher_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Core/Logs")).unwrap();
+        std::fs::write(dir.path().join("Core/Logs/world-console.log"), "ERROR [1146] Table 'acore_characters.playerbots_names' doesn't exist\nFATAL Could not prepare statements\n").unwrap();
+        let started = DriverOutcome { ok: true, code: None, exit_code: Some(0), human: None, output: "Worldserver and automatic bug reporting are ready.".into() };
+        let reason = startup_failure(dir.path(), &started);
+        assert!(reason.contains("playerbots_names"));
+        assert!(reason.contains("Core/Logs/world-console.log"));
+        assert!(reason.contains("Could not prepare statements"));
     }
 
     #[test]
