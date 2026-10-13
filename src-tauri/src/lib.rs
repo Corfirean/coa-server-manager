@@ -700,6 +700,13 @@ async fn custom_races_install(app: AppHandle, state: State<'_, AppState>, id: St
 }
 
 #[tauri::command]
+async fn custom_races_uninstall(state: State<'_, AppState>, id: String) -> std::result::Result<(), UiError> {
+    let ctx = client_context(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::custom_races::uninstall_client_patches(&ctx.require()?)).await
+}
+
+#[tauri::command]
 async fn custom_races_toggle_client(state: State<'_, AppState>, id: String, enabled: bool) -> std::result::Result<(), UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
@@ -1764,6 +1771,7 @@ pub fn run() {
             console_command,
             custom_races_status,
             custom_races_install,
+            custom_races_uninstall,
             custom_races_toggle_client
         ])
         .run(tauri::generate_context!())

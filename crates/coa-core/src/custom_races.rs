@@ -152,99 +152,207 @@ pub struct ClientPatchStatus {
     pub client_path: Option<String>,
 }
 
-/// Inspect the client folder and determine the state of custom races patches.
-pub fn client_patch_status(client_path: &Path) -> ClientPatchStatus {
-    let data_dir = client_path.join("Data");
-    let mut enabled_count = 0;
-    let mut disabled_count = 0;
-
-    for mpq in RACE_MPQS {
-        if data_dir.join(format!("{mpq}.disabled")).is_file() {
-            disabled_count += 1;
-        } else if data_dir.join(mpq).is_file() {
-            enabled_count += 1;
-        }
-    }
-
-    let has_root = client_path.join("EsteriaAppearance.dll").is_file()
-        || client_path.join("dinput8.dll").is_file()
-        || client_path.join("dinput8.dll.disabled").is_file();
-
-    let total = RACE_MPQS.len();
-    let current_version = fs::read_to_string(client_path.join(MANIFEST_FILENAME)).ok()
-        .is_some_and(|manifest| manifest.lines().any(|line| line == format!("# CoA Custom {CLIENT_VERSION}")));
-    let state = if enabled_count == total && current_version && client_path.join("dinput8.dll").is_file() {
-        ClientPatchState::Enabled
-    } else if disabled_count == total && current_version && client_path.join("dinput8.dll.disabled").is_file() {
-        ClientPatchState::Disabled
-    } else if (enabled_count + disabled_count) > 0 {
-        ClientPatchState::PartiallyInstalled
-    } else {
-        ClientPatchState::NotInstalled
-    };
-
-    ClientPatchStatus {
-        state,
-        installed_mpqs: enabled_count + disabled_count,
-        total_mpqs: total,
-        has_root_files: has_root,
-        client_path: Some(client_path.to_string_lossy().into_owned()),
-    }
+#[derive(Clone, Serialize, Deserialize)]
+struct PatchFile {
+    path: String,
+    sha256: String,
 }
 
-/// Enable or disable client patches by renaming MPQs and `dinput8.dll` with `.disabled`.
-pub fn set_client_patch_enabled(client_path: &Path, enabled: bool) -> Result<()> {
-    if !client_path.is_dir() {
-        return Err(Error::Invalid("Game client directory not found.".into()));
-    }
-
-    if crate::client::is_running(client_path) {
-        return Err(Error::Invalid("Close the game before changing custom races patches.".into()));
-    }
-    if !client_path.join(MANIFEST_FILENAME).is_file()
-        && !RACE_MPQS.iter().skip(1).any(|name| client_path.join("Data").join(name).is_file()
-            || client_path.join("Data").join(format!("{name}.disabled")).is_file()) {
-        return Ok(());
-    }
-    let mut paths: Vec<PathBuf> = RACE_MPQS.iter().map(|name| client_path.join("Data").join(name)).collect();
-    if let Ok(manifest) = fs::read_to_string(client_path.join(MANIFEST_FILENAME)) {
-        for line in manifest.lines() {
-            if let Some(name) = line.strip_prefix("MPQ:") {
-                if name.contains(['/', '\\']) || !name.to_ascii_lowercase().ends_with(".mpq") {
-                    return Err(Error::Invalid("Invalid custom races patch manifest.".into()));
-                }
-                paths.push(fsx::safe_join(&client_path.join("Data"), name)?);
-            }
+fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
+    let bundled: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes.json"))?;
+    let manifest = fs::read_to_string(client.join(MANIFEST_FILENAME)).unwrap_or_default();
+    let mut files = std::collections::BTreeMap::new();
+    for line in manifest.lines() {
+        let path = if let Some(name) = line.strip_prefix("MPQ:") {
+            if name.contains(['/', '\\']) { return Err(Error::Invalid("Invalid custom races patch manifest.".into())); }
+            Some(format!("Data/{name}"))
+        } else if let Some(name) = line.strip_prefix("ROOT:") {
+            if name.contains(['/', '\\']) { return Err(Error::Invalid("Invalid custom races patch manifest.".into())); }
+            Some(name.to_string())
+        } else { None };
+        if let Some(path) = path {
+            fsx::safe_join(client, &path)?;
+            files.insert(path.clone(), bundled.get(&path).cloned().unwrap_or_default());
         }
     }
-    paths.sort();
-    paths.dedup();
-    paths.push(client_path.join("dinput8.dll"));
-    paths.push(client_path.join("Ascension.exe"));
-    for active in paths {
-        let disabled = active.with_extension(format!("{}.disabled", active.extension().unwrap_or_default().to_string_lossy()));
-        let original = active.with_extension(format!("{}.original", active.extension().unwrap_or_default().to_string_lossy()));
-        if enabled && disabled.is_file() {
-            if active.is_file() {
-                if !original.is_file() {
-                    return Err(Error::Invalid(format!("Cannot replace existing {} without an original backup.", active.display())));
-                }
-                fs::remove_file(&active)?;
-            }
-            fs::rename(&disabled, &active)?;
-        } else if !enabled && active.is_file() && !disabled.is_file() {
-            if active.file_name().is_some_and(|name| name == "Ascension.exe") && !original.is_file() {
-                continue;
-            }
-            fs::rename(&active, &disabled)?;
-            if original.is_file() {
-                fs::copy(&original, &active)?;
-            }
+    if files.is_empty() { files = bundled; }
+    for line in manifest.lines().filter_map(|line| line.strip_prefix("SHA256:")) {
+        let (hash, path) = line.split_once(':').ok_or_else(|| Error::Invalid("Invalid custom races checksum.".into()))?;
+        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) || !files.contains_key(path) {
+            return Err(Error::Invalid("Invalid custom races checksum.".into()));
+        }
+        files.insert(path.into(), hash.into());
+    }
+    Ok(files.into_iter().map(|(path, sha256)| PatchFile { path, sha256 }).collect())
+}
+
+fn suffix(path: &Path, extension: &str) -> PathBuf {
+    path.with_file_name(format!("{}.{extension}", path.file_name().unwrap_or_default().to_string_lossy()))
+}
+
+fn matches_patch(path: &Path, file: &PatchFile) -> bool {
+    path.is_file() && fsx::sha256_file(path).is_ok_and(|hash| hash == file.sha256)
+}
+
+/// Only complete, verified payloads are reported as enabled or disabled.
+pub fn client_patch_status(client_path: &Path) -> ClientPatchStatus {
+    let data = client_path.join("Data");
+    let installed_mpqs = RACE_MPQS.iter().filter(|name| data.join(name).is_file() || suffix(&data.join(name), "disabled").is_file()).count();
+    let has_root_files = client_path.join("EsteriaAppearance.dll").is_file() || client_path.join("dinput8.dll").is_file() || client_path.join("dinput8.dll.disabled").is_file();
+    let manifest = fs::read_to_string(client_path.join(MANIFEST_FILENAME)).unwrap_or_default();
+    let current = manifest.lines().any(|line| line == format!("# CoA Custom {CLIENT_VERSION}"));
+    let state = if !manifest.is_empty() && current && !client_path.join(".coa-races-transaction").exists() {
+        match patch_files(client_path) {
+            Ok(files) if files.iter().all(|f| matches_patch(&client_path.join(&f.path), f) && !suffix(&client_path.join(&f.path), "disabled").exists()) => ClientPatchState::Enabled,
+            Ok(files) if files.iter().all(|f| matches_patch(&suffix(&client_path.join(&f.path), "disabled"), f)) => ClientPatchState::Disabled,
+            _ => ClientPatchState::PartiallyInstalled,
+        }
+    } else if !manifest.is_empty() || patch_files(client_path).is_ok_and(|files| files.iter().filter(|file| file.path.starts_with("Data/") && file.path != "Data/patch-T.MPQ").any(|file| matches_patch(&client_path.join(&file.path), file) || matches_patch(&suffix(&client_path.join(&file.path), "disabled"), file))) {
+        ClientPatchState::PartiallyInstalled
+    } else { ClientPatchState::NotInstalled };
+    ClientPatchStatus { state, installed_mpqs, total_mpqs: RACE_MPQS.len(), has_root_files,
+        client_path: Some(client_path.to_string_lossy().into_owned()) }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedFile { path: String, existed: bool }
+
+struct PatchTransaction<'a> { root: &'a Path, entries: Vec<SavedFile>, finished: bool }
+impl<'a> PatchTransaction<'a> {
+    fn new(root: &'a Path) -> Result<Self> {
+        recover_patch_transaction(root)?;
+        fs::create_dir(root.join(".coa-races-transaction"))?;
+        Ok(Self { root, entries: Vec::new(), finished: false })
+    }
+    fn save(&mut self, path: &Path) -> Result<()> {
+        let relative = path.strip_prefix(self.root).map_err(|_| Error::Invalid("Patch path escaped the client directory.".into()))?.to_string_lossy().replace('\\', "/");
+        fsx::safe_join(self.root, &relative)?;
+        if self.entries.iter().any(|entry| entry.path == relative) { return Ok(()); }
+        let index = self.entries.len();
+        self.entries.push(SavedFile { path: relative, existed: path.is_file() });
+        fsx::atomic_write_json(&self.root.join(".coa-races-transaction/journal.json"), &self.entries)?;
+        if path.is_file() { fs::rename(path, self.root.join(".coa-races-transaction").join(index.to_string()))?; }
+        Ok(())
+    }
+    fn copy(&mut self, source: &Path, target: &Path) -> Result<()> {
+        self.save(target)?;
+        fs::copy(source, target)?;
+        Ok(())
+    }
+    fn move_file(&mut self, source: &Path, target: &Path) -> Result<()> {
+        self.save(source)?;
+        let index = self.entries.iter().position(|entry| self.root.join(&entry.path) == source).unwrap();
+        // Copy from the journal so rollback retains the previous bytes.
+        let saved = self.root.join(".coa-races-transaction").join(index.to_string());
+        self.copy(&saved, target)
+    }
+    fn finish(mut self) -> Result<()> {
+        fsx::atomic_write(&self.root.join(".coa-races-transaction/committed"), b"committed")?;
+        self.finished = true;
+        fs::remove_dir_all(self.root.join(".coa-races-transaction"))?;
+        Ok(())
+    }
+}
+impl Drop for PatchTransaction<'_> {
+    fn drop(&mut self) { if !self.finished { let _ = recover_patch_transaction(self.root); } }
+}
+
+fn recover_patch_transaction(root: &Path) -> Result<()> {
+    let directory = root.join(".coa-races-transaction");
+    if !directory.is_dir() { return Ok(()); }
+    if !directory.join("committed").exists() && directory.join("journal.json").exists() {
+        let entries: Vec<SavedFile> = fsx::read_json(&directory.join("journal.json"))?;
+        for (index, entry) in entries.iter().enumerate().rev() {
+            let path = fsx::safe_join(root, &entry.path)?;
+            let saved = directory.join(index.to_string());
+            if saved.is_file() {
+                if path.is_file() { fs::remove_file(&path)?; }
+                fs::rename(saved, path)?;
+            } else if !entry.existed && path.is_file() { fs::remove_file(path)?; }
         }
     }
-
-    tracing::info!(enabled, "custom races client patches toggled");
+    fs::remove_dir_all(directory)?;
     Ok(())
+}
+
+fn patch_lock(client: &Path) -> Result<File> {
+    use fs4::fs_std::FileExt;
+    let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(client.join(".coa-races.lock"))?;
+    if !lock.try_lock_exclusive()? { return Err(Error::Invalid("Another custom races operation is using this client.".into())); }
+    Ok(lock)
+}
+
+fn preserve_original(tx: &mut PatchTransaction<'_>, active: &Path) -> Result<()> {
+    let original = suffix(active, "original");
+    if original.is_file() && fsx::sha256_file(active)? == fsx::sha256_file(&original)? { return Ok(()); }
+    if original.is_file() {
+        let previous = suffix(active, &format!("original.previous-{}", uuid::Uuid::new_v4().simple()));
+        tx.copy(&original, &previous)?;
+    }
+    tx.copy(active, &original)
+}
+
+/// Preserve launcher replacements, and switch every file owned by the package.
+pub fn set_client_patch_enabled(client: &Path, enabled: bool) -> Result<()> {
+    if !client.is_dir() { return Err(Error::Invalid("Game client directory not found.".into())); }
+    if crate::client::is_running(client) { return Err(Error::Invalid("Close the game before changing custom races patches.".into())); }
+    let _lock = patch_lock(client)?;
+    recover_patch_transaction(client)?;
+    if !client.join(MANIFEST_FILENAME).is_file() { return Ok(()); }
+    let files = patch_files(client)?;
+    if enabled {
+        for file in &files {
+            let active = client.join(&file.path);
+            if !matches_patch(&active, file) && !matches_patch(&suffix(&active, "disabled"), file) {
+                return Err(Error::Invalid(format!("Custom races file {} was replaced or is missing. Repair the client patch before enabling it.", file.path)));
+            }
+        }
+    }
+    let mut tx = PatchTransaction::new(client)?;
+    for file in files {
+        let active = client.join(&file.path);
+        let disabled = suffix(&active, "disabled");
+        let original = suffix(&active, "original");
+        if enabled {
+            if active.is_file() && !matches_patch(&active, &file) { preserve_original(&mut tx, &active)?; }
+            if matches_patch(&disabled, &file) { tx.move_file(&disabled, &active)?; }
+        } else if matches_patch(&active, &file) {
+            if disabled.is_file() && !matches_patch(&disabled, &file) {
+                tx.move_file(&disabled, &suffix(&disabled, &format!("replaced-{}", uuid::Uuid::new_v4().simple())))?;
+            }
+            tx.move_file(&active, &disabled)?;
+            if original.is_file() { tx.copy(&original, &active)?; }
+        } else if active.is_file() {
+            preserve_original(&mut tx, &active)?;
+        }
+    }
+    tx.finish()
+}
+
+pub fn uninstall_client_patches(client: &Path) -> Result<()> {
+    if crate::client::is_running(client) { return Err(Error::Invalid("Close the game before removing custom races patches.".into())); }
+    let _lock = patch_lock(client)?;
+    recover_patch_transaction(client)?;
+    if !client.join(MANIFEST_FILENAME).is_file() { return Ok(()); }
+    let mut tx = PatchTransaction::new(client)?;
+    for file in patch_files(client)? {
+        let active = client.join(&file.path);
+        if matches_patch(&active, &file) {
+            tx.save(&active)?;
+            let original = suffix(&active, "original");
+            if original.is_file() { tx.copy(&original, &active)?; }
+        }
+        let disabled = suffix(&active, "disabled");
+        if active.is_file() && !matches_patch(&active, &file) && !suffix(&active, "original").is_file() {
+            tx.move_file(&active, &suffix(&active, &format!("replaced-{}", uuid::Uuid::new_v4().simple())))?;
+        }
+        if disabled.is_file() {
+            if !matches_patch(&disabled, &file) { tx.move_file(&disabled, &suffix(&disabled, &format!("replaced-{}", uuid::Uuid::new_v4().simple())))?; }
+            else { tx.save(&disabled)?; }
+        }
+    }
+    tx.save(&client.join(MANIFEST_FILENAME))?;
+    tx.finish()
 }
 
 fn verify_archive(path: &Path, filename: &str) -> Result<()> {
@@ -376,29 +484,11 @@ pub fn install_client_patches(
     if crate::client::is_running(client_path) {
         return Err(Error::Invalid("Close the game before installing custom races patches.".into()));
     }
-    let data_dir = client_path.join("Data");
+    let _lock = patch_lock(client_path)?;
+    recover_patch_transaction(client_path)?;
+    let staging = tempfile::Builder::new().prefix(".coa-races-stage-").tempdir_in(client_path)?;
+    let data_dir = staging.path().join("Data");
     fs::create_dir_all(&data_dir)?;
-
-    // 1. Back up original Ascension.exe and patch-T.MPQ if they exist and haven't been backed up yet
-    let exe = client_path.join("Ascension.exe");
-    let exe_bak = client_path.join("Ascension.exe.original");
-    if exe.is_file() && !exe_bak.is_file() {
-        report("Backing up original Ascension.exe...", 0.02);
-        fs::copy(&exe, &exe_bak)?;
-    }
-
-    let t_mpq = data_dir.join("patch-T.MPQ");
-    let t_mpq_bak = data_dir.join("patch-T.MPQ.original");
-    if t_mpq.is_file() && !t_mpq_bak.is_file() {
-        report("Backing up original patch-T.MPQ...", 0.04);
-        fs::copy(&t_mpq, &t_mpq_bak)?;
-    }
-
-    let dll = client_path.join("dinput8.dll");
-    let dll_backup = client_path.join("dinput8.dll.original");
-    if dll.is_file() && !dll_backup.is_file() {
-        fs::copy(&dll, &dll_backup)?;
-    }
 
     // 2. Resolve/download archives (0.05 .. 0.50)
     let http = reqwest::blocking::Client::builder()
@@ -470,10 +560,10 @@ pub fn install_client_patches(
                     if disabled.is_file() { fs::remove_file(disabled)?; }
                     installed_mpqs.push(base);
                 } else if base.eq_ignore_ascii_case("dinput8.dll") {
-                    let dest = client_path.join(&base);
+                    let dest = staging.path().join(&base);
                     let mut out = File::create(&dest)?;
                     io::copy(&mut zfile, &mut out)?;
-                    let disabled = client_path.join(format!("{base}.disabled"));
+                    let disabled = staging.path().join(format!("{base}.disabled"));
                     if disabled.is_file() { fs::remove_file(disabled)?; }
                     installed_roots.push(base);
                 }
@@ -484,10 +574,10 @@ pub fn install_client_patches(
                     .unwrap_or_default();
 
                 if !base.is_empty() {
-                    let dest = client_path.join(&base);
+                    let dest = staging.path().join(&base);
                     let mut out = File::create(&dest)?;
                     io::copy(&mut zfile, &mut out)?;
-                    let disabled = client_path.join(format!("{base}.disabled"));
+                    let disabled = staging.path().join(format!("{base}.disabled"));
                     if disabled.is_file() { fs::remove_file(disabled)?; }
                     installed_roots.push(base);
                 }
@@ -516,7 +606,35 @@ pub fn install_client_patches(
         manifest_body.push_str(&format!("ROOT:{r}\n"));
     }
 
+    let bundled: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes.json"))?;
+    let mut payload = Vec::new();
+    for path in installed_mpqs.iter().map(|name| format!("Data/{name}")).chain(installed_roots.iter().cloned()) {
+        let staged = fsx::safe_join(staging.path(), &path)?;
+        let hash = fsx::sha256_file(&staged)?;
+        if bundled.get(&path) != Some(&hash) { return Err(Error::Invalid(format!("Custom races file {path} failed verification."))); }
+        manifest_body.push_str(&format!("SHA256:{hash}:{path}\n"));
+        payload.push(PatchFile { path, sha256: hash });
+    }
+    if cancel.is_set() { return Err(Error::Invalid("Operation cancelled.".into())); }
+    if payload.len() != bundled.len() { return Err(Error::Invalid("Custom races archives are missing required runtime files.".into())); }
+    let previous = patch_files(client_path)?;
+    let mut tx = PatchTransaction::new(client_path)?;
+    for file in payload {
+        let dest = fsx::safe_join(client_path, &file.path)?;
+        if dest.is_file() && !previous.iter().any(|old| old.path == file.path && matches_patch(&dest, old)) && !matches_patch(&dest, &file) {
+            preserve_original(&mut tx, &dest)?;
+        }
+        tx.copy(&staging.path().join(&file.path), &dest)?;
+        let disabled = suffix(&dest, "disabled");
+        if disabled.is_file() {
+            if !previous.iter().any(|old| old.path == file.path && matches_patch(&disabled, old)) && !matches_patch(&disabled, &file) {
+                tx.move_file(&disabled, &suffix(&disabled, &format!("replaced-{}", uuid::Uuid::new_v4().simple())))?;
+            } else { tx.save(&disabled)?; }
+        }
+    }
+    tx.save(&manifest_path)?;
     fsx::atomic_write(&manifest_path, manifest_body.as_bytes())?;
+    tx.finish()?;
     report("Custom races client patches installed successfully!", 1.0);
     tracing::info!(
         mpqs = installed_mpqs.len(),
@@ -531,23 +649,138 @@ pub fn install_client_patches(
 mod tests {
     use super::*;
 
-    #[test]
-    fn disabling_restores_original_client_files_and_enabling_restores_custom_files() {
-        let temp = tempfile::tempdir().unwrap();
-        let data = temp.path().join("Data");
-        fs::create_dir_all(&data).unwrap();
-        for path in [data.join("patch-T.MPQ"), temp.path().join("Ascension.exe"), temp.path().join("dinput8.dll")] {
-            fs::write(&path, b"custom").unwrap();
-            let backup = path.with_extension(format!("{}.original", path.extension().unwrap().to_string_lossy()));
-            fs::write(&backup, b"original").unwrap();
+    fn record_files(root: &Path, names: &[&str]) {
+        let mut manifest = format!("# CoA Custom {CLIENT_VERSION}\n");
+        for name in names {
+            let (kind, base) = name.strip_prefix("Data/").map_or(("ROOT", *name), |base| ("MPQ", base));
+            manifest.push_str(&format!("{kind}:{base}\nSHA256:{}:{name}\n", fsx::sha256_file(&root.join(name)).unwrap()));
         }
-        fs::write(temp.path().join(MANIFEST_FILENAME), "MPQ:patch-T.MPQ\n").unwrap();
-        set_client_patch_enabled(temp.path(), false).unwrap();
-        assert_eq!(fs::read(data.join("patch-T.MPQ")).unwrap(), b"original");
-        assert_eq!(fs::read(temp.path().join("Ascension.exe")).unwrap(), b"original");
-        set_client_patch_enabled(temp.path(), true).unwrap();
-        assert_eq!(fs::read(data.join("patch-T.MPQ")).unwrap(), b"custom");
-        assert_eq!(fs::read(temp.path().join("Ascension.exe")).unwrap(), b"custom");
+        fs::write(root.join(MANIFEST_FILENAME), manifest).unwrap();
+    }
+
+    #[test]
+    #[ignore = "Requires the three downloaded release archives"]
+    fn bundled_hashes_match_verified_release_archives() {
+        use sha2::{Digest, Sha256};
+        let folder = PathBuf::from(std::env::var_os("COA_RACES_ARCHIVE_DIR").expect("COA_RACES_ARCHIVE_DIR"));
+        let expected: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes.json")).unwrap();
+        let mut actual = std::collections::BTreeMap::new();
+        for (name, _) in ARCHIVES {
+            let path = folder.join(name);
+            verify_archive(&path, name).unwrap();
+            let mut archive = zip::ZipArchive::new(File::open(path).unwrap()).unwrap();
+            for index in 0..archive.len() {
+                let mut entry = archive.by_index(index).unwrap();
+                let name = entry.name().replace('\\', "/");
+                if entry.is_dir() { continue; }
+                let relative = if let Some(name) = name.split("files/client_root/").nth(1) { name.to_string() }
+                    else if let Some(name) = name.split("files/client/").nth(1) { if name == "dinput8.dll" { name.to_string() } else { format!("Data/{name}") } }
+                    else { continue };
+                let mut hash = Sha256::new();
+                let mut buffer = vec![0; 1024 * 1024];
+                loop { let read = entry.read(&mut buffer).unwrap(); if read == 0 { break; } hash.update(&buffer[..read]); }
+                actual.insert(relative, hex::encode(hash.finalize()));
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn another_patch_operation_cannot_enter_the_same_client() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = patch_lock(temp.path()).unwrap();
+        assert!(patch_lock(temp.path()).is_err());
+        drop(first);
+        patch_lock(temp.path()).unwrap();
+    }
+
+    #[test]
+    fn switching_preserves_launcher_updates_for_every_owned_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("Data")).unwrap();
+        let names = ["Data/patch-T.MPQ", "Data/patch-ZE1.MPQ", "Ascension.exe", "dinput8.dll", "EsteriaAppearance.dll"];
+        for name in names { fs::write(root.join(name), b"custom").unwrap(); fs::write(suffix(&root.join(name), "original"), b"old official").unwrap(); }
+        record_files(root, &names);
+        set_client_patch_enabled(root, false).unwrap();
+        for name in names { assert_eq!(fs::read(root.join(name)).unwrap(), b"old official"); fs::write(root.join(name), b"new official").unwrap(); }
+        set_client_patch_enabled(root, true).unwrap();
+        for name in names { assert_eq!(fs::read(root.join(name)).unwrap(), b"custom"); assert_eq!(fs::read(suffix(&root.join(name), "original")).unwrap(), b"new official"); }
+        // An official launcher can also replace a currently enabled file.
+        fs::write(root.join("Ascension.exe"), b"newest official").unwrap();
+        assert_eq!(client_patch_status(root).state, ClientPatchState::PartiallyInstalled);
+        set_client_patch_enabled(root, false).unwrap();
+        assert_eq!(fs::read(root.join("Ascension.exe")).unwrap(), b"newest official");
+        assert!(set_client_patch_enabled(root, true).unwrap_err().to_string().contains("Repair"));
+        uninstall_client_patches(root).unwrap();
+        assert_eq!(fs::read(root.join("Ascension.exe")).unwrap(), b"newest official");
+        assert_eq!(client_patch_status(root).state, ClientPatchState::NotInstalled);
+    }
+
+    #[test]
+    fn failed_and_interrupted_transactions_restore_previous_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let file = root.join("Ascension.exe");
+        fs::write(&file, b"previous").unwrap();
+        {
+            let mut tx = PatchTransaction::new(root).unwrap();
+            tx.save(&file).unwrap();
+            fs::write(&file, b"replacement").unwrap();
+            tx.save(&root.join("new.dll")).unwrap();
+            fs::write(root.join("new.dll"), b"new").unwrap();
+        }
+        assert_eq!(fs::read(&file).unwrap(), b"previous");
+        assert!(!root.join("new.dll").exists());
+        let mut tx = PatchTransaction::new(root).unwrap();
+        tx.save(&file).unwrap();
+        fs::write(&file, b"interrupted").unwrap();
+        std::mem::forget(tx);
+        recover_patch_transaction(root).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"previous");
+    }
+
+    #[test]
+    fn existing_backups_and_foreign_disabled_files_are_retained() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let file = root.join("dinput8.dll");
+        fs::write(&file, b"custom").unwrap();
+        record_files(root, &["dinput8.dll"]);
+        fs::write(suffix(&file, "disabled"), b"third party").unwrap();
+        fs::write(suffix(&file, "original"), b"original").unwrap();
+        set_client_patch_enabled(root, false).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"original");
+        assert!(fs::read_dir(root).unwrap().flatten().any(|entry| entry.file_name().to_string_lossy().contains("replaced-")));
+        fs::write(&file, b"updated original").unwrap();
+        set_client_patch_enabled(root, true).unwrap();
+        assert!(fs::read_dir(root).unwrap().flatten().any(|entry| entry.file_name().to_string_lossy().contains("original.previous-")));
+    }
+
+    #[test]
+    fn uninstall_moves_corrupted_custom_only_assets_out_of_the_active_client() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("Data")).unwrap();
+        let file = root.join("Data/patch-ZE1.MPQ");
+        fs::write(&file, b"custom").unwrap();
+        record_files(root, &["Data/patch-ZE1.MPQ"]);
+        fs::write(&file, b"corrupted custom").unwrap();
+        uninstall_client_patches(root).unwrap();
+        assert!(!file.exists());
+        assert!(fs::read_dir(root.join("Data")).unwrap().flatten().any(|entry| entry.file_name().to_string_lossy().contains("replaced-")));
+        assert_eq!(client_patch_status(root).state, ClientPatchState::NotInstalled);
+    }
+
+    #[test]
+    fn unknown_or_corrupt_bytes_are_not_reported_as_enabled() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("Data")).unwrap();
+        for name in RACE_MPQS { fs::write(root.join("Data").join(name), b"corrupt").unwrap(); }
+        fs::write(root.join("dinput8.dll"), b"corrupt").unwrap();
+        fs::write(root.join(MANIFEST_FILENAME), format!("# CoA Custom {CLIENT_VERSION}\n")).unwrap();
+        assert_eq!(client_patch_status(root).state, ClientPatchState::PartiallyInstalled);
     }
 
     #[test]
@@ -595,6 +828,8 @@ mod tests {
         fs::write(client_path.join("dinput8.dll"), b"test dll").unwrap();
         fs::write(client_path.join("EsteriaAppearance.dll"), b"test dll").unwrap();
 
+        let names: Vec<String> = RACE_MPQS.iter().map(|name| format!("Data/{name}")).chain(["dinput8.dll".into(), "EsteriaAppearance.dll".into()]).collect();
+        record_files(client_path, &names.iter().map(String::as_str).collect::<Vec<_>>());
         let st = client_patch_status(client_path);
         assert_eq!(st.state, ClientPatchState::Enabled);
         assert_eq!(st.installed_mpqs, RACE_MPQS.len());

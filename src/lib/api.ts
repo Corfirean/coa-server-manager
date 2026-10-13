@@ -547,6 +547,7 @@ export const api = {
   clientDownload: (id: string, parent: string) => invoke<ClientInfo>("client_download", { id, parent }),
   clientCancel: () => invoke<void>("client_cancel"),
   customRacesStatus: (id: string) => invoke<CustomRacesClientStatus | null>("custom_races_status", { id }),
+  customRacesUninstall: (id: string) => invoke<void>("custom_races_uninstall", { id }),
   customRacesInstall: (id: string) => invoke<void>("custom_races_install", { id }),
   customRacesToggleClient: (id: string, enabled: boolean) => invoke<void>("custom_races_toggle_client", { id, enabled }),
   play: (id: string) => invoke<DriverOutcome>("play", { id }),
