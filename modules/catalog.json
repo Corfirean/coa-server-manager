@@ -2,24 +2,6 @@
   "schema": 1,
   "modules": [
     {
-      "id": "vanilla-classes",
-      "name": "Classic classes",
-      "description": {
-        "en": "Enable the stock client class-page switch without custom race assets. Offers nine classic classes through the client development flag.",
-        "ru": "Кнопка смены классов штатного клиента без дополнительных рас. Девять классических классов через клиентский флаг разработки.",
-        "de": "Aktiviert die klassischen Klassen ohne zusätzliche Völkerdateien.",
-        "fr": "Active les classes classiques sans les fichiers de races supplémentaires.",
-        "es": "Activa las clases clásicas sin archivos de razas adicionales."
-      },
-      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
-      "conf": "coa.conf",
-      "enable_key": "CoA.VanillaClasses.Enable",
-      "switchable": true,
-      "default_on": false,
-      "status": "beta",
-      "icon": "swords"
-    },
-    {
       "id": "time-is-time",
       "name": "TimeIsTime",
       "description": {

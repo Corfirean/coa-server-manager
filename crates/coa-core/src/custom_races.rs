@@ -92,15 +92,8 @@ pub fn playerbots_conf_paths(root: &Path) -> Vec<PathBuf> {
 }
 
 /// Checks whether playerbots are configured to allow custom races.
-/// Prefers the module preference; older installations fall back to the bot exclusions.
+/// Returns true if AiPlayerbot.ExcludedBotRaces exists and does not exclude general custom races.
 pub fn is_bot_custom_races_allowed(root: &Path) -> Option<bool> {
-    if let Ok(bytes) = fs::read(root.join("Core/configs/modules/coa_custom_races.conf")) {
-        if let Ok(conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
-            if let Some(value) = conf.get("CoACustomRaces.BotsEnable") {
-                return Some(matches!(value.trim().trim_matches('"').to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
-            }
-        }
-    }
     for path in playerbots_conf_paths(root) {
         if let Ok(bytes) = fs::read(&path) {
             if let Ok(conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
@@ -121,11 +114,6 @@ pub fn sync_bot_races_config(root: &Path, allow_custom_races: bool) -> Result<()
     } else {
         EXCLUDED_BOT_RACES_RECOMMENDED
     };
-    let enabled = fs::read(root.join("Core/configs/modules/coa_custom_races.conf")).ok()
-        .and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
-        .and_then(|conf| conf.get("CoACustomRaces.EnabledRaces").map(str::to_string))
-        .unwrap_or_else(|| "*".into());
-    let excluded = excluded_for_selection(excluded, if allow_custom_races { &enabled } else { "" });
     for path in playerbots_conf_paths(root) {
         if let Ok(bytes) = fs::read(&path) {
             if let Ok(mut conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
@@ -143,18 +131,6 @@ pub fn sync_bot_races_config(root: &Path, allow_custom_races: bool) -> Result<()
         }
     }
     Ok(())
-}
-
-fn excluded_for_selection(base: &str, enabled: &str) -> String {
-    let selected = enabled.trim().trim_matches('"');
-    if selected == "*" { return base.to_string(); }
-    let allowed: std::collections::BTreeSet<u8> = selected.split(',').filter_map(|id| id.trim().parse().ok()).collect();
-    let mut excluded: std::collections::BTreeSet<u8> = base.split(',').filter_map(|id| id.parse().ok()).collect();
-    for race in 1..=255u8 {
-        let stock = race <= 11 && race != 9;
-        if !stock && !allowed.contains(&race) { excluded.insert(race); }
-    }
-    excluded.into_iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -554,21 +530,6 @@ pub fn install_client_patches(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn bot_race_selection_preserves_stability_exclusions_and_stock_races() {
-        let excluded = excluded_for_selection(EXCLUDED_BOT_RACES_EXPERIMENTAL, "12,19");
-        let ids: std::collections::BTreeSet<u8> = excluded.split(',').map(|id| id.parse().unwrap()).collect();
-        assert!(!ids.contains(&12));
-        assert!(ids.contains(&19));
-        assert!(ids.contains(&14) && ids.contains(&128));
-        assert!(!ids.contains(&1) && !ids.contains(&11));
-        assert_eq!(excluded_for_selection(EXCLUDED_BOT_RACES_EXPERIMENTAL, "*"), EXCLUDED_BOT_RACES_EXPERIMENTAL);
-        let off = excluded_for_selection(EXCLUDED_BOT_RACES_RECOMMENDED, "");
-        let off: std::collections::BTreeSet<u8> = off.split(',').map(|id| id.parse().unwrap()).collect();
-        assert!(off.contains(&12) && off.contains(&255));
-        assert!(!off.contains(&1) && !off.contains(&11));
-    }
 
     #[test]
     fn disabling_restores_original_client_files_and_enabling_restores_custom_files() {

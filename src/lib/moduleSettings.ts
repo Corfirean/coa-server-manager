@@ -14,7 +14,6 @@ const text = (values: string[], locale: Locale) => values[locales.indexOf(locale
 type Entry = { key: string; type: string; title: string[]; description: string[]; min?: number; max?: number; advanced?: boolean; options?: { value: string; label: string[] }[] };
 export const moduleSettingDefinitions: Entry[] = [];
 const fields = moduleSettingDefinitions;
-add("CoACustomRaces.EnabledRaces", "string", ["Enabled race IDs", "ID разрешённых рас"], ["Comma-separated race IDs; * allows all installed custom races. Stock races always remain available. Requires the custom race module.", "ID рас через запятую; * разрешает все установленные дополнительные расы. Стандартные расы остаются доступны. Требуется включённый модуль рас."]);
 add("TimeIsTime.Announce", "bool", ["Announce on login", "Сообщение при входе"], ["Show a module notice when a character logs in.", "Показывать сообщение о модуле при входе персонажа."]);
 add("TimeIsTime.SpeedRate", "float", ["Day/night speed", "Скорость смены дня и ночи"], ["1 follows real time; 60 gives one game day every 24 minutes. Changes only the client visual clock.", "1 — реальное время; 60 — игровые сутки за 24 минуты. Меняет только визуальное время клиента."], { min: 0.01, max: 60 });
 add("TimeIsTime.HourOffset", "float", ["Hour offset", "Смещение часов"], ["Offset applied to the visual client clock, in hours.", "Смещение визуальных часов клиента в часах."], { min: -24, max: 24 });

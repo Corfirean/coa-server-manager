@@ -127,8 +127,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             let name = conf_name(root, &e);
             let conf = dir(root).join(&name);
             let dist = dir(root).join(format!("{name}.dist"));
-            let installed = (conf.is_file() || dist.is_file()) && (e.id != "vanilla-classes"
-                || [&conf, &dist].iter().filter_map(|path| read(path)).any(|file| file.get(&e.enable_key).is_some()));
+            let installed = conf.is_file() || dist.is_file();
             let has_settings = installed && settings_in(cat, root, &e.id)
                 .map(|settings| settings.iter().any(|s| s.key != e.enable_key))
                 .unwrap_or(false);
@@ -253,9 +252,6 @@ fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -
     if !e.switchable || e.enable_key.is_empty() {
         return Err(Error::Invalid("This part cannot be switched off.".into()));
     }
-    if id == "vanilla-classes" && !list_in(cat, root).iter().any(|module| module.id == id && module.installed) {
-        return Err(Error::Invalid("Update the server to enable classic classes independently.".into()));
-    }
     if on && matches!(id, "companions" | "playerbots") {
         let other = if id == "companions" { "playerbots" } else { "companions" };
         if let Some(other) = cat.iter().find(|e| e.id == other) {
@@ -292,7 +288,6 @@ pub fn settings(root: &Path, id: &str) -> Result<Vec<Setting>> {
 fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
     let e = entry_in(cat, id)?;
     let name = conf_name(root, &e);
-    if id == "vanilla-classes" { return Ok(Vec::new()); }
     let conf = dir(root).join(&name);
     let dist = read(&dir(root).join(format!("{name}.dist")));
     let active = read(&conf).or_else(|| dist.clone()).ok_or_else(|| Error::Invalid("This module is not part of this server.".into()))?;
@@ -346,14 +341,6 @@ fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: 
     for (key, value) in changes {
         let value = value.trim();
         if let Some(field) = fields.get(key) { crate::squid::validate(field, value)?; }
-        if key == "CoACustomRaces.EnabledRaces" {
-            let selected = value.trim().trim_matches('"');
-            if selected != "*" && !selected.is_empty() && selected.split(',').any(|id| {
-                id.parse::<u8>().map_or(true, |race| race == 0)
-            }) {
-                return Err(Error::Invalid("Race IDs must be comma-separated numbers from 1 to 255, or *.".into()));
-            }
-        }
         if id == "time-is-time" {
             let bounds = match key.as_str() {
                 "TimeIsTime.SpeedRate" => Some((0.01, 60.0)),
@@ -396,11 +383,17 @@ fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: 
             return Err(Error::Invalid(format!("{key} is not a setting of this module.")));
         }
         let documented_empty = dist.as_ref().and_then(|d| d.get(key)).map(str::trim) == Some("");
-        if (value.is_empty() && !documented_empty && key != "CoACustomRaces.EnabledRaces") || value.len() > 500 || value.chars().any(char::is_control) {
+        if (value.is_empty() && !documented_empty) || value.len() > 500 || value.chars().any(char::is_control) {
             return Err(Error::Invalid(format!("The value of {key} must be one line of text.")));
         }
         if file.get(key).map(str::trim) != Some(value) {
             changed.push((key.clone(), value.to_string()));
+        }
+    }
+    if id == "custom-races" {
+        if let Some(bots_enable) = changes.get("CoACustomRaces.BotsEnable") {
+            let allow = truthy(bots_enable);
+            crate::custom_races::sync_bot_races_config(root, allow)?;
         }
     }
     if changed.is_empty() {
@@ -411,11 +404,6 @@ fn save_settings_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, changes: 
         file.set(k, v, &[]);
     }
     fsx::atomic_write(&conf, file.to_text().as_bytes())?;
-    if id == "custom-races" {
-        let allow = file.get("CoACustomRaces.BotsEnable").is_some_and(truthy)
-            && file.get("CoACustomRaces.Enable").is_some_and(truthy);
-        crate::custom_races::sync_bot_races_config(root, allow)?;
-    }
     Ok(changed.into_iter().map(|(k, _)| k).collect())
 }
 
@@ -424,23 +412,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn custom_race_ids_and_time_settings_are_validated_before_writing() {
+    fn time_settings_are_validated_before_writing() {
         let d = tempfile::tempdir().unwrap();
         let root = d.path();
         fs::create_dir_all(dir(root)).unwrap();
-        fs::write(dir(root).join("coa_custom_races.conf.dist"), "CoACustomRaces.Enable = 0\nCoACustomRaces.EnabledRaces = \"*\"\n").unwrap();
         fs::write(dir(root).join("mod-time_is_time.conf.dist"), "TimeIsTime.Enable = 0\nTimeIsTime.SpeedRate = 1\nTimeIsTime.HourOffset = 0\nTimeIsTime.TimeStart = 0\n").unwrap();
         let cat = catalog();
-        for value in ["12", "12,14", "*", ""] {
-            assert!(save_settings_in(&cat, root, root, "custom-races", &BTreeMap::from([
-                ("CoACustomRaces.EnabledRaces".into(), value.into())
-            ])).is_ok());
-        }
-        for value in ["0", "256", "12,no", "12,,14"] {
-            assert!(save_settings_in(&cat, root, root, "custom-races", &BTreeMap::from([
-                ("CoACustomRaces.EnabledRaces".into(), value.into())
-            ])).is_err());
-        }
         for (key, value) in [("TimeIsTime.SpeedRate", "NaN"), ("TimeIsTime.SpeedRate", "0"),
             ("TimeIsTime.HourOffset", "25"), ("TimeIsTime.TimeStart", "1.5")] {
             assert!(save_settings_in(&cat, root, root, "time-is-time", &BTreeMap::from([
@@ -784,11 +761,7 @@ mod tests {
         let change_off = BTreeMap::from([("CoACustomRaces.BotsEnable".into(), "0".into())]);
         assert_eq!(save_settings_in(&cat, &root, &meta, "custom-races", &change_off).unwrap(), ["CoACustomRaces.BotsEnable"]);
         let pb = fs::read_to_string(dir(&root).join("playerbots.conf")).unwrap();
-        let conf = ConfFile::parse_bytes(pb.as_bytes()).unwrap();
-        let excluded: std::collections::BTreeSet<u8> = conf.get("AiPlayerbot.ExcludedBotRaces").unwrap()
-            .trim_matches('"').split(',').map(|id| id.parse().unwrap()).collect();
-        assert!(excluded.contains(&12) && excluded.contains(&128));
-        assert!(!excluded.contains(&1) && !excluded.contains(&11));
+        assert!(pb.contains(crate::custom_races::EXCLUDED_BOT_RACES_RECOMMENDED));
 
         // Settings view now sees "0"
         let s = settings_in(&cat, &root, "custom-races").unwrap();

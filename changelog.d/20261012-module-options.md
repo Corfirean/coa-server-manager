@@ -2,6 +2,6 @@
 area: manager
 type: added
 audience: admins
-title: Configure individual races, classic classes and the visual day and night cycle
+title: Configure the visual day and night cycle from Modules
 ---
-Modules now offers a custom race ID list, an independent classic class switch and TimeIsTime clock settings when supported by the installed server.
+Modules now offers TimeIsTime clock settings when supported by the installed server.
