@@ -55,7 +55,7 @@ pub const RACE_MPQS: &[&str] = &[
 ];
 
 pub const EXCLUDED_BOT_RACES_RECOMMENDED: &str =
-    "19,27,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128";
+    "9,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128";
 
 pub const EXCLUDED_BOT_RACES_EXPERIMENTAL: &str =
     "16,19,27,32,50,52,53,65,66,67,68,69,70,71,72,74,77,80,81";
@@ -99,7 +99,8 @@ pub fn is_bot_custom_races_allowed(root: &Path) -> Option<bool> {
             if let Ok(conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
                 if let Some(val) = conf.get("AiPlayerbot.ExcludedBotRaces") {
                     let clean = val.trim().trim_matches(['"', '\'']);
-                    return Some(!clean.contains("33") && !clean.contains("128"));
+                    let excluded: std::collections::BTreeSet<u32> = clean.split(',').filter_map(|race| race.trim().parse().ok()).collect();
+                    return Some((1..=128).filter(|race| ![1, 2, 3, 4, 5, 6, 7, 8, 10, 11].contains(race)).any(|race| !excluded.contains(&race)));
                 }
             }
         }
@@ -617,4 +618,21 @@ mod tests {
         assert!(client_path.join("dinput8.dll").is_file());
         assert!(!client_path.join("dinput8.dll.disabled").is_file());
     }
+    #[test]
+    fn disabling_bot_custom_races_excludes_every_nonstandard_race() {
+        let temp = tempfile::tempdir().unwrap();
+        let conf = temp.path().join("Core/configs/modules/playerbots.conf");
+        fs::create_dir_all(conf.parent().unwrap()).unwrap();
+        fs::write(&conf, "AiPlayerbot.ExcludedBotRaces = \"\"\n").unwrap();
+        sync_bot_races_config(temp.path(), false).unwrap();
+        assert_eq!(is_bot_custom_races_allowed(temp.path()), Some(false));
+        let parsed = crate::config::parser::ConfFile::parse_bytes(&fs::read(conf).unwrap()).unwrap();
+        let value = parsed.get("AiPlayerbot.ExcludedBotRaces").unwrap().trim_matches('"');
+        let excluded: Vec<u32> = value.split(',').map(|race| race.parse().unwrap()).collect();
+        for race in 1..=128 {
+            assert_eq!(excluded.contains(&race), ![1, 2, 3, 4, 5, 6, 7, 8, 10, 11].contains(&race), "race {race}");
+        }
+    }
+
+
 }
