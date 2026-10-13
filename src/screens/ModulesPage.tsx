@@ -144,6 +144,17 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
     }
   }
 
+  async function uninstallClientPatch() {
+    setRacesInstalling(true);
+    setError(null);
+    try {
+      await api.customRacesUninstall(serverId);
+      await load();
+      onChanged?.();
+    } catch (e) { setError(asUiError(e)); }
+    finally { setRacesInstalling(false); }
+  }
+
   async function toggle(m: ModuleView) {
     setError(null);
     try {
@@ -252,7 +263,8 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                         </span>
                       )}
                     </div>
-                    {(!racesPatchStatus || racesPatchStatus.state === "not-installed" || racesPatchStatus.state === "partially-installed") && (
+                    {racesPatchStatus?.state === "partially-installed" && <p className="text-xs text-warn">{locale === "ru" ? "Файлы отсутствуют или изменены. Восстановите патч клиента." : "Files are missing or changed. Repair the client patch."}</p>}
+                    {(
                       <Button
                         size="sm"
                         variant="secondary"
@@ -261,9 +273,11 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                         onClick={() => void installClientPatch()}
                       >
                         {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                        {locale === "ru" ? "Установить патч клиента" : "Install Client Patch 1.5"}
+                        {racesPatchStatus?.state === "not-installed" ? (locale === "ru" ? "Установить патч клиента" : "Install Client Patch") : (locale === "ru" ? "Восстановить патч клиента" : "Repair Client Patch")}
                       </Button>
                     )}
+                    {racesPatchStatus && racesPatchStatus.state !== "not-installed" && <Button size="sm" variant="ghost" disabled={racesInstalling} onClick={() => void uninstallClientPatch()}>{locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}</Button>}
+                    <p className="text-xs text-muted">{locale === "ru" ? (m.enabled ? "После установки патч будет включён." : "После установки патч останется отключённым: модуль сервера выключен или отсутствует.") : (m.enabled ? "The patch will be enabled after installation." : "The patch will stay disabled after installation: the server module is off or missing.")}</p>
                   </div>
                 )}
               </div>
