@@ -216,7 +216,9 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
               {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
             {m.id === "custom-races" && (
+
               <div className="w-full">
+                <p className="text-xs text-muted">{locale === "ru" ? "Установленная версия патча клиента: " : "Installed client patch version: "}{racesPatchStatus?.version ?? (locale === "ru" ? "не записана" : "not recorded")}</p>
                 {racesInstalling && racesProgress ? (
                   <div className="rounded-lg border border-gold/30 bg-gold/5 p-3">
                     <div className="flex items-center justify-between gap-3 text-xs">

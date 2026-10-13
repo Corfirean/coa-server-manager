@@ -393,6 +393,7 @@ export interface ClientDownloadCheck {
 export type ClientPatchState = "not-installed" | "enabled" | "disabled" | "partially-installed";
 
 export interface CustomRacesClientStatus {
+  version: string | null;
   state: ClientPatchState;
   installedMpqs: number;
   totalMpqs: number;
