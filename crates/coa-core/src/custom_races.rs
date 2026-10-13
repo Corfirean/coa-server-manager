@@ -14,20 +14,20 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "1.5";
+pub const CLIENT_VERSION: &str = "1.6";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
 pub const ARCHIVES: &[(&str, &str)] = &[
     (
-        "CoA-Custom-1.5-main-20261009-cb2a0ca4.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.5/CoA-Custom-1.5-main-20261009-cb2a0ca4.zip",
+        "CoA-Custom-1.6-main-20261012-4dd3a4ec.zip",
+        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-main-20261012-4dd3a4ec.zip",
     ),
     (
-        "CoA-Custom-1.5-client-part1.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.5/CoA-Custom-1.5-client-part1.zip",
+        "CoA-Custom-1.6-client-part1.zip",
+        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-client-part1.zip",
     ),
     (
-        "CoA-Custom-1.5-client-part2.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.5/CoA-Custom-1.5-client-part2.zip",
+        "CoA-Custom-1.6-client-part2.zip",
+        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-client-part2.zip",
     ),
 ];
 
@@ -52,6 +52,8 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZJ.MPQ",
     "patch-ZZE.MPQ",
     "patch-ZZR.MPQ",
+    "patch-ZZS.MPQ",
+    "patch-ZZT.MPQ",
 ];
 
 pub const EXCLUDED_BOT_RACES_RECOMMENDED: &str =
@@ -161,8 +163,9 @@ struct PatchFile {
 }
 
 fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
-    let bundled: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes.json"))?;
     let manifest = fs::read_to_string(client.join(MANIFEST_FILENAME)).unwrap_or_default();
+    let hashes = if manifest.lines().any(|line| line == "# CoA Custom 1.5") { include_str!("custom_races_hashes_1_5.json") } else { include_str!("custom_races_hashes.json") };
+    let bundled: std::collections::BTreeMap<String, String> = serde_json::from_str(hashes)?;
     let mut files = std::collections::BTreeMap::new();
     for line in manifest.lines() {
         let path = if let Some(name) = line.strip_prefix("MPQ:") {
@@ -361,9 +364,9 @@ pub fn uninstall_client_patches(client: &Path) -> Result<()> {
 
 fn verify_archive(path: &Path, filename: &str) -> Result<()> {
     let expected = match filename {
-        "CoA-Custom-1.5-main-20261009-cb2a0ca4.zip" => "117f5d99add18191676be6648fb0f2e99019a06c18705c71454e371e7df2afd2",
-        "CoA-Custom-1.5-client-part1.zip" => "19eb372805b3268653914da03377d67f056e5b50d818a8a06a5f260aad03211e",
-        "CoA-Custom-1.5-client-part2.zip" => "122f2882da255913e01610e33c6446ded897fecbe60b6d5ee026149becf8f278",
+        "CoA-Custom-1.6-main-20261012-4dd3a4ec.zip" => "dfe802ea70047c129ac2e0aaa557bab3110e3cc6926d36403b8c880a0e310ee4",
+        "CoA-Custom-1.6-client-part1.zip" => "1dbf1901ad5be61eba66973609df90712ffc78ef9e9b2c8549a5f3e36332bf12",
+        "CoA-Custom-1.6-client-part2.zip" => "689f7f946b4180fe977dabedc7cfe642e3e7f27431600c64c4dd5b7960b1bc66",
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
     if fsx::sha256_file(path)? != expected {
@@ -687,6 +690,19 @@ mod tests {
             }
         }
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn legacy_installation_uses_its_own_hashes_when_preserving_originals() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.5\n").unwrap();
+        let legacy: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes_1_5.json")).unwrap();
+        let current: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes.json")).unwrap();
+        let files = patch_files(temp.path()).unwrap();
+        assert_eq!(files.iter().find(|file| file.path == "Ascension.exe").unwrap().sha256, legacy["Ascension.exe"]);
+        assert_eq!(files.len(), legacy.len());
+        assert!(current.len() > legacy.len());
+        assert!(!files.iter().any(|file| file.path == "Data/patch-ZZS.MPQ"));
     }
 
     #[test]
