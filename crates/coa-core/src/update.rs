@@ -373,7 +373,7 @@ fn reject_downgrade(meta: &InstallMeta, manifest: &Manifest) -> Result<()> {
         if c.platform != platform {
             return Err(Error::Invalid(format!("This package targets {} rather than {platform}.", c.platform)));
         }
-        if meta.core.version.as_ref().is_none_or(|version| !c.source_versions.contains(version)) {
+        if meta.core.version.as_ref().is_none_or(|version| version != &manifest.version && !c.source_versions.contains(version)) {
             return Err(Error::Invalid("This server version is outside the release's tested compatibility matrix.".into()));
         }
     }
@@ -1656,9 +1656,13 @@ mod tests {
         validate_candidate(&meta, &manifest).unwrap();
         manifest.compatibility.as_mut().unwrap().source_versions = vec!["0.9.0".into()];
         assert!(validate_candidate(&meta, &manifest).unwrap_err().to_string().contains("compatibility matrix"));
+        let mut already_updated = meta.clone();
+        already_updated.core.version = Some(manifest.version.clone());
+        validate_candidate(&already_updated, &manifest).unwrap();
         manifest.compatibility.as_mut().unwrap().source_versions = vec!["1.0.0".into()];
         manifest.compatibility.as_mut().unwrap().platform = if cfg!(windows) { "linux-x86_64" } else { "windows-x86_64" }.into();
         assert!(validate_candidate(&meta, &manifest).unwrap_err().to_string().contains("targets"));
+        assert!(validate_candidate(&already_updated, &manifest).unwrap_err().to_string().contains("targets"));
         assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
         assert!(unfinished(&w.meta).is_none());
     }
