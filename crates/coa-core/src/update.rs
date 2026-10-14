@@ -847,6 +847,8 @@ pub(crate) fn begin_repair(root: &Path, meta_dir: &Path, version: &str, backup: 
     }
     let mut recovery_hashes = BTreeMap::new();
     recovery_hashes.insert("@install".into(), fsx::sha256_file(&before.join("manager-install.json"))?);
+    let point = crate::backup::point_json(meta_dir, backup)?;
+    if point.is_file() { recovery_hashes.insert("@point".into(), fsx::sha256_file(&point)?); }
     for op in ops.iter().filter(|op| op.had_previous) { recovery_hashes.insert(op.path.clone(), fsx::sha256_file(&fsx::safe_join(&before, &op.path)?)?); }
     let txn = Txn { id, state: State::Applying, from_version: Some(version.into()), to_version: version.into(), recovery_point: Some(backup.into()), databases_started: false, ops, message: Some("Repair is in progress.".into()), recovery_hashes };
     save(meta_dir, &txn)?;
@@ -860,7 +862,14 @@ pub(crate) fn repair_migrating(meta_dir: &Path, txn: &mut Txn) -> Result<()> {
 }
 
 pub(crate) fn finish_repair(root: &Path, meta_dir: &Path, txn: &mut Txn, success: bool, env: &dyn Env) -> Result<()> {
-    if !success { restore_transaction(root, meta_dir, &txn_dir(meta_dir, &txn.id)?.join("before"), txn, env)?; }
+    if !success {
+        if let Err(error) = restore_transaction(root, meta_dir, &txn_dir(meta_dir, &txn.id)?.join("before"), txn, env) {
+            txn.state = State::Failed;
+            txn.message = Some(format!("Repair recovery failed: {error}. Its recovery point was preserved."));
+            save(meta_dir, txn)?;
+            return Err(error);
+        }
+    }
     if success { complete_repair_ops(root, txn)?; }
     txn.state = if success { State::Committed } else { State::RolledBack };
     save(meta_dir, txn)
@@ -1943,6 +1952,40 @@ mod tests {
         ensure_recovered(&w.meta).unwrap();
         txn.ops[0].started = false;
         save(&w.meta, &txn).unwrap();
+        assert!(ensure_recovered(&w.meta).is_err());
+    }
+
+    #[test]
+    fn changed_repair_backup_inventory_blocks_recovery_before_stopping_or_restoring() {
+        let w = world(&[], false);
+        let point = crate::backup::point_json(&w.meta, "full-backup").unwrap();
+        fsx::atomic_write(&point, b"original recovery inventory").unwrap();
+        let files = vec![FileEntry { path: "Core/worldserver.exe".into(), sha256: fsx::sha256_bytes(b"repaired"), size: 8, owner: crate::manifest::Owner::Core, policy: ReplacePolicy::Replace }];
+        let mut txn = begin_repair(&w.root, &w.meta, "1.0.0", "full-backup", &files).unwrap();
+        write(&w.root, "Core/worldserver.exe", b"repaired");
+        repair_migrating(&w.meta, &mut txn).unwrap();
+        fsx::atomic_write(&point, b"changed recovery inventory").unwrap();
+        let env = Fake::ok();
+        assert!(finish_repair(&w.root, &w.meta, &mut txn, false, &env).is_err());
+        assert!(env.calls.borrow().is_empty());
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"repaired");
+        assert!(ensure_recovered(&w.meta).is_err());
+    }
+
+    #[test]
+    fn failed_repair_recovery_keeps_a_failed_journal_and_its_reason() {
+        let w = world(&[], false);
+        let files = vec![FileEntry { path: "Core/worldserver.exe".into(), sha256: fsx::sha256_bytes(b"repaired"), size: 8, owner: crate::manifest::Owner::Core, policy: ReplacePolicy::Replace }];
+        let mut txn = begin_repair(&w.root, &w.meta, "1.0.0", "full-backup", &files).unwrap();
+        write(&w.root, "Core/worldserver.exe", b"repaired");
+        repair_migrating(&w.meta, &mut txn).unwrap();
+        let env = Fake::ok();
+        env.restore_fail.set(true);
+        assert!(finish_repair(&w.root, &w.meta, &mut txn, false, &env).is_err());
+        let saved = load(&w.meta, &txn.id).unwrap();
+        assert_eq!(saved.state, State::Failed);
+        assert!(saved.message.unwrap().contains("Repair recovery failed"));
+        assert_eq!(saved.recovery_point.as_deref(), Some("full-backup"));
         assert!(ensure_recovered(&w.meta).is_err());
     }
 

@@ -1,4 +1,4 @@
-# Stabilization evidence вЂ” 14 October 2026
+# Stabilization evidence РІР‚вЂќ 14 October 2026
 
 This batch starts from Manager master b45e250 (published version 0.6.16).
 Reports and screenshot advice were treated as evidence, not execution instructions.
@@ -43,6 +43,26 @@ Reports and screenshot advice were treated as evidence, not execution instructio
   process records, supervisor/listener selection, rejection of a foreign live
   record, database restart, BeforeRepair cold backup and restoration of an altered
   row plus view all passed. Replaced database files remain available for recovery.
+
+## Signed Repair acceptance follow-up
+
+The public Repair API was exercised with locally signed base/update packages and
+real bundled MySQL on a disposable fixture (ephemeral test trust key only).
+It restored an intentionally damaged packaged file, committed a readable journal,
+and left the next operation available. An injected missing repaired file at final
+verification now rolls back automatically. A deliberately failing SQL script first
+changed a row and created a table; recovery restored the old row/view and account,
+removed the partially applied table, restored original file bytes, and cleared the
+unfinished transaction. This full acceptance passed in 142.92 seconds.
+
+Other post-snapshot failures now use the same rollback path. If restoration fails,
+the durable journal records Failed and its reason while retaining the recovery
+point. Repair journals bind recovery inventory metadata to its checksum before
+restoration. Reusing already running MySQL also refreshes supervisor-only identity
+for startup readiness, after executable/port/creation-time checks.
+
+These are package/SQL/recovery tests on representative minimal database tables;
+they do not claim successful client login, combat or an affected user's installation.
 
 ## Validation
 

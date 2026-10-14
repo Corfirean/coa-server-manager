@@ -455,6 +455,81 @@ mod tests {
         assert_eq!(db.query("SELECT id FROM acore_characters.shutdown_view;").unwrap(), "73");
         stop(&root).unwrap();
         assert!(recovered.0.wait().unwrap().success());
+        // Exercise the public Repair pipeline with real signed packages and SQL,
+        // rather than only the snapshot and journal helpers.
+        let mut package_server = start();
+        db.query("CREATE TABLE acore_auth.account(id INT PRIMARY KEY, username VARCHAR(40)); INSERT INTO acore_auth.account VALUES(73,'FIXTURE'); CREATE TABLE acore_auth.realmlist(id INT PRIMARY KEY, name VARCHAR(40), address VARCHAR(40), localAddress VARCHAR(40), port INT, flag INT); INSERT INTO acore_auth.realmlist VALUES(1,'AzerothCore','127.0.0.1','127.0.0.1',18085,0); CREATE TABLE acore_characters.characters(guid INT PRIMARY KEY, account INT, name VARCHAR(40), race INT, class INT); INSERT INTO acore_characters.characters VALUES(73,73,'Fixture',7,14); CREATE TABLE acore_world.playercreateinfo(race INT, class INT, PRIMARY KEY(race,class));").unwrap();
+        let starts = [1,2,3,4,5,6,7,8,10,11].into_iter().flat_map(|race| (12..=32).map(move |class| format!("({race},{class})"))).collect::<Vec<_>>().join(",");
+        db.query(&format!("INSERT INTO acore_world.playercreateinfo VALUES {starts};")).unwrap();
+        let password = "a".repeat(48);
+        db.query(&format!("ALTER USER 'root'@'localhost' IDENTIFIED BY '{password}';")).unwrap();
+        fsx::atomic_write_json(&root.join("Settings/database.json"), &serde_json::json!({"rootPassword":password,"appPassword":"b".repeat(48)})).unwrap();
+        fsx::atomic_write(&root.join("Settings/worldserver.conf.template"), b"WorldDatabaseInfo = @WorldDatabaseInfo@\nCharacterDatabaseInfo = @CharacterDatabaseInfo@\nLoginDatabaseInfo = @LoginDatabaseInfo@\n").unwrap();
+        fsx::atomic_write(&root.join("Settings/authserver.conf.template"), b"LoginDatabaseInfo = @LoginDatabaseInfo@\n").unwrap();
+        fsx::atomic_write(&root.join("Settings/mod_ascension_compat.conf.template"), b"Ascension.DbcPath = @ASCENSION_DBC@\n").unwrap();
+        let startup = crate::driver::run(&root, crate::driver::Verb::StartMysql).unwrap();
+        assert!(startup.ok, "{}", crate::diag::redact(&startup.output));
+        let db = crate::db::Db::from_repack(&root, crate::db::Account::Admin).unwrap();
+        crate::schema_check::capture(&db, &root).unwrap();
+        assert!(crate::schema_check::check(&db, &root).unwrap().is_empty());
+        stop(&root).unwrap();
+        assert!(package_server.0.wait().unwrap().success());
+        struct StopFixture(PathBuf);
+        impl Drop for StopFixture { fn drop(&mut self) { let _ = stop(&self.0); } }
+        let _stop_fixture = StopFixture(root.clone());
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        use ed25519_dalek::{Signer, SigningKey};
+        let key = SigningKey::from_bytes(&[7;32]);
+        let trusted = STANDARD.encode(key.verifying_key().to_bytes());
+        let source = temp.path().join("repair-package-source");
+        fsx::atomic_write(&source.join("Core/reference/repair-probe.dll"), b"official").unwrap();
+        fsx::atomic_write(&source.join(crate::schema_check::CONTRACT), &fs::read(root.join(crate::schema_check::CONTRACT)).unwrap()).unwrap();
+        let build = |kind, version: &str, destination: &Path, migrations| {
+            let manifest = crate::package::build(&source, destination, &crate::package::BuildOptions { kind, version: version.into(), core_commit: None, built_at: "fixture".into(), part_size: 1024*1024, bots_commit: None, migrations }, &|_| {}).unwrap();
+            let bytes = fs::read(destination.join("manifest.json")).unwrap();
+            fsx::atomic_write(&destination.join("manifest.json.sig"), STANDARD.encode(key.sign(&bytes).to_bytes()).as_bytes()).unwrap();
+            manifest
+        };
+        let base = temp.path().join("repair-base");
+        let base_manifest = build(crate::manifest::Kind::Base, "1.0.0", &base, vec![]);
+        let update = temp.path().join("repair-update");
+        let update_manifest = build(crate::manifest::Kind::Update, "2.0.0", &update, vec![]);
+        fsx::atomic_write_json(&meta.join("manifests/base.json"), &base_manifest).unwrap();
+        fsx::atomic_write_json(&meta.join("manifests/update-2.0.0.json"), &update_manifest).unwrap();
+        let (_, mut installed) = crate::registry::MetaDir::open(&meta).unwrap();
+        installed.core.version = Some("2.0.0".into());
+        fsx::atomic_write_json(&meta.join("install.json"), &installed).unwrap();
+        fsx::atomic_write(&root.join("Core/reference/repair-probe.dll"), b"broken").unwrap();
+        let base_source = crate::pkgsource::Source::Dir(base);
+        let update_source = crate::pkgsource::Source::Dir(update);
+        let report = crate::repair::run(&root, &meta, &base_source, &update_source, &trusted, &|_,_| {}).unwrap();
+        assert!(report.error.is_none());
+        assert!(report.database.iter().all(|check| check.problems.is_empty()));
+        assert_eq!(fs::read(root.join("Core/reference/repair-probe.dll")).unwrap(), b"official");
+        crate::update::ensure_recovered(&meta).unwrap();
+        fsx::atomic_write(&root.join("Core/reference/repair-probe.dll"), b"before verification failure").unwrap();
+        let error = crate::repair::run(&root, &meta, &base_source, &update_source, &trusted, &|phase,_| {
+            if phase == "Checking database after repair" { fs::remove_file(root.join("Core/reference/repair-probe.dll")).unwrap(); }
+        }).unwrap_err();
+        assert!(error.to_string().contains("repair"));
+        assert_eq!(fs::read(root.join("Core/reference/repair-probe.dll")).unwrap(), b"before verification failure");
+        crate::update::ensure_recovered(&meta).unwrap();
+        let failed_sql = "UPDATE shutdown_probe SET id=75; CREATE TABLE repair_partial(id INT); INVALID SQL;";
+        fsx::atomic_write(&source.join("_migrations/characters/repair-failure.sql"), failed_sql.as_bytes()).unwrap();
+        let failing = temp.path().join("repair-failing-update");
+        let manifest = build(crate::manifest::Kind::Update, "2.0.0", &failing, vec![crate::manifest::Migration { id:"repair-failure".into(), db:"characters".into(), sha256:fsx::sha256_bytes(failed_sql.as_bytes()), compatible_sha256:vec![], destructive:false }]);
+        fsx::atomic_write_json(&meta.join("manifests/update-2.0.0.json"), &manifest).unwrap();
+        fsx::atomic_write(&root.join("Core/reference/repair-probe.dll"), b"before failed repair").unwrap();
+        let report = crate::repair::run(&root, &meta, &base_source, &crate::pkgsource::Source::Dir(failing), &trusted, &|_,_| {}).unwrap();
+        assert!(report.error.is_some());
+        assert_eq!(fs::read(root.join("Core/reference/repair-probe.dll")).unwrap(), b"before failed repair");
+        crate::update::ensure_recovered(&meta).unwrap();
+        crate::backup::with_database(&root, |db| {
+            assert_eq!(db.query("SELECT id FROM acore_characters.shutdown_view;")?, "73");
+            assert_eq!(db.query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='acore_characters' AND TABLE_NAME='repair_partial';")?, "0");
+            assert_eq!(db.query("SELECT username FROM acore_auth.account WHERE id=73;")?, "FIXTURE");
+            Ok(())
+        }).unwrap();
     }
 
     #[cfg(windows)]

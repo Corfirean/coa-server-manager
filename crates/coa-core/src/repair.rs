@@ -134,34 +134,52 @@ pub fn run(root: &Path, dir: &Path, base_source: &Source, update_source: &Source
         env.verify_recovery_point(&crate::backup::get(dir, &backup)?)?;
         let repair_files: Vec<_> = broken.iter().map(|(file, _)| (*file).clone()).collect();
         let mut txn = crate::update::begin_repair(root, dir, &update.version, &backup, &repair_files)?;
-        let before = dir.join("repairs").join(&backup);
-        fs::create_dir_all(&before)?;
-        fsx::require_space(root, broken.iter().map(|(e,_)| e.size.saturating_mul(2)).sum())?;
-        let restored = restore_files(root, &work, &before, &broken)?;
-        for (entry, _) in &broken {
-            meta.original_hashes.insert(entry.path.clone(), entry.sha256.clone());
-        }
-        fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
-        progress("Repairing pending database updates", 80);
-        crate::update::repair_migrating(dir, &mut txn)?;
-        let (applied, error) = match env.migrate(&update, &work.join("update/_migrations")) {
-            Ok(r) => (r.applied, r.failed.map(|(id,why)| format!("{id}: {why}"))),
-            Err(e) => (Vec::new(), Some(e.to_string())),
-        };
-        if error.is_some() {
-            crate::update::finish_repair(root, dir, &mut txn, false, &env)?;
-            let report = Report { restored: Vec::new(), applied: Vec::new(), backup, database: check(root, dir)?, error };
+        let attempt = (|| -> Result<Report> {
+            let before = dir.join("repairs").join(&backup);
+            fs::create_dir_all(&before)?;
+            fsx::require_space(root, broken.iter().map(|(e,_)| e.size.saturating_mul(2)).sum())?;
+            let restored = restore_files(root, &work, &before, &broken)?;
+            for (entry, _) in &broken {
+                meta.original_hashes.insert(entry.path.clone(), entry.sha256.clone());
+            }
+            fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
+            progress("Repairing pending database updates", 80);
+            crate::update::repair_migrating(dir, &mut txn)?;
+            let (applied, error) = match env.migrate(&update, &work.join("update/_migrations")) {
+                Ok(r) => (r.applied, r.failed.map(|(id,why)| format!("{id}: {why}"))),
+                Err(e) => (Vec::new(), Some(e.to_string())),
+            };
+            if error.is_some() {
+                crate::update::finish_repair(root, dir, &mut txn, false, &env)?;
+                let report = Report { restored: Vec::new(), applied: Vec::new(), backup: backup.clone(), database: check(root, dir)?, error };
+                fsx::atomic_write_json(&before.join("report.json"), &report)?;
+                return Ok(report);
+            }
+            crate::config::create_missing_module_configs(root)?;
+            progress("Checking database after repair", 95);
+            let database = check(root, dir)?;
+            let report = Report { restored, applied, backup: backup.clone(), database, error };
             fsx::atomic_write_json(&before.join("report.json"), &report)?;
-            return Ok(report);
+            crate::update::finish_repair(root, dir, &mut txn, true, &env)?;
+            progress("Done", 100);
+            Ok(report)
+        })();
+        match attempt {
+            Ok(report) => Ok(report),
+            Err(error) if matches!(txn.state, crate::update::State::RolledBack | crate::update::State::Failed) => Err(error),
+            Err(error) => {
+                progress("Undoing the failed repair", 95);
+                let message = match crate::update::finish_repair(root, dir, &mut txn, false, &env) {
+                    Ok(()) => format!("Repair failed: {error}. The original server files and databases were restored from recovery point {backup}."),
+                    Err(recovery) => format!("Repair failed: {error}. Recovery failed: {recovery}. Recovery point {backup} was preserved; resolve the unfinished repair before starting the server."),
+                };
+                let failed = Report { restored: Vec::new(), applied: Vec::new(), backup: backup.clone(), database: Vec::new(), error: Some(message.clone()) };
+                if let Err(report_error) = fsx::atomic_write_json(&dir.join("repairs").join(&backup).join("report.json"), &failed) {
+                    tracing::warn!(%report_error, "Could not persist failed repair report");
+                }
+                Err(Error::Invalid(message))
+            }
         }
-        crate::config::create_missing_module_configs(root)?;
-        progress("Checking database after repair", 95);
-        let database = check(root, dir)?;
-        let report = Report { restored, applied, backup, database, error };
-        fsx::atomic_write_json(&before.join("report.json"), &report)?;
-        crate::update::finish_repair(root, dir, &mut txn, true, &env)?;
-        progress("Done", 100);
-        Ok(report)
     })();
     // Only the UUID staging directory created above is discarded; backups are retained.
     let _ = fs::remove_dir_all(work);
