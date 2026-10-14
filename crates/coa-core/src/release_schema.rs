@@ -120,6 +120,7 @@ pub fn compose_install(base: &Path, candidate: &Path, fixture: &Path, trusted_ke
         "version": manifest.version, "core": manifest.core, "bots": manifest.bots,
         "updateManifestSha256": fsx::sha256_bytes(&bytes),
     }))?;
+    crate::mysql_snapshot::stop(&fixture)?;
     fs::remove_file(fixture.join(MARKER))?;
     Ok(())
 }
@@ -143,6 +144,7 @@ pub fn qualify_install(package: &Path, fixture: &Path, trusted_key: &str) -> Res
     let env = QualificationEnv(crate::update::RepackEnv { root: &fixture, meta_dir: &metadata });
     env.validate()?;
     env.ensure_stopped()?;
+    crate::mysql_snapshot::stop(&fixture)?;
     if installed.version != manifest.version || crate::update::pending_checked(&metadata)?.is_some() {
         return Err(Error::Invalid("Clean installation did not finish at the packaged release.".into()));
     }
