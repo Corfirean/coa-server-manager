@@ -129,6 +129,10 @@ pub(crate) fn inventory(root: &Path) -> Result<BTreeMap<String, String>> {
 }
 
 pub(crate) fn copy_verified(source: &Path, target: &Path, files: &BTreeMap<String, String>) -> Result<()> {
+    copy_verified_with_progress(source, target, files, &|_| {})
+}
+
+fn copy_verified_with_progress(source: &Path, target: &Path, files: &BTreeMap<String, String>, report: &dyn Fn(&str)) -> Result<()> {
     if target.exists() { return Err(Error::Invalid("Database snapshot destination already exists.".into())); }
     let bytes = files.keys().try_fold(0u64, |total, name| -> Result<u64> {
         let path = fsx::ensure_within(source, &fsx::safe_join(source, name)?)?;
@@ -138,13 +142,15 @@ pub(crate) fn copy_verified(source: &Path, target: &Path, files: &BTreeMap<Strin
     fs::create_dir_all(parent)?;
     fsx::require_space(parent, bytes)?;
     fs::create_dir(target)?;
-    for (relative, expected) in files {
+    for (index, (relative, expected)) in files.iter().enumerate() {
+        if index % 250 == 0 { report(&format!("Copying private server files: {} of {}", index, files.len())); }
         let source_file = fsx::ensure_within(source, &fsx::safe_join(source, relative)?)?;
         let target_file = fsx::ensure_within(target, &fsx::safe_join(target, relative)?)?;
         fs::create_dir_all(target_file.parent().unwrap())?;
         fs::copy(&source_file, &target_file)?;
         if fsx::sha256_file(&target_file)? != *expected { return Err(Error::Invalid(format!("Database snapshot file {relative} failed verification."))); }
     }
+    report("Verifying the complete private file copy");
     if inventory(target)? != *files { return Err(Error::Invalid("Database snapshot inventory differs.".into())); }
     Ok(())
 }
@@ -153,13 +159,31 @@ pub(crate) fn stop(root: &Path) -> Result<()> {
     let observed = crate::process::observe(root, &crate::layout::read_ports(root));
     if [observed.mysql.state, observed.auth.state, observed.world.state].iter().all(|state| *state == crate::process::ServiceState::Stopped)
         && !crate::multiworld::is_running(root) { return Ok(()); }
-    let outcome = crate::driver::run(root, crate::driver::Verb::StopAll)?;
+    let outcome = crate::driver::run(root, crate::driver::Verb::StopAll)
+        .map_err(|error| Error::Invalid(format!("Could not stop server {} before copying or restoring MySQL: {error}", root.display())))?;
     let status = crate::process::observe(root, &crate::layout::read_ports(root));
     if !outcome.ok || [status.mysql.state, status.auth.state, status.world.state].iter().any(|state| *state != crate::process::ServiceState::Stopped)
         || crate::multiworld::is_running(root) {
-        return Err(Error::Invalid("The complete server must be stopped before copying or restoring MySQL.".into()));
+        return Err(Error::Invalid(stop_failure(root, &status, &outcome)));
     }
     Ok(())
+}
+
+fn stop_failure(root: &Path, status: &crate::process::Observed, outcome: &crate::driver::DriverOutcome) -> String {
+    let mut details = vec![format!("The complete server must be stopped before copying or restoring MySQL. Server: {}.", root.display())];
+    for service in [&status.mysql, &status.auth, &status.world].into_iter().chain(status.secondary_world.iter()) {
+        if service.state != crate::process::ServiceState::Stopped {
+            details.push(format!("{}: {:?}; PID: {}; port: {}.", service.name, service.state, service.pid.map(|pid| pid.to_string()).unwrap_or_else(|| "unknown".into()), service.port));
+        }
+        if let Some(conflict) = &service.conflict {
+            details.push(format!("Port {} is used by process {} ({}).", conflict.port, conflict.pid, conflict.exe.as_deref().unwrap_or("executable unavailable")));
+        }
+    }
+    let output = crate::diag::redact(&outcome.output);
+    let lines: Vec<_> = output.lines().rev().take(12).collect();
+    if !lines.is_empty() { details.push(lines.into_iter().rev().collect::<Vec<_>>().join("\n")); }
+    else if !outcome.ok { details.push(format!("The stop command failed (exit code: {:?}).", outcome.exit_code)); }
+    details.join("\n")
 }
 
 pub(crate) fn stop_previous_rehearsals(meta: &Path) -> Result<()> {
@@ -226,7 +250,8 @@ pub(crate) fn verify(point: &Path, snapshot: &Snapshot) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn rehearsal_copy(root: &Path, meta: &Path, point: &Path, snapshot: &Snapshot) -> Result<PathBuf> {
+pub(crate) fn rehearsal_copy_with_progress(root: &Path, meta: &Path, point: &Path, snapshot: &Snapshot, report: &dyn Fn(&str)) -> Result<PathBuf> {
+    report("Verifying the database recovery copy before rehearsal");
     verify(point, snapshot)?;
     let canonical = fsx::canonicalize_lenient(root)?;
     let root = canonical.as_path();
@@ -249,11 +274,15 @@ pub(crate) fn rehearsal_copy(root: &Path, meta: &Path, point: &Path, snapshot: &
             reject_link(&metadata)?;
             let path = fsx::ensure_within(root, &raw)?;
             if metadata.is_dir() { directories.push(path); }
-            else if metadata.is_file() { files.insert(relative, fsx::sha256_file(&path)?); }
+            else if metadata.is_file() {
+                files.insert(relative, fsx::sha256_file(&path)?);
+                if files.len() % 250 == 0 { report(&format!("Preparing the private copy: {} files checked", files.len())); }
+            }
             else { return Err(Error::Invalid("Unsupported rehearsal file.".into())); }
         }
     }
-    copy_verified(root, &destination, &files)?;
+    copy_verified_with_progress(root, &destination, &files, report)?;
+    report("Restoring MySQL into the private server copy");
     copy_snapshot(point, snapshot, &destination.join("mysql/data"))?;
     let (_, mut installed) = crate::registry::MetaDir::open(meta)?;
     installed.id = uuid::Uuid::new_v4().to_string();
@@ -338,6 +367,17 @@ pub(crate) fn swap(root: &Path, meta: &Path, point: &Path, snapshot: &Snapshot, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_stop_identifies_the_server_process_and_retains_redacted_launcher_reason() {
+        use crate::process::{Observed, ServiceStatus, ServiceState};
+        let stopped = |name| ServiceStatus { name, state: ServiceState::Stopped, pid: None, port: 0, port_ready: false, conflict: None, uptime_secs: None };
+        let status = Observed { mysql: ServiceStatus { state: ServiceState::Stopping, pid: Some(42), port: 3307, ..stopped("mysql") }, auth: stopped("auth"), world: stopped("world"), secondary_world: None };
+        let outcome = crate::driver::DriverOutcome { ok: false, exit_code: Some(1), code: None, human: None, output: "MySQL is still stopping; wait before copying the repack.\nrootPassword=hunter2".into() };
+        let message = stop_failure(Path::new("private-rehearsal/server"), &status, &outcome);
+        assert!(message.contains("private-rehearsal") && message.contains("PID: 42") && message.contains("3307"));
+        assert!(message.contains("MySQL is still stopping"));
+        assert!(!message.contains("hunter2"));
+    }
     #[cfg(windows)]
     #[test]
     #[ignore = "requires COA_MYSQL_TEST_BIN pointing to the bundled MySQL tools"]
@@ -373,6 +413,14 @@ mod tests {
         let mut server = start();
         db.query("CREATE DATABASE acore_characters; CREATE DATABASE acore_world; CREATE DATABASE acore_auth; CREATE TABLE acore_characters.probe(id INT PRIMARY KEY, note VARCHAR(40)); CREATE TABLE acore_world.probe(id INT NOT NULL DEFAULT 0); INSERT INTO acore_world.probe VALUES(43); CREATE TABLE acore_auth.probe(id INT); INSERT INTO acore_auth.probe VALUES(44); CREATE USER 'fixture_user'@'localhost' IDENTIFIED BY 'fixture'; CREATE TRIGGER acore_characters.probe_insert BEFORE INSERT ON acore_characters.probe FOR EACH ROW SET NEW.note='triggered'; INSERT INTO acore_characters.probe VALUES(42,'original'); CREATE VIEW acore_characters.probe_view AS SELECT c.id,w.id AS world_id FROM acore_characters.probe c CROSS JOIN acore_world.probe w; CREATE PROCEDURE acore_characters.probe_proc() SELECT id FROM acore_characters.probe; CREATE FUNCTION acore_characters.probe_func() RETURNS INT DETERMINISTIC RETURN 73;").unwrap();
         assert_eq!(db.recovery_objects("acore_characters").unwrap().len(), 4);
+        db.query("CREATE TABLE acore_characters.coa_squid_pending(path VARCHAR(255), sha256 CHAR(64)); INSERT INTO acore_characters.coa_squid_pending VALUES('playerbots/base/ai_playerbot_texts.sql', REPEAT('a',64));").unwrap();
+        let squid_problems = crate::squid::database_problems(&root, crate::realms::Mode::Coa, &|sql| {
+            assert!(sql.starts_with("SELECT "));
+            db.query(sql)
+        }).unwrap();
+        assert_eq!(squid_problems.len(), 1);
+        assert!(squid_problems[0].detail.contains("interrupted"));
+        assert_eq!(db.query("SELECT COUNT(*) FROM acore_characters.coa_squid_pending;").unwrap(), "1");
         crate::schema_check::capture(&db, &root).unwrap();
         let hash = fsx::sha256_file(&root.join(crate::schema_check::CONTRACT)).unwrap();
         db.query("ALTER TABLE acore_world.probe ALTER COLUMN id DROP DEFAULT;").unwrap();
@@ -486,8 +534,13 @@ mod tests {
         fsx::atomic_write(&root.join("Core/worldserver.exe"), b"exe").unwrap();
         fsx::atomic_write(&root.join("Core/configs/worldserver.conf"), b"conf").unwrap();
         fsx::atomic_write(&root.join("Settings/repack.json"), b"{}").unwrap();
-        let dest = rehearsal_copy(&root, &meta, &point, &snapshot).unwrap();
+        let phases = std::cell::RefCell::new(Vec::new());
+        let dest = rehearsal_copy_with_progress(&root, &meta, &point, &snapshot, &|phase| phases.borrow_mut().push(phase.to_string())).unwrap();
         assert_eq!(fs::read(dest.join("Core/configs/worldserver.conf")).unwrap(), b"conf");
         assert_eq!(fs::read(dest.join("mysql/data/characters.ibd")).unwrap(), b"saved");
+        let phases = phases.into_inner();
+        assert!(phases[0].contains("Verifying the database"));
+        assert!(phases.iter().any(|phase| phase.contains("Copying private server files")));
+        assert!(phases.last().unwrap().contains("Restoring MySQL"));
     }
 }

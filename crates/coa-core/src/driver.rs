@@ -180,7 +180,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     };
     let mut output = out_t.join().unwrap_or_default();
     output.push_str(&err_t.join().unwrap_or_default());
-    let output = output.trim().to_string();
+    let mut output = output.trim().to_string();
     let (ok, exit_code) = match status {
         Some(st) => (st.success(), st.code()),
         None => (false, None),
@@ -195,6 +195,14 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
             other => Some(other),
         }
     };
+    if code == Some(ErrorCode::PortInUse) {
+        let observed = crate::process::observe(&root, &crate::layout::read_ports(&root));
+        for service in [&observed.mysql, &observed.auth, &observed.world].into_iter().chain(observed.secondary_world.iter()) {
+            if let Some(conflict) = &service.conflict {
+                output.push_str(&format!("\nPort {} is used by process {} ({}).", conflict.port, conflict.pid, conflict.exe.as_deref().unwrap_or("executable unavailable")));
+            }
+        }
+    }
     tracing::info!(?verb, ok, ?code, "driver: launcher verb finished");
     if !ok && !output.is_empty() {
         let redacted = crate::diag::redact(&output);

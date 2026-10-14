@@ -14,6 +14,7 @@ impl crate::update::Env for QualificationEnv<'_> {
     fn snapshot(&self) -> Result<String> { self.0.snapshot() }
     fn verify_snapshot(&self, id: &str) -> Result<()> { self.0.verify_snapshot(id) }
     fn rehearse(&self, manifest: &crate::manifest::Manifest, tree: &Path, items: &[crate::update::PlanItem], point: &str) -> Result<()> { self.0.rehearse(manifest, tree, items, point) }
+    fn rehearse_with_progress(&self, manifest: &crate::manifest::Manifest, tree: &Path, items: &[crate::update::PlanItem], point: &str, report: &dyn Fn(&str, u8)) -> Result<()> { self.0.rehearse_with_progress(manifest, tree, items, point, report) }
     fn restore_snapshot(&self, id: &str) -> Result<()> { self.0.restore_snapshot(id) }
     fn migrate(&self, manifest: &crate::manifest::Manifest, staged: &Path) -> Result<crate::migrations::ApplyReport> { self.0.migrate(manifest, staged) }
     fn validate(&self) -> Result<()> { self.0.validate() }

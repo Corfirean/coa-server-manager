@@ -93,6 +93,7 @@ pub trait Env {
     fn preflight(&self, _manifest: &Manifest) -> Result<()> { Ok(()) }
     fn verify_snapshot(&self, _id: &str) -> Result<()> { Ok(()) }
     fn rehearse(&self, _manifest: &Manifest, _tree: &Path, _items: &[PlanItem], _point: &str) -> Result<()> { Ok(()) }
+    fn rehearse_with_progress(&self, manifest: &Manifest, tree: &Path, items: &[PlanItem], point: &str, _report: &dyn Fn(&str, u8)) -> Result<()> { self.rehearse(manifest, tree, items, point) }
     /// Create a recovery point for the databases and configuration; returns its id.
     fn snapshot(&self) -> Result<String>;
     fn restore_snapshot(&self, id: &str) -> Result<()>;
@@ -121,13 +122,32 @@ pub fn load(meta: &Path, id: &str) -> Result<Txn> {
 }
 
 fn read_journal(path: &Path) -> Result<Txn> {
-    let txn: Txn = fsx::read_json(path).map_err(|e| Error::Invalid(format!("Update journal {} cannot be read: {e}. Available recovery copies were preserved.", path.display())))?;
+    let mut txn: Txn = fsx::read_json(path).map_err(|e| Error::Invalid(format!("Update journal {} cannot be read: {e}. Available recovery copies were preserved.", path.display())))?;
     if path.parent().and_then(Path::file_name).and_then(|id| id.to_str()) != Some(txn.id.as_str()) { return Err(Error::Invalid("Update journal identity is inconsistent.".into())); }
     txn_dir(path.parent().unwrap(), &txn.id)?;
     if let Some(id) = &txn.recovery_point {
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) || id.contains("..") { return Err(Error::Invalid("Update journal contains an invalid recovery point identity.".into())); }
     }
     let valid_hash = |hash: &str| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
+    let mut completed_legacy_repair = false;
+    // Older successful repairs saved Committed without setting done. Recover only that
+    // specific shape, and only if every repaired file still has its expected bytes.
+    if txn.state == State::Committed && txn.id.contains("-repair-")
+        && txn.message.as_deref() == Some("Repair is in progress.")
+        && txn.from_version.as_deref() == Some(txn.to_version.as_str())
+        && txn.databases_started && txn.recovery_point.is_some() && txn.recovery_hashes.contains_key("@install")
+        && txn.ops.iter().any(|op| !op.done)
+        && txn.ops.iter().all(|op| op.started && matches!((op.action, op.had_previous), (Action::Create, false) | (Action::Replace, true)) && valid_hash(&op.new_sha256)) {
+        let meta_dir = path.parent().and_then(Path::parent).and_then(Path::parent)
+            .ok_or_else(|| Error::Invalid("Invalid repair journal location.".into()))?;
+        let (_, installed) = MetaDir::open(meta_dir)?;
+        let root = Path::new(&installed.server_path);
+        if fsx::canonicalize_lenient(&crate::registry::metadata_dir_for(root)?)? != fsx::canonicalize_lenient(meta_dir)? {
+            return Err(Error::Invalid("The repair journal does not belong to its installed server.".into()));
+        }
+        complete_repair_ops(root, &mut txn)?;
+        completed_legacy_repair = true;
+    }
     let mut seen = std::collections::BTreeSet::new();
     for op in &txn.ops {
         fsx::safe_join(path.parent().unwrap(), &op.path)?;
@@ -140,6 +160,13 @@ fn read_journal(path: &Path) -> Result<Txn> {
     }
     if txn.recovery_hashes.values().any(|hash| !valid_hash(hash)) { return Err(Error::Invalid("Update journal contains invalid recovery hashes.".into())); }
     for key in txn.recovery_hashes.keys().filter(|key| !matches!(key.as_str(), "@install" | "@point")) { fsx::safe_join(path.parent().unwrap(), key)?; }
+    if completed_legacy_repair {
+        // Persist the verified completion once: later legitimate updates can change
+        // these files. Retain the original record for diagnostics and crash recovery.
+        let original = path.with_file_name("txn-before-repair-completion.json");
+        if !original.exists() { fsx::atomic_write(&original, &fs::read(path)?)?; }
+        fsx::atomic_write_json(path, &txn)?;
+    }
     Ok(txn)
 }
 
@@ -499,7 +526,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     if point_meta.is_file() { txn.recovery_hashes.insert("@point".into(), fsx::sha256_file(&point_meta)?); }
     save(meta_dir, &txn)?;
     step(report, "Testing the update on a private copy of your server", 54);
-    if let Err(error) = p.env.rehearse(&m, &tree, &items, txn.recovery_point.as_deref().unwrap()) {
+    if let Err(error) = p.env.rehearse_with_progress(&m, &tree, &items, txn.recovery_point.as_deref().unwrap(), report) {
         txn.state = State::Failed;
         txn.message = Some(format!("The private update rehearsal failed: {error}. The installed server was not updated."));
         save(meta_dir, &txn)?;
@@ -834,8 +861,20 @@ pub(crate) fn repair_migrating(meta_dir: &Path, txn: &mut Txn) -> Result<()> {
 
 pub(crate) fn finish_repair(root: &Path, meta_dir: &Path, txn: &mut Txn, success: bool, env: &dyn Env) -> Result<()> {
     if !success { restore_transaction(root, meta_dir, &txn_dir(meta_dir, &txn.id)?.join("before"), txn, env)?; }
+    if success { complete_repair_ops(root, txn)?; }
     txn.state = if success { State::Committed } else { State::RolledBack };
     save(meta_dir, txn)
+}
+
+fn complete_repair_ops(root: &Path, txn: &mut Txn) -> Result<()> {
+    for op in &txn.ops {
+        let target = fsx::ensure_within(root, &fsx::safe_join(root, &op.path)?)?;
+        if fsx::sha256_file(&target)? != op.new_sha256 {
+            return Err(Error::Invalid(format!("Repaired file {} failed verification. Its recovery record was preserved.", op.path)));
+        }
+    }
+    for op in &mut txn.ops { op.done = true; }
+    Ok(())
 }
 
 fn prune(meta_dir: &Path, keep: usize) {
@@ -939,6 +978,10 @@ impl Env for RepackEnv<'_> {
 
     fn automatic_rollback(&self) -> bool { true }
     fn rehearse(&self, manifest: &Manifest, tree: &Path, items: &[PlanItem], id: &str) -> Result<()> {
+        self.rehearse_with_progress(manifest, tree, items, id, &|_, _| {})
+    }
+
+    fn rehearse_with_progress(&self, manifest: &Manifest, tree: &Path, items: &[PlanItem], id: &str, report: &dyn Fn(&str, u8)) -> Result<()> {
         if items.iter().any(|item| item.action != Action::Skip && item.path.to_ascii_lowercase().starts_with("mysql/")) {
             return Err(Error::Invalid("A server update cannot replace MySQL while using a cold recovery copy; a separate database engine upgrade is required.".into()));
         }
@@ -951,7 +994,7 @@ impl Env for RepackEnv<'_> {
         crate::mysql_snapshot::validate_connections(self.root, self.root)?;
         crate::mysql_snapshot::stop(self.root)?;
         let point_dir = crate::backup::point_json(self.meta_dir, id)?.parent().unwrap().to_path_buf();
-        let fixture = crate::mysql_snapshot::rehearsal_copy(self.root, self.meta_dir, &point_dir, snapshot)?;
+        let fixture = crate::mysql_snapshot::rehearsal_copy_with_progress(self.root, self.meta_dir, &point_dir, snapshot, &|phase| step(report, phase, 54))?;
         let metadata = crate::registry::metadata_dir_for(&fixture)?;
         let env = RepackEnv { root: &fixture, meta_dir: &metadata };
         let result = crate::install::with_scratch_ports(&fixture, || {
@@ -964,9 +1007,11 @@ impl Env for RepackEnv<'_> {
                 }).collect(), message:None, recovery_hashes:BTreeMap::new() };
             let before = txn_dir(&metadata, &txn.id)?.join("before");
             fs::create_dir_all(&before)?;
+            step(report, "Applying update files to the private server copy", 55);
             apply_ops(&fixture, tree, &before, &manifest.files, &mut txn, &metadata, None)?;
             crate::mysql_snapshot::validate_connections(&fixture, self.root)?;
             crate::mysql_snapshot::isolate_connections(&fixture)?;
+            step(report, "Testing database updates on the private server copy", 56);
             let identities = crate::backup::with_database(&fixture, |db| {
                 let identities = database_identities(db)?;
                 let realms = crate::realms::state(&fixture)?;
@@ -983,10 +1028,12 @@ impl Env for RepackEnv<'_> {
                 verify_database_identities(db, &identities)?;
                 Ok(identities)
             })?;
+            step(report, "Testing startup of the private server copy", 57);
             env.validate()?;
             crate::backup::with_database(&fixture, |db| verify_database_identities(db, &identities))?;
             env.ensure_stopped()
         });
+        step(report, "Stopping the private server copy and verifying the installed database", 57);
         let stopped = crate::mysql_snapshot::stop(&fixture);
         let live_state = if result.is_ok() { crate::mysql_snapshot::stop(self.root).and_then(|()| crate::mysql_snapshot::unchanged(self.root, snapshot)) } else { Ok(()) };
         let logs: BTreeMap<_, _> = ["Core/Logs/auth-console.log", "Core/Logs/world-console.log", "Core/Logs/supervisor.log", "mysql/logs/mysql-error.log"].into_iter()
@@ -1874,6 +1921,54 @@ mod tests {
         assert!(crate::modules::set_enabled(&w.root, &w.meta, "companions", true).unwrap_err().to_string().contains("in progress"));
         assert!(crate::realms::select(&w.root, crate::realms::Mode::Wildcard).unwrap_err().to_string().contains("in progress"));
         assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+    }
+
+    #[test]
+    fn legacy_completed_repair_is_accepted_only_with_verified_repaired_files() {
+        let w = world(&[], false);
+        let files = vec![FileEntry { path: "Core/worldserver.exe".into(), sha256: fsx::sha256_bytes(b"repaired"), size: 8, owner: crate::manifest::Owner::Core, policy: ReplacePolicy::Replace }];
+        let mut txn = begin_repair(&w.root, &w.meta, "1.0.0", "full-backup", &files).unwrap();
+        write(&w.root, "Core/worldserver.exe", b"repaired");
+        repair_migrating(&w.meta, &mut txn).unwrap();
+        txn.state = State::Committed;
+        save(&w.meta, &txn).unwrap();
+        let original = fs::read(txn_dir(&w.meta, &txn.id).unwrap().join("txn.json")).unwrap();
+        write(&w.root, "Core/worldserver.exe", b"changed");
+        assert!(ensure_recovered(&w.meta).is_err());
+        write(&w.root, "Core/worldserver.exe", b"repaired");
+        ensure_recovered(&w.meta).unwrap();
+        assert!(load(&w.meta, &txn.id).unwrap().ops[0].done);
+        assert_eq!(fs::read(txn_dir(&w.meta, &txn.id).unwrap().join("txn-before-repair-completion.json")).unwrap(), original);
+        write(&w.root, "Core/worldserver.exe", b"a later legitimate update");
+        ensure_recovered(&w.meta).unwrap();
+        txn.ops[0].started = false;
+        save(&w.meta, &txn).unwrap();
+        assert!(ensure_recovered(&w.meta).is_err());
+    }
+
+    #[test]
+    fn repair_cannot_commit_unverified_files() {
+        let w = world(&[], false);
+        let files = vec![FileEntry { path: "Core/worldserver.exe".into(), sha256: fsx::sha256_bytes(b"repaired"), size: 8, owner: crate::manifest::Owner::Core, policy: ReplacePolicy::Replace }];
+        let mut txn = begin_repair(&w.root, &w.meta, "1.0.0", "full-backup", &files).unwrap();
+        assert!(finish_repair(&w.root, &w.meta, &mut txn, true, &Fake::ok()).is_err());
+        assert_eq!(load(&w.meta, &txn.id).unwrap().state, State::Applying);
+        assert_eq!(pending_checked(&w.meta).unwrap().unwrap().id, txn.id);
+    }
+
+    #[test]
+    fn successful_repair_leaves_a_readable_journal_and_allows_next_operation() {
+        let w = world(&[], false);
+        let files = vec![FileEntry { path: "Core/worldserver.exe".into(), sha256: fsx::sha256_bytes(b"repaired"), size: 8, owner: crate::manifest::Owner::Core, policy: ReplacePolicy::Replace }];
+        let mut txn = begin_repair(&w.root, &w.meta, "1.0.0", "full-backup", &files).unwrap();
+        write(&w.root, "Core/worldserver.exe", b"repaired");
+        repair_migrating(&w.meta, &mut txn).unwrap();
+        finish_repair(&w.root, &w.meta, &mut txn, true, &Fake::ok()).unwrap();
+        let saved = load(&w.meta, &txn.id).unwrap();
+        assert_eq!(saved.state, State::Committed);
+        assert!(saved.ops.iter().all(|op| op.started && op.done));
+        ensure_recovered(&w.meta).unwrap();
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"repaired");
     }
 
     #[test]

@@ -30,7 +30,9 @@ pub fn check(root: &Path, dir: &Path) -> Result<Vec<DatabaseCheck>> {
         for mode in modes {
             let db = db.clone().for_realm(mode);
             let migrations: Vec<_> = m.migrations.iter().filter(|m| mode == crate::realms::Mode::Coa || m.db != "auth").cloned().collect();
-            checks.push(DatabaseCheck { realm: mode, migrations: crate::migrations::status(&db, &migrations)?, problems: crate::schema_check::check(&db, root)?, full_schema: root.join(crate::schema_check::CONTRACT).exists() });
+            let mut problems = crate::schema_check::check(&db, root)?;
+            problems.extend(crate::squid::database_problems(root, mode, &|sql| db.query(sql))?);
+            checks.push(DatabaseCheck { realm: mode, migrations: crate::migrations::status(&db, &migrations)?, problems, full_schema: root.join(crate::schema_check::CONTRACT).exists() });
         }
         Ok(checks)
     })?;
