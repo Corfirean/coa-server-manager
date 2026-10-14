@@ -420,6 +420,8 @@ mod tests {
         let mut server = start();
         db.query("CREATE DATABASE acore_characters; CREATE TABLE acore_characters.shutdown_probe(id INT PRIMARY KEY); INSERT INTO acore_characters.shutdown_probe VALUES(73);").unwrap();
         db.query("CREATE DATABASE acore_auth; CREATE DATABASE acore_world; CREATE VIEW acore_characters.shutdown_view AS SELECT id FROM acore_characters.shutdown_probe;").unwrap();
+        let copied_configuration = serde_json::json!({"root":temp.path().join("original-installation"),"ports":{"mysqlPort":ports[0],"authPort":ports[1],"worldPort":ports[2],"raPort":ports[3]}});
+        fsx::atomic_write_json(&root.join(".state/configuration.json"), &copied_configuration).unwrap();
         let meta = crate::registry::metadata_dir_for(&root).unwrap();
         crate::registry::MetaDir::create(&root, &crate::registry::InstallMeta::new(crate::registry::InstallKind::New, &root)).unwrap();
         let point = crate::backup::create(&root, &meta, crate::backup::Kind::Full, crate::backup::Trigger::BeforeRepair, None, &|_| {}).unwrap();
@@ -428,6 +430,8 @@ mod tests {
         crate::update::RepackEnv { root: &root, meta_dir: &meta }.verify_recovery_point(&point).unwrap();
         assert!(server.0.wait().unwrap().success());
         assert_eq!(fs::read(root.join("Settings/worldserver.conf.template")).unwrap(), original);
+        assert_eq!(fsx::read_json::<serde_json::Value>(&root.join(".state/configuration.json")).unwrap(), copied_configuration);
+        fs::remove_file(root.join(".state/configuration.json")).unwrap();
         let mut restarted = start();
         assert_eq!(db.query("SELECT id FROM acore_characters.shutdown_probe;").unwrap(), "73");
         fsx::atomic_write_json(&root.join(".state/mysql.json"), &crate::process::identity(std::process::id()).unwrap()).unwrap();

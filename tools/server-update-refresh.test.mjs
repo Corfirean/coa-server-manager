@@ -76,3 +76,17 @@ test("a rejected recheck removes an earlier cached update offer", async () => {
     assert.equal(useServerUpdate("stale-offer").preview, null);
   } finally { globalThis.__hotfixApi.checkUpdate = original; }
 });
+
+test("a successful recheck keeps the last failed update details visible", async () => {
+  applyFailure = true;
+  stateFailure = false;
+  pending = null;
+  try {
+    assert.equal(await applyServerUpdate("visible-error", { choices: {} }), false);
+    await checkServerUpdate("visible-error");
+    const state = useServerUpdate("visible-error");
+    assert.equal(state.applying, false);
+    assert.equal(state.available, false);
+    assert.equal(state.uiError.technical, "SQL failure");
+  } finally { applyFailure = false; }
+});

@@ -64,6 +64,21 @@ for startup readiness, after executable/port/creation-time checks.
 These are package/SQL/recovery tests on representative minimal database tables;
 they do not claim successful client login, combat or an affected user's installation.
 
+## Overview update failure at 2%
+
+The additional screenshot reports a failed StopAll inside a private rehearsal,
+with the launcher's moved-folder/changed-port guard, followed by a disappearing
+progress bar on Overview. The shutdown adapter already bypasses startup preparation.
+The native recovery test now also supplies a copied configuration signature with
+an old installation path, verifies shutdown preserves it, and retains its database
+row/view recovery assertions.
+
+Overview previously rendered only its local start/stop failure, ignoring stored
+update and recovery-state errors. It now displays those errors with the existing
+technical-details and copy controls, even when the update offer and progress bar
+are gone. A new update attempt clears an older local action error. Render tests
+reproduced the missing alerts before the fix; all 12 frontend tests pass afterward.
+
 ## Validation
 
 - Workspace tests, frontend build, frontend logic tests, translation validation,
