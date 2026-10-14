@@ -144,6 +144,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         }
     }
     discard_damaged_launcher_state(&root);
+    if verb == Verb::StopAll { recover_mysql_state_for_shutdown(&root)?; }
     let mut cmd = Command::new(&python);
     cmd.arg("-B").arg("-c").arg(LAUNCH_SCRIPT).arg(&script).arg(verb.arg())
         .current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -253,7 +254,34 @@ pub(crate) fn discard_damaged_launcher_state(root: &Path) -> Vec<PathBuf> {
     removed
 }
 
-const LAUNCH_SCRIPT: &str = "import runpy,sys;from pathlib import Path;script=sys.argv[1];sys.path.insert(0,str(Path(script).resolve().parent));sys.argv=sys.argv[1:];runpy.run_path(script,run_name='__main__')";
+/// A lost launcher record must not hide this installation's running MySQL from
+/// graceful shutdown. Adopt only the exact executable owning its configured port.
+fn recover_mysql_state_for_shutdown(root: &Path) -> Result<()> {
+    let observed = crate::process::observe(root, &crate::layout::read_ports(root));
+    if observed.mysql.state != crate::process::ServiceState::Running || !observed.mysql.port_ready { return Ok(()); }
+    let Some(pid) = observed.mysql.pid else { return Ok(()); };
+    let Some(identity) = crate::process::identity(pid) else { return Ok(()); };
+    let (_, _, executable) = crate::layout::executables(root);
+    if !crate::process::find_by_exe(&executable).iter().any(|candidate| candidate.same_as(&identity))
+        || !crate::process::listeners().contains(&(observed.mysql.port, pid)) { return Ok(()); }
+    if let Some(saved) = crate::process::read_state_record(root, "mysql") {
+        if saved.same_as(&identity) { return Ok(()); }
+        if crate::process::is_alive(&saved) {
+            // A valid record may describe the MySQL supervisor rather than its
+            // listening child. The launcher can gracefully stop either record.
+            if crate::process::find_by_exe(&executable).iter().any(|candidate| candidate.same_as(&saved)) { return Ok(()); }
+            return Err(Error::Invalid("The MySQL launcher record identifies a different live process. No shutdown was requested.".into()));
+        }
+    }
+    let state = root.join(".state/mysql.json");
+    let previous = root.join(".state/mysql-before-shutdown-recovery.json");
+    if state.is_file() && !previous.exists() { fsx::atomic_write(&previous, &std::fs::read(&state)?)?; }
+    fsx::atomic_write_json(&state, &identity)?;
+    tracing::warn!(pid, root = %root.display(), "Recovered missing or stale MySQL launcher identity before graceful shutdown");
+    Ok(())
+}
+
+const LAUNCH_SCRIPT: &str = "import runpy,sys\nfrom pathlib import Path\nscript=sys.argv[1]\nsys.path.insert(0,str(Path(script).resolve().parent))\nsys.argv=sys.argv[1:]\nif sys.argv[1]=='stop-all':\n    launcher=runpy.run_path(script,run_name='coa_manager_shutdown')\n    config=launcher['settings']()\n    with launcher['control_lock']():\n        launcher['stop_all'](config)\nelse:\n    runpy.run_path(script,run_name='__main__')";
 
 pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
     let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
@@ -310,6 +338,17 @@ pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn shutdown_recovery_never_adopts_a_foreign_port_listener() {
+        let root = tempfile::tempdir().unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        fsx::atomic_write_json(&root.path().join("Settings/repack.json"), &serde_json::json!({"mysqlPort":listener.local_addr().unwrap().port()})).unwrap();
+        recover_mysql_state_for_shutdown(root.path()).unwrap();
+        assert!(!root.path().join(".state/mysql.json").exists());
+        assert!(crate::process::identity(std::process::id()).is_some());
+    }
 
     #[test]
     fn a_blocked_start_is_logged_before_any_launcher_is_spawned() {

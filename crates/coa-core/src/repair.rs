@@ -130,7 +130,7 @@ pub fn run(root: &Path, dir: &Path, base_source: &Source, update_source: &Source
             if fsx::sha256_file(&src)? != entry.sha256 { return Err(Error::Invalid("A repair file failed verification.".into())); }
         }
         progress("Backing up before repair", 65);
-        let backup = crate::backup::create(root, dir, crate::backup::Kind::Full, crate::backup::Trigger::Manual, Some("before repair".into()), &|_| {})?.id;
+        let backup = crate::backup::create(root, dir, crate::backup::Kind::Full, crate::backup::Trigger::BeforeRepair, Some("before repair".into()), &|phase| progress(phase, 65))?.id;
         env.verify_recovery_point(&crate::backup::get(dir, &backup)?)?;
         let repair_files: Vec<_> = broken.iter().map(|(file, _)| (*file).clone()).collect();
         let mut txn = crate::update::begin_repair(root, dir, &update.version, &backup, &repair_files)?;

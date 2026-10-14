@@ -380,6 +380,85 @@ mod tests {
     }
     #[cfg(windows)]
     #[test]
+    #[ignore = "requires COA_MYSQL_TEST_BIN pointing to a repack with Runtime/python and Scripts/manage.py"]
+    fn real_shutdown_with_broken_templates_preserves_database_rows() {
+        use std::process::{Child, Command, Stdio};
+        use std::os::windows::process::CommandExt;
+        struct Server(Child);
+        impl Drop for Server { fn drop(&mut self) { let _ = self.0.kill(); let _ = self.0.wait(); } }
+        let bin = PathBuf::from(std::env::var("COA_MYSQL_TEST_BIN").unwrap());
+        let source = bin.parent().unwrap().parent().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("shutdown-fixture");
+        copy_verified(&bin, &root.join("mysql/bin"), &inventory(&bin).unwrap()).unwrap();
+        copy_verified(&source.join("Runtime/python"), &root.join("Runtime/python"), &inventory(&source.join("Runtime/python")).unwrap()).unwrap();
+        fsx::atomic_write(&root.join("Scripts/manage.py"), &fs::read(source.join("Scripts/manage.py")).unwrap()).unwrap();
+        let data = root.join("mysql/data");
+        let executable = root.join("mysql/bin/mysqld.exe");
+        let initialized = Command::new(&executable).args(["--no-defaults", "--initialize-insecure"])
+            .arg(format!("--datadir={}", data.display())).creation_flags(0x0800_0000).output().unwrap();
+        assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
+        let sockets: Vec<_> = (0..4).map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap()).collect();
+        let ports: Vec<_> = sockets.iter().map(|socket| socket.local_addr().unwrap().port()).collect();
+        fsx::atomic_write_json(&root.join("Settings/repack.json"), &serde_json::json!({"mysqlPort":ports[0],"authPort":ports[1],"worldPort":ports[2],"raPort":ports[3]})).unwrap();
+        drop(sockets);
+        fsx::atomic_write_json(&root.join("Settings/database.json"), &serde_json::json!({"rootPassword":"","appPassword":""})).unwrap();
+        fsx::atomic_write(&root.join("mysql/admin-client.ini"), format!("[client]\nuser=root\nhost=127.0.0.1\nport={}\nprotocol=tcp\n", ports[0]).as_bytes()).unwrap();
+        fsx::atomic_write(&root.join("Settings/worldserver.conf.template"), b"WorldDatabaseInfo = @UNKNOWN_DATABASE@\n").unwrap();
+        let original = fs::read(root.join("Settings/worldserver.conf.template")).unwrap();
+        let db = crate::db::Db::from_repack(&root, crate::db::Account::Admin).unwrap();
+        let start = || {
+            let server = Server(Command::new(&executable).args(["--no-defaults", "--bind-address=127.0.0.1", "--mysqlx=0", "--skip-log-bin"])
+                .arg(format!("--datadir={}", data.display())).arg(format!("--port={}", ports[0]))
+                .arg(format!("--log-error={}", root.join("mysql-test.log").display()))
+                .stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(0x0800_0000).spawn().unwrap());
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while !db.ping() { assert!(std::time::Instant::now() < deadline); std::thread::sleep(std::time::Duration::from_millis(200)); }
+            fsx::atomic_write_json(&root.join(".state/mysql.json"), &crate::process::identity(server.0.id()).unwrap()).unwrap();
+            server
+        };
+        let mut server = start();
+        db.query("CREATE DATABASE acore_characters; CREATE TABLE acore_characters.shutdown_probe(id INT PRIMARY KEY); INSERT INTO acore_characters.shutdown_probe VALUES(73);").unwrap();
+        db.query("CREATE DATABASE acore_auth; CREATE DATABASE acore_world; CREATE VIEW acore_characters.shutdown_view AS SELECT id FROM acore_characters.shutdown_probe;").unwrap();
+        let meta = crate::registry::metadata_dir_for(&root).unwrap();
+        crate::registry::MetaDir::create(&root, &crate::registry::InstallMeta::new(crate::registry::InstallKind::New, &root)).unwrap();
+        let point = crate::backup::create(&root, &meta, crate::backup::Kind::Full, crate::backup::Trigger::BeforeRepair, None, &|_| {}).unwrap();
+        assert!(point.mysql_snapshot.is_some());
+        assert!(crate::backup::verify(&meta, &point.id).unwrap().ok);
+        crate::update::RepackEnv { root: &root, meta_dir: &meta }.verify_recovery_point(&point).unwrap();
+        assert!(server.0.wait().unwrap().success());
+        assert_eq!(fs::read(root.join("Settings/worldserver.conf.template")).unwrap(), original);
+        let mut restarted = start();
+        assert_eq!(db.query("SELECT id FROM acore_characters.shutdown_probe;").unwrap(), "73");
+        fsx::atomic_write_json(&root.join(".state/mysql.json"), &crate::process::identity(std::process::id()).unwrap()).unwrap();
+        assert!(stop(&root).unwrap_err().to_string().contains("different live process"));
+        assert_eq!(db.query("SELECT id FROM acore_characters.shutdown_probe;").unwrap(), "73");
+        fs::remove_file(root.join("Settings/worldserver.conf.template")).unwrap();
+        fs::remove_file(root.join(".state/mysql.json")).unwrap();
+        let observed = crate::process::observe(&root, &crate::layout::read_ports(&root));
+        assert_eq!(observed.mysql.state, crate::process::ServiceState::Running);
+        assert!(observed.mysql.port_ready);
+        assert!(crate::process::listeners().contains(&(ports[0], observed.mysql.pid.unwrap())));
+        stop(&root).unwrap();
+        assert!(restarted.0.wait().unwrap().success());
+        let mut third = start();
+        assert_eq!(db.query("SELECT id FROM acore_characters.shutdown_view;").unwrap(), "73");
+        db.query("UPDATE acore_characters.shutdown_probe SET id=74;").unwrap();
+        fsx::atomic_write(&root.join(".state/mysql.json"), b"{truncated").unwrap();
+        stop(&root).unwrap();
+        assert!(third.0.wait().unwrap().success());
+        assert_eq!(fs::read(root.join(".state/mysql-before-shutdown-recovery.json")).unwrap(), b"{truncated");
+        let point_dir = crate::backup::point_json(&meta, &point.id).unwrap().parent().unwrap().to_path_buf();
+        let retained = swap(&root, &meta, &point_dir, point.mysql_snapshot.as_ref().unwrap(), false).unwrap();
+        assert!(retained.is_dir());
+        let mut recovered = start();
+        assert_eq!(db.query("SELECT id FROM acore_characters.shutdown_view;").unwrap(), "73");
+        stop(&root).unwrap();
+        assert!(recovered.0.wait().unwrap().success());
+    }
+
+    #[cfg(windows)]
+    #[test]
     #[ignore = "requires COA_MYSQL_TEST_BIN pointing to the bundled MySQL tools"]
     fn real_mysql_restores_objects_users_rows_and_missing_defaults() {
         use std::process::{Child, Command, Stdio};

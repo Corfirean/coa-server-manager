@@ -336,7 +336,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
             return Err(e);
         }
     };
-    let mysql_snapshot = if kind == Kind::Full && trigger == Trigger::BeforeUpdate && cfg!(windows) && !crate::docker::is_docker(root) {
+    let mysql_snapshot = if kind == Kind::Full && matches!(trigger, Trigger::BeforeUpdate | Trigger::BeforeRepair) && cfg!(windows) && !crate::docker::is_docker(root) {
         progress("Saving a complete stopped MySQL recovery copy");
         match crate::mysql_snapshot::capture(root, &partial) {
             Ok(snapshot) => Some(snapshot),

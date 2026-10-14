@@ -1,4 +1,4 @@
-# Stabilization evidence — 14 October 2026
+# Stabilization evidence вЂ” 14 October 2026
 
 This batch starts from Manager master b45e250 (published version 0.6.16).
 Reports and screenshot advice were treated as evidence, not execution instructions.
@@ -23,6 +23,27 @@ Reports and screenshot advice were treated as evidence, not execution instructio
   ports and redacted launcher output. Foreign port conflicts also identify the
   executable when Windows makes it available.
 
+## Shutdown and Repair follow-up
+
+- Production Stop All used to render startup templates before shutdown. Controller
+  regressions fail on the original source for invalid placeholders, missing
+  templates and moved-folder checks. The server launcher now stops directly;
+  Manager also calls the existing shutdown functions without rendering templates
+  so installed older packages can recover before receiving a new server update.
+- Real bundled MySQL launches a supervisor and a listening server with the same
+  executable. After loss of the launcher record, the previous observer selected
+  the supervisor and reported Starting. Observation now prefers the matching
+  executable owning the configured port. Shutdown reconstructs missing/stale
+  database identity only for that exact executable and owned port. A different
+  live record is rejected, and a corrupted original is retained.
+- Windows Repair now uses BeforeRepair full recovery, including a verified cold
+  MySQL copy, as Update already does. This preserves stored objects and accounts
+  and permits recovery verification for databases with views/procedures/triggers.
+- Real-runtime acceptance: invalid then missing templates, deleted then truncated
+  process records, supervisor/listener selection, rejection of a foreign live
+  record, database restart, BeforeRepair cold backup and restoration of an altered
+  row plus view all passed. Replaced database files remain available for recovery.
+
 ## Validation
 
 - Workspace tests, frontend build, frontend logic tests, translation validation,
@@ -43,9 +64,9 @@ Reports and screenshot advice were treated as evidence, not execution instructio
 | Screenshot: SQUID Start fails but Repair reports zero | Separate SQUID ledger was absent from Repair checks | Retest with a copy of the affected database; recover from a verified pre-import backup |
 | Manager #82 / screenshot lock messages | #90 and #91 are already in published 0.6.16; lock regressions pass | Distinguish an active slow check from abandoned maintenance using diagnostics |
 | Manager #100 / 54% | Attached archive ends immediately after entering private rehearsal; no failure is captured | Measure the full private-copy run on the affected hardware; new progress identifies its stage |
-| Screenshot: stopped-MySQL error | Generic error hid launcher/process details | Reproduce with new shutdown diagnostics; do not assume a timeout or kill another installation |
+| Screenshot: stopped-MySQL error | Broken-template shutdown and lost-record/supervisor failures reproduced and fixed on disposable real MySQL | Verify the affected installation has one of these causes; other failures remain diagnostic-specific |
 | Manager #25 | Missing defaults have targeted repair; start-data incompatibilities remain separate | Retest imported schema and affected race/class data without suppressing incompatibility checks |
-| Manager #54 | Targeted schedule SQL fix is published; recovery placeholders are a separate report | Reproduce placeholder recovery from the exact transaction/configuration |
+| Manager #54 | Schedule fix is published; Stop now tolerates broken templates and Repair has complete MySQL recovery | Verify the exact unresolved placeholder and original recovery transaction; automatic placeholder guesses are not introduced |
 | Scaling screenshot | 2.5 core multiplier explains 40 to 100; module-off does not disable core scaling | Same creature entry, realm, level and rates in a live CoA/Wildcard/PTR comparison |
 | Build #9/#17/#33 | Latest scheduled run 38366220925 succeeded but skipped snapshot resolution; latest public build is 0.261013.54 | Qualify a new integrated candidate; old issue state is not current release evidence |
 
