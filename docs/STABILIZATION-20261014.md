@@ -107,3 +107,5 @@ reproduced the missing alerts before the fix; all 12 frontend tests pass afterwa
 
 This batch does not publish a Manager installer, promote a server package,
 close user reports or claim the complete fresh-install/update/gameplay matrix.
+
+Clean Windows installs now select the full image attached to the same signed stable release used by updates. They never fall back to the legacy base when the current full image is absent. Explicit offline/custom full packages remain supported, while Repair and release upgrade fixtures retain the legacy base source. The release worker composes and validates the complete current database image before publication; users do not run an intermediate base server or an update transaction.

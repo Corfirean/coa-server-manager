@@ -63,6 +63,13 @@ fn package_source(custom: Option<String>) -> Source {
     }
 }
 
+fn installation_source(custom: Option<String>) -> Result<Source> {
+    let custom = custom.filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var("COA_PACKAGE_SOURCE").ok().filter(|value| !value.trim().is_empty()));
+    if custom.is_some() { return Ok(package_source(custom)); }
+    Ok(Source::Installation(Box::new(update_source(None)?)))
+}
+
 #[derive(Serialize)]
 struct ServerSummary {
     id: String,
@@ -519,7 +526,7 @@ async fn install_requirements(package: Option<String>) -> std::result::Result<In
         return docker_install::requirements(package).await;
     }
     blocking(move || {
-        let (m, _) = coa_core::pkgsource::fetch_manifest(&package_source(package), coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
+        let (m, _) = coa_core::pkgsource::fetch_manifest(&installation_source(package)?, coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
         let archive = m.archive.ok_or_else(|| Error::InvalidManifest("no archive".into()))?;
         Ok(InstallRequirements { download_bytes: archive.parts.iter().map(|p| p.size).sum(), unpacked_bytes: archive.unpacked_size, version: m.version })
     })
@@ -533,10 +540,10 @@ async fn install_new(app: AppHandle, state: State<'_, AppState>, dest: String, p
     }
     let cancel = Cancel::default();
     *state.install_cancel.lock().map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
-    let source = package_source(package);
     let registry = Registry::at(data_dir().join("installs.json"));
     let dest_path = PathBuf::from(dest);
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let source = installation_source(package)?;
         install::install_base(
             &install::Params { source, dest: dest_path, trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY, registry: &registry, cancel },
             &|step| {

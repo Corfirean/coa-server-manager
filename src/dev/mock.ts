@@ -96,7 +96,7 @@ export {};
       if(cmd==="set_game_data_folder") return args.path;
       if(cmd==="install_environment"){const docker=new URLSearchParams(location.search).get("flavor")==="docker";return docker?{flavor:"docker",default_dir:"/home/you/CoaServer",docker_problem:new URLSearchParams(location.search).has("nodocker")?"permission denied while trying to connect to the Docker daemon socket":null}:{flavor:"repack",default_dir:"C:\\Games\\CoA Server",docker_problem:null};}
       if(cmd==="install_preflight") return {ok:true,problems:[],free_bytes:210*2**30};
-      if(cmd==="install_requirements") return {download_bytes:Math.round(5.9*2**30),unpacked_bytes:Math.round(11.4*2**30),version:"0.2.0"};
+      if(cmd==="install_requirements") return {download_bytes:Math.round(5.9*2**30),unpacked_bytes:Math.round(11.4*2**30),version:"0.261014.1"};
       if(cmd==="list_accounts"){const w=window as any;w.__acc=w.__acc??[{id:2,name:"ALICE",access:3,online:true,last_login:"2026-10-01 12:04:11",characters:4},{id:5,name:"BOB",access:0,online:false,last_login:null,characters:0},{id:6,name:"CAROL",access:2,online:false,last_login:"2026-09-30 21:40:02",characters:2}];return w.__acc;}
       if(cmd==="account_set_access"){const a=(window as any).__acc.find((x: any)=>x.name===args.name);if(a)a.access=args.level;return null;}
       if(cmd==="account_set_password") return null;
