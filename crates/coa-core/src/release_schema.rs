@@ -1,5 +1,6 @@
 //! Database acceptance for release packages, using a freshly extracted signed base fixture.
 use std::collections::HashSet;
+use std::fs;
 use std::path::Path;
 use crate::{backup, fsx, install, manifest::{Kind, Migration}, migrations, package, pkgsource, release::{self, SqlFile}, schema_check, Error, Result};
 
@@ -14,6 +15,7 @@ impl crate::update::Env for QualificationEnv<'_> {
     fn snapshot(&self) -> Result<String> { self.0.snapshot() }
     fn verify_snapshot(&self, id: &str) -> Result<()> { self.0.verify_snapshot(id) }
     fn rehearse(&self, manifest: &crate::manifest::Manifest, tree: &Path, items: &[crate::update::PlanItem], point: &str) -> Result<()> { self.0.rehearse(manifest, tree, items, point) }
+    fn rehearse_with_progress(&self, manifest: &crate::manifest::Manifest, tree: &Path, items: &[crate::update::PlanItem], point: &str, report: &dyn Fn(&str, u8)) -> Result<()> { self.0.rehearse_with_progress(manifest, tree, items, point, report) }
     fn restore_snapshot(&self, id: &str) -> Result<()> { self.0.restore_snapshot(id) }
     fn migrate(&self, manifest: &crate::manifest::Manifest, staged: &Path) -> Result<crate::migrations::ApplyReport> { self.0.migrate(manifest, staged) }
     fn validate(&self) -> Result<()> { self.0.validate() }
@@ -87,6 +89,68 @@ pub fn qualify_upgrade(base: &Path, source: &Path, candidate: &Path, fixture: &P
         "fromSchemaSha256": source_manifest.files.iter().find(|file| file.path == schema_check::CONTRACT).map(|file| &file.sha256),
         "checks": ["manager-transaction", "private-user-database-rehearsal", "database-schema", "private-auth-world-startup", "existing-identities", "user-file-preservation"],
     }))
+}
+
+pub fn compose_install(base: &Path, candidate: &Path, fixture: &Path, trusted_key: &str) -> Result<()> {
+    qualify_upgrade(base, base, candidate, fixture, trusted_key)?;
+    let fixture = fsx::canonicalize_lenient(fixture)?;
+    let (_, bytes) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(candidate.into()), trusted_key)?;
+    let manifest = crate::manifest::Manifest::parse(&bytes)?;
+    install::with_scratch_ports(&fixture, || backup::with_database(&fixture, |db| {
+        let players = db.query(&format!("SELECT COUNT(*) FROM acore_characters.characters WHERE account<>{};", crate::companions::TEMPLATE_ACCOUNT))?;
+        if players.trim() != "0" || crate::companions::template_count(db)? != 21 {
+            return Err(Error::Invalid("The installation image contains unexpected player characters.".into()));
+        }
+        for table in crate::cleanbase::AUTH_PLAYER_TABLES {
+            if db.tables("acore_auth")?.iter().any(|name| name == table) {
+                db.query(&format!("DELETE FROM acore_auth.`{table}`;"))?;
+            }
+        }
+        if let Some(problem) = schema_check::check(db, &fixture)?.first() {
+            return Err(Error::Invalid(format!("Installation image schema mismatch: {}.{}", problem.table, problem.column)));
+        }
+        Ok(())
+    }))?;
+    fs::remove_file(fixture.join("Core/configs/coa-qualification-user.conf"))?;
+    let path = fixture.join("Settings/repack.json");
+    let mut settings: serde_json::Value = fsx::read_json(&path)?;
+    settings["raPassword"] = "".into();
+    fsx::atomic_write_json(&path, &settings)?;
+    fsx::atomic_write_json(&fixture.join("Settings/install-source.json"), &serde_json::json!({
+        "version": manifest.version, "core": manifest.core, "bots": manifest.bots,
+        "updateManifestSha256": fsx::sha256_bytes(&bytes),
+    }))?;
+    crate::mysql_snapshot::stop(&fixture)?;
+    fs::remove_file(fixture.join(MARKER))?;
+    Ok(())
+}
+
+pub fn qualify_install(package: &Path, fixture: &Path, trusted_key: &str) -> Result<serde_json::Value> {
+    use crate::update::Env;
+    if !cfg!(windows) || fixture.exists()
+        || !fixture.file_name().is_some_and(|name| name.to_string_lossy().starts_with("coa-schema-fixture-")) {
+        return Err(Error::Invalid("Clean installation qualification requires a new disposable Windows fixture.".into()));
+    }
+    let fixture = std::path::absolute(fixture)?;
+    let package = fsx::canonicalize_lenient(package)?;
+    let (manifest, bytes) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(package.clone()), trusted_key)?;
+    let registry_dir = tempfile::tempdir()?;
+    let registry = crate::registry::Registry::at(registry_dir.path().join("registry.json"));
+    let installed = install::install_base(&install::Params {
+        source: pkgsource::Source::Dir(package), dest: fixture.clone(), trusted_key,
+        registry: &registry, cancel: crate::download::Cancel::default(),
+    }, &|_| {})?;
+    let metadata = crate::registry::metadata_dir_for(&fixture)?;
+    let env = QualificationEnv(crate::update::RepackEnv { root: &fixture, meta_dir: &metadata });
+    env.validate()?;
+    env.ensure_stopped()?;
+    crate::mysql_snapshot::stop(&fixture)?;
+    if installed.version != manifest.version || crate::update::pending_checked(&metadata)?.is_some() {
+        return Err(Error::Invalid("Clean installation did not finish at the packaged release.".into()));
+    }
+    Ok(serde_json::json!({ "schema": 1, "result": "passed", "version": installed.version,
+        "manifestSha256": fsx::sha256_bytes(&bytes),
+        "checks": ["clean-install", "signed-full-package", "credential-rotation", "schema-contract", "private-auth-world-startup"] }))
 }
 
 pub fn collect(core: &Path, bots: Option<&Path>, repairs: Option<&Path>) -> Result<Vec<SqlFile>> {
@@ -220,7 +284,15 @@ pub fn validate_startup(fixture: &Path, tree: &Path, base: &Path, trusted_key: &
 }
 
 pub fn verify_package(dir: &Path, trusted_key: &str) -> Result<()> {
-    let (manifest, _) = pkgsource::fetch_manifest(&pkgsource::Source::Dir(dir.into()), trusted_key)?;
+    verify_package_source(dir, &pkgsource::Source::Dir(dir.into()), trusted_key)
+}
+
+pub fn verify_install_package(dir: &Path, trusted_key: &str) -> Result<()> {
+    verify_package_source(dir, &pkgsource::Source::Installation(Box::new(pkgsource::Source::Dir(dir.into()))), trusted_key)
+}
+
+fn verify_package_source(dir: &Path, source: &pkgsource::Source, trusted_key: &str) -> Result<()> {
+    let (manifest, _) = pkgsource::fetch_manifest(source, trusted_key)?;
     if !manifest.files.iter().any(|f| f.path == schema_check::CONTRACT && f.size > 0) {
         return Err(Error::Invalid("The release is missing its database schema contract.".into()));
     }
@@ -248,6 +320,34 @@ mod tests {
     use super::*;
     use base64::{engine::general_purpose::STANDARD, Engine};
     use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    #[ignore = "Requires a composed disposable installation image"]
+    fn real_full_package_installs_the_current_version_without_an_update_transaction() {
+        let image = std::path::PathBuf::from(std::env::var_os("COA_INSTALL_IMAGE_DIR").expect("COA_INSTALL_IMAGE_DIR"));
+        let provenance: serde_json::Value = fsx::read_json(&image.join("Settings/install-source.json")).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let package = root.path().join("package");
+        let options = package::BuildOptions {
+            kind: Kind::Base, version: provenance["version"].as_str().unwrap().into(),
+            core_commit: provenance["core"]["commit"].as_str().map(String::from),
+            bots_commit: provenance["bots"]["commit"].as_str().map(String::from),
+            built_at: "qualification".into(), part_size: package::DEFAULT_PART_SIZE, migrations: vec![],
+        };
+        package::build(&image, &package, &options, &|_| {}).unwrap();
+        let signing_key = SigningKey::generate(&mut rand_core::OsRng);
+        let bytes = fs::read(package.join("manifest.json")).unwrap();
+        fs::write(package.join("manifest.json.sig"), STANDARD.encode(signing_key.sign(&bytes).to_bytes())).unwrap();
+        let trusted_key = STANDARD.encode(signing_key.verifying_key().to_bytes());
+        let fixture = root.path().join("coa-schema-fixture-clean-install");
+        let report = qualify_install(&package, &fixture, &trusted_key).unwrap();
+        assert_eq!(report["version"], provenance["version"]);
+        assert_eq!(report["result"], "passed");
+        let metadata = crate::registry::metadata_dir_for(&fixture).unwrap();
+        let (_, installed) = crate::registry::MetaDir::open(&metadata).unwrap();
+        assert_eq!(installed.core.version.as_deref(), provenance["version"].as_str());
+        assert!(!metadata.join("updates").read_dir().is_ok_and(|mut entries| entries.next().is_some()));
+    }
 
     #[test]
     fn relative_startup_fixture_targets_replace_the_original_location() {

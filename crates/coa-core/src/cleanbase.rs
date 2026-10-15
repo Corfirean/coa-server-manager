@@ -24,7 +24,7 @@ pub struct Params<'a> {
 }
 
 /// Auth tables that hold player data. Everything else (permissions, build info, realmlist) is configuration.
-const AUTH_PLAYER_TABLES: [&str; 11] =
+pub(crate) const AUTH_PLAYER_TABLES: [&str; 11] =
     ["account", "account_access", "account_banned", "account_muted", "account_password_history", "ip_banned", "logs", "logs_ip_actions", "realmcharacters", "uptime", "rbac_account_permissions"];
 
 fn copy_dir(src: &Path, dst: &Path, skip: &dyn Fn(&str) -> bool, base: &Path) -> Result<u64> {

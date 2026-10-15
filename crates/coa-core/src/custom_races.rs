@@ -14,7 +14,7 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "1.6";
+pub const CLIENT_VERSION: &str = "1.7";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
 pub const ARCHIVES: &[(&str, &str)] = &[
     (
@@ -28,6 +28,10 @@ pub const ARCHIVES: &[(&str, &str)] = &[
     (
         "CoA-Custom-1.6-client-part2.zip",
         "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-client-part2.zip",
+    ),
+    (
+        "CoA-Custom-1.7-client.zip",
+        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.7/CoA-Custom-1.7-client.zip",
     ),
 ];
 
@@ -54,6 +58,9 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZZR.MPQ",
     "patch-ZZS.MPQ",
     "patch-ZZT.MPQ",
+    "patch-ZZU.MPQ",
+    "patch-ZZV.MPQ",
+    "patch-ZZW.MPQ",
 ];
 
 pub const EXCLUDED_BOT_RACES_RECOMMENDED: &str =
@@ -164,7 +171,7 @@ struct PatchFile {
 
 fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
     let manifest = fs::read_to_string(client.join(MANIFEST_FILENAME)).unwrap_or_default();
-    let hashes = if manifest.lines().any(|line| line == "# CoA Custom 1.5") { include_str!("custom_races_hashes_1_5.json") } else { include_str!("custom_races_hashes.json") };
+    let hashes = if manifest.lines().any(|line| line == "# CoA Custom 1.5") { include_str!("custom_races_hashes_1_5.json") } else if manifest.lines().any(|line| line == "# CoA Custom 1.6") { include_str!("custom_races_hashes_1_6.json") } else { include_str!("custom_races_hashes.json") };
     let bundled: std::collections::BTreeMap<String, String> = serde_json::from_str(hashes)?;
     let mut files = std::collections::BTreeMap::new();
     for line in manifest.lines() {
@@ -367,6 +374,7 @@ fn verify_archive(path: &Path, filename: &str) -> Result<()> {
         "CoA-Custom-1.6-main-20261012-4dd3a4ec.zip" => "dfe802ea70047c129ac2e0aaa557bab3110e3cc6926d36403b8c880a0e310ee4",
         "CoA-Custom-1.6-client-part1.zip" => "1dbf1901ad5be61eba66973609df90712ffc78ef9e9b2c8549a5f3e36332bf12",
         "CoA-Custom-1.6-client-part2.zip" => "689f7f946b4180fe977dabedc7cfe642e3e7f27431600c64c4dd5b7960b1bc66",
+        "CoA-Custom-1.7-client.zip" => "ad389ef486f44f269445f80807b25b214c39fc5d21272b5708bfeac8b1efefa0",
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
     if fsx::sha256_file(path)? != expected {
@@ -666,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires the three downloaded release archives"]
+    #[ignore = "Requires the downloaded release archives"]
     fn bundled_hashes_match_verified_release_archives() {
         use sha2::{Digest, Sha256};
         let folder = PathBuf::from(std::env::var_os("COA_RACES_ARCHIVE_DIR").expect("COA_RACES_ARCHIVE_DIR"));
@@ -703,6 +711,20 @@ mod tests {
         assert_eq!(files.len(), legacy.len());
         assert!(current.len() > legacy.len());
         assert!(!files.iter().any(|file| file.path == "Data/patch-ZZS.MPQ"));
+    }
+
+    #[test]
+    fn previous_release_uses_its_own_hashes_for_upgrade_and_removal() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.6\n").unwrap();
+        let legacy: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes_1_6.json")).unwrap();
+        let current: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes.json")).unwrap();
+        let files = patch_files(temp.path()).unwrap();
+        assert_eq!(files.len(), legacy.len());
+        assert_eq!(files.iter().find(|file| file.path == "Data/patch-T.MPQ").unwrap().sha256, legacy["Data/patch-T.MPQ"]);
+        assert_ne!(legacy["Data/patch-T.MPQ"], current["Data/patch-T.MPQ"]);
+        assert!(!files.iter().any(|file| file.path == "Data/patch-ZZW.MPQ"));
+        assert!(legacy.keys().all(|key| current.contains_key(key)));
     }
 
     #[test]

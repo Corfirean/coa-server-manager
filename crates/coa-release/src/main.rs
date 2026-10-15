@@ -47,6 +47,24 @@ fn run() -> Result<(), String> {
     let e = |x: coa_core::Error| x.to_string();
     let part = a.get("part-size").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
+        "verify-install" => {
+            coa_core::release_schema::verify_install_package(
+                &PathBuf::from(need(&a, "dir")?), coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            ).map_err(e)?;
+        }
+        "compose-install" => {
+            coa_core::release_schema::compose_install(
+                &PathBuf::from(need(&a, "base")?), &PathBuf::from(need(&a, "candidate")?),
+                &PathBuf::from(need(&a, "fixture")?), coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            ).map_err(e)?;
+        }
+        "qualify-install" => {
+            let report = coa_core::release_schema::qualify_install(
+                &PathBuf::from(need(&a, "package")?), &PathBuf::from(need(&a, "fixture")?),
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            ).map_err(e)?;
+            coa_core::fsx::atomic_write_json(&PathBuf::from(need(&a, "report")?), &report).map_err(e)?;
+        }
         "qualify-upgrade" => {
             let report = coa_core::release_schema::qualify_upgrade(
                 &PathBuf::from(need(&a, "base")?), &PathBuf::from(need(&a, "source")?),

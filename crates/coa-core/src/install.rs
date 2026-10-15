@@ -201,6 +201,10 @@ fn bootstrap_database_inner(root: &Path) -> Result<()> {
         sql.push_str("FLUSH PRIVILEGES;\n");
         db.query(&sql)?;
         fsx::atomic_write_json(&target, &serde_json::json!({ "rootPassword": root_pw, "appPassword": app_pw }))?;
+        fsx::atomic_write(&root.join("mysql/admin-client.ini"), format!(
+            "[client]\nuser=root\npassword={root_pw}\nhost=127.0.0.1\nport={}\nprotocol=tcp\ndefault-character-set=utf8mb4\n",
+            crate::layout::read_ports(root).mysql,
+        ).as_bytes())?;
         // The server console gets its own account with a random password instead of a shared default.
         let console_pw = Db::from_repack(root, Account::Admin)?.provision_service_account()?; // new root password
         db::write_console_credentials(root, &console_pw)?;
