@@ -2,7 +2,9 @@
 
 Version compatibility selects a package; it does not prove that a particular installed database can apply it.
 
-The updater verifies the signed manifest and archive, checks file changes and database history, stops the server, and saves one complete recovery point. It then replaces files, applies pending SQL once, verifies the target schema and starts the updated server once for validation. Shared authentication migrations run once; both realm histories are checked before changing either. Account and character identities are compared before and after migration.
+The updater verifies the signed manifest and archive, checks file changes and database history, stops the server, and saves one complete recovery point. It then replaces files, applies pending SQL once, verifies the target schema and starts the updated server once for validation. Shared authentication migrations run once; both realm histories are checked before changing either. Account and character identities are compared before and after migration and startup.
+
+Account migration history is stored in the shared account database. Read-only checks recognize legacy auth records from both realms. Write operations adopt existing records and preserve already-applied core history; unknown legacy checksums stay unknown. History is read in two batched client calls, with explicit physical schemas and consistent text collations. Use the current Manager for subsequent database operations.
 
 Applied migrations are skipped; changed checksums and interrupted/failed records stop the update. Duplicate SQL identifiers for the same schema are rejected before execution. SQL or startup failure restores files and databases together. If recovery fails, startup remains blocked and the recovery artifacts remain available.
 

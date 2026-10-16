@@ -896,7 +896,7 @@ impl RepackEnv<'_> {
             if realms.wildcard_created { modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa }); }
             let mut count = 0;
             for (index, mode) in modes.into_iter().enumerate() {
-                let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || m.db != "auth").cloned().collect();
+                let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || !crate::migrations::shared_auth(&m.db)).cloned().collect();
                 count += crate::migrations::pending_count(&db.clone().for_realm(mode), &list)?;
             }
             Ok(count)
@@ -1061,16 +1061,18 @@ impl RepackEnv<'_> {
         let result = (|| -> Result<()> {
             crate::update_isolation::begin(self.root, self.meta_dir)?;
             use crate::process::{observe, ServiceState};
-            if check_schema { crate::backup::with_database(self.root, |db| {
-                let mut modes = vec![crate::realms::Mode::Coa];
-                if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
-                for mode in modes {
-                    if let Some(p) = crate::schema_check::check_with_report(&db.clone().for_realm(mode), self.root)?.first() {
-                        return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.database, p.table, p.detail)));
+            let identities = crate::backup::with_database(self.root, |db| {
+                if check_schema {
+                    let mut modes = vec![crate::realms::Mode::Coa];
+                    if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
+                    for mode in modes {
+                        if let Some(p) = crate::schema_check::check_with_report(&db.clone().for_realm(mode), self.root)?.first() {
+                            return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.database, p.table, p.detail)));
+                        }
                     }
                 }
-                Ok(())
-            })?; }
+                database_identities(db)
+            })?;
             // The check start is the first start of the new build: give the module configs the settings the update added
             // (as a normal start does), or the server logs a "missing property" line for every one of them.
             match crate::registry::MetaDir::open(self.meta_dir) {
@@ -1108,6 +1110,7 @@ impl RepackEnv<'_> {
                 }
             };
             if healthy {
+                crate::backup::with_database(self.root, |db| verify_database_identities(db, &identities))?;
                 return Ok(());
             }
             let cause = crate::driver::startup_failure(self.root, &started);
@@ -1132,7 +1135,7 @@ fn migrate_databases(db: &crate::db::Db, root: &Path, manifest: &Manifest, stage
     }
     // Reject a broken history in either realm before changing the first one.
     for (index, mode) in modes.iter().enumerate() {
-        let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || m.db != "auth").cloned().collect();
+        let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || !crate::migrations::shared_auth(&m.db)).cloned().collect();
         crate::migrations::preflight(&db.clone().for_realm(*mode), &list)?;
     }
     let contract = manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str());
@@ -1140,7 +1143,7 @@ fn migrate_databases(db: &crate::db::Db, root: &Path, manifest: &Manifest, stage
     if contract.is_some() { result.snapshot = Some(snapshot()?); }
     for (index, mode) in modes.into_iter().enumerate() {
         let db = db.clone().for_realm(mode);
-        let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || m.db != "auth").cloned().collect();
+        let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || !crate::migrations::shared_auth(&m.db)).cloned().collect();
         crate::schema_check::repair_missing_defaults(&db, root, contract)?;
         let extra = crate::migrations::apply_pending(&db, &list, staged, &|| {
             if let Some(id) = &result.snapshot { Ok(id.clone()) } else { snapshot() }
@@ -1176,7 +1179,7 @@ fn verify_database_identities(db: &crate::db::Db, before: &BTreeMap<String, std:
     let after = database_identities(db)?;
     for (schema, expected) in before {
         if after.get(schema).is_none_or(|actual| !expected.is_subset(actual)) {
-            return Err(Error::Invalid(format!("The private update changed or removed existing character or account identities in {schema}.")));
+            return Err(Error::Invalid(format!("The update changed or removed existing character or account identities in {schema}.")));
         }
     }
     Ok(())

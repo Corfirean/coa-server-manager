@@ -471,6 +471,46 @@ mod tests {
         };
         let mut server = start();
         db.query("CREATE DATABASE acore_characters; CREATE DATABASE acore_world; CREATE DATABASE acore_auth; CREATE TABLE acore_characters.probe(id INT PRIMARY KEY, note VARCHAR(40)); CREATE TABLE acore_world.probe(id INT NOT NULL DEFAULT 0); INSERT INTO acore_world.probe VALUES(43); CREATE TABLE acore_auth.probe(id INT); INSERT INTO acore_auth.probe VALUES(44); CREATE USER 'fixture_user'@'localhost' IDENTIFIED BY 'fixture'; CREATE TRIGGER acore_characters.probe_insert BEFORE INSERT ON acore_characters.probe FOR EACH ROW SET NEW.note='triggered'; INSERT INTO acore_characters.probe VALUES(42,'original'); CREATE VIEW acore_characters.probe_view AS SELECT c.id,w.id AS world_id FROM acore_characters.probe c CROSS JOIN acore_world.probe w; CREATE PROCEDURE acore_characters.probe_proc() SELECT id FROM acore_characters.probe; CREATE FUNCTION acore_characters.probe_func() RETURNS INT DETERMINISTIC RETURN 73;").unwrap();
+        // Shared auth must not run again when the active realm changes.
+        use crate::migrations::Store;
+        db.query("CREATE DATABASE acore_world_wildcard;").unwrap();
+        let migration_dir = root.join("migration-fixture");
+        fs::create_dir_all(migration_dir.join("auth")).unwrap();
+        fs::create_dir_all(migration_dir.join("world")).unwrap();
+        let auth_sql = b"INSERT INTO acore_auth.probe VALUES(45);";
+        fs::write(migration_dir.join("auth/shared_once.sql"), auth_sql).unwrap();
+        let auth_list = vec![crate::manifest::Migration { id:"shared_once".into(), db:"auth".into(), sha256:fsx::sha256_bytes(auth_sql), destructive:false, compatible_sha256:vec![] }];
+        assert_eq!(crate::migrations::apply_pending(&db, &auth_list, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.len(), 1);
+        let wildcard = db.clone().for_realm(crate::realms::Mode::Wildcard);
+        assert_eq!(crate::migrations::pending_count(&wildcard, &auth_list).unwrap(), 0, "auth is shared by both realms");
+        assert!(crate::migrations::apply_pending(&wildcard, &auth_list, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.is_empty());
+        assert_eq!(db.query("SELECT COUNT(*) FROM acore_auth.probe WHERE id=45;").unwrap(), "1");
+        let mut failed = crate::migrations::LedgerRow { db:"auth".into(), id:"shared_once".into(), sha256:auth_list[0].sha256.clone(), status:crate::migrations::Status::Failed, error:Some("interrupted fixture".into()), baseline:false };
+        db.put(&failed).unwrap();
+        assert!(crate::migrations::pending_count(&wildcard, &auth_list).is_err());
+        failed.status = crate::migrations::Status::Applied; failed.error = None; db.put(&failed).unwrap();
+
+
+        // Legacy per-world auth records are adopted without replaying their SQL.
+        let legacy_sql = b"INSERT INTO acore_auth.probe VALUES(46);";
+        fs::write(migration_dir.join("auth/legacy_auth.sql"), legacy_sql).unwrap();
+        db.query(&format!("INSERT INTO acore_auth.probe VALUES(46); REPLACE INTO acore_world.coa_manager_migrations VALUES('auth','legacy_auth','{}','applied',NOW(),NULL,0);", fsx::sha256_bytes(legacy_sql))).unwrap();
+        let legacy_auth = vec![crate::manifest::Migration { id:"legacy_auth".into(), db:"auth".into(), sha256:fsx::sha256_bytes(legacy_sql), destructive:false, compatible_sha256:vec![] }];
+        assert_eq!(crate::migrations::pending_count(&wildcard, &legacy_auth).unwrap(), 0);
+        assert!(crate::migrations::apply_pending(&wildcard, &legacy_auth, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.is_empty());
+        assert_eq!(db.query("SELECT COUNT(*) FROM acore_auth.probe WHERE id=46;").unwrap(), "1");
+
+        // A core history cleanup cannot make previously recorded SQL pending again.
+        db.query("CREATE TABLE acore_world.updates(name VARCHAR(150) PRIMARY KEY) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; INSERT INTO acore_world.updates VALUES('LEGACY_WORLD.sql'); INSERT INTO acore_world.probe VALUES(99);").unwrap();
+        db.load().unwrap();
+        db.query("DROP TABLE acore_world.updates;").unwrap();
+        let legacy_world_sql = b"INSERT INTO acore_world.probe VALUES(99);";
+        fs::write(migration_dir.join("world/legacy_world.sql"), legacy_world_sql).unwrap();
+        let legacy_world = vec![crate::manifest::Migration { id:"legacy_world".into(), db:"world".into(), sha256:fsx::sha256_bytes(legacy_world_sql), destructive:false, compatible_sha256:vec![] }];
+        assert_eq!(crate::migrations::pending_count(&db, &legacy_world).unwrap(), 0);
+        assert!(crate::migrations::apply_pending(&db, &legacy_world, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.is_empty());
+        assert_eq!(db.query("SELECT COUNT(*) FROM acore_world.probe WHERE id=99;").unwrap(), "1");
+        db.query("DELETE FROM acore_world.probe WHERE id=99;").unwrap();
         assert_eq!(db.recovery_objects("acore_characters").unwrap().len(), 4);
         db.query("CREATE TABLE acore_characters.coa_squid_pending(path VARCHAR(255), sha256 CHAR(64)); INSERT INTO acore_characters.coa_squid_pending VALUES('playerbots/base/ai_playerbot_texts.sql', REPEAT('a',64));").unwrap();
         let squid_problems = crate::squid::database_problems(&root, crate::realms::Mode::Coa, &|sql| {
