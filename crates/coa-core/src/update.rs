@@ -92,9 +92,6 @@ pub trait Env {
     fn ensure_stopped(&self) -> Result<()>;
     fn preflight(&self, _manifest: &Manifest) -> Result<()> { Ok(()) }
     fn verify_snapshot(&self, _id: &str) -> Result<()> { Ok(()) }
-    fn rehearse(&self, _manifest: &Manifest, _tree: &Path, _items: &[PlanItem], _point: &str) -> Result<()> { Ok(()) }
-    fn rehearse_with_progress(&self, manifest: &Manifest, tree: &Path, items: &[PlanItem], point: &str, _report: &dyn Fn(&str, u8)) -> Result<()> { self.rehearse(manifest, tree, items, point) }
-    /// Create a recovery point for the databases and configuration; returns its id.
     fn snapshot(&self) -> Result<String>;
     fn restore_snapshot(&self, id: &str) -> Result<()>;
     fn migrate(&self, manifest: &Manifest, staged_migrations: &Path) -> Result<ApplyReport>;
@@ -512,14 +509,6 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let point_meta = crate::backup::point_json(meta_dir, txn.recovery_point.as_deref().unwrap())?;
     if point_meta.is_file() { txn.recovery_hashes.insert("@point".into(), fsx::sha256_file(&point_meta)?); }
     save(meta_dir, &txn)?;
-    step(report, "Testing the update on a private copy of your server", 54);
-    if let Err(error) = p.env.rehearse_with_progress(&m, &tree, &items, txn.recovery_point.as_deref().unwrap(), report) {
-        txn.state = State::Failed;
-        txn.message = Some(format!("The private update rehearsal failed: {error}. The installed server was not updated."));
-        save(meta_dir, &txn)?;
-        return Err(Error::Invalid(txn.message.unwrap()));
-    }
-
     txn.ops = items
         .iter()
         .filter(|i| i.action != Action::Skip)
@@ -973,78 +962,6 @@ impl Env for RepackEnv<'_> {
     }
 
     fn automatic_rollback(&self) -> bool { true }
-    fn rehearse(&self, manifest: &Manifest, tree: &Path, items: &[PlanItem], id: &str) -> Result<()> {
-        self.rehearse_with_progress(manifest, tree, items, id, &|_, _| {})
-    }
-
-    fn rehearse_with_progress(&self, manifest: &Manifest, tree: &Path, items: &[PlanItem], id: &str, report: &dyn Fn(&str, u8)) -> Result<()> {
-        if items.iter().any(|item| item.action != Action::Skip && item.path.to_ascii_lowercase().starts_with("mysql/")) {
-            return Err(Error::Invalid("A server update cannot replace MySQL while using a cold recovery copy; a separate database engine upgrade is required.".into()));
-        }
-        let point = crate::backup::get(self.meta_dir, id)?;
-        let Some(snapshot) = &point.mysql_snapshot else {
-            // Docker uses its separate experimental release channel until its clone runner is qualified.
-            if crate::docker::is_docker(self.root) { return Ok(()); }
-            return Err(Error::Invalid("This installation has no complete MySQL recovery copy for an update rehearsal.".into()));
-        };
-        crate::mysql_snapshot::validate_connections(self.root, self.root)?;
-        crate::mysql_snapshot::stop(self.root)?;
-        let point_dir = crate::backup::point_json(self.meta_dir, id)?.parent().unwrap().to_path_buf();
-        let fixture = crate::mysql_snapshot::rehearsal_copy_with_progress(self.root, self.meta_dir, &point_dir, snapshot, &|phase| step(report, phase, 54))?;
-        let metadata = crate::registry::metadata_dir_for(&fixture)?;
-        let env = RepackEnv { root: &fixture, meta_dir: &metadata };
-        let result = crate::install::with_scratch_ports(&fixture, || {
-            let mut txn = Txn { id: "rehearsal".into(), state: State::Applying, from_version: None,
-                to_version: manifest.version.clone(), recovery_point: None, databases_started: false,
-                ops: items.iter().filter(|item| item.action != Action::Skip).map(|item| Op {
-                    path: item.path.clone(), action: item.action, reason: item.reason.clone(),
-                    new_sha256: manifest.files.iter().find(|file| file.path == item.path).unwrap().sha256.clone(),
-                    had_previous: fsx::safe_join(&fixture, &item.path).is_ok_and(|path| path.is_file()), started:false, done:false,
-                }).collect(), message:None, recovery_hashes:BTreeMap::new() };
-            let before = txn_dir(&metadata, &txn.id)?.join("before");
-            fs::create_dir_all(&before)?;
-            step(report, "Applying update files to the private server copy", 55);
-            apply_ops(&fixture, tree, &before, &manifest.files, &mut txn, &metadata, None)?;
-            crate::mysql_snapshot::validate_connections(&fixture, self.root)?;
-            crate::mysql_snapshot::isolate_connections(&fixture)?;
-            step(report, "Testing database updates on the private server copy", 56);
-            let identities = crate::backup::with_database(&fixture, |db| {
-                let identities = database_identities(db)?;
-                let result = migrate_databases(db, &fixture, manifest, &tree.join("_migrations"), &|| Ok("private rehearsal".into()))?;
-                if let Some((migration, error)) = result.failed {
-                    return Err(Error::Invalid(format!("Rehearsal migration {migration} failed: {error}")));
-                }
-                verify_database_identities(db, &identities)?;
-                Ok(identities)
-            })?;
-            step(report, "Testing startup of the private server copy", 57);
-            env.validate()?;
-            crate::backup::with_database(&fixture, |db| verify_database_identities(db, &identities))?;
-            env.ensure_stopped()
-        });
-        step(report, "Stopping the private server copy and verifying the installed database", 57);
-        let stopped = crate::mysql_snapshot::stop(&fixture);
-        let live_state = if result.is_ok() { crate::mysql_snapshot::stop(self.root).and_then(|()| crate::mysql_snapshot::unchanged(self.root, snapshot)) } else { Ok(()) };
-        let logs: BTreeMap<_, _> = ["Core/Logs/auth-console.log", "Core/Logs/world-console.log", "Core/Logs/supervisor.log", "mysql/logs/mysql-error.log"].into_iter()
-            .map(|path| (path, crate::diag::redact(&crate::health::tail(&fixture.join(path), 32768)))).collect();
-        let mut schema_reports = Vec::<serde_json::Value>::new();
-        if let Ok(entries) = fs::read_dir(metadata.join("diagnostics")) {
-            for entry in entries.flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with("schema-validation-")) {
-                let path = fsx::ensure_within(&metadata, &entry.path())?;
-                if fs::metadata(&path)?.len() <= 4 * 1024 * 1024 { schema_reports.push(fsx::read_json(&path)?); }
-            }
-        }
-        let report = serde_json::json!({"schema":1,"checkedAt":chrono::Utc::now().to_rfc3339(),"toVersion":manifest.version,"recoveryPoint":id,
-            "result":if result.is_ok() && stopped.is_ok() && live_state.is_ok() {"passed"} else {"failed"}, "error":result.as_ref().err().map(ToString::to_string), "stopError":stopped.as_ref().err().map(ToString::to_string), "liveStateError":live_state.as_ref().err().map(ToString::to_string), "logs":logs,"schemaReports":schema_reports,"fixture":fixture});
-        let report_path = self.meta_dir.join("diagnostics").join(format!("database-rehearsal-{}.json", uuid::Uuid::new_v4()));
-        fsx::atomic_write_json(&report_path, &report)?;
-        stopped?;
-        let parent = fixture.parent().unwrap();
-        let owned = fsx::ensure_within(&self.meta_dir.join("rehearsals"), parent)?;
-        fs::remove_dir_all(owned)?;
-        live_state?;
-        result
-    }
     fn preflight(&self, manifest: &Manifest) -> Result<()> {
         crate::mysql_snapshot::stop_previous_rehearsals(self.meta_dir)?;
         if let Some(compatibility) = &manifest.compatibility {
@@ -1064,7 +981,7 @@ impl Env for RepackEnv<'_> {
                             if crate::docker::is_docker(self.root) {
                                 return Err(Error::Invalid(format!("The installed {} database does not match its upgrade source: {}.{}: {}", mode.name(), problem.database, problem.table, problem.detail)));
                             }
-                            tracing::warn!(realm = mode.name(), table = %problem.table, "Installed schema differs; the private candidate rehearsal must qualify this database");
+                            tracing::warn!(realm = mode.name(), table = %problem.table, "Installed schema differs; pending migrations and target validation will run with a full recovery point");
                         }
                     }
                     Ok(())
@@ -1120,7 +1037,10 @@ impl Env for RepackEnv<'_> {
 
     fn migrate(&self, manifest: &Manifest, staged: &Path) -> Result<ApplyReport> {
         crate::backup::with_database(self.root, |db| {
-            migrate_databases(db, self.root, manifest, staged, &|| self.migration_snapshot())
+            let identities = database_identities(db)?;
+            let result = migrate_databases(db, self.root, manifest, staged, &|| self.migration_snapshot())?;
+            if result.failed.is_none() { verify_database_identities(db, &identities)?; }
+            Ok(result)
         })
     }
 
@@ -1203,7 +1123,7 @@ impl RepackEnv<'_> {
 
 }
 
-/// Rehearsal and installation use the same database order, history checks and SQL executor.
+/// One migration pass for both realms, with shared history checks and one recovery point.
 fn migrate_databases(db: &crate::db::Db, root: &Path, manifest: &Manifest, staged: &Path, snapshot: &dyn Fn() -> Result<String>) -> Result<ApplyReport> {
     let realms = crate::realms::state(root)?;
     let mut modes = vec![realms.active];
@@ -1284,19 +1204,15 @@ mod tests {
         migrate_fail: Cell<bool>,
         preflight_fail: Cell<bool>,
         restore_fail: Cell<bool>,
-        rehearsal_fail: Cell<bool>,
     }
 
     impl Fake {
         fn ok() -> Fake {
-            Fake { activation_expected: RefCell::new(None), activation_failed: Cell::new(false), activated: Cell::new(false), automatic_rollback: Cell::new(false), recovery_healthy: Cell::new(true), stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false), rehearsal_fail: Cell::new(false) }
+            Fake { activation_expected: RefCell::new(None), activation_failed: Cell::new(false), activated: Cell::new(false), automatic_rollback: Cell::new(false), recovery_healthy: Cell::new(true), stopped: Cell::new(true), healthy: Cell::new(true), snapshot_ok: Cell::new(true), calls: Default::default(), migrate_fail: Cell::new(false), preflight_fail: Cell::new(false), restore_fail: Cell::new(false) }
         }
     }
 
     impl Env for Fake {
-        fn rehearse(&self, _: &Manifest, _: &Path, _: &[PlanItem], _: &str) -> Result<()> {
-            if self.rehearsal_fail.get() { Err(Error::Invalid("SQL failed in the private copy".into())) } else { Ok(()) }
-        }
         fn activate(&self) -> Result<()> {
             if let Some((meta, version)) = self.activation_expected.borrow().as_ref() {
                 ensure_recovered(meta)?;
@@ -2045,20 +1961,17 @@ mod tests {
     }
 
     #[test]
-    fn failed_rehearsal_preserves_installed_files_version_and_recovery_point() {
+    fn update_saves_recovery_then_migrates_and_validates_once() {
         let w = world(&[], true);
         let env = Fake::ok();
-        env.rehearsal_fail.set(true);
-        let original = fsx::sha256_file(&w.meta.join("install.json")).unwrap();
-        let error = run(&w, &env, BTreeMap::new(), None).unwrap_err();
-        assert!(error.to_string().contains("installed server was not updated"));
-        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
-        assert_eq!(fsx::sha256_file(&w.meta.join("install.json")).unwrap(), original);
-        assert_eq!(&*env.calls.borrow(), &["stop", "snapshot"]);
-        assert!(pending_checked(&w.meta).unwrap().is_none());
-        let journal = journals(&w.meta).unwrap().remove(0);
-        assert_eq!(journal.recovery_point.as_deref(), Some("rp-1"));
-        assert!(!journal.databases_started && journal.ops.is_empty());
+        let result = run(&w, &env, BTreeMap::new(), None).unwrap();
+        assert_eq!(result.txn.state, State::Committed);
+        let calls = env.calls.borrow();
+        assert_eq!(calls.iter().filter(|call| **call == "snapshot").count(), 1);
+        assert_eq!(calls.iter().filter(|call| **call == "migrate").count(), 1);
+        assert_eq!(calls.iter().filter(|call| **call == "validate").count(), 1);
+        assert!(calls.iter().position(|call| *call == "snapshot") < calls.iter().position(|call| *call == "migrate"));
+        assert!(!w.meta.join("rehearsals").exists());
     }
 
     #[test]

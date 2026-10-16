@@ -2,9 +2,11 @@
 
 Version compatibility selects a package; it does not prove that a particular installed database can apply it.
 
-The updater verifies the signed manifest and archive, checks file changes, stops the server, and saves one complete recovery point. Rehearsal and installation call the same database migration executor. That executor checks both realms before changing either, applies shared authentication migrations once, and uses the same pending-SQL selection as the preview count. Applied migrations are skipped; changed checksums and interrupted/failed records stop the update. Duplicate SQL identifiers for the same schema are rejected before execution.
+The updater verifies the signed manifest and archive, checks file changes and database history, stops the server, and saves one complete recovery point. It then replaces files, applies pending SQL once, verifies the target schema and starts the updated server once for validation. Shared authentication migrations run once; both realm histories are checked before changing either. Account and character identities are compared before and after migration.
 
-The existing recovery journal, configuration merge, private-copy checks and startup verification remain enabled. This change does not relax the package compatibility matrix, force a migration through its SQL guards, or mark unexecuted SQL as applied.
+Applied migrations are skipped; changed checksums and interrupted/failed records stop the update. Duplicate SQL identifiers for the same schema are rejected before execution. SQL or startup failure restores files and databases together. If recovery fails, startup remains blocked and the recovery artifacts remain available.
+
+The per-update nested server rehearsal has been removed. Full-copy upgrade/startup testing belongs to release qualification, on independent disposable installations. Cleanup of interrupted rehearsals from older Manager versions remains for compatibility. Signed packages, recovery verification, configuration merge and startup validation stay enabled. No migration guard is bypassed, no unexecuted SQL is marked applied, and the package compatibility matrix is unchanged.
 
 ## Verify with an actual installation copy
 

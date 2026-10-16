@@ -1,7 +1,7 @@
 ---
 area: manager
-type: fixed
+type: changed
 audience: admins
-title: Rehearsal and installation use the same database migration checks
+title: Server updates apply migrations once after saving a recovery point
 ---
-Both phases use one migration executor and check both realms before changing either. Duplicate migration entries are rejected before SQL runs.
+Updates no longer build and start a second full server copy. The Manager checks both realms, saves recovery, applies pending SQL once and verifies startup. Failed SQL or startup restores the recovery point. Full-copy upgrade testing remains a release task.
