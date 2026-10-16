@@ -348,7 +348,8 @@ AC>";
         let (port, _h) = fake_ra("Account not found.");
         let mut ra = Ra::connect_to(port, "u", "p").unwrap();
         assert!(ra.set_account_password("x", "newpass9").is_err(), "the name is validated before anything is sent");
-        assert!(ra.set_account_password("Nobody", "newpass9").unwrap_err().to_string().contains("not found"));
+        let error = ra.set_account_password("Nobody", "newpass9").unwrap_err().to_string();
+        assert!(error.contains("not found"), "Unexpected console error: {error}");
     }
 
     #[test]

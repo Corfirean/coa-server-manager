@@ -129,10 +129,6 @@ pub(crate) fn inventory(root: &Path) -> Result<BTreeMap<String, String>> {
 }
 
 pub(crate) fn copy_verified(source: &Path, target: &Path, files: &BTreeMap<String, String>) -> Result<()> {
-    copy_verified_with_progress(source, target, files, &|_| {})
-}
-
-fn copy_verified_with_progress(source: &Path, target: &Path, files: &BTreeMap<String, String>, report: &dyn Fn(&str)) -> Result<()> {
     if target.exists() { return Err(Error::Invalid("Database snapshot destination already exists.".into())); }
     let bytes = files.keys().try_fold(0u64, |total, name| -> Result<u64> {
         let path = fsx::ensure_within(source, &fsx::safe_join(source, name)?)?;
@@ -142,15 +138,13 @@ fn copy_verified_with_progress(source: &Path, target: &Path, files: &BTreeMap<St
     fs::create_dir_all(parent)?;
     fsx::require_space(parent, bytes)?;
     fs::create_dir(target)?;
-    for (index, (relative, expected)) in files.iter().enumerate() {
-        if index % 250 == 0 { report(&format!("Copying private server files: {} of {}", index, files.len())); }
+    for (relative, expected) in files {
         let source_file = fsx::ensure_within(source, &fsx::safe_join(source, relative)?)?;
         let target_file = fsx::ensure_within(target, &fsx::safe_join(target, relative)?)?;
         fs::create_dir_all(target_file.parent().unwrap())?;
         fs::copy(&source_file, &target_file)?;
         if fsx::sha256_file(&target_file)? != *expected { return Err(Error::Invalid(format!("Database snapshot file {relative} failed verification."))); }
     }
-    report("Verifying the complete private file copy");
     if inventory(target)? != *files { return Err(Error::Invalid("Database snapshot inventory differs.".into())); }
     Ok(())
 }
@@ -247,103 +241,6 @@ pub(crate) fn verify(point: &Path, snapshot: &Snapshot) -> Result<()> {
     if snapshot.path != "mysql-data" { return Err(Error::Invalid("Unsupported MySQL recovery format.".into())); }
     if inventory(&data)? != snapshot.files { return Err(Error::Invalid("The cold MySQL recovery copy is damaged or incomplete.".into())); }
     if directories(&data)? != snapshot.directories { return Err(Error::Invalid("The cold MySQL recovery directories are incomplete.".into())); }
-    Ok(())
-}
-
-pub(crate) fn rehearsal_copy_with_progress(root: &Path, meta: &Path, point: &Path, snapshot: &Snapshot, report: &dyn Fn(&str)) -> Result<PathBuf> {
-    report("Verifying the database recovery copy before rehearsal");
-    verify(point, snapshot)?;
-    let canonical = fsx::canonicalize_lenient(root)?;
-    let root = canonical.as_path();
-    let destination = meta.join("rehearsals").join(uuid::Uuid::new_v4().simple().to_string()).join("server");
-    let mut files = BTreeMap::new();
-    let mut file_bytes = 0u64;
-    let mut directories = vec![root.to_path_buf()];
-    while let Some(directory) = directories.pop() {
-        for entry in fs::read_dir(directory)? {
-            let entry = entry?;
-            let raw = entry.path();
-            let relative = raw.strip_prefix(root).map_err(|e| Error::Invalid(e.to_string()))?.to_string_lossy().replace('\\', "/");
-            let lower = relative.to_ascii_lowercase();
-            let first = lower.split('/').next().unwrap();
-            if entry.file_type()?.is_dir() && !relative.contains('/')
-                && !["core", "data", "scripts", "settings", "runtime", "mysql", ".realms", "bugreport", "extras", "licenses"].contains(&first) { continue; }
-            if lower == "mysql/data" || lower.starts_with("mysql/data-")
-                || lower.split('/').any(|part| part == ".state")
-                || lower == "bugreport/reports" || lower == "core/logs" || lower == "mysql/logs" { continue; }
-            let metadata = fs::symlink_metadata(&raw)?;
-            reject_link(&metadata)?;
-            let path = fsx::ensure_within(root, &raw)?;
-            if metadata.is_dir() { directories.push(path); }
-            else if metadata.is_file() {
-                file_bytes = file_bytes.checked_add(metadata.len()).ok_or_else(|| Error::Invalid("Private copy size overflow.".into()))?;
-                files.insert(relative, fsx::sha256_file(&path)?);
-                if files.len() % 250 == 0 { report(&format!("Preparing the private copy: {} files checked", files.len())); }
-            }
-            else { return Err(Error::Invalid("Unsupported rehearsal file.".into())); }
-        }
-    }
-    let needed = file_bytes.checked_add(snapshot.expanded_bytes.max(snapshot.bytes)).ok_or_else(|| Error::Invalid("Private copy size overflow.".into()))?;
-    fsx::require_space(meta, needed)?;
-    copy_verified_with_progress(root, &destination, &files, report)?;
-    report("Restoring MySQL into the private server copy");
-    copy_snapshot(point, snapshot, &destination.join("mysql/data"))?;
-    let (_, mut installed) = crate::registry::MetaDir::open(meta)?;
-    installed.id = uuid::Uuid::new_v4().to_string();
-    installed.server_path = destination.to_string_lossy().into_owned();
-    installed.client_path = None;
-    crate::registry::MetaDir::create(&destination, &installed)?;
-    Ok(destination)
-}
-
-pub(crate) fn isolate_connections(root: &Path) -> Result<()> {
-    for relative in ["Settings/worldserver.conf.template", "Settings/authserver.conf.template", "Core/configs/worldserver.conf", "Core/configs/authserver.conf"] {
-        let path = fsx::ensure_within(root, &root.join(relative))?;
-        if !path.is_file() {
-            if relative.ends_with(".template") { return Err(Error::Invalid("The private update copy lacks connection templates.".into())); }
-            continue;
-        }
-        let mut config = crate::config::parser::ConfFile::parse_bytes(&fs::read(&path)?)?;
-        for key in ["LoginDatabaseInfo", "WorldDatabaseInfo", "CharacterDatabaseInfo"] {
-            if relative.contains("worldserver") || key == "LoginDatabaseInfo" {
-                config.set(key, &format!("\"@{key}@\""), &[]);
-            }
-        }
-        config.set("BindIP", "\"127.0.0.1\"", &[]);
-        if relative.contains("worldserver") {
-            config.set("Ra.IP", "\"127.0.0.1\"", &[]);
-            config.set("DataDir", "\"@DATA@\"", &[]);
-        }
-        fsx::atomic_write(&path, config.to_text().as_bytes())?;
-    }
-    Ok(())
-}
-
-pub(crate) fn unchanged(root: &Path, snapshot: &Snapshot) -> Result<()> {
-    let data = fsx::ensure_within(root, &root.join("mysql/data"))?;
-    if inventory(&data)? != snapshot.files || directories(&data)? != snapshot.directories {
-        return Err(Error::Invalid("The installed database changed during the private rehearsal. Retry after stopping other database access.".into()));
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_connections(templates: &Path, installation: &Path) -> Result<()> {
-    let port = crate::layout::read_ports(installation).mysql.to_string();
-    let (_, password) = crate::db::credentials(installation)?;
-    let realm = crate::realms::state(installation)?.active;
-    for relative in ["Settings/worldserver.conf.template", "Settings/authserver.conf.template"] {
-        let path = fsx::ensure_within(templates, &templates.join(relative))?;
-        let config = crate::config::parser::ConfFile::parse_bytes(&fs::read(path)?)?;
-        for (key, kind) in [("LoginDatabaseInfo", "auth"), ("WorldDatabaseInfo", "world"), ("CharacterDatabaseInfo", "characters")] {
-            if relative.contains("authserver") && kind != "auth" { continue; }
-            let value = config.get(key).ok_or_else(|| Error::Invalid(format!("The update cannot isolate the missing {key} connection.")))?.trim().trim_matches('"');
-            if value == format!("@{key}@") { continue; }
-            let fields: Vec<_> = value.split(';').collect();
-            if fields.len() != 5 || !matches!(fields[0], "127.0.0.1" | "localhost") || fields[1] != port || fields[2] != "acore" || fields[3] != password || fields[4] != realm.schema(kind)? {
-                return Err(Error::Invalid(format!("The {key} connection does not use this repack's bundled database. A private update cannot safely qualify an external database.")));
-            }
-        }
-    }
     Ok(())
 }
 
@@ -574,6 +471,46 @@ mod tests {
         };
         let mut server = start();
         db.query("CREATE DATABASE acore_characters; CREATE DATABASE acore_world; CREATE DATABASE acore_auth; CREATE TABLE acore_characters.probe(id INT PRIMARY KEY, note VARCHAR(40)); CREATE TABLE acore_world.probe(id INT NOT NULL DEFAULT 0); INSERT INTO acore_world.probe VALUES(43); CREATE TABLE acore_auth.probe(id INT); INSERT INTO acore_auth.probe VALUES(44); CREATE USER 'fixture_user'@'localhost' IDENTIFIED BY 'fixture'; CREATE TRIGGER acore_characters.probe_insert BEFORE INSERT ON acore_characters.probe FOR EACH ROW SET NEW.note='triggered'; INSERT INTO acore_characters.probe VALUES(42,'original'); CREATE VIEW acore_characters.probe_view AS SELECT c.id,w.id AS world_id FROM acore_characters.probe c CROSS JOIN acore_world.probe w; CREATE PROCEDURE acore_characters.probe_proc() SELECT id FROM acore_characters.probe; CREATE FUNCTION acore_characters.probe_func() RETURNS INT DETERMINISTIC RETURN 73;").unwrap();
+        // Shared auth must not run again when the active realm changes.
+        use crate::migrations::Store;
+        db.query("CREATE DATABASE acore_world_wildcard;").unwrap();
+        let migration_dir = root.join("migration-fixture");
+        fs::create_dir_all(migration_dir.join("auth")).unwrap();
+        fs::create_dir_all(migration_dir.join("world")).unwrap();
+        let auth_sql = b"INSERT INTO acore_auth.probe VALUES(45);";
+        fs::write(migration_dir.join("auth/shared_once.sql"), auth_sql).unwrap();
+        let auth_list = vec![crate::manifest::Migration { id:"shared_once".into(), db:"auth".into(), sha256:fsx::sha256_bytes(auth_sql), destructive:false, compatible_sha256:vec![] }];
+        assert_eq!(crate::migrations::apply_pending(&db, &auth_list, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.len(), 1);
+        let wildcard = db.clone().for_realm(crate::realms::Mode::Wildcard);
+        assert_eq!(crate::migrations::pending_count(&wildcard, &auth_list).unwrap(), 0, "auth is shared by both realms");
+        assert!(crate::migrations::apply_pending(&wildcard, &auth_list, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.is_empty());
+        assert_eq!(db.query("SELECT COUNT(*) FROM acore_auth.probe WHERE id=45;").unwrap(), "1");
+        let mut failed = crate::migrations::LedgerRow { db:"auth".into(), id:"shared_once".into(), sha256:auth_list[0].sha256.clone(), status:crate::migrations::Status::Failed, error:Some("interrupted fixture".into()), baseline:false };
+        db.put(&failed).unwrap();
+        assert!(crate::migrations::pending_count(&wildcard, &auth_list).is_err());
+        failed.status = crate::migrations::Status::Applied; failed.error = None; db.put(&failed).unwrap();
+
+
+        // Legacy per-world auth records are adopted without replaying their SQL.
+        let legacy_sql = b"INSERT INTO acore_auth.probe VALUES(46);";
+        fs::write(migration_dir.join("auth/legacy_auth.sql"), legacy_sql).unwrap();
+        db.query(&format!("INSERT INTO acore_auth.probe VALUES(46); REPLACE INTO acore_world.coa_manager_migrations VALUES('auth','legacy_auth','{}','applied',NOW(),NULL,0);", fsx::sha256_bytes(legacy_sql))).unwrap();
+        let legacy_auth = vec![crate::manifest::Migration { id:"legacy_auth".into(), db:"auth".into(), sha256:fsx::sha256_bytes(legacy_sql), destructive:false, compatible_sha256:vec![] }];
+        assert_eq!(crate::migrations::pending_count(&wildcard, &legacy_auth).unwrap(), 0);
+        assert!(crate::migrations::apply_pending(&wildcard, &legacy_auth, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.is_empty());
+        assert_eq!(db.query("SELECT COUNT(*) FROM acore_auth.probe WHERE id=46;").unwrap(), "1");
+
+        // A core history cleanup cannot make previously recorded SQL pending again.
+        db.query("CREATE TABLE acore_world.updates(name VARCHAR(150) PRIMARY KEY) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; INSERT INTO acore_world.updates VALUES('LEGACY_WORLD.sql'); INSERT INTO acore_world.probe VALUES(99);").unwrap();
+        db.load().unwrap();
+        db.query("DROP TABLE acore_world.updates;").unwrap();
+        let legacy_world_sql = b"INSERT INTO acore_world.probe VALUES(99);";
+        fs::write(migration_dir.join("world/legacy_world.sql"), legacy_world_sql).unwrap();
+        let legacy_world = vec![crate::manifest::Migration { id:"legacy_world".into(), db:"world".into(), sha256:fsx::sha256_bytes(legacy_world_sql), destructive:false, compatible_sha256:vec![] }];
+        assert_eq!(crate::migrations::pending_count(&db, &legacy_world).unwrap(), 0);
+        assert!(crate::migrations::apply_pending(&db, &legacy_world, &migration_dir, &|| Ok("fixture".into())).unwrap().applied.is_empty());
+        assert_eq!(db.query("SELECT COUNT(*) FROM acore_world.probe WHERE id=99;").unwrap(), "1");
+        db.query("DELETE FROM acore_world.probe WHERE id=99;").unwrap();
         assert_eq!(db.recovery_objects("acore_characters").unwrap().len(), 4);
         db.query("CREATE TABLE acore_characters.coa_squid_pending(path VARCHAR(255), sha256 CHAR(64)); INSERT INTO acore_characters.coa_squid_pending VALUES('playerbots/base/ai_playerbot_texts.sql', REPEAT('a',64));").unwrap();
         let squid_problems = crate::squid::database_problems(&root, crate::realms::Mode::Coa, &|sql| {
@@ -664,57 +601,10 @@ mod tests {
         fsx::atomic_write(&archive_path, b"damaged").unwrap();
         assert!(verify(&point, &snapshot).is_err());
     }
-    #[test]
-    fn private_rehearsals_reject_external_database_connections() {
-        let (_temp, root, _meta, _point, _snapshot) = fixture();
-        fsx::atomic_write_json(&root.join("Settings/repack.json"), &serde_json::json!({"mysqlPort":3307})).unwrap();
-        fsx::atomic_write_json(&root.join("Settings/database.json"), &serde_json::json!({"rootPassword":"test-root","appPassword":"test-app"})).unwrap();
-        fsx::atomic_write(&root.join("Settings/worldserver.conf.template"), b"LoginDatabaseInfo = \"@LoginDatabaseInfo@\"\nWorldDatabaseInfo = \"@WorldDatabaseInfo@\"\nCharacterDatabaseInfo = \"@CharacterDatabaseInfo@\"\n").unwrap();
-        fsx::atomic_write(&root.join("Settings/authserver.conf.template"), b"LoginDatabaseInfo = \"127.0.0.1;3307;acore;test-app;acore_auth\"\n").unwrap();
-        validate_connections(&root, &root).unwrap();
-        fsx::atomic_write(&root.join("Settings/authserver.conf.template"), b"LoginDatabaseInfo = \"192.0.2.1;3307;acore;test-app;acore_auth\"\n").unwrap();
-        let error = validate_connections(&root, &root).unwrap_err().to_string();
-        assert!(error.contains("external database"));
-        assert!(!error.contains("test-app"));
-    }
-    #[test]
-    fn a_changed_live_database_invalidates_the_rehearsal() {
-        let (_temp, root, _meta, _point, snapshot) = fixture();
-        assert!(unchanged(&root, &snapshot).is_err());
-        fsx::atomic_write(&root.join("mysql/data/characters.ibd"), b"saved").unwrap();
-        fs::create_dir_all(root.join("mysql/data/empty_schema")).unwrap();
-        unchanged(&root, &snapshot).unwrap();
-        fsx::atomic_write(&root.join("mysql/data/extra.ibd"), b"new data").unwrap();
-        assert!(unchanged(&root, &snapshot).is_err());
-    }
 
-    #[test]
-    fn rehearsal_copy_succeeds_with_nested_directories_and_unnormalized_root() {
-        let (_temp, root, meta, point, snapshot) = fixture();
-        let meta_obj = crate::registry::InstallMeta::new(crate::registry::InstallKind::New, &root);
-        fsx::atomic_write_json(&meta.join("install.json"), &meta_obj).unwrap();
-        fsx::atomic_write(&root.join("Core/worldserver.exe"), b"exe").unwrap();
-        fsx::atomic_write(&root.join("Core/configs/worldserver.conf"), b"conf").unwrap();
-        fsx::atomic_write(&root.join("Settings/repack.json"), b"{}").unwrap();
-        let phases = std::cell::RefCell::new(Vec::new());
-        let dest = rehearsal_copy_with_progress(&root, &meta, &point, &snapshot, &|phase| phases.borrow_mut().push(phase.to_string())).unwrap();
-        assert_eq!(fs::read(dest.join("Core/configs/worldserver.conf")).unwrap(), b"conf");
-        assert_eq!(fs::read(dest.join("mysql/data/characters.ibd")).unwrap(), b"saved");
-        let phases = phases.into_inner();
-        assert!(phases[0].contains("Verifying the database"));
-        assert!(phases.iter().any(|phase| phase.contains("Copying private server files")));
-        assert!(phases.last().unwrap().contains("Restoring MySQL"));
-    }
 
-    #[test]
-    fn rehearsal_checks_combined_program_and_database_space_before_copying() {
-        let (_temp, root, meta, point, mut snapshot) = fixture();
-        fs::create_dir_all(&meta).unwrap();
-        fsx::atomic_write(&root.join("Core/worldserver.exe"), b"exe").unwrap();
-        snapshot.expanded_bytes = fsx::free_space(&meta).unwrap().saturating_add(1024 * 1024 * 1024);
-        let error = rehearsal_copy_with_progress(&root, &meta, &point, &snapshot, &|_| {}).unwrap_err();
-        assert!(matches!(error, Error::InsufficientSpace { .. }));
-        assert!(!meta.join("rehearsals").exists());
-        assert_eq!(fs::read(root.join("mysql/data/characters.ibd")).unwrap(), b"live");
-    }
+
+
+
+
 }
