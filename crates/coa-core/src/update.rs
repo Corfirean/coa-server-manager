@@ -339,7 +339,7 @@ pub fn preview_with(root: &Path, meta: &InstallMeta, source: &Source, trusted_ke
     let meta_dir = crate::registry::metadata_dir_for(root)?;
     let observed_version = MetaDir::open(&meta_dir)?.1.core.version;
     let (m, _) = fetch_manifest(source, trusted_key)?;
-    let _lock = operation_lock_for(&meta_dir, "checking updates", false)?;
+    let _lock = operation_lock_for(&meta_dir, "checking updates", true)?;
     ensure_recovered(&meta_dir)?;
     let (_, current_meta) = MetaDir::open(&meta_dir)?;
     let meta = if current_meta.core.version != observed_version { &current_meta } else { meta };
@@ -347,7 +347,7 @@ pub fn preview_with(root: &Path, meta: &InstallMeta, source: &Source, trusted_ke
     reject_downgrade(meta, &m)?;
     let mut items = plan(root, meta, &m, resolutions, None)?;
     if items.iter().any(|item| item.path == "Scripts/manage.py" && item.action != Action::Skip)
-        && launcher_already_integrated(root, &meta_dir, meta, &m, source)? {
+        && launcher_already_integrated(root, meta, &m)? {
         if let Some(item) = items.iter_mut().find(|item| item.path == "Scripts/manage.py") {
             item.action = Action::Skip;
             item.reason = Some("already up to date with Manager integration".into());
@@ -377,27 +377,11 @@ pub fn preview_with(root: &Path, meta: &InstallMeta, source: &Source, trusted_ke
     })
 }
 
-fn launcher_already_integrated(root: &Path, meta_dir: &Path, meta: &InstallMeta, manifest: &Manifest, source: &Source) -> Result<bool> {
+fn launcher_already_integrated(root: &Path, meta: &InstallMeta, manifest: &Manifest) -> Result<bool> {
     let Some(file) = manifest.files.iter().find(|file| file.path == "Scripts/manage.py") else { return Ok(false); };
-    let actual = sha_if_exists(&root.join(&file.path));
-    if actual.as_ref() != meta.original_hashes.get(&file.path) || actual.is_none() { return Ok(false); }
-    let cache = meta_dir.join("manifests").join(format!("launcher-{}.py", file.sha256));
-    let signed = match fs::read(&cache) {
-        Ok(bytes) if fsx::sha256_bytes(&bytes) == file.sha256 => bytes,
-        _ => {
-            let temp = tempfile::tempdir()?;
-            let parts = fetch_parts(source, manifest, &temp.path().join("download"), &Cancel::default(), &|_, _| {})?;
-            package::extract(&parts, manifest, &temp.path().join("tree"), &|_, _| {})?;
-            let bytes = fs::read(temp.path().join("tree").join(&file.path))?;
-            if fsx::sha256_bytes(&bytes) != file.sha256 { return Err(Error::Invalid("The signed launcher failed verification.".into())); }
-            // This derived cache is optional; failure to save it does not change the server.
-            let _ = fsx::atomic_write(&cache, &bytes);
-            bytes
-        }
-    };
-    Ok(std::str::from_utf8(&signed).ok().is_some_and(|signed| {
-        fs::read(root.join(&file.path)).ok().is_some_and(|actual| crate::driver::launcher_matches(signed, &actual))
-    }))
+    let Ok(actual) = fs::read(root.join(&file.path)) else { return Ok(false); };
+    if meta.original_hashes.get(&file.path) != Some(&fsx::sha256_bytes(&actual)) { return Ok(false); }
+    Ok(crate::driver::launcher_matches_recorded(&file.sha256, &actual))
 }
 
 fn reject_downgrade(meta: &InstallMeta, manifest: &Manifest) -> Result<()> {
@@ -1584,6 +1568,8 @@ mod tests {
         let (_, mut meta) = MetaDir::open(&w.meta).unwrap();
         meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(integrated.as_bytes()));
         fsx::atomic_write_json(&w.meta.join("install.json"), &meta).unwrap();
+        let original = fetch_manifest(&Source::Dir(w.pkg.clone()), &w.key).unwrap().0;
+        for part in &original.archive.as_ref().unwrap().parts { fs::remove_file(w.pkg.join(&part.name)).unwrap(); }
         let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();
         assert_eq!(p.items.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Skip);
         let manifest = fetch_manifest(&Source::Dir(w.pkg.clone()), &w.key).unwrap().0;
@@ -1591,7 +1577,7 @@ mod tests {
         assert_eq!(applied_plan.iter().find(|item| item.path == "Scripts/manage.py").unwrap().action, Action::Skip);
         let mut changed = fetch_manifest(&Source::Dir(w.pkg.clone()), &w.key).unwrap().0;
         changed.files.iter_mut().find(|file| file.path == "Scripts/manage.py").unwrap().sha256 = fsx::sha256_bytes(b"new launcher");
-        assert!(launcher_already_integrated(&w.root, &w.meta, &meta, &changed, &Source::Dir(w.pkg.clone())).is_err());
+        assert!(!launcher_already_integrated(&w.root, &meta, &changed).unwrap());
         write(&w.root, "Scripts/manage.py", format!("{integrated}\n# user edit\n").as_bytes());
         // Same version: the owner's edit is not an update (Repair lists and restores it).
         let p = preview(&w.root, &meta, &Source::Dir(w.pkg.clone()), &w.key, &BTreeMap::new()).unwrap();

@@ -257,6 +257,7 @@ pub(crate) fn rehearsal_copy_with_progress(root: &Path, meta: &Path, point: &Pat
     let root = canonical.as_path();
     let destination = meta.join("rehearsals").join(uuid::Uuid::new_v4().simple().to_string()).join("server");
     let mut files = BTreeMap::new();
+    let mut file_bytes = 0u64;
     let mut directories = vec![root.to_path_buf()];
     while let Some(directory) = directories.pop() {
         for entry in fs::read_dir(directory)? {
@@ -275,12 +276,15 @@ pub(crate) fn rehearsal_copy_with_progress(root: &Path, meta: &Path, point: &Pat
             let path = fsx::ensure_within(root, &raw)?;
             if metadata.is_dir() { directories.push(path); }
             else if metadata.is_file() {
+                file_bytes = file_bytes.checked_add(metadata.len()).ok_or_else(|| Error::Invalid("Private copy size overflow.".into()))?;
                 files.insert(relative, fsx::sha256_file(&path)?);
                 if files.len() % 250 == 0 { report(&format!("Preparing the private copy: {} files checked", files.len())); }
             }
             else { return Err(Error::Invalid("Unsupported rehearsal file.".into())); }
         }
     }
+    let needed = file_bytes.checked_add(snapshot.expanded_bytes.max(snapshot.bytes)).ok_or_else(|| Error::Invalid("Private copy size overflow.".into()))?;
+    fsx::require_space(meta, needed)?;
     copy_verified_with_progress(root, &destination, &files, report)?;
     report("Restoring MySQL into the private server copy");
     copy_snapshot(point, snapshot, &destination.join("mysql/data"))?;
@@ -700,5 +704,17 @@ mod tests {
         assert!(phases[0].contains("Verifying the database"));
         assert!(phases.iter().any(|phase| phase.contains("Copying private server files")));
         assert!(phases.last().unwrap().contains("Restoring MySQL"));
+    }
+
+    #[test]
+    fn rehearsal_checks_combined_program_and_database_space_before_copying() {
+        let (_temp, root, meta, point, mut snapshot) = fixture();
+        fs::create_dir_all(&meta).unwrap();
+        fsx::atomic_write(&root.join("Core/worldserver.exe"), b"exe").unwrap();
+        snapshot.expanded_bytes = fsx::free_space(&meta).unwrap().saturating_add(1024 * 1024 * 1024);
+        let error = rehearsal_copy_with_progress(&root, &meta, &point, &snapshot, &|_| {}).unwrap_err();
+        assert!(matches!(error, Error::InsufficientSpace { .. }));
+        assert!(!meta.join("rehearsals").exists());
+        assert_eq!(fs::read(root.join("mysql/data/characters.ibd")).unwrap(), b"live");
     }
 }
