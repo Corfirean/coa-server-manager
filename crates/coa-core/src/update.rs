@@ -1010,16 +1010,9 @@ impl Env for RepackEnv<'_> {
             step(report, "Testing database updates on the private server copy", 56);
             let identities = crate::backup::with_database(&fixture, |db| {
                 let identities = database_identities(db)?;
-                let realms = crate::realms::state(&fixture)?;
-                let mut modes = vec![realms.active];
-                if realms.wildcard_created { modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa }); }
-                for (index, mode) in modes.into_iter().enumerate() {
-                    let db = db.clone().for_realm(mode);
-                    crate::schema_check::repair_missing_defaults(&db, &fixture, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
-                    let list: Vec<_> = manifest.migrations.iter().filter(|migration| index == 0 || migration.db != "auth").cloned().collect();
-                    let report = crate::migrations::apply_pending(&db, &list, &tree.join("_migrations"), &|| Ok("private rehearsal".into()))?;
-                    if let Some((migration, error)) = report.failed { return Err(Error::Invalid(format!("Rehearsal migration {migration} failed: {error}"))); }
-                    crate::schema_check::repair_missing_defaults(&db, &fixture, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
+                let result = migrate_databases(db, &fixture, manifest, &tree.join("_migrations"), &|| Ok("private rehearsal".into()))?;
+                if let Some((migration, error)) = result.failed {
+                    return Err(Error::Invalid(format!("Rehearsal migration {migration} failed: {error}")));
                 }
                 verify_database_identities(db, &identities)?;
                 Ok(identities)
@@ -1126,44 +1119,8 @@ impl Env for RepackEnv<'_> {
     }
 
     fn migrate(&self, manifest: &Manifest, staged: &Path) -> Result<ApplyReport> {
-        let root = self.root;
-        crate::backup::with_database(root, |db| {
-            let realms = crate::realms::state(root)?;
-            if let Some(contract) = manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT) {
-                self.migration_snapshot()?;
-                crate::schema_check::repair_missing_defaults(db, root, Some(&contract.sha256))?;
-            }
-            let mut result = crate::migrations::apply_pending(db, &manifest.migrations, staged, &|| {
-                self.migration_snapshot()
-            })?;
-            if realms.wildcard_created && result.failed.is_none() {
-                let other = if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa };
-                let other_db = db.clone().for_realm(other);
-                crate::schema_check::repair_missing_defaults(&other_db, root, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
-                let shared_snapshot = result.snapshot.clone();
-                let migrations: Vec<_> = manifest.migrations.iter().filter(|m| m.db != "auth").cloned().collect();
-                let extra = crate::migrations::apply_pending(&other_db, &migrations, staged, &|| {
-                    if let Some(id) = &shared_snapshot { return Ok(id.clone()); }
-                    self.migration_snapshot()
-                })?;
-                result.applied.extend(extra.applied);
-                result.failed = extra.failed;
-                if result.snapshot.is_none() { result.snapshot = extra.snapshot; }
-                if result.failed.is_none() {
-                    crate::schema_check::repair_missing_defaults(&other_db, root, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
-                    if let Some(p) = crate::schema_check::check_with_report(&other_db, root)?.first() {
-                        return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", other.name(), p.table, p.column, p.detail)));
-                    }
-                }
-            }
-            if result.failed.is_none() {
-                crate::schema_check::repair_missing_defaults(db, root, manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str()))?;
-                let problems = crate::schema_check::check_with_report(db, root)?;
-                if let Some(p) = problems.first() {
-                    return Err(Error::Invalid(format!("Database validation failed: {}.{}.{}: {} ({} problems).", p.database, p.table, p.column, p.detail, problems.len())));
-                }
-            }
-            Ok(result)
+        crate::backup::with_database(self.root, |db| {
+            migrate_databases(db, self.root, manifest, staged, &|| self.migration_snapshot())
         })
     }
 
@@ -1178,8 +1135,7 @@ impl Env for RepackEnv<'_> {
 
 impl RepackEnv<'_> {
     fn validate_server(&self, check_schema: bool) -> Result<()> {
-        let stopped = crate::driver::run(self.root, crate::driver::Verb::StopAll)?;
-        if !stopped.ok { return Err(Error::Invalid("Could not stop the server before isolated validation.".into())); }
+        crate::mysql_snapshot::stop(self.root)?;
         self.ensure_stopped()?;
         self.recover_validation()?;
         let result = (|| -> Result<()> {
@@ -1239,15 +1195,46 @@ impl RepackEnv<'_> {
             let _ = crate::driver::run(self.root, crate::driver::Verb::StopAll);
             Err(Error::Invalid(cause))
         })();
-        let stopped = crate::driver::run(self.root, crate::driver::Verb::StopAll)?;
-        if !stopped.ok {
-            return Err(Error::Invalid("Isolated validation could not stop the server; recovery configurations were preserved.".into()));
-        }
+        crate::mysql_snapshot::stop(self.root)?;
         self.ensure_stopped()?;
         self.recover_validation()?;
         result
     }
 
+}
+
+/// Rehearsal and installation use the same database order, history checks and SQL executor.
+fn migrate_databases(db: &crate::db::Db, root: &Path, manifest: &Manifest, staged: &Path, snapshot: &dyn Fn() -> Result<String>) -> Result<ApplyReport> {
+    let realms = crate::realms::state(root)?;
+    let mut modes = vec![realms.active];
+    if realms.wildcard_created {
+        modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa });
+    }
+    // Reject a broken history in either realm before changing the first one.
+    for (index, mode) in modes.iter().enumerate() {
+        let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || m.db != "auth").cloned().collect();
+        crate::migrations::preflight(&db.clone().for_realm(*mode), &list)?;
+    }
+    let contract = manifest.files.iter().find(|file| file.path == crate::schema_check::CONTRACT).map(|file| file.sha256.as_str());
+    let mut result = ApplyReport { applied: vec![], failed: None, snapshot: None };
+    if contract.is_some() { result.snapshot = Some(snapshot()?); }
+    for (index, mode) in modes.into_iter().enumerate() {
+        let db = db.clone().for_realm(mode);
+        let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || m.db != "auth").cloned().collect();
+        crate::schema_check::repair_missing_defaults(&db, root, contract)?;
+        let extra = crate::migrations::apply_pending(&db, &list, staged, &|| {
+            if let Some(id) = &result.snapshot { Ok(id.clone()) } else { snapshot() }
+        })?;
+        result.applied.extend(extra.applied);
+        result.failed = extra.failed;
+        if result.snapshot.is_none() { result.snapshot = extra.snapshot; }
+        if result.failed.is_some() { return Ok(result); }
+        crate::schema_check::repair_missing_defaults(&db, root, contract)?;
+        if let Some(p) = crate::schema_check::check_with_report(&db, root)?.first() {
+            return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.table, p.column, p.detail)));
+        }
+    }
+    Ok(result)
 }
 
 fn database_identities(db: &crate::db::Db) -> Result<BTreeMap<String, std::collections::BTreeSet<String>>> {

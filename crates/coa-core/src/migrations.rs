@@ -183,8 +183,7 @@ pub fn preflight(store: &dyn Store, list: &[Migration]) -> Result<()> {
 
 pub fn pending_count(store: &dyn Store, list: &[Migration]) -> Result<usize> {
     let rows = store.load_readonly()?;
-    check_history(&rows, list)?;
-    Ok(list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).count())
+    Ok(pending_migrations(&rows, list)?.len())
 }
 
 fn verified_file(m: &Migration, dir: &Path) -> Result<(&'static str, std::path::PathBuf, bool)> {
@@ -199,15 +198,30 @@ fn verified_file(m: &Migration, dir: &Path) -> Result<(&'static str, std::path::
 
 /// Check every migration artifact, including applied history, before replacing server files.
 pub fn verify_files(list: &[Migration], dir: &Path) -> Result<()> {
+    validate_list(list)?;
+    for m in list { verified_file(m, dir)?; }
+    Ok(())
+}
+
+fn validate_list(list: &[Migration]) -> Result<()> {
     let mut seen = std::collections::BTreeSet::new();
     for m in list {
-        if !seen.insert((&m.db, &m.id)) { return Err(Error::InvalidManifest(format!("duplicate migration {} ({})", m.id, m.db))); }
-        verified_file(m, dir)?;
+        if !ident_ok(&m.id) { return Err(Error::InvalidManifest(format!("migration id {:?} is not allowed", m.id))); }
+        let schema = db::schema_of(&m.db)?;
+        if !seen.insert((schema, &m.id)) {
+            return Err(Error::InvalidManifest(format!("duplicate migration {} ({})", m.id, m.db)));
+        }
     }
     Ok(())
 }
 
+fn pending_migrations<'a>(rows: &[LedgerRow], list: &'a [Migration]) -> Result<Vec<&'a Migration>> {
+    check_history(rows, list)?;
+    Ok(list.iter().filter(|m| recorded(rows, m).is_none_or(|r| r.status != Status::Applied)).collect())
+}
+
 fn check_history(rows: &[LedgerRow], list: &[Migration]) -> Result<()> {
+    validate_list(list)?;
     for m in list {
         if recorded(rows, m).is_some_and(|r| matches!(r.status, Status::Running | Status::Failed)) {
             return Err(Error::Invalid(format!("Database update {} ({}) failed or was interrupted and may be partially applied. Restore its recovery point before retrying.", m.id, m.db)));
@@ -246,8 +260,7 @@ pub struct ApplyReport {
 pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot: &dyn Fn() -> Result<String>) -> Result<ApplyReport> {
     let rows = store.load()?;
     // The list order is the release's order of application (released updates, then pending, then modules).
-    check_history(&rows, list)?;
-    let todo: Vec<&Migration> = list.iter().filter(|m| recorded(&rows, m).is_none_or(|r| r.status != Status::Applied)).collect();
+    let todo = pending_migrations(&rows, list)?;
     tracing::info!(total = list.len(), pending = todo.len(), skipped = list.len() - todo.len(), "database migration plan");
 
     // Resolve and verify every file before running anything.
@@ -366,6 +379,23 @@ mod tests {
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
         assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
         assert!(store.ran.borrow().is_empty());
+    }
+
+    #[test]
+    fn every_entry_point_rejects_duplicate_sql_before_execution() {
+        let (dir, original) = setup(&[("world", "once", "SELECT 1;\n")]);
+        for alias in ["world", "coa-world"] {
+            let mut list = original.clone();
+            let mut duplicate = original[0].clone();
+            duplicate.db = alias.into();
+            list.push(duplicate);
+            let store = Mem::default();
+            assert!(preflight(&store, &list).is_err());
+            assert!(pending_count(&store, &list).is_err());
+            assert!(apply_pending(&store, &list, dir.path(), &no_snapshot).is_err());
+            assert!(store.ran.borrow().is_empty());
+            assert!(store.rows.borrow().is_empty());
+        }
     }
 
     #[test]
