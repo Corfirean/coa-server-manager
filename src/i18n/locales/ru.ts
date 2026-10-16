@@ -412,6 +412,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "upd.folderHint": "Папка с пакетом обновления (оставьте пустым, чтобы использовать официальный источник)",
   "upd.available": "Доступна версия {to}",
   "upd.availableFrom": "Доступна версия {to} (у вас {from})",
+  "upd.intermediate": "Сначала обновитесь до {to}, затем проверьте обновления ещё раз для перехода на {latest}. Каждый этап использует проверенный путь обновления.",
   "upd.summary": "Загрузка {size} · изменится файлов: {files}",
   "upd.summaryDb": "Загрузка {size} · изменится файлов: {files} · обновлений базы данных: {db}",
   "upd.conflict": "Этот файл был изменён вне CoA Server Manager.",

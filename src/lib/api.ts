@@ -307,6 +307,7 @@ export interface UpdatePlanItem {
 export interface UpdatePreview {
   from_version: string | null;
   to_version: string;
+  latest_version?: string;
   items: UpdatePlanItem[];
   conflicts: string[];
   migrations: number;

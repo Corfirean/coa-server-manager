@@ -430,6 +430,7 @@ const en = {
   "upd.folderHint": "Update package folder (leave empty to use the official source)",
   "upd.available": "Version {to} is available",
   "upd.availableFrom": "Version {to} is available (you have {from})",
+  "upd.intermediate": "Update to {to} first, then check again to continue to {latest}. Each step uses a tested upgrade path.",
   "upd.summary": "Download {size} · {files} file(s) change",
   "upd.summaryDb": "Download {size} · {files} file(s) change · {db} database update(s)",
   "upd.conflict": "This file was modified outside CoA Server Manager.",

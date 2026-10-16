@@ -234,6 +234,7 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; p
             <p className="font-medium">
               {preview.from_version ? t("upd.availableFrom", { to: preview.to_version, from: preview.from_version }) : t("upd.available", { to: preview.to_version })}
             </p>
+            {preview.latest_version && <p className="mt-1 text-sm text-warn" role="status">{t("upd.intermediate", { to: preview.to_version, latest: preview.latest_version })}</p>}
             <p className="mt-1 text-sm text-muted">
               {!preview.database_check_error && (preview.pending_migrations ?? preview.migrations) > 0
                 ? t("upd.summaryDb", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length, db: preview.pending_migrations ?? preview.migrations })

@@ -47,6 +47,13 @@ fn run() -> Result<(), String> {
     let e = |x: coa_core::Error| x.to_string();
     let part = a.get("part-size").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
+        "plan-update" => {
+            let mut meta = coa_core::registry::InstallMeta::new(coa_core::registry::InstallKind::New, std::path::Path::new("unused"));
+            meta.core.version = Some(need(&a, "from")?.clone());
+            let selection = coa_core::update_route::select(&meta, coa_core::pkgsource::Source::Url(need(&a, "source")?.clone()), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            let (manifest, _) = coa_core::pkgsource::fetch_manifest(&selection.source, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            println!("{}", serde_json::json!({"from":meta.core.version,"next":manifest.version,"latest":selection.latest_version}));
+        }
         "verify-install" => {
             coa_core::release_schema::verify_install_package(
                 &PathBuf::from(need(&a, "dir")?), coa_core::signing::EMBEDDED_PUBLIC_KEY,
