@@ -387,8 +387,10 @@ fn reject_downgrade(meta: &InstallMeta, manifest: &Manifest) -> Result<()> {
         if c.platform != platform {
             return Err(Error::Invalid(format!("This package targets {} rather than {platform}.", c.platform)));
         }
-        if meta.core.version.as_ref().is_none_or(|version| version != &manifest.version && !c.source_versions.contains(version)) {
-            return Err(Error::Invalid(format!("Installed server {} is outside the compatibility matrix for {}. Tested source versions: {}.", meta.core.version.as_deref().unwrap_or("unknown"), manifest.version, c.source_versions.join(", "))));
+        // The source list records release qualification, not an exclusive upgrade route.
+        // Database history and target validation decide whether the update can complete.
+        if meta.core.version.as_deref().and_then(crate::manifest::parse_version).is_none() {
+            return Err(Error::Invalid("The installed server version is unknown. An imported repack needs a verified starting state before updating.".into()));
         }
     }
     if let Some(installed) = meta.core.version.as_deref() {
@@ -1630,7 +1632,7 @@ mod tests {
     }
 
     #[test]
-    fn incompatible_source_or_platform_is_rejected_without_touching_installation() {
+    fn unlisted_source_is_allowed_but_unknown_versions_and_other_platforms_are_rejected() {
         let w = world(&[], false);
         let (_, meta) = MetaDir::open(&w.meta).unwrap();
         let mut manifest = Manifest::parse(&fs::read(w.pkg.join("manifest.json")).unwrap()).unwrap();
@@ -1643,7 +1645,12 @@ mod tests {
         manifest.validate().unwrap();
         validate_candidate(&meta, &manifest).unwrap();
         manifest.compatibility.as_mut().unwrap().source_versions = vec!["0.9.0".into()];
-        assert!(validate_candidate(&meta, &manifest).unwrap_err().to_string().contains("compatibility matrix"));
+        validate_candidate(&meta, &manifest).unwrap();
+        let mut unknown = meta.clone();
+        unknown.core.version = None;
+        assert!(validate_candidate(&unknown, &manifest).unwrap_err().to_string().contains("unknown"));
+        unknown.core.version = Some("unverified-repack".into());
+        assert!(validate_candidate(&unknown, &manifest).is_err());
         let mut already_updated = meta.clone();
         already_updated.core.version = Some(manifest.version.clone());
         validate_candidate(&already_updated, &manifest).unwrap();

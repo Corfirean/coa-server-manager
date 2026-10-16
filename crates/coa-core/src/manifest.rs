@@ -93,6 +93,7 @@ pub struct Compatibility {
     pub core_commit: String,
     pub module_commits: std::collections::BTreeMap<String, String>,
     pub client_patch_version: String,
+    /// Sources exercised during release qualification, not an exclusive updater allowlist.
     pub source_versions: Vec<String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub source_databases: std::collections::BTreeMap<String, SourceDatabase>,
