@@ -296,6 +296,8 @@ pub fn plan(root: &Path, meta: &InstallMeta, manifest: &Manifest, resolutions: &
 pub struct Preview {
     pub from_version: Option<String>,
     pub to_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
     pub items: Vec<PlanItem>,
     pub conflicts: Vec<String>,
     pub migrations: usize,
@@ -364,6 +366,7 @@ pub fn preview_with(root: &Path, meta: &InstallMeta, source: &Source, trusted_ke
     Ok(Preview {
         from_version: meta.core.version.clone(),
         to_version: m.version.clone(),
+        latest_version: None,
         conflicts: items.iter().filter(|i| i.action == Action::Conflict).map(|i| i.path.clone()).collect(),
         items,
         migrations: m.migrations.len(),
@@ -404,7 +407,7 @@ fn reject_downgrade(meta: &InstallMeta, manifest: &Manifest) -> Result<()> {
             return Err(Error::Invalid(format!("This package targets {} rather than {platform}.", c.platform)));
         }
         if meta.core.version.as_ref().is_none_or(|version| version != &manifest.version && !c.source_versions.contains(version)) {
-            return Err(Error::Invalid("This server version is outside the release's tested compatibility matrix.".into()));
+            return Err(Error::Invalid(format!("Installed server {} is outside the compatibility matrix for {}. Tested source versions: {}.", meta.core.version.as_deref().unwrap_or("unknown"), manifest.version, c.source_versions.join(", "))));
         }
     }
     if let Some(installed) = meta.core.version.as_deref() {

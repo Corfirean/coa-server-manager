@@ -44,6 +44,7 @@ pub mod release;
 pub mod report;
 pub mod release_schema;
 pub mod update;
+pub mod update_route;
 mod update_isolation;
 mod mysql_snapshot;
 pub mod wine;

@@ -847,8 +847,10 @@ async fn check_update(state: State<'_, AppState>, id: String, source: Option<Str
     let access = if background.unwrap_or(false) { update::DatabaseAccess::OnlyIfRunning } else { update::DatabaseAccess::Start };
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
-        let src = update_source(source)?;
-        update::preview_with(&root, &meta, &src, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default(), access)
+        let selection = coa_core::update_route::select(&meta, update_source(source)?, coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
+        let mut preview = update::preview_with(&root, &meta, &selection.source, coa_core::signing::EMBEDDED_PUBLIC_KEY, &Default::default(), access)?;
+        preview.latest_version = selection.latest_version;
+        Ok(preview)
     })
     .await
 }
@@ -871,8 +873,8 @@ async fn apply_update(
 
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
-        let src = update_source(source)?;
         let (dir, meta) = install_meta(&root)?;
+        let src = coa_core::update_route::select(&meta, update_source(source)?, coa_core::signing::EMBEDDED_PUBLIC_KEY)?.source;
         let (manifest, _) = coa_core::pkgsource::fetch_manifest(&src, coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
         update::validate_candidate(&meta, &manifest)?;
         // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
