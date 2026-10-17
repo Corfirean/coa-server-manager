@@ -352,12 +352,12 @@
    "d": "Geschwindigkeit, mit der Erholungsbonus online in einem Ruhebereich aufgebaut wird."
   },
   "Rate.Creature.Normal.Damage": {
-   "t": "Monsterschaden",
-   "d": "Multiplikator für den Schaden normaler Monster. Verändert den Schwierigkeitsgrad stark."
+   "t": "Normale Kreaturen — Nahkampfschaden",
+   "d": "Multiplikator: Normale Kreaturen — Nahkampfschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
   },
   "Rate.Creature.Normal.HP": {
-   "t": "Monstergesundheit",
-   "d": "Multiplikator für die Gesundheit normaler Monster. Verändert den Schwierigkeitsgrad stark."
+   "t": "Normale Kreaturen — Gesundheit",
+   "d": "Multiplikator: Normale Kreaturen — Gesundheit. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
   },
   "PlayerLimit": {
    "t": "Maximale Spielerzahl",
@@ -550,6 +550,58 @@
   "Achievement.RealmFirstBlockBots": {
    "t": "Bots erhalten kein „Server-Erster“",
    "d": "Begleiter (Bots) können keine „Server-Erster“-Erfolge erringen und nehmen sie echten Spielern daher nie weg. Benötigt einen Server-Build vom 02.10.2026 oder neuer."
+  },
+  "Rate.Creature.Normal.SpellDamage": {
+   "t": "Normale Kreaturen — Zauberschaden",
+   "d": "Multiplikator: Normale Kreaturen — Zauberschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.Elite.Damage": {
+   "t": "Elite-Kreaturen — Nahkampfschaden",
+   "d": "Multiplikator: Elite-Kreaturen — Nahkampfschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.Elite.SpellDamage": {
+   "t": "Elite-Kreaturen — Zauberschaden",
+   "d": "Multiplikator: Elite-Kreaturen — Zauberschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.Elite.HP": {
+   "t": "Elite-Kreaturen — Gesundheit",
+   "d": "Multiplikator: Elite-Kreaturen — Gesundheit. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.RARE.Damage": {
+   "t": "Seltene Kreaturen — Nahkampfschaden",
+   "d": "Multiplikator: Seltene Kreaturen — Nahkampfschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.RARE.SpellDamage": {
+   "t": "Seltene Kreaturen — Zauberschaden",
+   "d": "Multiplikator: Seltene Kreaturen — Zauberschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.RARE.HP": {
+   "t": "Seltene Kreaturen — Gesundheit",
+   "d": "Multiplikator: Seltene Kreaturen — Gesundheit. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.RAREELITE.Damage": {
+   "t": "Seltene Elite-Kreaturen — Nahkampfschaden",
+   "d": "Multiplikator: Seltene Elite-Kreaturen — Nahkampfschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.RAREELITE.SpellDamage": {
+   "t": "Seltene Elite-Kreaturen — Zauberschaden",
+   "d": "Multiplikator: Seltene Elite-Kreaturen — Zauberschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.RAREELITE.HP": {
+   "t": "Seltene Elite-Kreaturen — Gesundheit",
+   "d": "Multiplikator: Seltene Elite-Kreaturen — Gesundheit. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.Damage": {
+   "t": "Weltbosse — Nahkampfschaden",
+   "d": "Multiplikator: Weltbosse — Nahkampfschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.SpellDamage": {
+   "t": "Weltbosse — Zauberschaden",
+   "d": "Multiplikator: Weltbosse — Zauberschaden. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.HP": {
+   "t": "Weltbosse — Gesundheit",
+   "d": "Multiplikator: Weltbosse — Gesundheit. 1 ist der normale Wert. Neustart des Weltservers erforderlich."
   }
  },
  "options": {
