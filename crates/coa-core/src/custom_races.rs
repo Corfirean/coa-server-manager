@@ -14,7 +14,7 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "1.7";
+pub const CLIENT_VERSION: &str = "1.8";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
 pub const ARCHIVES: &[(&str, &str)] = &[
     (
@@ -30,8 +30,8 @@ pub const ARCHIVES: &[(&str, &str)] = &[
         "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-client-part2.zip",
     ),
     (
-        "CoA-Custom-1.7-client.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.7/CoA-Custom-1.7-client.zip",
+        "CoA-Custom-1.8-Client.zip",
+        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8/CoA-Custom-1.8-Client.zip",
     ),
 ];
 
@@ -61,6 +61,12 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZZU.MPQ",
     "patch-ZZV.MPQ",
     "patch-ZZW.MPQ",
+    "patch-ZZZ.MPQ",
+];
+
+pub const RACE_ADDONS: &[&str] = &[
+    "CoAWC2Cursor/CoAWC2Cursor.lua",
+    "CoAWC2Cursor/CoAWC2Cursor.toc",
 ];
 
 pub const EXCLUDED_BOT_RACES_RECOMMENDED: &str =
@@ -171,7 +177,7 @@ struct PatchFile {
 
 fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
     let manifest = fs::read_to_string(client.join(MANIFEST_FILENAME)).unwrap_or_default();
-    let hashes = if manifest.lines().any(|line| line == "# CoA Custom 1.5") { include_str!("custom_races_hashes_1_5.json") } else if manifest.lines().any(|line| line == "# CoA Custom 1.6") { include_str!("custom_races_hashes_1_6.json") } else { include_str!("custom_races_hashes.json") };
+    let hashes = if manifest.lines().any(|line| line == "# CoA Custom 1.5") { include_str!("custom_races_hashes_1_5.json") } else if manifest.lines().any(|line| line == "# CoA Custom 1.6") { include_str!("custom_races_hashes_1_6.json") } else if manifest.lines().any(|line| line == "# CoA Custom 1.7") { include_str!("custom_races_hashes_1_7.json") } else { include_str!("custom_races_hashes.json") };
     let bundled: std::collections::BTreeMap<String, String> = serde_json::from_str(hashes)?;
     let mut files = std::collections::BTreeMap::new();
     for line in manifest.lines() {
@@ -181,6 +187,8 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
         } else if let Some(name) = line.strip_prefix("ROOT:") {
             if name.contains(['/', '\\']) { return Err(Error::Invalid("Invalid custom races patch manifest.".into())); }
             Some(name.to_string())
+        } else if let Some(name) = line.strip_prefix("ADDON:") {
+            Some(format!("Interface/AddOns/{name}"))
         } else { None };
         if let Some(path) = path {
             fsx::safe_join(client, &path)?;
@@ -374,7 +382,7 @@ fn verify_archive(path: &Path, filename: &str) -> Result<()> {
         "CoA-Custom-1.6-main-20261012-4dd3a4ec.zip" => "dfe802ea70047c129ac2e0aaa557bab3110e3cc6926d36403b8c880a0e310ee4",
         "CoA-Custom-1.6-client-part1.zip" => "1dbf1901ad5be61eba66973609df90712ffc78ef9e9b2c8549a5f3e36332bf12",
         "CoA-Custom-1.6-client-part2.zip" => "689f7f946b4180fe977dabedc7cfe642e3e7f27431600c64c4dd5b7960b1bc66",
-        "CoA-Custom-1.7-client.zip" => "ad389ef486f44f269445f80807b25b214c39fc5d21272b5708bfeac8b1efefa0",
+        "CoA-Custom-1.8-Client.zip" => "b0ee9275a373e4024dda7744321d02b686fb1c703603ad635b32bfb6ed9b48aa",
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
     if fsx::sha256_file(path)? != expected {
@@ -582,6 +590,14 @@ pub fn install_client_patches(
                     if disabled.is_file() { fs::remove_file(disabled)?; }
                     installed_roots.push(base);
                 }
+            } else if let Some(relative) = zname_norm.split("files/addons/").nth(1) {
+                if !RACE_ADDONS.contains(&relative) { continue; }
+                let relative = format!("Interface/AddOns/{relative}");
+                let dest = fsx::safe_join(staging.path(), &relative)?;
+                fs::create_dir_all(dest.parent().ok_or_else(|| Error::Invalid("Addon file has no directory.".into()))?)?;
+                let mut out = File::create(&dest)?;
+                io::copy(&mut zfile, &mut out)?;
+                installed_roots.push(relative);
             } else if zname_norm.contains("files/client_root/") {
                 let base = Path::new(&zname_norm)
                     .file_name()
@@ -618,7 +634,11 @@ pub fn install_client_patches(
     }
     manifest_body.push_str("# Custom Race root files\n");
     for r in &installed_roots {
-        manifest_body.push_str(&format!("ROOT:{r}\n"));
+        if let Some(relative) = r.strip_prefix("Interface/AddOns/") {
+            manifest_body.push_str(&format!("ADDON:{relative}\n"));
+        } else {
+            manifest_body.push_str(&format!("ROOT:{r}\n"));
+        }
     }
 
     let bundled: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes.json"))?;
@@ -690,6 +710,7 @@ mod tests {
                 if entry.is_dir() { continue; }
                 let relative = if let Some(name) = name.split("files/client_root/").nth(1) { name.to_string() }
                     else if let Some(name) = name.split("files/client/").nth(1) { if name == "dinput8.dll" { name.to_string() } else { format!("Data/{name}") } }
+                    else if let Some(name) = name.split("files/addons/").nth(1) { if !RACE_ADDONS.contains(&name) { continue; } format!("Interface/AddOns/{name}") }
                     else { continue };
                 let mut hash = Sha256::new();
                 let mut buffer = vec![0; 1024 * 1024];
@@ -725,6 +746,21 @@ mod tests {
         assert_ne!(legacy["Data/patch-T.MPQ"], current["Data/patch-T.MPQ"]);
         assert!(!files.iter().any(|file| file.path == "Data/patch-ZZW.MPQ"));
         assert!(legacy.keys().all(|key| current.contains_key(key)));
+    }
+
+    #[test]
+    fn previous_racial_release_keeps_its_hashes_and_addon_paths_stay_inside_client() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.7\n").unwrap();
+        let legacy: std::collections::BTreeMap<String, String> = serde_json::from_str(include_str!("custom_races_hashes_1_7.json")).unwrap();
+        let files = patch_files(temp.path()).unwrap();
+        assert_eq!(files.len(), legacy.len());
+        assert_eq!(files.iter().find(|file| file.path == "Data/patch-ZZW.MPQ").unwrap().sha256, legacy["Data/patch-ZZW.MPQ"]);
+        assert!(!files.iter().any(|file| file.path == "Data/patch-ZZZ.MPQ"));
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.8\nADDON:CoAWC2Cursor/CoAWC2Cursor.lua\n").unwrap();
+        assert_eq!(patch_files(temp.path()).unwrap()[0].path, "Interface/AddOns/CoAWC2Cursor/CoAWC2Cursor.lua");
+        fs::write(temp.path().join(MANIFEST_FILENAME), "ADDON:../../../outside\n").unwrap();
+        assert!(patch_files(temp.path()).is_err());
     }
 
     #[test]
