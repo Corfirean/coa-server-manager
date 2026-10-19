@@ -392,7 +392,14 @@ pub fn redact(text: &str) -> String {
     let mut out = Vec::new();
     for line in text.lines() {
         let l = line.to_lowercase();
-        let sensitive = SENSITIVE.iter().any(|k| l.contains(k));
+        let sensitive = SENSITIVE.iter().any(|k| {
+            if *k == "pin" {
+                l.match_indices("pin")
+                    .any(|(at, _)| at == 0 || !l.as_bytes()[at - 1].is_ascii_alphanumeric())
+            } else {
+                l.contains(k)
+            }
+        });
         out.push(if sensitive {
             "[line removed: may contain a secret]".to_string()
         } else {
@@ -1032,6 +1039,17 @@ real error
         let t = redact("normal line\nLoginDatabaseInfo = \"127.0.0.1;3307;acore;PASS;db\"\nRa.Password=abc\nother");
         assert!(t.contains("normal line") && t.contains("other"));
         assert!(!t.contains("PASS") && !t.contains("abc"));
+    }
+
+    #[test]
+    fn stop_diagnostics_survive_while_portable_pins_remain_hidden() {
+        let ordinary = "MySQL is still stopping; wait before copying the repack.";
+        assert_eq!(redact(ordinary), ordinary);
+        for secret in ["PIN: 123456", "pin=123456", "transfer_pin=123456", "PIN123456"] {
+            let output = redact(&format!("{ordinary}\n{secret}"));
+            assert!(output.contains(ordinary));
+            assert!(!output.contains("123456"));
+        }
     }
 
     #[test]
