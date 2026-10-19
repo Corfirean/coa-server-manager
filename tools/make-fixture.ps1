@@ -4,7 +4,8 @@ param(
     [string]$Source = 'C:\games\CoA-Repack',
     [string]$Target = 'C:\games\coa-fixture',
     [int]$PortBase = 13000,
-    [string]$DatabaseArchive = ''
+    [string]$DatabaseArchive = '',
+    [switch]$CopyData
 )
 $ErrorActionPreference = 'Stop'
 if ((Resolve-Path $Source).Path -eq $Target) { throw 'source and target are the same' }
@@ -32,7 +33,8 @@ if (-not $DatabaseArchive) { $DatabaseArchive = "$Source\mysql\data.7z" }
 & 'C:\Program Files\7-Zip\7z.exe' x $DatabaseArchive "-o$Target\mysql" -y | Out-Null
 if (-not (Test-Path "$Target\mysql\data\acore_characters")) { throw 'database extraction failed' }
 
-New-Item -ItemType Junction -Path "$Target\Data" -Target "$Source\Data" | Out-Null
+if ($CopyData) { Copy-Tree 'Data' }
+else { New-Item -ItemType Junction -Path "$Target\Data" -Target "$Source\Data" | Out-Null }
 
 $ports = @{ mysqlPort = $PortBase + 307; authPort = $PortBase + 724; worldPort = $PortBase + 85; raPort = $PortBase + 443 }
 $cfg = Get-Content "$Target\Settings\repack.json" -Raw | ConvertFrom-Json

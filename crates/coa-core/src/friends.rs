@@ -93,6 +93,9 @@ fn bind_targets(root: &Path) -> Vec<PathBuf> {
 
 /// Whether the configuration currently lets other computers reach the login and world servers.
 pub fn bind_is_open(root: &Path) -> bool {
+    if crate::docker::is_docker(root) {
+        return crate::docker::bind_is_open(root);
+    }
     let files = bind_targets(root);
     !files.is_empty()
         && files.iter().all(|p| {
@@ -107,6 +110,9 @@ pub fn bind_is_open(root: &Path) -> bool {
 /// Open (`0.0.0.0`) or close (`127.0.0.1`) the login and world servers to other computers. The database and the server
 /// console are never touched. Returns true if anything changed (a restart is then needed). The old files are snapshotted.
 pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
+    if crate::docker::is_docker(root) {
+        return crate::docker::set_open(root, meta, open);
+    }
     let want = if open { "\"0.0.0.0\"" } else { "\"127.0.0.1\"" };
     let mut originals = Vec::new();
     let mut edits = Vec::new();
@@ -155,7 +161,8 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
     Ok(true)
 }
 
-/// Make the realm list advertise `host` (the launcher resets it to 127.0.0.1 at every start, so this runs after each start).
+/// Make the realm list advertise `host` to remote clients (the launcher resets it to 127.0.0.1 at every start, so this
+/// runs after each start).
 pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     if !host_ok(host) {
         return Err(Error::Invalid("That address is not valid.".into()));
@@ -167,7 +174,9 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     } else {
         format!("id={realm}")
     };
-    db.query(&format!("UPDATE acore_auth.realmlist SET address='{host}', localAddress='{host}' WHERE {where_realms};"))?;
+    db.query(&format!(
+        "UPDATE acore_auth.realmlist SET address='{host}' WHERE {where_realms};"
+    ))?;
     Ok(())
 }
 

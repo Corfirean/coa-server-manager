@@ -7,3 +7,5 @@ src-tauri/gen
 
 # standalone service workspaces build into their own target folders
 services/*/target/
+# Disposable database fixtures and private recovery data
+.cache/

@@ -10,6 +10,7 @@
 pub mod accounts;
 pub mod allsettings;
 pub mod backup;
+pub mod channels;
 pub mod cleanbase;
 pub mod client;
 pub mod clientdl;
@@ -38,6 +39,7 @@ pub mod manifest;
 pub mod migrations;
 pub mod modules;
 pub mod multiworld;
+mod mysql_snapshot;
 pub mod net;
 pub mod package;
 pub mod pkgsource;
@@ -60,6 +62,8 @@ pub mod signing;
 pub mod squid;
 pub mod srp6;
 pub mod update;
+mod update_isolation;
+pub mod update_route;
 pub mod upnp;
 pub mod wine;
 

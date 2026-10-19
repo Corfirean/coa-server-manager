@@ -7,6 +7,7 @@ import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
+import { GameDataCard } from "@/screens/GameDataCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
 import { RemoveServerCard } from "@/screens/RemoveServerCard";
@@ -175,6 +176,8 @@ export function SettingsHome({ serverId, serverName = "", path, onForget }: { se
       <RealmStartupSettings serverId={serverId} />
       <AutoRestartSettings serverId={serverId} />
 
+      <GameDataCard serverId={serverId} />
+
       <DiagnosticsCard serverId={serverId} />
       <RepairCard key={serverId} serverId={serverId} />
       <PublishCard key={`publish-${serverId}`} serverId={serverId} serverName={serverName} />
@@ -233,6 +236,7 @@ export function SettingsHome({ serverId, serverName = "", path, onForget }: { se
             <p className="font-medium">
               {preview.from_version ? t("upd.availableFrom", { to: preview.to_version, from: preview.from_version }) : t("upd.available", { to: preview.to_version })}
             </p>
+            {preview.latest_version && <p className="mt-1 text-sm text-warn" role="status">{t("upd.intermediate", { to: preview.to_version, latest: preview.latest_version })}</p>}
             <p className="mt-1 text-sm text-muted">
               {!preview.database_check_error && (preview.pending_migrations ?? preview.migrations) > 0
                 ? t("upd.summaryDb", { size: mb(preview.download_bytes), files: preview.items.filter((i) => i.action !== "skip").length, db: preview.pending_migrations ?? preview.migrations })

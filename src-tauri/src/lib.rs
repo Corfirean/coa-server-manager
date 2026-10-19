@@ -256,14 +256,18 @@ async fn portable_launch(
 const DEFAULT_UPDATE_URL: &str =
     "https://github.com/Corfirean/coa-server-build/releases/download/stable";
 
-fn update_source(custom: Option<String>) -> Source {
+fn update_source(custom: Option<String>) -> Result<Source> {
     let pick = custom
         .filter(|s| !s.trim().is_empty())
         .or_else(|| std::env::var("COA_UPDATE_SOURCE").ok());
     match pick {
-        Some(p) if p.to_ascii_lowercase().starts_with("http") => Source::Url(p),
-        Some(p) => Source::Dir(PathBuf::from(p)),
-        None => Source::Url(DEFAULT_UPDATE_URL.into()),
+        Some(p) if p.to_ascii_lowercase().starts_with("http") => Ok(Source::Url(p)),
+        Some(p) => Ok(Source::Dir(PathBuf::from(p))),
+        None => match coa_core::channels::resolve("stable") {
+            Ok(source) => Ok(source),
+            Err(Error::PackageNotPublished(_)) => Ok(Source::Url(DEFAULT_UPDATE_URL.into())),
+            Err(error) => Err(error),
+        },
     }
 }
 
@@ -279,6 +283,18 @@ fn package_source(custom: Option<String>) -> Source {
         Some(p) => Source::Dir(PathBuf::from(p)),
         None => Source::Url(DEFAULT_PACKAGE_URL.into()),
     }
+}
+
+fn installation_source(custom: Option<String>) -> Result<Source> {
+    let custom = custom.filter(|value| !value.trim().is_empty()).or_else(|| {
+        std::env::var("COA_PACKAGE_SOURCE")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+    });
+    if custom.is_some() {
+        return Ok(package_source(custom));
+    }
+    Ok(Source::Installation(Box::new(update_source(None)?)))
 }
 
 #[derive(Serialize)]
@@ -344,6 +360,44 @@ fn summary(id: String, path: PathBuf) -> ServerSummary {
     }
 }
 
+/// The game data folder of a Docker server; none for a repack, whose data is inside its own folder.
+#[tauri::command]
+fn game_data_folder(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Option<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    if !coa_core::docker::is_docker(&root) {
+        return Ok(None);
+    }
+    Ok(Some(
+        coa_core::docker::game_data_dir(&root)?
+            .to_string_lossy()
+            .into_owned(),
+    ))
+}
+
+/// Point a Docker server at another game data folder. The servers must be stopped.
+#[tauri::command]
+async fn set_game_data_folder(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        if !coa_core::docker::is_docker(&root) {
+            return Err(Error::Invalid(
+                "The game data of this server is inside its folder.".into(),
+            ));
+        }
+        coa_core::docker::set_game_data(&root, std::path::Path::new(&path))?;
+        Ok(path)
+    })
+    .await
+}
+
 #[tauri::command]
 fn default_install_dir() -> String {
     if platform::flavor() == Flavor::Docker {
@@ -402,9 +456,15 @@ async fn add_server(
     meta.core.version = report.banner_revision.clone();
     meta.database.port = Some(report.ports.mysql);
     meta.database.schemas = report.database_schemas.clone();
+    // The executables are `worldserver.exe` in a repack and `worldserver` in a Docker server; the file check reads these names.
+    let exe_names = if coa_core::docker::is_docker(std::path::Path::new(&report.path)) {
+        ("Core/worldserver", "Core/authserver")
+    } else {
+        ("Core/worldserver.exe", "Core/authserver.exe")
+    };
     for (rel, exe) in [
-        ("Core/worldserver.exe", &report.worldserver),
-        ("Core/authserver.exe", &report.authserver),
+        (exe_names.0, &report.worldserver),
+        (exe_names.1, &report.authserver),
     ] {
         if let Some(e) = exe {
             meta.original_hashes.insert(rel.into(), e.sha256.clone());
@@ -885,7 +945,7 @@ async fn install_requirements(
     }
     blocking(move || {
         let (m, _) = coa_core::pkgsource::fetch_manifest(
-            &package_source(package),
+            &installation_source(package)?,
             coa_core::signing::EMBEDDED_PUBLIC_KEY,
         )?;
         let archive = m
@@ -916,10 +976,10 @@ async fn install_new(
         .install_cancel
         .lock()
         .map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
-    let source = package_source(package);
     let registry = Registry::at(data_dir().join("installs.json"));
     let dest_path = PathBuf::from(dest);
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let source = installation_source(package)?;
         install::install_base(
             &install::Params {
                 source,
@@ -1133,7 +1193,7 @@ async fn repair_server(
             &root,
             &dir,
             &package_source(None),
-            &update_source(None),
+            &update_source(None)?,
             coa_core::signing::EMBEDDED_PUBLIC_KEY,
             &|step, percent| {
                 let _ = app.emit(
@@ -1167,9 +1227,9 @@ async fn custom_races_status(
     state: State<'_, AppState>,
     id: String,
 ) -> std::result::Result<Option<coa_core::custom_races::ClientPatchStatus>, UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     blocking(move || {
-        let client = linked_client(&root)?;
+        let client = ctx.linked();
         Ok(client
             .as_deref()
             .map(coa_core::custom_races::client_patch_status))
@@ -1183,13 +1243,12 @@ async fn custom_races_install(
     state: State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), UiError> {
-    let root = path_of(&state, &id)?;
+    let ctx = client_context(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     let cancel = begin_client_job(&state)?;
     let sid = id.clone();
     let result = blocking(move || {
-        let client = linked_client(&root)?
-            .ok_or_else(|| Error::Invalid("No game client is linked to this server.".into()))?;
+        let client = ctx.require()?;
         coa_core::custom_races::install_client_patches(&client, &cancel, &|step, percent| {
             let _ = app.emit(
                 "custom-races-progress",
@@ -1200,14 +1259,26 @@ async fn custom_races_install(
                 }),
             );
         })?;
-        let enabled = coa_core::modules::list(&root)
-            .iter()
-            .any(|module| module.id == "custom-races" && module.enabled);
+        let enabled = ctx.root.as_ref().map_or(true, |root| {
+            coa_core::modules::list(root)
+                .iter()
+                .any(|module| module.id == "custom-races" && module.enabled)
+        });
         coa_core::custom_races::set_client_patch_enabled(&client, enabled)
     })
     .await;
     end_client_job(&state);
     result
+}
+
+#[tauri::command]
+async fn custom_races_uninstall(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), UiError> {
+    let ctx = client_context(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::custom_races::uninstall_client_patches(&ctx.require()?)).await
 }
 
 #[tauri::command]
@@ -1361,7 +1432,7 @@ async fn check_update(
     background: Option<bool>,
 ) -> std::result::Result<update::Preview, UiError> {
     let root = path_of(&state, &id)?;
-    let src = update_source(source);
+
     // The check that repeats every few minutes must not start and stop the database of a stopped server.
     let access = if background.unwrap_or(false) {
         update::DatabaseAccess::OnlyIfRunning
@@ -1370,14 +1441,21 @@ async fn check_update(
     };
     blocking(move || {
         let (_, meta) = install_meta(&root)?;
-        update::preview_with(
+        let selection = coa_core::update_route::select(
+            &meta,
+            update_source(source)?,
+            coa_core::signing::EMBEDDED_PUBLIC_KEY,
+        )?;
+        let mut preview = update::preview_with(
             &root,
             &meta,
-            &src,
+            &selection.source,
             coa_core::signing::EMBEDDED_PUBLIC_KEY,
             &Default::default(),
             access,
-        )
+        )?;
+        preview.latest_version = selection.latest_version;
+        Ok(preview)
     })
     .await
 }
@@ -1400,10 +1478,19 @@ async fn apply_update(
     resolutions: BTreeMap<String, Resolution>,
 ) -> std::result::Result<update::Outcome, UiError> {
     let root = path_of(&state, &id)?;
-    let src = update_source(source);
+
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
-        let (dir, _) = install_meta(&root)?;
+        let (dir, meta) = install_meta(&root)?;
+        let src = coa_core::update_route::select(
+            &meta,
+            update_source(source)?,
+            coa_core::signing::EMBEDDED_PUBLIC_KEY,
+        )?
+        .source;
+        let (manifest, _) =
+            coa_core::pkgsource::fetch_manifest(&src, coa_core::signing::EMBEDDED_PUBLIC_KEY)?;
+        update::validate_candidate(&meta, &manifest)?;
         // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
         let observed = coa_core::process::observe(&root, &layout::read_ports(&root));
         if observed.world.state != coa_core::process::ServiceState::Stopped
@@ -2229,7 +2316,7 @@ struct FriendsStatus {
     exposure: Vec<coa_core::net::Exposure>,
     /// The configuration lets other computers reach the login and world servers.
     servers_open: bool,
-    firewall: coa_core::firewall::Status,
+    firewall: Option<coa_core::firewall::Status>,
     tailscale: coa_core::net::Tailscale,
     server_running: bool,
     auth_port: u16,
@@ -2284,7 +2371,23 @@ fn report_targets() -> Vec<coa_core::report::Target> {
     coa_core::report::targets()
 }
 
+/// The distribution on Linux ("Linux (Arch Linux)"), from `/etc/os-release`; empty if it cannot be read.
+#[cfg(not(windows))]
+fn windows_version() -> String {
+    std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|t| {
+            t.lines().find_map(|l| {
+                l.strip_prefix("PRETTY_NAME=")
+                    .map(|v| v.trim_matches('"').to_string())
+            })
+        })
+        .map(|name| format!("Linux ({name})"))
+        .unwrap_or_default()
+}
+
 /// "Windows 11 (build 26200)" from `ver`; empty if it cannot be read.
+#[cfg(windows)]
 fn windows_version() -> String {
     let mut cmd = std::process::Command::new("cmd.exe");
     cmd.args(["/C", "ver"]);
@@ -2366,9 +2469,14 @@ async fn friends_status(
             settings: coa_core::friends::load(&meta),
             lan_ip: automatic.map(|a| a.to_string()),
             lan_addresses: coa_core::net::lan_addresses(automatic).unwrap_or_default(),
-            exposure: coa_core::net::exposure(&ports),
+            exposure: if coa_core::docker::is_docker(&root) {
+                coa_core::docker::exposure(&root, &ports)
+            } else {
+                coa_core::net::exposure(&ports)
+            },
             servers_open: coa_core::friends::bind_is_open(&root),
-            firewall: coa_core::firewall::status(),
+            // The Windows firewall exists only on Windows; on Linux Docker publishes the ports itself.
+            firewall: (platform::flavor() == Flavor::Repack).then(coa_core::firewall::status),
             tailscale: coa_core::net::tailscale(),
             server_running: coa_core::process::observe(&root, &ports).world.state
                 == coa_core::process::ServiceState::Running,
@@ -2443,7 +2551,7 @@ async fn friends_enable(
         };
         let open = mode != Mode::Local;
         let changed = friends::set_open(&root, &meta, open)?;
-        if open {
+        if open && platform::flavor() == Flavor::Repack {
             coa_core::firewall::ensure_rules_with_secondary(&ports, secondary)?;
         }
         if mode == Mode::Direct && use_upnp {
@@ -2481,10 +2589,14 @@ async fn friends_package(
         let host = coa_core::friends::load(&meta)
             .host
             .ok_or_else(|| Error::Invalid("Choose how friends connect first.".into()))?;
-        let desktop = std::env::var_os("USERPROFILE")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir)
-            .join("Desktop");
+        let desktop = if platform::flavor() == Flavor::Docker {
+            coa_core::diag::desktop_or_temp()
+        } else {
+            std::env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join("Desktop")
+        };
         let out = if desktop.is_dir() {
             desktop
         } else {
@@ -2569,6 +2681,16 @@ async fn console_tail(
 ) -> std::result::Result<Vec<coa_core::console::Line>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
+        // A Docker server's database writes to its container's output, not to a file.
+        if coa_core::docker::is_docker(&root)
+            && matches!(source, coa_core::console::Source::Database)
+        {
+            return coa_core::docker::logs::database_log(
+                &root,
+                filter.as_deref(),
+                lines.unwrap_or(300).min(2000),
+            );
+        }
         let path = coa_core::console::log_path(
             &root,
             &data_dir().join("logs").join("manager.log"),
@@ -2630,6 +2752,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
+            game_data_folder,
+            set_game_data_folder,
             install_environment,
             scan_server,
             add_server,
@@ -2724,6 +2848,7 @@ pub fn run() {
             console_command,
             custom_races_status,
             custom_races_install,
+            custom_races_uninstall,
             custom_races_toggle_client,
             portable_state,
             portable_preflight,

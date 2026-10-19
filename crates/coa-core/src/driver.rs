@@ -110,7 +110,12 @@ fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
 
 /// Run a launcher verb to completion (blocking; call from a worker thread).
 pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
-    run_inner(root, verb, false)
+    tracing::info!(?verb, root = %root.display(), "driver: launcher requested");
+    let result = run_inner(root, verb, false);
+    if let Err(error) = &result {
+        tracing::warn!(?verb, root = %root.display(), %error, "driver: launcher request failed before completion");
+    }
+    result
 }
 
 pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
@@ -120,8 +125,10 @@ pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
 fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
     let _update_lock = if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
-        Some(crate::update::operation_lock(
+        Some(crate::update::operation_lock_for(
             &crate::registry::metadata_dir_for(&root)?,
+            "starting server",
+            true,
         )?)
     } else {
         None
@@ -176,6 +183,9 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         }
     }
     discard_damaged_launcher_state(&root);
+    if matches!(verb, Verb::StopAll | Verb::StartMysql | Verb::StartAll) {
+        recover_mysql_launcher_state(&root, verb != Verb::StopAll)?;
+    }
     let mut cmd = Command::new(&python);
     cmd.arg("-B")
         .arg("-c")
@@ -219,7 +229,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     };
     let mut output = out_t.join().unwrap_or_default();
     output.push_str(&err_t.join().unwrap_or_default());
-    let output = output.trim().to_string();
+    let mut output = output.trim().to_string();
     let (ok, exit_code) = match status {
         Some(st) => (st.success(), st.code()),
         None => (false, None),
@@ -240,6 +250,22 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
             other => Some(other),
         }
     };
+    if code == Some(ErrorCode::PortInUse) {
+        let observed = crate::process::observe(&root, &crate::layout::read_ports(&root));
+        for service in [&observed.mysql, &observed.auth, &observed.world]
+            .into_iter()
+            .chain(observed.secondary_world.iter())
+        {
+            if let Some(conflict) = &service.conflict {
+                output.push_str(&format!(
+                    "\nPort {} is used by process {} ({}).",
+                    conflict.port,
+                    conflict.pid,
+                    conflict.exe.as_deref().unwrap_or("executable unavailable")
+                ));
+            }
+        }
+    }
     tracing::info!(?verb, ok, ?code, "driver: launcher verb finished");
     if !ok && !output.is_empty() {
         let redacted = crate::diag::redact(&output);
@@ -317,7 +343,57 @@ pub(crate) fn discard_damaged_launcher_state(root: &Path) -> Vec<PathBuf> {
     removed
 }
 
-const LAUNCH_SCRIPT: &str = "import runpy,sys;from pathlib import Path;script=sys.argv[1];sys.path.insert(0,str(Path(script).resolve().parent));sys.argv=sys.argv[1:];runpy.run_path(script,run_name='__main__')";
+/// A lost launcher record must not hide this installation's running MySQL from
+/// graceful shutdown. Adopt only the exact executable owning its configured port.
+fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()> {
+    let observed = crate::process::observe(root, &crate::layout::read_ports(root));
+    if observed.mysql.state != crate::process::ServiceState::Running || !observed.mysql.port_ready {
+        return Ok(());
+    }
+    let Some(pid) = observed.mysql.pid else {
+        return Ok(());
+    };
+    let Some(identity) = crate::process::identity(pid) else {
+        return Ok(());
+    };
+    let (_, _, executable) = crate::layout::executables(root);
+    if !crate::process::find_by_exe(&executable)
+        .iter()
+        .any(|candidate| candidate.same_as(&identity))
+        || !crate::process::listeners().contains(&(observed.mysql.port, pid))
+    {
+        return Ok(());
+    }
+    if let Some(saved) = crate::process::read_state_record(root, "mysql") {
+        if saved.same_as(&identity) {
+            return Ok(());
+        }
+        if crate::process::is_alive(&saved) {
+            // A valid record may describe the MySQL supervisor rather than its
+            // listening child. The launcher can gracefully stop either record.
+            if crate::process::find_by_exe(&executable)
+                .iter()
+                .any(|candidate| candidate.same_as(&saved))
+            {
+                if !prefer_listener {
+                    return Ok(());
+                }
+            } else {
+                return Err(Error::Invalid("The MySQL launcher record identifies a different live process. No database action was requested.".into()));
+            }
+        }
+    }
+    let state = root.join(".state/mysql.json");
+    let previous = root.join(".state/mysql-before-shutdown-recovery.json");
+    if state.is_file() && !previous.exists() {
+        fsx::atomic_write(&previous, &std::fs::read(&state)?)?;
+    }
+    fsx::atomic_write_json(&state, &identity)?;
+    tracing::warn!(pid, root = %root.display(), "Recovered MySQL launcher identity from the installed executable owning its port");
+    Ok(())
+}
+
+const LAUNCH_SCRIPT: &str = "import runpy,sys\nfrom pathlib import Path\nscript=sys.argv[1]\nsys.path.insert(0,str(Path(script).resolve().parent))\nsys.argv=sys.argv[1:]\nif sys.argv[1]=='stop-all':\n    launcher=runpy.run_path(script,run_name='coa_manager_shutdown')\n    config=launcher['settings']()\n    with launcher['control_lock']():\n        launcher['stop_all'](config)\nelse:\n    runpy.run_path(script,run_name='__main__')";
 
 pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
     let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
@@ -381,19 +457,99 @@ pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
         .unwrap_or("The server did not become ready");
     let output = crate::diag::redact(&started.output);
     let lines: Vec<_> = output.lines().rev().take(12).collect();
-    if lines.is_empty() {
+    let mut reason = if lines.is_empty() {
         title.into()
     } else {
         format!(
             "{title}\n{}",
             lines.into_iter().rev().collect::<Vec<_>>().join("\n")
         )
+    };
+    for relative in [
+        "Core/Logs/world-console.log",
+        "Core/Logs/auth-console.log",
+        "mysql/logs/mysql-error.log",
+    ] {
+        let tail = crate::health::tail(&root.join(relative), 64 * 1024);
+        let failures: Vec<_> = tail
+            .lines()
+            .filter(|line| {
+                let lower = line.to_ascii_lowercase();
+                crate::health::diagnose(line).is_some()
+                    || lower.contains("fatal")
+                    || lower.contains("error")
+                    || lower.contains("aborting")
+            })
+            .rev()
+            .take(8)
+            .collect();
+        if !failures.is_empty() {
+            reason.push_str(&format!(
+                "\n{relative}:\n{}",
+                crate::diag::redact(&failures.into_iter().rev().collect::<Vec<_>>().join("\n"))
+            ));
+        }
     }
+    reason
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn shutdown_recovery_never_adopts_a_foreign_port_listener() {
+        let root = tempfile::tempdir().unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        fsx::atomic_write_json(
+            &root.path().join("Settings/repack.json"),
+            &serde_json::json!({"mysqlPort":listener.local_addr().unwrap().port()}),
+        )
+        .unwrap();
+        recover_mysql_launcher_state(root.path(), false).unwrap();
+        recover_mysql_launcher_state(root.path(), true).unwrap();
+        assert!(!root.path().join(".state/mysql.json").exists());
+        assert!(crate::process::identity(std::process::id()).is_some());
+    }
+
+    #[test]
+    fn a_blocked_start_is_logged_before_any_launcher_is_spawned() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        struct Capture(Arc<Mutex<Vec<u8>>>);
+        impl Write for Capture {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        std::fs::create_dir(&root).unwrap();
+        let metadata = crate::registry::metadata_dir_for(&root).unwrap();
+        let _maintenance = crate::update::operation_lock(&metadata).unwrap();
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer = Arc::clone(&buffer);
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || Capture(Arc::clone(&writer)))
+            .finish();
+        let error = tracing::subscriber::with_default(subscriber, || run(&root, Verb::StartAll))
+            .unwrap_err();
+        assert!(error.to_string().contains("in progress"));
+        let text = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
+        assert!(text.contains("launcher requested") && text.contains("StartAll"));
+        assert!(
+            text.contains("launcher request failed before completion")
+                && text.contains("in progress")
+        );
+        assert!(!text.contains("starting launcher verb"));
+    }
 
     #[test]
     fn background_start_disables_cli_in_template_and_rendered_config() {
@@ -522,6 +678,24 @@ mod tests {
     fn refuses_folder_without_launcher() {
         let dir = tempfile::tempdir().unwrap();
         assert!(run(dir.path(), Verb::StartAll).is_err());
+    }
+
+    #[test]
+    fn startup_failure_reports_late_world_errors_after_launcher_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Core/Logs")).unwrap();
+        std::fs::write(dir.path().join("Core/Logs/world-console.log"), "ERROR [1146] Table 'acore_characters.playerbots_names' doesn't exist\nFATAL Could not prepare statements\n").unwrap();
+        let started = DriverOutcome {
+            ok: true,
+            code: None,
+            exit_code: Some(0),
+            human: None,
+            output: "Worldserver and automatic bug reporting are ready.".into(),
+        };
+        let reason = startup_failure(dir.path(), &started);
+        assert!(reason.contains("playerbots_names"));
+        assert!(reason.contains("Core/Logs/world-console.log"));
+        assert!(reason.contains("Could not prepare statements"));
     }
 
     #[test]

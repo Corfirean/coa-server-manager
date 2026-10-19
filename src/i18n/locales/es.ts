@@ -195,6 +195,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "comp.saved": "Guardado. Se crearán {n} compañeros cuando se inicie el servidor.",
 
   // Client
+  "client.races.install": "Instalar parche de razas personalizadas",
   "client.title": "Cliente del juego",
   "client.looking": "Buscando…",
   "client.intro": "Indica al Manager dónde está instalado el juego para obtener un botón JUGAR. Tus archivos del juego nunca se modifican, salvo la dirección del servidor y el addon de compañeros.",

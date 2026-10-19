@@ -1,6 +1,35 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// SQUID has its own import ledger, outside the signed package migration ledger.
+/// Keep this read-only: a pending base import can contain player data and must not
+/// be replayed or cleared merely because the normal schema contract passes.
+pub(crate) fn database_problems(root: &Path, mode: crate::realms::Mode, query: &impl Fn(&str) -> crate::Result<String>) -> crate::Result<Vec<crate::schema_check::Problem>> {
+    let active = root.join("Core/configs/modules/playerbots.conf");
+    let config = if active.is_file() { active } else { root.join("Core/configs/modules/playerbots.conf.dist") };
+    let enabled = if config.is_file() {
+        let conf = crate::config::parser::ConfFile::parse_bytes(&std::fs::read(config)?)?;
+        !matches!(conf.get("AiPlayerbot.Enabled").unwrap_or("1").trim().trim_matches('"').to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")
+    } else { false };
+    let mut problems = Vec::new();
+    for schema in [mode.schema("characters")?, mode.schema("world")?, "acore_playerbots"] {
+        let tables: std::collections::BTreeSet<_> = query(&format!("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='{schema}';"))?.lines().map(str::to_owned).collect();
+        if tables.contains("coa_squid_pending") {
+            for pending in query(&format!("SELECT path FROM `{schema}`.coa_squid_pending;"))?.lines().filter(|path| !path.is_empty()) {
+                problems.push(crate::schema_check::Problem { database: schema.into(), table: "coa_squid_pending".into(), column: String::new(), detail: format!("SQUID base import was interrupted: {pending}. File repair and package SQL updates cannot complete this import. Restore a verified database backup from before the import; do not delete the pending record or replay base SQL.") });
+            }
+        }
+        if enabled && schema == mode.schema("characters")? {
+            for table in ["playerbots_names", "playerbots_guild_names", "playerbots_arena_team_names"] {
+                if !tables.contains(table) {
+                    problems.push(crate::schema_check::Problem { database: schema.into(), table: table.into(), column: String::new(), detail: "Required SQUID character table is missing. A normal server start provisions it when no interrupted import is present; an interrupted import requires database recovery first.".into() });
+                }
+            }
+        }
+    }
+    Ok(problems)
+}
+
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Release {
     pub tag: Option<String>,
@@ -202,6 +231,33 @@ pub fn validate(field: &Field, value: &str) -> crate::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn database_check_reports_pending_squid_imports_in_each_realm_without_writes() {
+        let root = tempfile::tempdir().unwrap();
+        for mode in [crate::realms::Mode::Coa, crate::realms::Mode::Wildcard] {
+            let problems = database_problems(root.path(), mode, &|sql| {
+                assert!(sql.starts_with("SELECT "));
+                if sql.contains("information_schema.TABLES") { Ok("coa_squid_pending".into()) }
+                else { Ok("playerbots/base/ai_playerbot_texts.sql".into()) }
+            }).unwrap();
+            assert_eq!(problems.len(), 3);
+            assert_eq!(problems[0].database, mode.schema("characters").unwrap());
+            assert!(problems.iter().all(|p| p.detail.contains("interrupted")));
+        }
+    }
+
+    #[test]
+    fn enabled_squid_requires_character_tables_but_disabled_squid_does_not() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("Core/configs/modules/playerbots.conf");
+        crate::fsx::atomic_write(&config, b"AiPlayerbot.Enabled = 1\n").unwrap();
+        let query = |_: &str| Ok(String::new());
+        assert_eq!(database_problems(root.path(), crate::realms::Mode::Wildcard, &query).unwrap().len(), 3);
+        crate::fsx::atomic_write(&config, b"AiPlayerbot.Enabled = 0\n").unwrap();
+        assert!(database_problems(root.path(), crate::realms::Mode::Wildcard, &query).unwrap().is_empty());
+        crate::fsx::atomic_write(&config, b"AiPlayerbot.Enabled = 1\n").unwrap();
+        assert!(database_problems(root.path(), crate::realms::Mode::Coa, &|_| Ok("playerbots_names\nplayerbots_guild_names\nplayerbots_arena_team_names".into())).unwrap().is_empty());
+    }
     #[test]
     fn a_setting_with_choices_only_accepts_one_of_them() {
         let root = tempfile::tempdir().unwrap();

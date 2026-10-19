@@ -171,7 +171,7 @@ pub fn preflight(
     }
 }
 
-fn data_problems(data_dir: &Path) -> Vec<crate::install::Problem> {
+pub(crate) fn data_problems(data_dir: &Path) -> Vec<crate::install::Problem> {
     let s = data_dir.to_string_lossy();
     if !data_dir.is_absolute() || s.contains(':') {
         return vec![problem(

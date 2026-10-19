@@ -198,7 +198,7 @@ export function BackupsPage({ serverId }: { serverId: string }) {
             <div>
               <p className="font-medium">{p.label && p.trigger === "manual" && p.label !== "e2e" ? p.label : trigger(p.trigger)}</p>
               <p className="text-sm text-muted">
-                {w(p.created_at)} · {p.realm === "wildcard" ? "Wildcard" : "CoA"} · {t(`bk.kind.${p.kind}` as Key)} · {size(p.components.reduce((a, c) => a + c.bytes, 0))}
+                {w(p.created_at)} · {p.realm === "wildcard" ? "Wildcard" : "CoA"} · {t(`bk.kind.${p.kind}` as Key)} · {size(p.components.reduce((a, c) => a + c.bytes, p.mysql_snapshot?.bytes ?? 0))}
               </p>
             </div>
             <div className="flex shrink-0 gap-1">

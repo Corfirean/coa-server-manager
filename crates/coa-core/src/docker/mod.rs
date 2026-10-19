@@ -18,10 +18,13 @@ mod cli;
 pub mod fixture;
 pub mod install;
 mod lifecycle;
+pub mod logs;
+pub mod sharing;
 
 pub use cli::{Call, Docker, Output, SystemDocker};
 pub(crate) use lifecycle::destroy;
 pub use lifecycle::{check_docker, observe, observe_with, run, run_with};
+pub use sharing::{bind_is_open, exposure, set_open};
 
 use std::net::IpAddr;
 use std::path::Path;
@@ -170,6 +173,103 @@ pub fn ensure_main_configs(root: &Path) -> Result<Vec<String>> {
     Ok(created)
 }
 
+/// Settings the Docker backend gives the containers as environment variables. The core reads `AC_<KEY>` before the
+/// configuration file, so a value written to the file for one of these keys is silently ignored. They are what makes the
+/// containers work (where things are inside them, listening on every interface, the console, no built-in database
+/// updater, the databases); the owner has no use for them and the screens do not offer them.
+pub(crate) const FORCED_KEYS: [&str; 12] = [
+    "BindIP",
+    "WorldServerPort",
+    "RealmServerPort",
+    "LogsDir",
+    "DataDir",
+    "Updates.EnableDatabases",
+    "Ra.Enable",
+    "Ra.IP",
+    "Ra.Port",
+    "LoginDatabaseInfo",
+    "WorldDatabaseInfo",
+    "CharacterDatabaseInfo",
+];
+
+/// Is this setting fixed by the Docker backend (see `FORCED_KEYS`)?
+pub fn managed_setting(key: &str) -> bool {
+    FORCED_KEYS.iter().any(|k| k.eq_ignore_ascii_case(key))
+}
+
+/// The environment variable the core reads for a setting: `AC_` and the key in upper snake case, a `_` between a lower-case
+/// letter and a capital, and at letter / digit boundaries (the core's `IniKeyToEnvVarKey`).
+#[cfg(test)]
+pub(crate) fn env_name(key: &str) -> String {
+    let chars: Vec<char> = key.chars().collect();
+    let mut out = String::from("AC_");
+    for (i, &c) in chars.iter().enumerate() {
+        if matches!(c, ' ' | '.' | '-') {
+            out.push('_');
+            continue;
+        }
+        out.push(c.to_ascii_uppercase());
+        if let Some(&next) = chars.get(i + 1) {
+            let split = (!c.is_ascii_uppercase() && next.is_ascii_uppercase())
+                || (!c.is_ascii_digit() && next.is_ascii_digit())
+                || (c.is_ascii_digit()
+                    && !next.is_ascii_digit()
+                    && !matches!(next, ' ' | '.' | '-'));
+            if split {
+                out.push('_');
+            }
+        }
+    }
+    out
+}
+
+/// The folder mounted as the game data of this Docker server.
+pub fn game_data_dir(root: &Path) -> Result<std::path::PathBuf> {
+    Ok(Config::load(root)?.data_path(root))
+}
+
+/// Point a Docker server at another game data folder (used in place, read-only). The containers are recreated at the next
+/// start, so the servers must be stopped: a running one keeps the folder it has.
+pub fn set_game_data(root: &Path, path: &Path) -> Result<()> {
+    let problems = install::data_problems(path);
+    if !problems.is_empty() {
+        return Err(Error::Invalid(
+            problems
+                .iter()
+                .map(|p| p.message.clone())
+                .collect::<Vec<_>>()
+                .join(" "),
+        ));
+    }
+    let observed = crate::process::observe(root, &crate::layout::read_ports(root));
+    let busy = |s: &crate::process::ServiceStatus| {
+        matches!(
+            s.state,
+            crate::process::ServiceState::Running
+                | crate::process::ServiceState::Starting
+                | crate::process::ServiceState::Stopping
+        )
+    };
+    if busy(&observed.world) || busy(&observed.auth) {
+        return Err(Error::Invalid(
+            "Stop the server before changing the game data folder.".into(),
+        ));
+    }
+    let mut cfg = Config::load(root)?;
+    cfg.data_dir = Some(path.to_string_lossy().into_owned());
+    cfg.validate()?;
+    fsx::atomic_write_json(&root.join(MARKER), &cfg)
+}
+
+/// A reason a value cannot work on a Docker server, for settings that name a path: the server runs in a container that sees only
+/// its own `Core` folder (as `/srv/core`, its working directory), so a path elsewhere on this computer does not exist for it.
+pub fn setting_problem(key: &str, raw: &str) -> Option<&'static str> {
+    let raw = raw.trim().trim_matches('"');
+    let outside = Path::new(raw).is_absolute() && !raw.starts_with("/srv/core/");
+    (key.eq_ignore_ascii_case("CoaBots.TalentBuildsPath") && !raw.is_empty() && outside)
+        .then_some("must be a path inside the server's Core folder (for example reference/ascensionsidekick-level-builds.json), because the server runs in a container that cannot see other folders")
+}
+
 /// Name of the runtime image: it follows the content of its Dockerfile, so changing the libraries builds a new image.
 pub(crate) fn runtime_image() -> String {
     format!(
@@ -286,6 +386,89 @@ pub(crate) fn scan(root: &Path) -> Result<ScanReport> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_game_data_folder_can_be_changed_when_the_servers_are_stopped() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("srv");
+        std::fs::create_dir_all(root.join("Settings")).unwrap();
+        std::fs::write(
+            root.join(MARKER),
+            r#"{"project":"t1","dataDir":"/old/data"}"#,
+        )
+        .unwrap();
+        let good = d.path().join("data");
+        std::fs::create_dir_all(good.join("dbc")).unwrap();
+        std::fs::create_dir_all(good.join("maps")).unwrap();
+        assert_eq!(
+            game_data_dir(&root).unwrap(),
+            std::path::PathBuf::from("/old/data")
+        );
+        set_game_data(&root, &good).unwrap();
+        assert_eq!(game_data_dir(&root).unwrap(), good);
+        assert_eq!(
+            Config::load(&root).unwrap().project,
+            "t1",
+            "the other settings are kept"
+        );
+        // A folder that does not look like game data is refused and nothing changes.
+        let empty = d.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        assert!(set_game_data(&root, &empty).is_err());
+        assert_eq!(game_data_dir(&root).unwrap(), good);
+        assert!(set_game_data(&root, std::path::Path::new("relative/dir")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_outside_the_core_folder_is_refused_for_a_docker_server() {
+        let key = "CoaBots.TalentBuildsPath";
+        assert!(setting_problem(key, "reference/builds.json").is_none());
+        assert!(setting_problem(key, "").is_none());
+        assert!(setting_problem(key, "\"/srv/core/reference/builds.json\"").is_none());
+        assert!(setting_problem(key, "/home/ana/builds.json").is_some());
+        assert!(
+            setting_problem("Rate.XP.Kill", "/home/ana/x").is_none(),
+            "only settings that name a path"
+        );
+    }
+
+    #[test]
+    fn setting_names_become_the_variables_the_core_reads() {
+        for (key, var) in [
+            ("BindIP", "AC_BIND_IP"),
+            ("Ra.Enable", "AC_RA_ENABLE"),
+            ("Ra.IP", "AC_RA_IP"),
+            ("Updates.EnableDatabases", "AC_UPDATES_ENABLE_DATABASES"),
+            ("WorldServerPort", "AC_WORLD_SERVER_PORT"),
+            ("LoginDatabaseInfo", "AC_LOGIN_DATABASE_INFO"),
+            ("DataDir", "AC_DATA_DIR"),
+            (
+                "Dynamic.XP.Reminder.Interval",
+                "AC_DYNAMIC_XP_REMINDER_INTERVAL",
+            ),
+            ("EtherealBazaar.Enable", "AC_ETHEREAL_BAZAAR_ENABLE"),
+        ] {
+            assert_eq!(env_name(key), var, "{key}");
+        }
+    }
+
+    #[test]
+    fn the_settings_called_managed_are_exactly_the_variables_the_containers_get() {
+        // If a variable is added to the containers without being listed here (or the other way round), a screen would
+        // offer a setting that does nothing, or hide one that works.
+        let given: std::collections::BTreeSet<String> =
+            lifecycle::forced_variables().into_iter().collect();
+        let listed: std::collections::BTreeSet<String> =
+            FORCED_KEYS.iter().map(|k| env_name(k)).collect();
+        assert_eq!(given, listed);
+        assert!(
+            managed_setting("ra.enable")
+                && managed_setting("Updates.EnableDatabases")
+                && !managed_setting("PlayerLimit")
+        );
+    }
 
     #[test]
     fn the_main_configs_are_created_from_their_templates_and_never_overwritten() {

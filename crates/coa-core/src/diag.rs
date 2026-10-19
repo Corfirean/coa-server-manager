@@ -199,7 +199,12 @@ pub fn run(root: &Path, meta: &InstallMeta) -> Report {
         });
     }
 
-    let exposed: Vec<&str> = crate::net::exposure(&ports)
+    let exposure = if crate::docker::is_docker(root) {
+        crate::docker::exposure(root, &ports)
+    } else {
+        crate::net::exposure(&ports)
+    };
+    let exposed: Vec<&str> = exposure
         .iter()
         .filter(|e| {
             (e.what == "database" || e.what == "server console") && e.reachable_from_network
@@ -690,6 +695,18 @@ pub fn export_package(
         "summary.json",
         serde_json::to_string_pretty(&summary)?.as_bytes(),
     )?;
+    let owner = fs::read_to_string(meta_dir.join("update-lock-owner.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&redact_json(&text)).ok());
+    let maintenance = serde_json::json!({
+        "lockFilePresent": meta_dir.join("update.lock").is_file(),
+        "lastRecordedOwner": owner,
+        "note": "The lock file and owner record may remain after completion. Their presence does not establish whether the OS lock is currently held."
+    });
+    add(
+        "maintenance.json",
+        serde_json::to_string_pretty(&maintenance)?.as_bytes(),
+    )?;
 
     // Logs. The newest update logs of the repack's own updater are added under their own names.
     let mut logs: Vec<(String, PathBuf)> = vec![
@@ -796,6 +813,29 @@ pub fn export_package(
     add("processes.txt", processes_report(root, &ports).as_bytes())?;
 
     // The newest update journals: the state of each update and the reason it failed.
+    for (path, size, _) in newest_files(&meta_dir.join("diagnostics"), "json", usize::MAX)
+        .into_iter()
+        .filter(|(path, _, _)| {
+            path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                name.starts_with("schema-validation-")
+                    || name.starts_with("database-recovery-")
+                    || name.starts_with("database-rehearsal-")
+                    || name.starts_with("database-restore-")
+                    || name.starts_with("database-repair-")
+            })
+        })
+        .take(10)
+    {
+        if size <= 4 * 1024 * 1024 {
+            if let Ok(text) = fs::read_to_string(&path) {
+                add(
+                    &format!("schema/{}", path.file_name().unwrap().to_string_lossy()),
+                    redact_json(&text).as_bytes(),
+                )?;
+            }
+        }
+    }
     let mut journals: Vec<_> = fs::read_dir(meta_dir.join("updates"))
         .into_iter()
         .flatten()
@@ -882,6 +922,7 @@ pub fn stamp() -> String {
     chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
 }
 
+#[cfg(windows)]
 pub fn desktop_or_temp() -> PathBuf {
     let d = std::env::var_os("USERPROFILE")
         .map(PathBuf::from)
@@ -894,10 +935,79 @@ pub fn desktop_or_temp() -> PathBuf {
     }
 }
 
+/// Where a file meant for the person goes on Linux: the desktop folder they have (the XDG user directories file names it), else
+/// `~/Desktop`, else `~/Downloads`, else the temporary folder.
+#[cfg(not(windows))]
+pub fn desktop_or_temp() -> PathBuf {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return std::env::temp_dir();
+    };
+    let dirs = std::fs::read_to_string(home.join(".config/user-dirs.dirs")).ok();
+    pick_desktop(&home, dirs.as_deref(), &|p| p.is_dir())
+}
+
+#[cfg(not(windows))]
+fn pick_desktop(home: &Path, user_dirs: Option<&str>, exists: &dyn Fn(&Path) -> bool) -> PathBuf {
+    let named = user_dirs.and_then(|t| {
+        t.lines().find_map(|l| {
+            let v = l.trim().strip_prefix("XDG_DESKTOP_DIR=")?.trim_matches('"');
+            Some(PathBuf::from(v.replace("$HOME", &home.to_string_lossy())))
+        })
+    });
+    // A user without a desktop sets XDG_DESKTOP_DIR to the home folder itself: that is not a place to drop files into.
+    [
+        named,
+        Some(home.join("Desktop")),
+        Some(home.join("Downloads")),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|p| p != home)
+    .find(|p| exists(p))
+    .unwrap_or_else(std::env::temp_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::registry::{InstallKind, InstallMeta};
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_desktop_folder_on_linux_follows_the_users_own_directories() {
+        let home = Path::new("/home/ana");
+        let only =
+            |wanted: &'static [&'static str]| move |p: &Path| wanted.contains(&p.to_str().unwrap());
+        let dirs =
+            "# comment\nXDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\nXDG_DESKTOP_DIR=\"$HOME/Bureau\"\n";
+        assert_eq!(
+            pick_desktop(
+                home,
+                Some(dirs),
+                &only(&["/home/ana/Bureau", "/home/ana/Desktop"])
+            ),
+            PathBuf::from("/home/ana/Bureau")
+        );
+        assert_eq!(
+            pick_desktop(home, None, &only(&["/home/ana/Desktop"])),
+            PathBuf::from("/home/ana/Desktop")
+        );
+        assert_eq!(
+            pick_desktop(home, Some(dirs), &only(&["/home/ana/Downloads"])),
+            PathBuf::from("/home/ana/Downloads")
+        );
+        assert_eq!(pick_desktop(home, None, &only(&[])), std::env::temp_dir());
+        // No desktop: the user directories file names the home folder itself.
+        let none = "XDG_DESKTOP_DIR=\"$HOME/\"\n";
+        assert_eq!(
+            pick_desktop(
+                home,
+                Some(none),
+                &only(&["/home/ana", "/home/ana/Downloads"])
+            ),
+            PathBuf::from("/home/ana/Downloads")
+        );
+    }
 
     #[test]
     fn repeated_config_warnings_are_folded() {
@@ -1115,6 +1225,11 @@ real error
         .unwrap();
         let meta_dir = d.path().join("srv.manager");
         fs::create_dir_all(&meta_dir).unwrap();
+        fs::write(meta_dir.join("update.lock"), b"").unwrap();
+        fs::write(meta_dir.join("update-lock-owner.json"), r#"{"operation":"checking updates","pid":1234,"started":"2026-10-13T01:00:00Z","token":"owner-secret"}"#).unwrap();
+        fs::create_dir_all(meta_dir.join("diagnostics")).unwrap();
+        fs::write(meta_dir.join("diagnostics/schema-validation-CoA-test.json"), r#"{"problems":[{"table":"creature_display_preset","column":"display_id","detail":"default mismatch"}],"password":"schema-secret"}"#).unwrap();
+        fs::write(meta_dir.join("diagnostics/database-recovery-test.json"), r#"{"objects":[{"database":"acore_characters","kind":"TRIGGER","name":"user_character_trigger"}],"password":"recovery-secret"}"#).unwrap();
         let meta = InstallMeta::new(InstallKind::Imported, &root);
         let report = run(&root, &meta);
         let zip_path = d.path().join("diag.zip");
@@ -1140,6 +1255,14 @@ real error
             "keys and ordinary log lines are included"
         );
         assert!(all.contains("v1.8") && all.contains("48c4786a"));
+        assert!(all.contains("creature_display_preset") && all.contains("default mismatch"));
+        assert!(!all.contains("schema-secret"));
+        assert!(all.contains("user_character_trigger") && all.contains("acore_characters"));
+        assert!(!all.contains("recovery-secret"));
+        assert!(all.contains("checking updates") && all.contains("1234"));
+        assert!(all.contains("lockFilePresent") && all.contains("does not establish"));
+        assert!(!all.contains("owner-secret"));
+        assert_eq!(fs::read(meta_dir.join("update.lock")).unwrap(), b"");
         assert!(
             !all.contains("hunter2")
                 && !all.contains("SECRETPW")

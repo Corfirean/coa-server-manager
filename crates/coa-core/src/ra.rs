@@ -524,11 +524,14 @@ AC>";
             ra.set_account_password("x", "newpass9").is_err(),
             "the name is validated before anything is sent"
         );
-        assert!(ra
+        let error = ra
             .set_account_password("Nobody", "newpass9")
             .unwrap_err()
-            .to_string()
-            .contains("not found"));
+            .to_string();
+        assert!(
+            error.contains("not found"),
+            "Unexpected console error: {error}"
+        );
         drop(ra);
         let _ = h.join();
     }

@@ -297,6 +297,10 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         run_container(d, &call, &n.world, log)?;
     }
     wait_listening(d, cfg, &n.world, ports.world, WORLD_WAIT, log)?;
+    // The core leaves with code 2 for `server restart` and expects a supervisor to start it again (the repack has one). Docker
+    // does that for any non-zero exit, but only once the server has come up: a start that fails must stay failed, not loop.
+    // A stop by `docker stop` or `server shutdown` (code 0) is never restarted.
+    let _ = docker(d, &["update", "--restart", "on-failure:3", &n.world], QUICK);
 
     if !state.get(&n.auth).is_some_and(Container::running) {
         remove(d, &n.auth);
@@ -315,7 +319,49 @@ fn start(d: &dyn Docker, root: &Path, cfg: &Config, with_game: bool, log: &mut L
         run_container(d, &call, &n.auth, log)?;
     }
     wait_listening(d, cfg, &n.auth, ports.auth, AUTH_WAIT, log)?;
+    mark_realm_online(d, &n, &secrets, realm, log);
     Ok(())
+}
+
+/// The auth server marks every realm offline when it starts, and the world server (already up, see the order above) only
+/// puts itself back after its next uptime update, ten minutes later by default: until then the client shows "Realm is
+/// Offline". The world is known to be listening here, so say so for the realm it serves. The other realm of a Wildcard
+/// install keeps the offline flag it is given on purpose (`realms::setup_realmlist`).
+fn mark_realm_online(
+    d: &dyn Docker,
+    n: &Names,
+    secrets: &Secrets,
+    realm: crate::realms::Mode,
+    log: &mut Log,
+) {
+    let sql = format!(
+        "UPDATE acore_auth.realmlist SET flag = flag & ~2 WHERE id = {};",
+        realm.realm_id()
+    );
+    let mut call = Call::new(
+        &[
+            "exec",
+            "-i",
+            "-e",
+            "MYSQL_PWD",
+            &n.db,
+            "mysql",
+            "--user=root",
+            "--protocol=tcp",
+            "--host=127.0.0.1",
+        ],
+        QUICK,
+    );
+    call.env = vec![("MYSQL_PWD".into(), secrets.root.clone())];
+    call.stdin = Some(sql.as_bytes());
+    match d.run(&call) {
+        Ok(o) if o.ok() => {}
+        Ok(o) => log.say(format!(
+            "the realm could not be marked online: {}",
+            o.text().trim()
+        )),
+        Err(e) => log.say(format!("the realm could not be marked online: {e}")),
+    }
 }
 
 fn remove(d: &dyn Docker, name: &str) {
@@ -506,6 +552,30 @@ fn database_env(s: &Secrets, world: bool, realm: crate::realms::Mode) -> Vec<(St
         ));
     }
     env
+}
+
+/// Every setting variable (`AC_...`) the containers get, for the check that the screens know which settings are fixed.
+#[cfg(test)]
+pub(crate) fn forced_variables() -> Vec<String> {
+    let cfg = Config {
+        project: "t".into(),
+        bind_address: "127.0.0.1".into(),
+        mysql_image: "mysql:8.4".into(),
+        data_dir: None,
+        mysql_data: None,
+    };
+    let n = cfg.names();
+    let mut found = Vec::new();
+    for kind in [GameKind::World, GameKind::Auth] {
+        let args = game_args(&cfg, &n, kind, Path::new("/s"), Path::new("/d"), 1, 2, None);
+        found.extend(args.iter().filter_map(|a| {
+            a.strip_prefix("AC_")
+                .map(|rest| format!("AC_{}", rest.split('=').next().unwrap()))
+        }));
+    }
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// Realm profiles are only in play once a profile has been chosen on this server (`Settings/realm-profile.json`).
@@ -948,6 +1018,8 @@ mod tests {
                     }
                     out(0, "containerid\n", "")
                 }
+                ["update", "--restart", _, _] => out(0, "", ""),
+                ["exec", ..] => out(0, "", ""),
                 ["stop", "--time", _, name] => {
                     self.running.borrow_mut().remove(*name);
                     self.exited
@@ -1015,6 +1087,17 @@ mod tests {
             runs,
             ["coa-t1-db", "coa-t1-world", "coa-t1-auth"],
             "database, then world, then auth"
+        );
+        let exec = sim.calls_of("exec");
+        assert_eq!(
+            exec.len(),
+            1,
+            "the realm is marked online once the auth server is up"
+        );
+        assert!(exec[0].stdin && exec[0].env == [("MYSQL_PWD".to_string(), ROOT_PW.to_string())]);
+        assert!(
+            !exec[0].args.iter().any(|a| a.contains(ROOT_PW)),
+            "the password is not on the command line"
         );
         assert!(
             at("build") < verbs.iter().rposition(|v| v.starts_with("run")).unwrap(),
@@ -1117,6 +1200,34 @@ mod tests {
         assert!(!plain
             .iter()
             .any(|a| a == "--lower-case-table-names=1" || a == "--user"));
+    }
+
+    #[test]
+    fn the_world_server_is_started_again_when_it_restarts_itself_but_only_once_it_is_up() {
+        let (_d, root) = server("t1");
+        let sim = Sim::new();
+        assert!(start_all(&sim, &root).ok);
+        let world_run = sim
+            .calls_of("run")
+            .into_iter()
+            .find(|c| c.args.iter().any(|a| a == "coa-t1-world"))
+            .unwrap();
+        assert!(
+            !world_run.args.iter().any(|a| a == "--restart"),
+            "no restart while it is still starting"
+        );
+        let updates = sim.calls_of("update");
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            updates[0].args,
+            ["update", "--restart", "on-failure:3", "coa-t1-world"]
+        );
+        let verbs = sim.verbs();
+        let pos = |p: &str| verbs.iter().position(|v| v.starts_with(p)).unwrap();
+        assert!(
+            pos("run --detach") < pos("update"),
+            "after the container exists and listens"
+        );
     }
 
     #[test]

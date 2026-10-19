@@ -46,21 +46,22 @@ function Row({ label, s }: { label: string; s: ServiceStatus }) {
   const t = useT();
   const running = s.state === "running";
   const starting = s.state === "starting";
+  const crashed = s.state === "crashed";
   return (
     <div className="flex items-center justify-between py-2.5">
       <span>{label}</span>
       <span
-        className={cn("flex items-center gap-2 text-sm", running ? "text-ok" : starting ? "text-warn" : "text-muted")}
+        className={cn("flex items-center gap-2 text-sm", running ? "text-ok" : starting || crashed ? "text-warn" : "text-muted")}
         role="status"
       >
         <span
           aria-hidden
           className={cn(
             "h-2 w-2 rounded-full",
-            running ? "bg-ok" : starting ? "animate-[pulse-dot_1.2s_ease-in-out_infinite] bg-warn" : "bg-muted/50",
+            running ? "bg-ok" : starting ? "animate-[pulse-dot_1.2s_ease-in-out_infinite] bg-warn" : crashed ? "bg-warn" : "bg-muted/50",
           )}
         />
-        {running ? t("status.running") : starting ? t("status.starting") : t("status.stopped")}
+        {running ? t("status.running") : starting ? t("status.starting") : crashed ? t("status.crashed") : t("status.stopped")}
       </span>
     </div>
   );
@@ -98,7 +99,13 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   const [keepMine, setKeepMine] = useState(true);
   const [perf, setPerf] = useState<Performance | null>(null);
   const upd = useServerUpdate(server.id);
+  const visibleFailure = failure ?? upd.stateError ?? upd.uiError;
   const needsDecision = (upd.preview?.conflicts.length ?? 0) > 0;
+  const runServerUpdate = async () => {
+    setFailure(null);
+    setShowDetails(false);
+    await applyServerUpdate(server.id);
+  };
   const [startBots, setStartBots] = useState<number | null | undefined>(undefined);
   const [autoRestart, setAutoRestart] = useAutoRestart(server.id);
   const autoRestartRef = useRef(autoRestart);
@@ -400,7 +407,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               variant="primary"
               size="xl"
               disabled={transitioning || upd.applying}
-              onClick={() => (needsDecision ? onOpenUpdates() : void applyServerUpdate(server.id))}
+              onClick={() => (needsDecision ? onOpenUpdates() : void runServerUpdate())}
               className="min-w-56"
             >
               {upd.applying && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
@@ -423,7 +430,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
             </Button>
           )}
           {running && upd.available && (
-            <Button variant="secondary" size="sm" disabled={transitioning || upd.applying} onClick={() => (needsDecision ? onOpenUpdates() : void applyServerUpdate(server.id))}>
+            <Button variant="secondary" size="sm" disabled={transitioning || upd.applying} onClick={() => (needsDecision ? onOpenUpdates() : void runServerUpdate())}>
               {upd.applying && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
               {needsDecision ? t("overview.openUpdates") : t("btn.updateTo", { v: upd.preview?.to_version ?? "" })}
             </Button>
@@ -538,6 +545,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         {upd.available && upd.preview && (
           <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3 text-sm">
             <p>{t("overview.updateAvail", { to: upd.preview.to_version, from: upd.preview.from_version ?? "?" })}</p>
+            {upd.preview.latest_version && <p>{t("upd.intermediate", { to: upd.preview.to_version, latest: upd.preview.latest_version })}</p>}
             {needsDecision && <p className="mt-1 text-muted">{t("overview.updateConflicts")}</p>}
             {upd.applying && (
               <div className="mt-2">
@@ -586,21 +594,21 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         </Card>
       )}
 
-      {failure && (
+      {visibleFailure && (
         <Card className="mt-4 border-bad/40 p-5" role="alert">
-          <p className="font-medium text-bad">{human(failure.human).title}</p>
-          <p className="mt-1 text-sm text-muted">{human(failure.human).message}</p>
+          <p className="font-medium text-bad">{human(visibleFailure.human).title}</p>
+          <p className="mt-1 text-sm text-muted">{human(visibleFailure.human).message}</p>
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={() => setShowDetails((v) => !v)}>
               {showDetails ? t("common.hideDetails") : t("common.viewDetails")}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(failure.technical)}>
+            <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(visibleFailure.technical)}>
               {t("common.copyError")}
             </Button>
           </div>
           {showDetails && (
             <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-3 text-xs text-muted">
-              {failure.technical || t("common.noOutput")}
+              {visibleFailure.technical || t("common.noOutput")}
             </pre>
           )}
         </Card>

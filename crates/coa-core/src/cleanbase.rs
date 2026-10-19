@@ -10,7 +10,7 @@ use crate::backup;
 use crate::error::{Error, Result};
 use crate::fsx;
 use crate::migrations::{apply_pending, status, Status};
-use crate::release::{collect_bots_sql, collect_core_sql};
+use crate::release::{collect_bots_sql, collect_core_install_sql};
 
 pub struct Params<'a> {
     pub repack: &'a Path,
@@ -24,7 +24,7 @@ pub struct Params<'a> {
 }
 
 /// Auth tables that hold player data. Everything else (permissions, build info, realmlist) is configuration.
-const AUTH_PLAYER_TABLES: [&str; 11] = [
+pub(crate) const AUTH_PLAYER_TABLES: [&str; 11] = [
     "account",
     "account_access",
     "account_banned",
@@ -237,7 +237,7 @@ pub fn build(p: &Params, say: &dyn Fn(&str)) -> Result<()> {
     }
     fsx::atomic_write_json(&repack_json, &cfg)?;
 
-    let mut sql = collect_core_sql(p.core)?;
+    let mut sql = collect_core_install_sql(p.core)?;
     if let Some(b) = p.bots {
         sql.extend(collect_bots_sql(b)?);
     }
@@ -418,6 +418,7 @@ mod tests {
             "Settings/worldserver.conf.template",
             "mysql/bin/mysqld.exe",
             "mysql/share/english/errmsg.sys",
+            "mysql/lib/private/icudt.dat",
             "BugReport/relay.py",
             "Core/libssl-3-x64.dll",
             "README.txt",

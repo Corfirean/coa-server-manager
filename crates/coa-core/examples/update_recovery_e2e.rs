@@ -48,6 +48,7 @@ fn exercise(root: &Path) -> Result<()> {
     MetaDir::create(root, &installed)?;
     backup::with_database(root, |db| {
         db.query("CREATE TABLE acore_characters.manager_recovery_probe (id INT); INSERT INTO acore_characters.manager_recovery_probe VALUES (42); CREATE TABLE acore_world.manager_recovery_probe (id INT); INSERT INTO acore_world.manager_recovery_probe VALUES (43);")?;
+        db.query("CREATE VIEW acore_characters.manager_recovery_view AS SELECT id FROM acore_characters.manager_recovery_probe; CREATE TRIGGER acore_characters.manager_recovery_trigger BEFORE INSERT ON acore_characters.manager_recovery_probe FOR EACH ROW SET NEW.id=NEW.id+1; CREATE PROCEDURE acore_characters.manager_recovery_proc() SELECT id FROM acore_characters.manager_recovery_probe;")?;
         Ok(())
     })?;
     let source = root.join("fixture-update-source");
@@ -118,7 +119,12 @@ fn exercise(root: &Path) -> Result<()> {
     )
     .unwrap_err();
     assert!(error.to_string().contains("probe_world"), "{error}");
-    assert!(error.to_string().contains("were restored"), "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("private update rehearsal failed"),
+        "{error}"
+    );
     assert!(!root.join("Core/recovery-probe.txt").exists());
     assert!(update::unfinished(&meta).is_none());
     assert_eq!(
@@ -133,6 +139,19 @@ fn exercise(root: &Path) -> Result<()> {
         assert_eq!(
             db.query("SELECT id FROM acore_world.manager_recovery_probe;")?,
             "43"
+        );
+        assert_eq!(
+            db.query("SELECT id FROM acore_characters.manager_recovery_view;")?,
+            "42"
+        );
+        assert_eq!(
+            db.recovery_objects("acore_characters")?
+                .iter()
+                .filter(|object| object["name"]
+                    .as_str()
+                    .is_some_and(|name| name.starts_with("manager_recovery_")))
+                .count(),
+            3
         );
         assert!(!coa_core::migrations::status(db, &manifest.migrations)?
             .iter()
@@ -149,6 +168,6 @@ fn exercise(root: &Path) -> Result<()> {
         Db::from_repack(root, Account::Admin)?.realm(),
         coa_core::realms::Mode::Coa
     );
-    println!("PASS: failed SQL restored world, characters, ledger, files and version; repeated recovery succeeded");
+    println!("PASS: private rehearsal caught failed SQL before changing the installed world, characters, ledger, objects, files or version; complete recovery succeeded");
     Ok(())
 }

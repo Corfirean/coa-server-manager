@@ -186,6 +186,7 @@ export interface RecoveryPoint {
   label: string | null;
   created_at: string;
   components: { name: string; path: string; bytes: number; tables: number | null; files: string[] | null }[];
+  mysql_snapshot?: { bytes: number } | null;
 }
 
 export interface DbRestore {
@@ -306,6 +307,7 @@ export interface UpdatePlanItem {
 export interface UpdatePreview {
   from_version: string | null;
   to_version: string;
+  latest_version?: string;
   items: UpdatePlanItem[];
   conflicts: string[];
   migrations: number;
@@ -392,6 +394,7 @@ export interface ClientDownloadCheck {
 export type ClientPatchState = "not-installed" | "enabled" | "disabled" | "partially-installed";
 
 export interface CustomRacesClientStatus {
+  version: string | null;
   state: ClientPatchState;
   installedMpqs: number;
   totalMpqs: number;
@@ -419,7 +422,8 @@ export interface FriendsStatus {
   lan_addresses: LanAddress[];
   exposure: { port: number; what: string; reachable_from_network: boolean; listening: boolean }[];
   servers_open: boolean;
-  firewall: { auth: boolean; world: boolean };
+  /** null where there is no Windows firewall to ask about (Linux). */
+  firewall: { auth: boolean; world: boolean } | null;
   tailscale: { installed: boolean; ip: string | null; connected: boolean };
   server_running: boolean;
   auth_port: number;
@@ -496,6 +500,9 @@ export const api = {
   restoreConfigs: (id: string, backupId: string) => invoke<RecoveryPoint>("restore_backup_configs", { id, backupId }),
   restoreDatabase: (id: string, backupId: string, database: string) => invoke<DbRestore>("restore_backup_database", { id, backupId, database }),
   installEnvironment: () => invoke<InstallEnvironment>("install_environment"),
+  /** The game data folder of a Docker server; null for a repack. */
+  gameDataFolder: (id: string) => invoke<string | null>("game_data_folder", { id }),
+  setGameDataFolder: (id: string, path: string) => invoke<string>("set_game_data_folder", { id, path }),
   installPreflight: (dest: string, needed?: number, gameData?: string) => invoke<Preflight>("install_preflight", { dest, needed: needed ?? null, gameData: gameData ?? null }),
   installRequirements: (pkg?: string) => invoke<InstallRequirements>("install_requirements", { package: pkg ?? null }),
   realmlistProfiles: (id: string) => invoke<{ profiles: RealmProfile[]; active: string | null }>("realmlist_profiles", { id }),
@@ -546,6 +553,7 @@ export const api = {
   clientDownload: (id: string, parent: string) => invoke<ClientInfo>("client_download", { id, parent }),
   clientCancel: () => invoke<void>("client_cancel"),
   customRacesStatus: (id: string) => invoke<CustomRacesClientStatus | null>("custom_races_status", { id }),
+  customRacesUninstall: (id: string) => invoke<void>("custom_races_uninstall", { id }),
   customRacesInstall: (id: string) => invoke<void>("custom_races_install", { id }),
   customRacesToggleClient: (id: string, enabled: boolean) => invoke<void>("custom_races_toggle_client", { id, enabled }),
   play: (id: string) => invoke<DriverOutcome>("play", { id }),

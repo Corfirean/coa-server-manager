@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, asUiError, type ClientInfo, type ClientStatus, type UiError } from "@/lib/api";
 import { checkClient } from "@/lib/clientUpdate";
@@ -16,6 +17,7 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<ClientStatus | null>(null);
+  const [patchProgress, setPatchProgress] = useState<string | null>(null);
   const [dialog, setDialog] = useState<ClientDialogMode | null>(null);
   const [playAfter, setPlayAfter] = useStartAfterUpdate("client", serverId);
 
@@ -25,6 +27,10 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
   };
   useEffect(() => {
     void refresh();
+    const unlisten = listen<{ id: string; step: string; percent: number }>("custom-races-progress", e => {
+      if (e.payload.id === serverId) setPatchProgress(`${e.payload.step} (${Math.round(e.payload.percent * 100)}%)`);
+    });
+    return () => { void unlisten.then(f => f()); };
   }, [serverId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run(fn: () => Promise<string | void>) {
@@ -40,6 +46,7 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
       setError(asUiError(e));
     } finally {
       setBusy(false);
+      setPatchProgress(null);
     }
   }
 
@@ -111,11 +118,13 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
             {status && !status.managed && (
               <Button size="sm" disabled={busy} onClick={() => setDialog("track")}>{t("client.track.button")}</Button>
             )}
+            {remote && <Button size="sm" disabled={busy} onClick={() => void run(() => api.customRacesInstall(serverId))}>{t("client.races.install")}</Button>}
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => void choose()}>{t("client.changeFolder")}</Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDialog("setup")}>{t("client.downloadInstead")}</Button>
           </div>
         </>
       )}
+      {patchProgress && <p className="mt-3 text-sm text-muted" role="status">{patchProgress}</p>}
       {note && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
       {error && <p className="mt-3 text-sm text-bad" role="alert">{error.human.code === "unknown" ? error.technical : human(error.human).message}</p>}
       {dialog && (

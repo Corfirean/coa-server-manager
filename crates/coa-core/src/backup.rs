@@ -67,6 +67,8 @@ pub struct RecoveryPoint {
     pub components: Vec<Component>,
     #[serde(default)]
     pub realm: crate::realms::Mode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) mysql_snapshot: Option<crate::mysql_snapshot::Snapshot>,
 }
 
 const LOCATION_FILE: &str = "backup-location.json";
@@ -259,7 +261,7 @@ pub fn config_files(root: &Path) -> Vec<String> {
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
             // database.json holds generated database passwords; it is launcher state, not configuration.
-            if e.path().is_file() && (n.contains(".template") || n == "repack.json") {
+            if e.path().is_file() && (n.contains(".template") || n == "repack.json" || n == "docker.json") {
                 out.push(format!("Settings/{n}"));
             }
         }
@@ -435,6 +437,16 @@ pub fn create(
             return Err(e);
         }
     };
+    let mysql_snapshot = if kind == Kind::Full && matches!(trigger, Trigger::BeforeUpdate | Trigger::BeforeRepair) && cfg!(windows) && !crate::docker::is_docker(root) {
+        progress("Saving a complete stopped MySQL recovery copy");
+        match crate::mysql_snapshot::capture(root, &partial) {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) => {
+                if let Ok(owned) = fsx::ensure_within(&backups_dir(meta), &partial) { let _ = fs::remove_dir_all(owned); }
+                return Err(error);
+            }
+        }
+    } else { None };
     let point = RecoveryPoint {
         realm: crate::realms::state(root)?.active,
         schema: 1,
@@ -445,6 +457,7 @@ pub fn create(
         created_at: chrono::Utc::now().to_rfc3339(),
         manager_version: crate::MANAGER_VERSION.into(),
         components,
+        mysql_snapshot,
     };
     fsx::atomic_write_json(&partial.join("backup.json"), &point)?;
     fs::rename(&partial, &final_dir)?;
@@ -481,6 +494,9 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
     let point = get(meta, id)?;
     let dir = point_dir(meta, id)?;
     let mut problems = Vec::new();
+    if let Some(snapshot) = &point.mysql_snapshot {
+        if let Err(error) = crate::mysql_snapshot::verify(&dir, snapshot) { problems.push(error.to_string()); }
+    }
     let mut names = std::collections::BTreeSet::new();
     let mut schemas = std::collections::BTreeSet::new();
     for c in &point.components {

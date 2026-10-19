@@ -334,22 +334,32 @@ fn service_with(
     port: u16,
     listen: &[(u16, u32)],
 ) -> ServiceStatus {
-    // Prefer the repack's own record when it still matches a live process; otherwise discover by exact exe path.
+    // Prefer the exact installed executable owning the port; otherwise use a valid record or path discovery.
     let norm = |p: &Path| p.to_string_lossy().replace('/', "\\");
     let expected: Vec<String> = std::iter::once(&exe)
         .chain(alternatives)
         .map(|p| norm(p))
         .collect();
-    let proc = read_state_record(root, name)
-        .filter(is_alive)
-        .filter(|r| expected.iter().any(|e| r.exe.eq_ignore_ascii_case(e)))
+    let owner = listen.iter().find(|(p, _)| *p == port).map(|(_, pid)| *pid);
+    // MySQL can launch a supervisor and a server with the same executable. The
+    // listening process is authoritative when its exact installation path matches.
+    let proc = owner
+        .and_then(identity)
+        .filter(|record| {
+            expected
+                .iter()
+                .any(|exe| record.exe.eq_ignore_ascii_case(exe))
+        })
+        .or_else(|| {
+            read_state_record(root, name)
+                .filter(is_alive)
+                .filter(|r| expected.iter().any(|e| r.exe.eq_ignore_ascii_case(e)))
+        })
         .or_else(|| {
             std::iter::once(&exe)
                 .chain(alternatives)
                 .find_map(|p| find_by_exe(p).into_iter().next())
         });
-
-    let owner = listen.iter().find(|(p, _)| *p == port).map(|(_, pid)| *pid);
     let (state, port_ready, conflict) = match (&proc, owner) {
         (Some(p), Some(o)) if p.pid == o => (ServiceState::Running, true, None),
         (Some(_), _) => (ServiceState::Starting, false, None),
