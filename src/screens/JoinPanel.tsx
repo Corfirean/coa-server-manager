@@ -80,7 +80,12 @@ function LinkForm({ realm, onLinked }: { realm: string; onLinked: () => void }) 
   </form>;
 }
 
-const CLASS_NAMES: Record<number, string> = { 1: "Warrior", 2: "Paladin", 3: "Hunter", 4: "Rogue", 5: "Priest", 6: "Death Knight", 7: "Shaman", 8: "Mage", 9: "Warlock", 11: "Druid" };
+const CLASS_NAMES: Record<number, string> = {
+  1: "Warrior", 2: "Paladin", 3: "Hunter", 4: "Rogue", 5: "Priest", 6: "Death Knight", 7: "Shaman", 8: "Mage", 9: "Warlock", 11: "Druid",
+  12: "Barbarian", 13: "Witch Doctor", 14: "Felsworn", 15: "Witch Hunter", 16: "Stormbringer", 17: "Knight of Xoroth", 18: "Guardian",
+  19: "Templar", 20: "Blood Mage", 21: "Ranger", 22: "Chronomancer", 23: "Necromancer", 24: "Pyromancer", 25: "Cultist",
+  26: "Starcaller", 27: "Sun Cleric", 28: "Tinker", 29: "Venomancer", 30: "Reaper", 31: "Primalist", 32: "Runemaster",
+};
 
 function ServerCharacters({ realm, onClaimed }: { realm: string; onClaimed: () => void }) {
   const { t } = useI18n();
