@@ -1,14 +1,47 @@
 name: changelog
-# Checks the changelog.d/ fragment files with the shared rules (https://github.com/Corfirean/coa-server-build/blob/main/changelog/GUIDE.md).
 on:
   push:
-    paths: ['changelog.d/**']
+    branches: [master]
+    paths: [tools/sync_history.py, changelog/history.json, .github/workflows/changelog.yml]
   pull_request:
-    paths: ['changelog.d/**']
-
+    paths: [tools/sync_history.py, tools/test_sync_history.py, changelog/history.json, .github/workflows/changelog.yml]
+  release:
+    types: [published, released]
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
 permissions:
-  contents: read
-
+  contents: write
+concurrency:
+  group: component-changelog
+  cancel-in-progress: false
 jobs:
-  check:
-    uses: Corfirean/coa-server-build/.github/workflows/changelog-check.yml@main
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 -m unittest discover -s tools -p test_sync_history.py
+  sync:
+    needs: test
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: Synchronize this component from published immutable sources
+        run: python3 tools/sync_history.py --sync-release-notes
+      - name: Commit updated history
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md changelog/history.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Update published Manager changelog'
+          git push origin HEAD:"${{ github.event.repository.default_branch }}"

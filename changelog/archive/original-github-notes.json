@@ -1,0 +1,200 @@
+[
+  {
+    "tag": "v0.6.22",
+    "date": "2026-10-19T07:49:11Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.22",
+    "body": "## Manager\r\n- Updated Custom Races client patches to 1.8, including Drakkin, Drakonid and updated racial abilities\r\n- Added updated race appearances and cursor addons\r\n- Existing client files are preserved when installing or removing race patches\r\n\r\nPrepared from commit 65df6604846d5492e40a6b08a797199478666e24. Installer and updater signature were verified before publication.\r\n"
+  },
+  {
+    "tag": "v0.6.21",
+    "date": "2026-10-16T12:11:35Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.21",
+    "body": "## Manager\n- Older server versions update directly to the latest signed package without installing intermediate releases.\n- The published source-version list records release test coverage; a missing entry no longer blocks an older installation by itself.\n- Apply only missing database migrations, preserving recorded AzerothCore history and sharing account migration history between Solo and Wildcard.\n- Save one complete recovery point, apply SQL once and check the database schema, startup, account and character identities. Restore files and databases on failure.\n- Keep unknown imported versions, interrupted migrations, changed SQL checksums, downgrades and incompatible packages blocked.\n- Remove the nested per-update server rehearsal and recursive intermediate-package lookup.\n\nInstalling this Manager does not update your server automatically. Unknown third-party repacks still require a verified starting state; this release does not guess which unrecorded SQL was applied manually.\r\n\nValidation: 11 package-based scenarios passed against Server 0.261015.58, including the earliest base and a repeated current-version check. A separate direct 800006 -> 58 upgrade on an isolated copy preserved all 133 account and 3123 character identities. No client login or gameplay acceptance was performed.\n\r\n"
+  },
+  {
+    "tag": "v0.6.19",
+    "date": "2026-10-16T02:37:16Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.19",
+    "body": "## Manager\n- Update checks no longer download a full server package just to verify the launcher\n- Concurrent update checks wait briefly for the current check instead of immediately reporting another operation\n- Update rehearsals check the combined space required for program files and databases before creating the private copy\n\nIncludes the signed intermediate upgrade path from v0.6.18 for older server installations.\n\nThis release updates the Manager only. Existing server files and databases are not changed by installing it.\r\n"
+  },
+  {
+    "tag": "v0.6.18",
+    "date": "2026-10-16T00:33:21Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.18",
+    "body": "## CoA Server Manager 0.6.18\n\n- Fixed update checks blocking older server versions when a tested intermediate release is available\n- Manager now offers the required intermediate update automatically and explains how to continue to the latest stable version\n- Intermediate packages must match the signatures and manifest hashes recorded in the target release's compatibility matrix\n- Unsupported source errors now identify the installed version, target version and directly supported versions\n\nFor servers on **0.261011.800006**, Manager offers **0.261013.54** first. After it completes, check for updates again to install **0.261015.58**. Clear any manually entered Advanced package source to use automatic selection.\n\nThe server package and stable channel have not changed. Existing data follows the normal backup and verified update process.\n"
+  },
+  {
+    "tag": "v0.6.17",
+    "date": "2026-10-15T16:51:52Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.17",
+    "body": "## CoA Server Manager 0.6.17 / Server 0.261015.58\n\n### Manager\n\n- New servers now install the current stable build directly, without installing 2.0 first\n- Fixed completed repairs leaving the server stuck in a maintenance state\n- Servers can now stop even when startup templates or MySQL process records are damaged\n- Repair now preserves database accounts, views, procedures and triggers, with improved rollback after failures\n- Interrupted SQUID database imports are now reported by Check and Repair\n- Update errors remain visible on Overview, with technical details and a copy button\n- Improved update preparation progress and diagnostics for shutdown failures and port conflicts\n- Updated Custom Races client patches to 1.7 while preserving existing race assets\n\n### Server\n\n- Integrated 34 CoA upstream commits\n- Updated Custom Races to 1.7, adding playable Grummle and their racial abilities\n- Updated SQUID Playerbots to 2.3.1\n- Added complete installation packages for the current server release\n- Improved shutdown recovery and startup configuration errors\n\n### Content scaling\n\n- Creature health settings are now respected while Content Scaling is enabled\n"
+  },
+  {
+    "tag": "v0.6.16",
+    "date": "2026-10-13T12:39:15Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.16",
+    "body": "**Manager** (for server owners)\n- Added: Linux Docker servers follow Settings, sharing and backups (experimental). Experimental. Settings the Docker backend fixes are hidden, friends sharing and logs work, the game data folder can be changed, and the realm no longer shows offline after a start.\n- Added: Updates can follow signed channels that select a complete server release. The Manager checks the channel signature and downloads every package part from the same release. Existing installations continue using the previous download source until the new channel is published.\n- Added: Windows server updates are tested on a private copy before changing your installation. The Manager tests migrations and server startup using your databases and configurations. A failed rehearsal leaves the installed server unchanged and preserves a diagnostic report.\n- Added: Server updates can require a tested combination of platform and installed version. Signed release metadata identifies core and module revisions, supported starting versions and database contracts. Incompatible packages are rejected before shutdown; changed schema contracts and incompatible databases block installation before migration.\n- Added: Module cards show installed server revisions and the client race patch version. Module revisions come from the currently installed release metadata. The race card shows the client patch version separately; missing version metadata is reported honestly instead of showing a download version as installed.\n- Changed: Failed server startup after an update automatically restores the previous version. The Manager restores server files and databases, then checks the recovered server. If recovery cannot be confirmed, it preserves the recovery point and blocks further startup until the problem is resolved.\n\n----- next message -----\n\n**Manager** (for server owners) (cont.)\n- Fixed: Windows update recovery preserves database procedures triggers and views. A verified copy of stopped MySQL restores all databases and accounts together. Interrupted restoration can be retried, and the replaced database directory is retained.\n- Fixed: Custom races bot setting synchronizes Playerbots excluded race lists. The \"Bots can be custom races\" setting now configures AiPlayerbot.ExcludedBotRaces in playerbots.conf. Off excludes all added races (recommended), while on allows stable added races (experimental).\n- Fixed: Blocked updates identify database objects that prevent automatic recovery. Diagnostics include the complete list of unsupported database objects across the recovery point, helping resolve update failures without removing user data.\n- Fixed: Server updates check startup privately before allowing players to connect. Startup checks use temporary local ports. Original settings are restored before opening the server, and interrupted checks retain a recovery journal.\n- Fixed: Local hosts can connect while sharing a server online. The Manager no longer replaces the realm's local address with its public address when Friends mode is enabled.\n- Fixed: Updates repair missing database defaults from the verified release schema. Only missing literal defaults are restored when column properties match. Existing rows, custom defaults, types and nullability are preserved; unresolved incompatibilities still block the update.\n- Fixed: Server updates no longer replay module installation scripts on existing databases. Update packages contain incremental SQL only. Module table initialization and seed scripts remain available when preparing a clean installation, preventing existing content from being reset during updates.\n\n----- next message -----\n\n**Manager** (for server owners) (cont.)\n- Fixed: Failed database checks keep a complete report after rollback. Schema errors show readable default values and save every detected difference for troubleshooting, including after the server is restored.\n- Fixed: Large server updates no longer repeatedly rewrite the recovery journal. Updates containing rebuilt navigation data now prepare all recovery copies before replacing files. Interrupted updates remain recoverable without rewriting the full journal for every file.\n- Fixed: Normalize rehearsal server roots to prevent Windows path prefix errors. Server update rehearsals now canonicalize the installation root before collecting files, resolving a \"prefix not found\" error during rehearsal preparation on Windows.\n- Fixed: SQUID imports character tables first and reports slow database imports. SQUID prepares character tables before its large travel data. Startup shows each base import and identifies a failed import without starting the world server or replaying an incomplete migration.\n- Fixed: Docker friend mode requests a restart when remote client support changes. Enabling remote CoA clients now requests a world restart even when the game ports were already open. Repeating the same unchanged setting does not request another restart.\n- Fixed: Server updates accept long Windows paths inside the private test server. Long SQL file paths no longer fail the folder safety check during update rehearsals. Files outside the server folder remain blocked.\n- Fixed: Diagnostics record blocked startup requests and maintenance owner information. A start refused before the launcher runs is now logged with its reason. Exported diagnostics include the last recorded maintenance owner, while clearly distinguishing old metadata from a currently held operating-system lock.\n\n----- next message -----\n\n**Update 2026-10-13-manager** (Manager 0.6.16)\n\n**Manager**\n- Added: Players can install custom race patches when connecting to a friend. Install the custom race client patch directly from the Game client section without hosting a server.\n\n**Manager** (for server owners) (cont.)\n- Fixed: Client race patches can be repaired and removed while preserving original files. Every overwritten client file gets an original backup. Switching preserves newer launcher files; checksums detect missing or replaced assets. Repair and removal are always available, with rollback if a file operation fails.\n- Fixed: Checking an already installed server update no longer reports incompatibility. The installed release can be checked again even when its compatibility list only names earlier releases. Platform checks and protection against downgrades still apply.\n- Fixed: Failed server startup shows service errors even when the launcher reported ready. Update rehearsal and startup failures include recent world, authentication and database error lines. Missing tables and late startup failures are visible directly in the error details, with secrets redacted.\n- Fixed: Starting the server waits for update checks and identifies ongoing maintenance. Downloading an update manifest no longer blocks startup. A start waits up to 30 seconds for a check to finish; other active maintenance still blocks it safely and shows its operation, process and start time.\n"
+  },
+  {
+    "tag": "v0.6.15",
+    "date": "2026-10-11T23:10:59Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.15",
+    "body": "## Fixes\n\n- Large server updates, including rebuilt maps, vmaps and mmaps, no longer rewrite the complete recovery journal for every file.\n- All recovery copies are prepared before replacing any server file. Interrupted updates still restore the previous files and remove newly created files only when their content matches the update.\n\nValidated by Windows and Linux CI, the full Manager test suite, and a regression covering power loss during file replacement and incomplete recovery-copy preparation.\n\nUpdate the Manager before installing the navigation refresh. Portable Characters and Portable Session Bridge are not included."
+  },
+  {
+    "tag": "v0.6.14",
+    "date": "2026-10-11T21:14:34Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.14",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.13",
+    "date": "2026-10-11T14:03:44Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.13",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.12",
+    "date": "2026-10-10T03:10:14Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.12",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.11",
+    "date": "2026-10-10T03:05:20Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.11",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.10",
+    "date": "2026-10-10T02:07:18Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.10",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.9",
+    "date": "2026-10-10T01:50:51Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.9",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.8",
+    "date": "2026-10-10T01:05:56Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.8",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.7",
+    "date": "2026-10-08T04:59:31Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.7",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.6",
+    "date": "2026-10-07T05:47:46Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.6",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.5",
+    "date": "2026-10-06T06:17:21Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.5",
+    "body": "# CoA Server Manager 0.6.5 / Server 0.261006.1\n\nUpdate CoA Server Manager to 0.6.5 first, then update the server. This server package requires Manager 0.6.5.\n\n## Server updates and recovery\n\n- Recognize known, signed historical migration checksums without rewriting migration history or replaying applied SQL.\n- Check migration history and SQL files before replacing server files. Interrupted or failed migrations still require recovery.\n- Preserve damaged update records and protect recovery points belonging to unfinished updates. Check saved copies before restoring them.\n- Refresh saved update status after update and recovery attempts, including failures.\n- Recognize launcher adjustments made by the Manager, including older Wildcard launchers. Custom edits still require a choice.\n- Stop offering an already installed launcher update after checking again.\n- Reject older server packages. Use the update's recovery point to undo an update.\n- Restore missing Wildcard card and specialization-cache tables through a new corrective migration, preserving existing tables and data.\n- Fix launcher integration imports when using the server's isolated Python runtime.\n\n## SQUID Playerbots\n\n- Include SQUID Playerbots v1.8.1 together with the matching core, launcher and Manager integration.\n- Provide translated bot settings, release information and controls for the active bot system. Prevent conflicting bot systems from starting together.\n- Include the SQUID database in recovery points when installed.\n- Keep servers with SQUID disabled independent of its database startup hooks.\n- Detect unfinished initial database imports instead of treating partially imported tables as complete.\n- Allow more time for large SQL imports and initial bot creation. The Manager startup deadline is up to 45 minutes when SQUID is enabled; ordinary startup deadlines are unchanged.\n- Preserve historical SQL files and migration history. Only new migrations are applied.\n- Require an explicit keep-or-replace decision when updating imported server binaries protected by their original launcher or updater.\n\n## Local candidate validation\n\nThe signed final package passed an update and startup of both CoA and Wildcard on a marked disposable installation. Selected account, character and inventory fields were preserved, historical migrations were skipped, and a repeated update check was clean. Fresh SQUID database import and repeated startup were checked using the same native binaries and SQL as the final package.\n"
+  },
+  {
+    "tag": "v0.6.4",
+    "date": "2026-10-05T09:22:40Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.4",
+    "body": "Fixes server updates that failed to start with the repack's bundled Python runtime.\n\nIf an update is waiting for recovery, open Settings → Server updates and choose **Retry server startup**. Successful validation finishes the already applied update without replaying database migrations. Rollback remains available if validation fails.\n\n**Start without updating** and **Play without updating** let you use the installed server or client when a newer version is available. Interrupted server updates still require recovery.\n\n[Shared changelog](https://github.com/Corfirean/coa-server-build/blob/main/CHANGELOG.md)\n"
+  },
+  {
+    "tag": "v0.6.3",
+    "date": "2026-10-04T22:41:10Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.3",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.6.2",
+    "date": "2026-10-04T21:54:32Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.2",
+    "body": "## Manager 0.6.2\n\n- Server Update and Repair now back up databases before changes and recover databases, files and version metadata together after a failed update.\n- Database checks detect missing Wildcard tables even when migration history says the SQL ran. New server packages include the expected full database schema.\n- Interrupted or failed SQL is not blindly replayed; unresolved recovery is reported before another update or server start.\n- Checks cover race/class starting data and existing character visibility.\n- Adds the bot and module settings included in the reviewed dependency, including SQUID settings and translated controls.\n- Includes the latest Docker database-access changes.\n\nInstall/update Manager first, then update the server package. Run Settings → Check files and database if an existing installation reports database problems. Already lost database rows require a backup; restoring table structure cannot recreate them.\n\nValidation: 233 core tests passed locally after merging current master; workspace check and frontend build passed. Release package verification used disposable MySQL and a signed server package.\r\n\n\nShared release changelog: https://github.com/Corfirean/coa-server-build/blob/main/CHANGELOG.md\n\r\n"
+  },
+  {
+    "tag": "v0.6.1",
+    "date": "2026-10-04T10:58:56Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.1",
+    "body": "## Changes\n\n- PLAY launches only the game client with the selected realmlist. Use START SERVER separately for your local server.\n- Decimal server multipliers can be typed with either a dot or a comma.\n- Talent settings explain that the standard AzerothCore multiplier does not affect CoA talent points; rested experience settings describe accumulation correctly.\n- Added file/database checks and Repair with backups, verified official packages and reports of unresolved schema damage.\n- Fixed stale character migration history after rebuilding a character database and reject changed hashes of already applied migrations.\n- Added optional simultaneous CoA and Wildcard worlds on Windows, with separate processes, ports, logs and status indicators.\n\n## Notes\n\nRepair requires a stopped server and matching currently published packages. It preserves player data and settings; unsupported schema repairs are reported for corrective migrations.\n\nSimultaneous worlds require a compatible Wildcard server build. Existing Linux/Docker support remains experimental; simultaneous worlds are Windows-only.\n\nDownload the Windows installer below, or let an existing Manager installation update automatically. Server packages are updated separately.\r\n"
+  },
+  {
+    "tag": "v0.6.0",
+    "date": "2026-10-03T18:06:31Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.0",
+    "body": "# CoA Server Manager changelog\r\n\r\n## 0.6.0 — 2026-10-03\r\n\r\n- Added Simplified Chinese for the interface and all server and bot settings.\r\n- The closed game client now follows the selected CoA or Wildcard realm. Play checks the saved realm before launching; existing settings are preserved and backed up.\r\n- Fixed GitHub reports opening Windows Explorer instead of the default browser. Long reports use the clipboard fallback.\r\n- Fixed configuration snapshots created in the same millisecond overwriting each other during restore.\r\n- Added experimental Linux startup: persistent state uses the XDG data folder, Tailscale detection supports Linux, and a Wayland rendering workaround respects existing user settings.\r\n- Added experimental start, stop and status controls for manually prepared Docker servers, with private database networking and a remote console bound to localhost.\r\n- Linux extraction restores executable permissions for ELF binaries and scripts, and paths retain case-sensitive filesystem semantics.\r\n\r\n### Availability\r\n\r\nThis release ships the Windows installer and signed updater assets. Linux support is a development preview, not a one-click installation flow. Docker installation/database setup, SQL operations and backups, updates, Wildcard realm profiles, and Wine/Proton client launching remain unfinished. Servers must be prepared manually and use Linux binaries built with the packaged configuration layout.\r\n\r\nServer shutdown and starting-zone scaling issues require separate server releases and are not fixed by updating the Manager alone.\r\n"
+  },
+  {
+    "tag": "v0.5.0",
+    "date": "2026-10-03T06:26:08Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.5.0",
+    "body": "## CoA and Wildcard realm profiles\n\nChoose CoA or Wildcard on Overview. The first Wildcard switch creates a separate world and empty character database; accounts are shared. Only one world runs at a time. Switching a running server saves characters and restarts it, and returning to CoA restores its module settings.\n\n- Requires a server build and database migrations with Wildcard support. Existing destination databases or realm ID 2 are preserved and block automatic creation.\n- CoA companion bots are unavailable on Wildcard. Content Scaling and other optional modules remain experimental there.\n- Backups cover both realms; restores identify their realm. Server migrations update both realms and shared auth once.\n- Configuration switches support recovery after interruption.\n\nValidation: 178 Rust tests, frontend build and translation checks, native isolated-fixture creation/start/switch, full backup, restore and migration checks. Final real-clock Wildcard gameplay verification: four scenarios passed with zero failures and zero isolated reruns (first login, level rolls, skill-card rolls, stats). Module gameplay compatibility beyond those scenarios remains unverified.\n\nDownload the Windows installer below. Existing Manager installations receive the signed update automatically. [Details and demo](https://github.com/Corfirean/coa-server-manager/blob/v0.5.0/docs/WILDCARD.md).\r\n\r\n"
+  },
+  {
+    "tag": "v0.4.0",
+    "date": "2026-10-02T16:51:50Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.4.0",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.3.1",
+    "date": "2026-10-01T11:44:28Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.3.1",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.3.0",
+    "date": "2026-10-01T03:13:59Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.3.0",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.2.0",
+    "date": "2026-10-01T00:58:01Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.2.0",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.1.6",
+    "date": "2026-09-30T18:16:06Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.6",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.1.4",
+    "date": "2026-09-30T15:04:30Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.4",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.1.3",
+    "date": "2026-09-30T14:55:17Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.3",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.1.2",
+    "date": "2026-09-30T11:06:53Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.2",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.1.1",
+    "date": "2026-09-30T07:40:42Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.1",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  },
+  {
+    "tag": "v0.1.0",
+    "date": "2026-09-30T07:03:22Z",
+    "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.0",
+    "body": "See the assets to download the installer. Existing installations update themselves."
+  }
+]

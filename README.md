@@ -57,6 +57,11 @@ Download the installer from the [Releases](https://github.com/Corfirean/coa-serv
 and run it. You need about 10 GB of free disk space for the server. The game client (about 43 GB) is separate: point the
 Manager at the one you have, or let it download one for you.
 
+## Changelog
+
+[Manager release history](CHANGELOG.md) · [Server release history](https://github.com/Corfirean/coa-server-build/blob/main/CHANGELOG.md).
+Manager and server updates have separate version histories.
+
 ## Status
 
 Phases 0–10 of the plan in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are done: foundation, import, start/stop,
