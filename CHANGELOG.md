@@ -1,25 +1,300 @@
 # CoA Server Manager changelog
 
+Manager releases only. Updating the Manager does not update the server.
+
+[Server changelog](https://github.com/Corfirean/coa-server-build/blob/main/CHANGELOG.md)
+
+Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
+
+## 0.6.22 — 2026-10-19
+
+- Updated Custom Races client patches to 1.8.
+- Included the updated race appearance and cursor addons.
+- Existing client files are preserved when installing or removing race patches.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.22) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.21...v0.6.22)
+
+## 0.6.21 — 2026-10-16
+
+- Server updates apply migrations once after saving a recovery point.
+- Older server versions update directly without installing intermediate packages.
+- Update validation recognizes an already stopped server.
+- Recorded core SQL stays applied after old history tables are cleaned up.
+- Switching realms no longer repeats shared account database updates.
+- Update offers distinguish version support from database validation.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.21) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.19...v0.6.21)
+
+## 0.6.19 — 2026-10-16
+
+- Update checks no longer download a server archive to compare its launcher.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.19) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.18...v0.6.19)
+
+## 0.6.18 — 2026-10-16
+
+- Older servers find a tested intermediate update instead of being blocked.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.18) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.17...v0.6.18)
+
+## 0.6.17 — 2026-10-15
+
+- Already running MySQL is recognized before startup readiness checks.
+- New servers install the current stable build directly.
+- Install the matching client patches for Grummle.
+- Failed repairs restore the previous server after final verification errors.
+- Failed server updates show an error on the Overview screen.
+- Private update checks show preparation stages and stop failure details.
+- Repair recovery copies preserve all bundled database objects and accounts.
+- Server checks report interrupted SQUID database imports.
+- Shutdown remains available when startup templates or database records are damaged.
+- Successful server repairs no longer block later server actions.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.17) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.16...v0.6.17)
+
+## 0.6.16 — 2026-10-13
+
+- Linux Docker servers follow Settings, sharing and backups (experimental).
+- Local hosts can connect while sharing a server online.
+- Custom race client installation follows the current upstream release.
+- Docker friend mode requests a restart when remote client support changes.
+- Module cards show installed server revisions and the client race patch version.
+- Server updates accept long Windows paths inside the private test server.
+- Diagnostics record blocked startup requests and maintenance owner information.
+- Client race patches can be repaired and removed while preserving original files.
+- Checking an already installed server update no longer reports incompatibility.
+- Failed server startup shows service errors even when the launcher reported ready.
+- Starting the server waits for update checks and identifies ongoing maintenance.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.16) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.15...v0.6.16)
+
+## 0.6.15 — 2026-10-11
+
+- Large server updates no longer repeatedly rewrite the recovery journal.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.15) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.14...v0.6.15)
+
+## 0.6.14 — 2026-10-11
+
+- Fixed server update checks failing with long Windows paths.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.14) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.13...v0.6.14)
+
+## 0.6.13 — 2026-10-11
+
+- Failed server startup after an update automatically restores the previous version.
+- Windows update recovery preserves database procedures triggers and views.
+- Custom races bot setting synchronizes Playerbots excluded race lists.
+- Blocked updates identify database objects that prevent automatic recovery.
+- Updates can follow signed channels that select a complete server release.
+- Server updates check startup privately before allowing players to connect.
+- Updates repair missing database defaults from the verified release schema.
+- Server updates no longer replay module installation scripts on existing databases.
+- Windows server updates are tested on a private copy before changing your installation.
+- Server updates can require a tested combination of platform and installed version.
+- Failed database checks keep a complete report after rollback.
+- Players can install custom race patches when connecting to a friend.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.13) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.12...v0.6.13)
+
+## 0.6.12 — 2026-10-10
+
+- Background world servers no longer stop because the local console is closed.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.12) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.11...v0.6.12)
+
+## 0.6.11 — 2026-10-10
+
+- Server and Bots settings open without a blank window.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.11) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.10...v0.6.11)
+
+## 0.6.10 — 2026-10-10
+
+- Custom race client patches update to the latest races and appearances.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.10) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.9...v0.6.10)
+
+## 0.6.9 — 2026-10-10
+
+- Custom races can be enabled and their client patches installed from Modules.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.9) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.8...v0.6.9)
+
+## 0.6.8 — 2026-10-10
+
+- Linux: install from the install screen, play with Wine or Proton (experimental).
+- A failing database update is no longer reported as "database not running.
+- Unsaved settings are protected and crashed servers can restart automatically.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.8) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.7...v0.6.8)
+
+## 0.6.7 — 2026-10-08
+
+- Choose where backups are stored, for example on another drive.
+- Bot settings with a fixed list of values show a drop-down.
+- The bot dashboard loads completely and can be opened in the browser.
+- Accounts of the SQUID bots are hidden from the Accounts list.
+- A Dashboard tab shows what the SQUID bots are doing.
+- A stopped server stays stopped after an update, unless you ask it to start.
+- Checking for updates no longer fails with "Something went wrong" after a crash.
+- Server updates no longer stop with "has a different checksum" on the Wildcard repair.
+- A world server started from the coa-bots folder is recognised.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.7) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.6...v0.6.7)
+
+## 0.6.6 — 2026-10-07
+
+- Install a server from a package on Linux, running in Docker (experimental).
+- The Auction House Bot card no longer asks for a character GUID.
+- Choose and remember the local network address friends use to connect.
+- The NPC Enchanter card explains how to place and remove the NPC.
+- Diagnostic files with database checks stay readable after secrets are removed.
+- One button collects all diagnostics, including crashes and Windows crash records.
+- Problem reports go to the right project.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.6) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.5...v0.6.6)
+
+## 0.6.5 — 2026-10-06
+
+- Imported SquidBots servers warn before replacing their original binary.
+- SquidBots settings follow the options shipped by the module.
+- SquidBots shows its bundled release and includes it in problem reports.
+- Server updates accept verified published migration variants without rerunning them.
+- Server updates replace older launchers adapted by the Manager for Wildcard.
+- Older server packages cannot replace a newer installation.
+- Checking again no longer offers an already installed launcher update.
+- Large SQUID database imports have more time to finish on first startup.
+- Update history conflicts are detected before server files change.
+- Pending database updates remain visible when the server version matches.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.5) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.4...v0.6.5)
+
+## 0.6.4 — 2026-10-05
+
+- Start your installed server or client without downloading an available update.
+- Finish a server update that was blocked by a startup failure.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.4) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.3...v0.6.4)
+
+## 0.6.3 — 2026-10-04
+
+- Configure partial dungeon parties and open-world life steal in module settings.
+- Download and update the game client without installing a server.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.3) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.2...v0.6.3)
+
+## 0.6.2 — 2026-10-04
+
+- Choose which item types the auction bot sells.
+- Module settings now offer translated controls and an enemy damage slider.
+- Failed server updates restore databases and files together.
+- Configure SQUID Playerbots and prevent conflicting bot systems.
+- Server packages must include a complete database schema check.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.1...v0.6.2)
+
 ## 0.6.1 — 2026-10-04
 
-- PLAY launches only the client with the selected realmlist; starting the local server remains a separate action.
-- Server multipliers accept decimals typed with a dot or comma. Talent and rested experience descriptions now explain their actual behavior.
-- Added database and file checks, and Repair with backups and signed package verification. Unresolved schema damage is reported instead of guessed repairs.
-- Fixed character database rebuilds retaining migration history that could skip required SQL. Applied migration hash changes are now rejected.
-- Added optional simultaneous CoA and Wildcard worlds on Windows, with separate processes, ports and status indicators.
+- Server multipliers now accept decimals typed with a dot or comma.
+- Play launches only the game client without starting your local server.
+- Check database structure and repair server files with a safety backup.
+- Start CoA and Wildcard together from Settings.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.0...v0.6.1)
 
 ## 0.6.0 — 2026-10-03
 
-- Added Simplified Chinese for the interface and all server and bot settings.
-- The closed game client now follows the selected CoA or Wildcard realm. Play checks the saved realm before launching; existing settings are preserved and backed up.
-- Fixed GitHub reports opening Windows Explorer instead of the default browser. Long reports use the clipboard fallback.
-- Fixed configuration snapshots created in the same millisecond overwriting each other during restore.
-- Added experimental Linux startup: persistent state uses the XDG data folder, Tailscale detection supports Linux, and a Wayland rendering workaround respects existing user settings.
-- Added experimental start, stop and status controls for manually prepared Docker servers, with private database networking and a remote console bound to localhost.
-- Linux extraction restores executable permissions for ELF binaries and scripts, and paths retain case-sensitive filesystem semantics.
+- The game client follows the realm selected in the Manager.
+- Configuration snapshots no longer overwrite each other.
+- Experimental Linux startup and Docker server controls.
+- Problem reports open in the default browser.
+- Simplified Chinese is available in the Manager.
 
-### Availability
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.6.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.5.0...v0.6.0)
 
-This release ships the Windows installer and signed updater assets. Linux support is a development preview, not a one-click installation flow. Docker installation/database setup, SQL operations and backups, updates, Wildcard realm profiles, and Wine/Proton client launching remain unfinished. Servers must be prepared manually and use Linux binaries built with the packaged configuration layout.
+## 0.5.0 — 2026-10-03
 
-Server shutdown and starting-zone scaling issues require separate server releases and are not fixed by updating the Manager alone.
+- Imported servers get the module config files they lack.
+- Modules marked Soon stay greyed out.
+- The Bots page is hidden when the module is not on the server.
+- Updating the game client shows a progress bar on its button.
+- Switch between CoA and Wildcard while keeping separate characters and module settings.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.5.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.4.0...v0.5.0)
+
+## 0.4.0 — 2026-10-02
+
+- Added module cards with switches and settings.
+- Added searchable server settings and appearance and collection controls.
+- Added account deletion with confirmation.
+- Fixed update checks offering an already installed version.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.4.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.3.1...v0.4.0)
+
+## 0.3.1 — 2026-10-01
+
+- Added named realmlists and a switcher beside Play.
+- Added account management and a prefilled GitHub problem-report form.
+- Server updates continue when leaving the settings page.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.3.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.3.0...v0.3.1)
+
+## 0.3.0 — 2026-10-01
+
+- Download and update the game client through the Manager while preserving custom files.
+- Server updates are checked automatically and offered on Overview.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.3.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.2.0...v0.3.0)
+
+## 0.2.0 — 2026-10-01
+
+- Added companion creation progress and controls to stop creation, take bots offline or remove them.
+- Choose how many bots log in when the server starts.
+- Added a control to log out a chosen number of bots and reduce server load.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.2.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.1.6...v0.2.0)
+
+## 0.1.6 — 2026-09-30
+
+- Overview shows world speed.
+- Improved companion setup, including requests made while the server is stopped.
+- Expanded translated settings and connection guides.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.6) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.1.4...v0.1.6)
+
+## 0.1.4 — 2026-09-30
+
+- Sharing settings are reapplied before server startup.
+- Added a restart shortcut after enabling play with friends.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.4) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.1.3...v0.1.4)
+
+## 0.1.3 — 2026-09-30
+
+- The interface scales with the window.
+- Each friend connection mode shows the realmlist line to use.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.3) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.1.2...v0.1.3)
+
+## 0.1.2 — 2026-09-30
+
+- Manager updates download in the background and install when the app closes.
+- Missing module configuration files are created from the supplied defaults.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.1.1...v0.1.2)
+
+## 0.1.1 — 2026-09-30
+
+- Added translations throughout setup, server updates, backups, diagnostics and settings.
+- Added clearer errors when server packages are unavailable or a server cannot be reached.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.1.0...v0.1.1)
+
+## 0.1.0 — 2026-09-30
+
+- Initial Windows release: install or import a server and manage startup from one app.
+- Configure server and bot settings, manage accounts, create backups and restore saved data.
+- Launch the game client, set up sharing with friends and collect diagnostics.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.1.0)

@@ -3,8 +3,7 @@
 <!-- changelog:start (managed by coa-server-build/changelog/changelog.py sync-instructions) -->
 ## Changelog (shared by all CoA repositories)
 
-Every CoA project (server fork, bots, Content Scaling, Manager, renderer) feeds **one** changelog that is posted to the
-community. When you finish a change that a **player** or a **server owner** would notice (a new feature, a changed
+Every CoA project (server fork, bots, Content Scaling, Manager, renderer) uses the same fragment format. **Manager and server release histories are separate**; each repository publishes only its own shipped component changes. When you finish a change that a **player** or a **server owner** would notice (a new feature, a changed
 behaviour, a fix for something people ran into, a removed feature, a known issue), add **one small file to
 `changelog.d/` in the same commit**. Do not add one for internal work (refactors, tests, CI, documentation).
 
