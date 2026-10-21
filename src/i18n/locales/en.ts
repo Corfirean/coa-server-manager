@@ -1,5 +1,6 @@
 /** English is the source of truth: every key must exist here; other locales fall back to it. */
 const en = {
+  "mod.switching": "Applying changes… Please wait.",
   "remote.clientReady": "Your client is ready. Save the host’s address, then press Play.",
   "remote.clientIntro": "Choose an existing game client or download one here. No local server is needed.",
   "welcome.host.title": "Host a server",

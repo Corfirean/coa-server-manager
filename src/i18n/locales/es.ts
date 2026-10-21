@@ -2,6 +2,7 @@ import type en from "./en";
 
 /** Español. Traducción provisional; debe revisarla un hablante nativo antes de publicarse. */
 const es: Partial<Record<keyof typeof en, string>> = {
+  "mod.switching": "Aplicando cambios… Espera un momento.",
   "portable.experimental": "Función experimental: los personajes portátiles siguen en desarrollo activo. Pueden producirse errores.",
   "remote.clientReady": "Tu cliente está listo. Guarda la dirección del anfitrión y pulsa Jugar.",
   "remote.clientIntro": "Elige un cliente existente o descárgalo aquí. No necesitas un servidor local.",

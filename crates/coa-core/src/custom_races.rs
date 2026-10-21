@@ -325,6 +325,8 @@ pub fn client_patch_status(client_path: &Path) -> ClientPatchStatus {
 struct SavedFile {
     path: String,
     existed: bool,
+    #[serde(default)]
+    moved_to: Option<String>,
 }
 
 struct PatchTransaction<'a> {
@@ -356,6 +358,7 @@ impl<'a> PatchTransaction<'a> {
         self.entries.push(SavedFile {
             path: relative,
             existed: path.is_file(),
+            moved_to: None,
         });
         fsx::atomic_write_json(
             &self.root.join(".coa-races-transaction/journal.json"),
@@ -382,19 +385,34 @@ impl<'a> PatchTransaction<'a> {
         Ok(())
     }
     fn move_file(&mut self, source: &Path, target: &Path) -> Result<()> {
+        // Save the destination first so recovery restores the moved source before it.
+        self.save(target)?;
         self.save(source)?;
         let index = self
             .entries
             .iter()
             .position(|entry| self.root.join(&entry.path) == source)
             .unwrap();
-        // Copy from the journal so rollback retains the previous bytes.
-        let saved = self
-            .root
-            .join(".coa-races-transaction")
-            .join(index.to_string());
-        self.copy(&saved, target)
+        let relative = target
+            .strip_prefix(self.root)
+            .map_err(|_| Error::Invalid("Patch path escaped the client directory.".into()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        self.entries[index].moved_to = Some(relative);
+        fsx::atomic_write_json(
+            &self.root.join(".coa-races-transaction/journal.json"),
+            &self.entries,
+        )?;
+        fs::create_dir_all(target.parent().unwrap())?;
+        fs::rename(
+            self.root
+                .join(".coa-races-transaction")
+                .join(index.to_string()),
+            target,
+        )?;
+        Ok(())
     }
+
     fn finish(mut self) -> Result<()> {
         fsx::atomic_write(
             &self.root.join(".coa-races-transaction/committed"),
@@ -419,10 +437,21 @@ fn recover_patch_transaction(root: &Path) -> Result<()> {
         return Ok(());
     }
     if !directory.join("committed").exists() && directory.join("journal.json").exists() {
-        let entries: Vec<SavedFile> = fsx::read_json(&directory.join("journal.json"))?;
-        for (index, entry) in entries.iter().enumerate().rev() {
+        let mut entries: Vec<SavedFile> = fsx::read_json(&directory.join("journal.json"))?;
+        for index in (0..entries.len()).rev() {
+            let entry = &entries[index];
             let path = fsx::safe_join(root, &entry.path)?;
             let saved = directory.join(index.to_string());
+            if let Some(target) = &entry.moved_to {
+                let target = fsx::safe_join(root, target)?;
+                if !saved.is_file() && target.is_file() {
+                    fs::rename(target, &saved)?;
+                }
+                // Persist recovery progress before restoring the source, making retries safe.
+                entries[index].moved_to = None;
+                fsx::atomic_write_json(&directory.join("journal.json"), &entries)?;
+            }
+            let entry = &entries[index];
             if saved.is_file() {
                 if path.is_file() {
                     fs::remove_file(&path)?;
@@ -1180,6 +1209,35 @@ mod tests {
         std::mem::forget(tx);
         recover_patch_transaction(root).unwrap();
         assert_eq!(fs::read(&file).unwrap(), b"previous");
+    }
+
+    #[test]
+    fn interrupted_patch_moves_restore_source_and_destination() {
+        for existing in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path();
+            let source = root.join("patch.MPQ");
+            let target = root.join("patch.MPQ.disabled");
+            fs::write(&source, b"patch bytes").unwrap();
+            if existing {
+                fs::write(&target, b"previous destination").unwrap();
+            }
+            let mut tx = PatchTransaction::new(root).unwrap();
+            tx.move_file(&source, &target).unwrap();
+            assert!(!source.exists());
+            assert_eq!(fs::read(&target).unwrap(), b"patch bytes");
+            // The source is moved, not copied into both the journal and destination.
+            assert!(!root.join(".coa-races-transaction/1").exists());
+            std::mem::forget(tx);
+            recover_patch_transaction(root).unwrap();
+            recover_patch_transaction(root).unwrap();
+            assert_eq!(fs::read(&source).unwrap(), b"patch bytes");
+            if existing {
+                assert_eq!(fs::read(&target).unwrap(), b"previous destination");
+            } else {
+                assert!(!target.exists());
+            }
+        }
     }
 
     #[test]

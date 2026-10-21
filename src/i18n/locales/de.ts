@@ -2,6 +2,7 @@ import type en from "./en";
 
 /** Deutsch. Entwurf einer Übersetzung; vor der Veröffentlichung von Muttersprachlern zu prüfen. */
 const de: Partial<Record<keyof typeof en, string>> = {
+  "mod.switching": "Änderungen werden angewendet… Bitte warten.",
   "portable.experimental": "Experimentelle Funktion: Portable Charaktere befinden sich noch in aktiver Entwicklung. Fehler können auftreten.",
   "remote.clientReady": "Dein Client ist bereit. Speichere die Hostadresse und klicke auf Spielen.",
   "remote.clientIntro": "Wähle einen vorhandenen Spielclient oder lade ihn hier herunter. Ein lokaler Server ist nicht nötig.",
