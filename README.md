@@ -20,14 +20,14 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   into **UPDATE**. Updates are authenticated (Ed25519), back up first, keep files you changed and can be rolled back.
 * **Backups.** Characters, accounts and settings on demand, automatically before every update; verify and restore
   from the app.
-* **CoA / Wildcard realms.** Choose the active realm on Overview. A server build with Wildcard support is required;
+* **CoA / Wildcard / Warcraft Reborn realms.** Choose the active realm on Overview. A server build supporting the selected realm is required;
   the first switch copies world data and creates an empty character database. Accounts are shared, characters and
   module settings are separate, and only one world runs. Switching a running server saves characters and restarts it.
   The closed client's saved realm follows this selection and is checked again before PLAY. If the client is open,
   the change is applied on the next launch through the Manager.
-  CoA companions are unavailable on Wildcard; other optional modules are experimental. Backups include both realms,
-  and database updates apply to both.
-  See [realm profiles and validation](docs/WILDCARD.md).
+  Bots are unavailable on Wildcard and Warcraft Reborn; other optional modules are experimental. Backups and
+  database updates include every created realm. Simultaneous startup supports CoA + Wildcard only.
+  See [realm profiles and validation](docs/WILDCARD.md) and [Warcraft Reborn](docs/WARCRAFT-REBORN.md).
 * **Companions (bots).** Fill the world with level-appropriate bots, see progress, stop spawning, take them offline,
   despawn N to relieve the server, and choose how many log in at server start.
 * **Realmlist switcher.** Keep named realmlists (for example *Solo* and *PTR*) and switch the game client between them from a

@@ -381,22 +381,12 @@ pub fn create(
     let build = || -> Result<Vec<Component>> {
         let mut components = Vec::new();
         let realm = crate::realms::state(root)?;
-        let mut databases: Vec<(String, &str)> = wanted_databases(kind)
-            .iter()
-            .map(|name| Ok((name.to_string(), realm.active.schema(name)?)))
-            .collect::<Result<_>>()?;
-        if realm.wildcard_created && kind != Kind::Config {
-            let other = if realm.active == crate::realms::Mode::Coa {
-                crate::realms::Mode::Wildcard
-            } else {
-                crate::realms::Mode::Coa
-            };
-            databases.push((
-                format!("{}-characters", other.name()),
-                other.schema("characters")?,
-            ));
-            if kind == Kind::Full {
-                databases.push((format!("{}-world", other.name()), other.schema("world")?));
+        let mut databases: Vec<(String, &str)> = wanted_databases(kind).iter()
+            .map(|name| Ok((name.to_string(), realm.active.schema(name)?))).collect::<Result<_>>()?;
+        if kind != Kind::Config {
+            for other in realm.modes().into_iter().filter(|m| *m != realm.active) {
+                databases.push((format!("{}-characters", other.name()), other.schema("characters")?));
+                if kind == Kind::Full { databases.push((format!("{}-world", other.name()), other.schema("world")?)); }
             }
         }
         if kind != Kind::Config && with_database(root, |db| db.schema_exists("acore_playerbots"))? {

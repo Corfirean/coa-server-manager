@@ -75,20 +75,11 @@ pub const SCHEMAS: [(&str, &str); 3] = [
 ];
 
 pub fn schema_of(kind: &str) -> Result<&'static str> {
-    if kind == "playerbots" {
-        return Ok("acore_playerbots");
-    }
-    if let Some(kind) = kind.strip_prefix("wildcard-") {
-        return crate::realms::Mode::Wildcard.schema(kind);
-    }
-    if let Some(kind) = kind.strip_prefix("coa-") {
-        return crate::realms::Mode::Coa.schema(kind);
-    }
-    SCHEMAS
-        .iter()
-        .find(|(k, _)| *k == kind)
-        .map(|(_, s)| *s)
-        .ok_or_else(|| Error::Invalid(format!("unknown database {kind}")))
+    if kind == "playerbots" { return Ok("acore_playerbots"); }
+    if let Some(kind) = kind.strip_prefix("wildcard-") { return crate::realms::Mode::Wildcard.schema(kind); }
+    if let Some(kind) = kind.strip_prefix("reborn-") { return crate::realms::Mode::Reborn.schema(kind); }
+    if let Some(kind) = kind.strip_prefix("coa-") { return crate::realms::Mode::Coa.schema(kind); }
+    SCHEMAS.iter().find(|(k, _)| *k == kind).map(|(_, s)| *s).ok_or_else(|| Error::Invalid(format!("unknown database {kind}")))
 }
 
 fn ident_ok(name: &str) -> bool {
@@ -183,10 +174,10 @@ impl Db {
     }
 
     pub fn realm_schema<'a>(&self, name: &'a str) -> &'a str {
-        if self.realm == crate::realms::Mode::Wildcard {
+        if self.realm != crate::realms::Mode::Coa {
             match name {
-                "acore_world" => "acore_world_wildcard",
-                "acore_characters" => "acore_characters_wildcard",
+                "acore_world" => self.realm.schema("world").unwrap(),
+                "acore_characters" => self.realm.schema("characters").unwrap(),
                 _ => name,
             }
         } else {
@@ -420,7 +411,7 @@ impl Db {
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
         }
-        if self.realm == crate::realms::Mode::Wildcard {
+        if self.realm != crate::realms::Mode::Coa {
             let sql = std::fs::read_to_string(file)?;
             self.query(&format!(
                 "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci; USE `{schema}`;\n{sql}"
@@ -566,8 +557,8 @@ fn route_sql(sql: &str, realm: crate::realms::Mode) -> String {
                 i += 1;
             }
             out.push_str(match &sql[start..i] {
-                "acore_world" => "acore_world_wildcard",
-                "acore_characters" => "acore_characters_wildcard",
+                "acore_world" => realm.schema("world").unwrap(),
+                "acore_characters" => realm.schema("characters").unwrap(),
                 other => other,
             });
         } else {
@@ -591,6 +582,14 @@ mod realm_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reborn_sql_routes_only_database_identifiers() {
+        use crate::realms::Mode;
+        let sql = "SELECT * FROM `acore_characters`.characters WHERE name='acore_world'; -- acore_world\nSELECT * FROM acore_world.items; SELECT * FROM acore_world_wildcard.items;";
+        assert_eq!(super::route_sql(sql, Mode::Reborn), "SELECT * FROM `acore_characters_reborn`.characters WHERE name='acore_world'; -- acore_world\nSELECT * FROM acore_world_reborn.items; SELECT * FROM acore_world_wildcard.items;");
+        assert_eq!(super::schema_of("reborn-characters").unwrap(), "acore_characters_reborn");
+        assert_eq!(super::schema_of("reborn-auth").unwrap(), "acore_auth");
+    }
     use super::*;
     use std::ffi::OsStr;
 
