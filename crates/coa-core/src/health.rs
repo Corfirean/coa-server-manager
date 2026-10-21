@@ -25,6 +25,8 @@ pub fn diagnose(text: &str) -> Option<ErrorCode> {
             Some(ErrorCode::DatabaseNotRunning)
         } else if l.contains("address already in use") || l.contains("could not bind") || l.contains("only one usage of each socket") {
             Some(ErrorCode::PortInUse)
+        } else if l.contains("does not hold the coa client dbc set") || l.contains("_outdated_ dbc data") {
+            Some(ErrorCode::GameDataMismatch)
         } else if l.contains("config::loadfile") && l.contains("failed open file") && l.contains("worldserver.conf") {
             Some(ErrorCode::ServerFilesIncomplete)
         } else {
@@ -56,6 +58,13 @@ pub fn diagnose_installation(root: &Path) -> Option<ErrorCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_game_data_folder_without_the_coa_dbc_set_is_named_as_such() {
+        let log = "Using DataDir /srv/data/\nSpellAffect.dbc not found in /srv/data/dbc/\nDataDir does not hold the CoA client DBC set. Install it with apps/coa-dbc/client_dbc.py.";
+        assert_eq!(diagnose(log), Some(ErrorCode::GameDataMismatch));
+        assert_eq!(diagnose("You have _outdated_ DBC data. Please extract correct versions from current using client."), Some(ErrorCode::GameDataMismatch));
+    }
 
     #[test]
     fn recognises_missing_migrations() {

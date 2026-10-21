@@ -55,6 +55,7 @@ pub enum ErrorCode {
     OperationInProgress,
     StartupFailed,
     DockerUnavailable,
+    GameDataMismatch,
     HashMismatch,
     PathRejected,
     PackageNotPublished,
@@ -137,6 +138,11 @@ impl ErrorCode {
                 "Docker is not available",
                 "This server runs in Docker. Install Docker, start it, and make sure your user account may use it, then try again.",
                 &[Retry, ShowDetails],
+            ),
+            ErrorCode::GameDataMismatch => (
+                "The game data folder is not the CoA set",
+                "The server stopped because the DBC files in the game data folder are not the ones of the Conquest of Azeroth client. Choose the folder that holds the CoA data (Settings > Game data folder), then start again.",
+                &[ShowDetails],
             ),
             ErrorCode::HashMismatch => (
                 "A downloaded file is damaged",

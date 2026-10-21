@@ -7,6 +7,7 @@ import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ClientCard } from "@/screens/ClientCard";
+import { GameDataCard } from "@/screens/GameDataCard";
 import { DiagnosticsCard } from "@/screens/DiagnosticsCard";
 import { AboutCard } from "@/screens/AboutCard";
 import { RemoveServerCard } from "@/screens/RemoveServerCard";
@@ -173,6 +174,8 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; p
       <ClientCard serverId={serverId} />
       <RealmStartupSettings serverId={serverId} />
       <AutoRestartSettings serverId={serverId} />
+
+      <GameDataCard serverId={serverId} />
 
       <DiagnosticsCard serverId={serverId} />
       <RepairCard key={serverId} serverId={serverId} />

@@ -110,6 +110,31 @@ fn summary(id: String, path: PathBuf) -> ServerSummary {
     ServerSummary { id, name, path: path.to_string_lossy().into_owned() }
 }
 
+/// The game data folder of a Docker server; none for a repack, whose data is inside its own folder.
+#[tauri::command]
+fn game_data_folder(state: State<'_, AppState>, id: String) -> std::result::Result<Option<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    if !coa_core::docker::is_docker(&root) {
+        return Ok(None);
+    }
+    Ok(Some(coa_core::docker::game_data_dir(&root)?.to_string_lossy().into_owned()))
+}
+
+/// Point a Docker server at another game data folder. The servers must be stopped.
+#[tauri::command]
+async fn set_game_data_folder(state: State<'_, AppState>, id: String, path: String) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        if !coa_core::docker::is_docker(&root) {
+            return Err(Error::Invalid("The game data of this server is inside its folder.".into()));
+        }
+        coa_core::docker::set_game_data(&root, std::path::Path::new(&path))?;
+        Ok(path)
+    })
+    .await
+}
+
 #[tauri::command]
 fn default_install_dir() -> String {
     if platform::flavor() == Flavor::Docker {
@@ -156,7 +181,9 @@ async fn add_server(state: State<'_, AppState>, path: String) -> std::result::Re
     meta.core.version = report.banner_revision.clone();
     meta.database.port = Some(report.ports.mysql);
     meta.database.schemas = report.database_schemas.clone();
-    for (rel, exe) in [("Core/worldserver.exe", &report.worldserver), ("Core/authserver.exe", &report.authserver)] {
+    // The executables are `worldserver.exe` in a repack and `worldserver` in a Docker server; the file check reads these names.
+    let exe_names = if coa_core::docker::is_docker(std::path::Path::new(&report.path)) { ("Core/worldserver", "Core/authserver") } else { ("Core/worldserver.exe", "Core/authserver.exe") };
+    for (rel, exe) in [(exe_names.0, &report.worldserver), (exe_names.1, &report.authserver)] {
         if let Some(e) = exe {
             meta.original_hashes.insert(rel.into(), e.sha256.clone());
         }
@@ -1374,7 +1401,7 @@ struct FriendsStatus {
     exposure: Vec<coa_core::net::Exposure>,
     /// The configuration lets other computers reach the login and world servers.
     servers_open: bool,
-    firewall: coa_core::firewall::Status,
+    firewall: Option<coa_core::firewall::Status>,
     tailscale: coa_core::net::Tailscale,
     server_running: bool,
     auth_port: u16,
@@ -1419,7 +1446,18 @@ fn report_targets() -> Vec<coa_core::report::Target> {
     coa_core::report::targets()
 }
 
+/// The distribution on Linux ("Linux (Arch Linux)"), from `/etc/os-release`; empty if it cannot be read.
+#[cfg(not(windows))]
+fn windows_version() -> String {
+    std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|t| t.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_string())))
+        .map(|name| format!("Linux ({name})"))
+        .unwrap_or_default()
+}
+
 /// "Windows 11 (build 26200)" from `ver`; empty if it cannot be read.
+#[cfg(windows)]
 fn windows_version() -> String {
     let mut cmd = std::process::Command::new("cmd.exe");
     cmd.args(["/C", "ver"]);
@@ -1468,9 +1506,10 @@ async fn friends_status(state: State<'_, AppState>, id: String) -> std::result::
             settings: coa_core::friends::load(&meta),
             lan_ip: automatic.map(|a| a.to_string()),
             lan_addresses: coa_core::net::lan_addresses(automatic).unwrap_or_default(),
-            exposure: coa_core::net::exposure(&ports),
+            exposure: if coa_core::docker::is_docker(&root) { coa_core::docker::exposure(&root, &ports) } else { coa_core::net::exposure(&ports) },
             servers_open: coa_core::friends::bind_is_open(&root),
-            firewall: coa_core::firewall::status(),
+            // The Windows firewall exists only on Windows; on Linux Docker publishes the ports itself.
+            firewall: (platform::flavor() == Flavor::Repack).then(coa_core::firewall::status),
             tailscale: coa_core::net::tailscale(),
             server_running: coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running,
             auth_port: ports.auth,
@@ -1540,7 +1579,7 @@ async fn friends_enable(
         };
         let open = mode != Mode::Local;
         let changed = friends::set_open(&root, &meta, open)?;
-        if open {
+        if open && platform::flavor() == Flavor::Repack {
             coa_core::firewall::ensure_rules_with_secondary(&ports, secondary)?;
         }
         if mode == Mode::Direct && use_upnp {
@@ -1573,7 +1612,7 @@ async fn friends_package(state: State<'_, AppState>, id: String) -> std::result:
     blocking(move || {
         let meta = meta_dir(&root)?;
         let host = coa_core::friends::load(&meta).host.ok_or_else(|| Error::Invalid("Choose how friends connect first.".into()))?;
-        let desktop = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Desktop");
+        let desktop = if platform::flavor() == Flavor::Docker { coa_core::diag::desktop_or_temp() } else { std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Desktop") };
         let out = if desktop.is_dir() { desktop } else { std::env::temp_dir() }.join("CoA-Friend-Setup.zip");
         coa_core::friends::make_friend_package(&root, &host, true, &out)?;
         Ok(out.to_string_lossy().into_owned())
@@ -1634,6 +1673,10 @@ async fn console_tail(
 ) -> std::result::Result<Vec<coa_core::console::Line>, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
+        // A Docker server's database writes to its container's output, not to a file.
+        if coa_core::docker::is_docker(&root) && matches!(source, coa_core::console::Source::Database) {
+            return coa_core::docker::logs::database_log(&root, filter.as_deref(), lines.unwrap_or(300).min(2000));
+        }
         let path = coa_core::console::log_path(&root, &data_dir().join("logs").join("manager.log"), source);
         coa_core::console::tail(&path, filter.as_deref(), lines.unwrap_or(300).min(2000))
     })
@@ -1670,6 +1713,8 @@ pub fn run() {
         .manage(AppState { registry: Registry::at(dir.join("installs.json")), busy: Mutex::new(HashSet::new()), install_cancel: Mutex::new(None), client_cancel: Mutex::new(None) })
         .invoke_handler(tauri::generate_handler![
             default_install_dir,
+            game_data_folder,
+            set_game_data_folder,
             install_environment,
             scan_server,
             add_server,
