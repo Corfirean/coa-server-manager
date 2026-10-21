@@ -69,6 +69,7 @@ fn sync_realm_when_closed(client: &Path, meta: &Path, mode: crate::realms::Mode,
     let realm = match mode {
         crate::realms::Mode::Coa => "Conquest of Azeroth",
         crate::realms::Mode::Wildcard => "Wildcard",
+        crate::realms::Mode::Reborn => "Warcraft Reborn",
     };
     let new = realm_config(&old, realm);
     if new == old { return Ok(true); }
@@ -344,6 +345,8 @@ mod tests {
         assert_eq!(fs::read_dir(backup_dir(&meta)).unwrap().count(), 1);
         assert!(sync_realm(&c, &meta, crate::realms::Mode::Wildcard).unwrap());
         assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), original);
+        assert!(sync_realm(&c, &meta, crate::realms::Mode::Reborn).unwrap());
+        assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), b"SET sound 1\r\nSET realmName \"Warcraft Reborn\"\r\n");
     }
 
     #[test]

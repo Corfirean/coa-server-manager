@@ -82,8 +82,8 @@ impl Store for Db {
         let connection = self.clone().for_realm(crate::realms::Mode::Coa);
         let world = self.realm_schema("acore_world");
         let characters = self.realm_schema("acore_characters");
-        let other = if self.realm() == crate::realms::Mode::Coa { "acore_world_wildcard" } else { "acore_world" };
-        let schemas: std::collections::BTreeSet<_> = [world, characters, other, AUTH_LEDGER_SCHEMA].into_iter().collect();
+        let others: Vec<_> = [crate::realms::Mode::Coa, crate::realms::Mode::Wildcard, crate::realms::Mode::Reborn].into_iter().filter(|m| *m != self.realm()).map(|m| m.schema("world").unwrap()).collect();
+        let schemas: std::collections::BTreeSet<_> = [world, characters, AUTH_LEDGER_SCHEMA].into_iter().chain(others.iter().copied()).collect();
         let catalog = connection.query(&format!("SELECT table_schema,table_name FROM information_schema.tables WHERE table_schema IN ('{}') AND table_name IN ('updates','{LEDGER_TABLE}') AND table_type='BASE TABLE';", schemas.into_iter().collect::<Vec<_>>().join("','")))?;
         let available: std::collections::BTreeSet<_> = catalog.lines().filter_map(|line| line.split_once('\t')).collect();
         let text = |expression: &str| format!("CONVERT({expression} USING utf8mb4) COLLATE utf8mb4_bin");
@@ -93,7 +93,7 @@ impl Store for Db {
                 queries.push(format!("SELECT 'core','{kind}',{},REPEAT('0',64),'applied',1,'' FROM `{schema}`.`updates` WHERE BINARY RIGHT(name,4)='.sql'",text("LEFT(name,CHAR_LENGTH(name)-4)")));
             }
         }
-        for (origin, schema, filter) in [("local",world,""), ("other",other," WHERE `db` IN ('auth','coa-auth','wildcard-auth')"), ("shared",AUTH_LEDGER_SCHEMA,"")] {
+        for (origin, schema, filter) in [("local",world,""), ("shared",AUTH_LEDGER_SCHEMA,"")].into_iter().chain(others.iter().map(|schema| ("other", *schema, " WHERE `db` IN ('auth','coa-auth','wildcard-auth','reborn-auth')"))) {
             if available.contains(&(schema, LEDGER_TABLE)) {
                 queries.push(format!("SELECT '{origin}',{},{},{},{},`baseline`,{} FROM `{schema}`.`{LEDGER_TABLE}`{filter}",text("`db`"),text("`id`"),text("`sha256`"),text("`status`"),text("COALESCE(HEX(`error`),'')")));
             }

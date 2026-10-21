@@ -10,6 +10,7 @@ const FILES: &[&str] = &[
     ".realms/secondary/Settings/repack.json", ".realms/secondary/Settings/realm-profile.json",
     ".realms/secondary/Settings/worldserver.conf.template", ".realms/secondary/Settings/authserver.conf.template",
     ".realms/secondary/Core/configs/worldserver.conf", ".realms/secondary/Core/configs/authserver.conf",
+    "Settings/realm-profiles/reborn.json",
 ];
 
 #[derive(Serialize, Deserialize)]
@@ -94,6 +95,7 @@ mod tests {
     #[test]
     fn interrupted_validation_restores_original_bytes_and_absent_files() {
         let (_dir, root, meta) = fixture();
+        fsx::atomic_write(&root.join("Settings/realm-profiles/reborn.json"), b"saved reborn profile").unwrap();
         let original: Vec<_> = FILES.iter().map(|p| fs::read(root.join(p)).ok()).collect();
         begin(&root, &meta).unwrap();
         assert!(crate::update::ensure_recovered(&meta).is_err());
@@ -106,6 +108,7 @@ mod tests {
         let config = ConfFile::parse_bytes(&fs::read(root.join(FILES[2])).unwrap()).unwrap();
         assert_eq!(config.get("BindIP"), Some("\"127.0.0.1\""));
         fsx::atomic_write(&root.join(FILES[4]), b"rendered temporary configuration").unwrap();
+        fsx::atomic_write(&root.join("Settings/realm-profiles/reborn.json"), b"temporary reborn profile").unwrap();
         restore(&root, &meta).unwrap();
         for (rel, bytes) in FILES.iter().zip(original) { assert_eq!(fs::read(root.join(rel)).ok(), bytes); }
         assert!(!pending(&meta));
@@ -141,7 +144,11 @@ pub(crate) fn restore(root: &Path, meta: &Path) -> Result<()> {
     if !pending(meta) { return Ok(()); }
     let journal = meta.join("validation-configs.json");
     let saved: BTreeMap<String, Saved> = fsx::read_json(&journal)?;
-    if saved.len() != FILES.len() || FILES.iter().any(|rel| !saved.contains_key(*rel)) {
+    // Previous managers could journal only the first two profiles. Recover those
+    // journals too, while continuing to reject missing or unknown legacy entries.
+    let legacy = saved.len() == FILES.len() - 1 && !saved.contains_key("Settings/realm-profiles/reborn.json");
+    let required = if legacy { &FILES[..FILES.len() - 1] } else { FILES };
+    if saved.len() != required.len() || required.iter().any(|rel| !saved.contains_key(*rel)) {
         return Err(Error::Invalid("Isolated validation configuration journal is incomplete.".into()));
     }
     for (rel, file) in &saved {

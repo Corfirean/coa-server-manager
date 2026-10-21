@@ -17,6 +17,9 @@ const zh = {
 
   "realm.profileLabel": "服务器",
   "realm.switching": "正在切换服务器…",
+  "realm.rebornCreate": "创建 Warcraft Reborn 服务器",
+  "realm.rebornModules": "Warcraft Reborn 的机器人职业机制尚未验证，其他模块仍处于实验阶段。",
+  "realm.rebornUpdate": "请将服务器更新至支持 Warcraft Reborn 的版本。",
   "realm.create": "创建 Wildcard 服务器",
   "realm.restart": "切换并重启",
   "realm.select": "选择服务器",
@@ -25,8 +28,8 @@ const zh = {
   "realm.modules": "此处无法使用 CoA 随从。动态难度等级缩放及其他模块在 Wildcard 上仍处于实验阶段。",
   "realm.update": "请先将服务器更新至支持 Wildcard 的版本以创建此服务器。",
   "realm.recovery": "服务器切换被中断。请选择一个服务器以恢复保存的配置。",
-  "realm.unsupported": "在 Wildcard 上不可用：职业机制尚未验证通过。",
-  "realm.experimental": "在 Wildcard 上处于实验阶段 · 游戏玩法兼容性尚未验证。",
+  "realm.unsupported": "在 Wildcard / Warcraft Reborn 上不可用：职业机制尚未验证通过。",
+  "realm.experimental": "在 Wildcard / Warcraft Reborn 上处于实验阶段 · 游戏玩法兼容性尚未验证。",
   "app.name": "CoA Server Manager",
 
   "nav.overview": "概览",

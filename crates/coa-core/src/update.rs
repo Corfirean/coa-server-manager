@@ -894,8 +894,7 @@ impl RepackEnv<'_> {
         if manifest.migrations.is_empty() { return Ok(Some(0)); }
         let count = |db: &crate::db::Db| -> Result<usize> {
             let realms = crate::realms::state(self.root)?;
-            let mut modes = vec![realms.active];
-            if realms.wildcard_created { modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa }); }
+            let modes = realms.modes();
             let mut count = 0;
             for (index, mode) in modes.into_iter().enumerate() {
                 let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || !crate::migrations::shared_auth(&m.db)).cloned().collect();
@@ -976,8 +975,7 @@ impl Env for RepackEnv<'_> {
                     }
                 }
                 crate::backup::with_database(self.root, |db| {
-                    let mut modes = vec![crate::realms::Mode::Coa];
-                    if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
+                    let modes = crate::realms::state(self.root)?.modes();
                     for mode in modes {
                         if let Some(problem) = crate::schema_check::check_with_report(&db.clone().for_realm(mode), self.root)?.first() {
                             if crate::docker::is_docker(self.root) {
@@ -1065,8 +1063,7 @@ impl RepackEnv<'_> {
             use crate::process::{observe, ServiceState};
             let identities = crate::backup::with_database(self.root, |db| {
                 if check_schema {
-                    let mut modes = vec![crate::realms::Mode::Coa];
-                    if crate::realms::state(self.root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
+                    let modes = crate::realms::state(self.root)?.modes();
                     for mode in modes {
                         if let Some(p) = crate::schema_check::check_with_report(&db.clone().for_realm(mode), self.root)?.first() {
                             return Err(Error::Invalid(format!("Database validation failed on {}: {}.{}: {}", mode.name(), p.database, p.table, p.detail)));
@@ -1131,10 +1128,7 @@ impl RepackEnv<'_> {
 /// One migration pass for both realms, with shared history checks and one recovery point.
 fn migrate_databases(db: &crate::db::Db, root: &Path, manifest: &Manifest, staged: &Path, snapshot: &dyn Fn() -> Result<String>) -> Result<ApplyReport> {
     let realms = crate::realms::state(root)?;
-    let mut modes = vec![realms.active];
-    if realms.wildcard_created {
-        modes.push(if realms.active == crate::realms::Mode::Coa { crate::realms::Mode::Wildcard } else { crate::realms::Mode::Coa });
-    }
+    let modes = realms.modes();
     // Reject a broken history in either realm before changing the first one.
     for (index, mode) in modes.iter().enumerate() {
         let list: Vec<_> = manifest.migrations.iter().filter(|m| index == 0 || !crate::migrations::shared_auth(&m.db)).cloned().collect();
@@ -1168,6 +1162,7 @@ fn database_identities(db: &crate::db::Db) -> Result<BTreeMap<String, std::colle
     for (schema, table, columns) in [
         ("acore_characters", "characters", "guid,account,HEX(name)"),
         ("acore_characters_wildcard", "characters", "guid,account,HEX(name)"),
+        ("acore_characters_reborn", "characters", "guid,account,HEX(name)"),
         ("acore_auth", "account", "id,HEX(username)"),
     ] {
         if !db.schema_exists(schema)? || !db.tables(schema)?.iter().any(|name| name == table) { continue; }

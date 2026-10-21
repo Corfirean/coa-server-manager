@@ -824,6 +824,10 @@ mod tests {
         let wild = database_env(&s, true, crate::realms::Mode::Wildcard);
         assert_eq!(get(&wild, "AC_WORLD_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_world_wildcard");
         assert_eq!(get(&wild, "AC_CHARACTER_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_characters_wildcard");
+        let reborn = database_env(&s, true, crate::realms::Mode::Reborn);
+        assert_eq!(get(&reborn, "AC_WORLD_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_world_reborn");
+        assert_eq!(get(&reborn, "AC_CHARACTER_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_characters_reborn");
+        assert_eq!(get(&reborn, "AC_LOGIN_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_auth");
         // Accounts are shared by both realms; the auth server never sees the others.
         assert_eq!(get(&wild, "AC_LOGIN_DATABASE_INFO").unwrap(), "db;3306;acore;apppw;acore_auth");
         let auth = database_env(&s, false, crate::realms::Mode::Wildcard);

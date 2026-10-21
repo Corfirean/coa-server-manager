@@ -139,7 +139,7 @@ fn installed_module_commits(root: &Path) -> BTreeMap<String, String> {
 
 fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     let installed_commits = installed_module_commits(root);
-    let wildcard = crate::realms::state(root).map(|s| s.active == crate::realms::Mode::Wildcard).unwrap_or(true);
+    let wildcard = crate::realms::state(root).map(|s| s.active != crate::realms::Mode::Coa).unwrap_or(true);
     cat.iter()
         .cloned()
         .map(|e| {

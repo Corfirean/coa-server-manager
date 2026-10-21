@@ -24,8 +24,7 @@ pub fn check(root: &Path, dir: &Path) -> Result<Vec<DatabaseCheck>> {
     let (_, meta) = MetaDir::open(dir)?;
     let m = installed_manifest(&meta, dir)?;
     let checks = crate::backup::with_database(root, |db| {
-        let mut modes = vec![crate::realms::Mode::Coa];
-        if crate::realms::state(root)?.wildcard_created { modes.push(crate::realms::Mode::Wildcard); }
+        let modes = crate::realms::state(root)?.modes();
         let mut checks = Vec::new();
         for mode in modes {
             let db = db.clone().for_realm(mode);
