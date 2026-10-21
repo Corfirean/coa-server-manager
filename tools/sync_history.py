@@ -42,7 +42,7 @@ def published(repo, component):
 
 
 def fragment_note(text, areas):
-    sections = text.strip().split('---', 2)
+    sections = text.lstrip('\ufeff').strip().split('---', 2)
     if len(sections) != 3 or sections[0]:
         raise ValueError('Invalid release fragment')
     fields = dict(line.split(':', 1) for line in sections[1].splitlines() if ':' in line)
@@ -58,12 +58,12 @@ def fragment_note(text, areas):
     return title
 
 
-def remote_fragments(repo, sha, seen, areas):
+def remote_fragments(repo, sha, seen, areas, excluded_blobs=()):
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
         raise ValueError('Changelog collection requires an immutable source SHA')
     listing = api(f'repos/{repo}/contents/changelog.d?ref={sha}')
     files = [f for f in listing if re.fullmatch(r'\d{8}-[a-z0-9-]+\.md', f['name'])]
-    new = [f for f in files if repo + ':' + f['name'] not in seen]
+    new = [f for f in files if repo + ':' + f['name'] not in seen and f['sha'] not in excluded_blobs]
 
     def read(item):
         blob = api(f'repos/{repo}/git/blobs/{item["sha"]}')
@@ -89,18 +89,32 @@ def collect_manager(root, tag, seen):
     return notes, [repo + ':' + Path(p).name for p in paths], {'commit': sha}
 
 
+def upstream_fragment_blobs(lock):
+    upstream = lock['components'].get('upstream')
+    if not upstream:
+        return set()
+    prefix = 'repos/' + upstream['repository'] + '/git/trees/'
+    tree = api(prefix + upstream['sha'])['tree']
+    directory = next((item for item in tree if item['path'] == 'changelog.d' and item['type'] == 'tree'), None)
+    if not directory:
+        return set()
+    files = api(prefix + directory['sha'])['tree']
+    return {item['sha'] for item in files if item['type'] == 'blob' and re.fullmatch(r'\d{8}-[a-z0-9-]+\.md', item['path'])}
+
+
 def collect_server(repo, tag, seen, previous):
     with tempfile.TemporaryDirectory() as folder:
         subprocess.run(['gh', 'release', 'download', tag, '--repo', repo, '--pattern', 'release-lock.json', '--dir', folder], check=True)
         lock = json.loads((Path(folder) / 'release-lock.json').read_text(encoding='utf-8-sig'))
     notes, ids = [], []
+    imported_blobs = upstream_fragment_blobs(lock)
     for role in ('core', 'bots', 'scaling', 'build'):
         item = lock['components'].get(role)
         if not item:
             raise ValueError('Release lock has no ' + role + ' source')
         if item['repository'] == 'Corfirean/coa-server-manager':
             raise ValueError('A Manager source cannot supply server release notes')
-        entries, found = remote_fragments(item['repository'], item['sha'], seen, SERVER_AREAS)
+        entries, found = remote_fragments(item['repository'], item['sha'], seen, SERVER_AREAS, imported_blobs if role == 'core' else ())
         notes.extend(entries)
         ids.extend(found)
     old = previous.get('components', {})
