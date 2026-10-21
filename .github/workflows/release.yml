@@ -16,7 +16,33 @@ permissions:
   contents: write
 
 jobs:
+  release-intent:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.intent.outputs.build }}
+    steps:
+      - id: intent
+        name: Keep already published release assets immutable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          build = True
+          if os.environ['GITHUB_EVENT_NAME'] == 'push':
+              result = subprocess.run(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] + '/releases/tags/' + os.environ['GITHUB_REF_NAME']], capture_output=True, text=True)
+              if result.returncode == 0:
+                  build = json.loads(result.stdout)['draft']
+                  if not build:
+                      print('Published release already exists; preserve its assets and prerelease status.')
+              elif 'HTTP 404' not in result.stderr:
+                  raise RuntimeError('Could not establish whether this release already exists: ' + result.stderr)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('build=' + str(build).lower() + '\n')
+          PY
   installer:
+    needs: release-intent
+    if: needs.release-intent.outputs.build == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
