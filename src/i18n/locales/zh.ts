@@ -1,5 +1,6 @@
 /** Simplified Chinese localization (zh-CN) */
 const zh = {
+  "portable.experimental": "实验性功能：便携角色仍在积极开发中，可能存在错误。",
   "remote.clientReady": "客户端已就绪。保存服主地址，然后点击开始游戏。",
   "remote.clientIntro": "选择已有游戏客户端，或在此下载。无需安装本地服务器。",
   "welcome.host.title": "我要搭建服务器",

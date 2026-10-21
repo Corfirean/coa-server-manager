@@ -271,6 +271,7 @@ export function PortablePage({ onOpenSettings }: { onOpenSettings?: () => void }
       </div>
     </div>
     <p className="mt-2 text-muted">{t("portable.intro")}</p>
+    <p className="mt-2 rounded-md border border-warn/40 bg-warn/10 p-3 text-sm text-warn">{t("portable.experimental")}</p>
     {state && !state.runtime.running && <p className="mt-3 text-sm text-warn" role="status">{t("portable.runtime.stopped")}</p>}
     {error && <ErrorLine error={error} />}
 

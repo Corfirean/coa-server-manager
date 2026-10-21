@@ -904,6 +904,7 @@ const en = {
   "client.job.updating": "Updating the client",
   "nav.characters": "Characters",
   "q.characters": "Which of my characters can play where?",
+  "portable.experimental": "Experimental feature: portable characters are still in active development. Bugs may occur.",
   "portable.title": "Characters",
   "portable.intro": "Your characters are kept safe by the Manager. Pick a realm and press Play: the Manager prepares the character there and saves your progress when you log out.",
   "portable.runtime.stopped": "The part of the Manager that follows your game is not running. Restart the Manager.",

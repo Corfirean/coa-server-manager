@@ -2,6 +2,7 @@ import type en from "./en";
 
 /** Français. Traduction provisoire ; à faire relire par un locuteur natif avant la publication. */
 const fr: Partial<Record<keyof typeof en, string>> = {
+  "portable.experimental": "Fonction expérimentale : les personnages portables sont encore en développement actif. Des bugs peuvent survenir.",
   "remote.clientReady": "Votre client est prêt. Enregistrez l’adresse de l’hôte, puis cliquez sur Jouer.",
   "remote.clientIntro": "Choisissez un client existant ou téléchargez-le ici. Aucun serveur local n’est nécessaire.",
   "welcome.host.title": "Héberger un serveur",

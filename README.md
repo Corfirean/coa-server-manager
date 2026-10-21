@@ -1,5 +1,7 @@
 # CoA Server Manager
 
+**Portable characters are experimental.** This feature is in active development and may contain bugs.
+
 A Windows app that installs and runs your own **Conquest of Azeroth** server (AzerothCore) with a few clicks:
 no console, no config files, no database tools. Tauri 2 + Rust + React.
 

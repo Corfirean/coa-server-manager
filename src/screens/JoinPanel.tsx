@@ -103,6 +103,7 @@ function ServerCharacters({ realm, onClaimed }: { realm: string; onClaimed: () =
   }
   return <section data-testid="server-characters">
     <h3 className="mb-1 font-medium">{t("join.chars.title")}</h3>
+    <p className="mt-2 rounded-md border border-warn/40 bg-warn/10 p-3 text-sm text-warn">{t("portable.experimental")}</p>
     <p className="text-xs text-muted">{t("join.chars.text")}</p>
     <Button size="sm" className="mt-2" onClick={() => void load()} disabled={busy !== null}>{busy === "*" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{t("join.chars.show")}</Button>
     {list && list.length === 0 && <p className="mt-2 text-sm text-muted">{t("join.chars.none")}</p>}
