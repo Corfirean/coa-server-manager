@@ -534,6 +534,12 @@ fn save_settings_in(
                 ));
             }
         }
+        if id == "content-scaling" && key.starts_with("CoAContentScaling.Difficulty.Health.") && key.ends_with("Multiplier") {
+            let multiplier = value.parse::<f32>().map_err(|_| Error::Invalid("Health multipliers must be a number from 0.1 to 10.".into()))?;
+            if !multiplier.is_finite() || !(0.1..=10.0).contains(&multiplier) {
+                return Err(Error::Invalid("Health multipliers must be a number from 0.1 to 10.".into()));
+            }
+        }
         if id == "content-scaling" && key == "CoAContentScaling.World.Leech.Percent" {
             let percent = value.parse::<f32>().map_err(|_| {
                 Error::Invalid("Life steal must be a number from 0 to 100 percent.".into())
@@ -1178,8 +1184,37 @@ mod tests {
     }
 
     #[test]
-    fn an_older_file_name_is_used_when_the_current_one_is_missing_and_a_part_that_cannot_be_switched_stays_on(
-    ) {
+    fn creature_health_multipliers_are_validated_per_key() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let cat = catalog();
+        let conf = dir(&root).join("mod-coa-content-scaling.conf.dist");
+        let keys = [
+            "CoAContentScaling.Difficulty.Health.WorldMultiplier",
+            "CoAContentScaling.Difficulty.Health.DungeonMultiplier",
+            "CoAContentScaling.Difficulty.Health.RaidMultiplier",
+            "CoAContentScaling.Difficulty.Health.TrashMultiplier",
+            "CoAContentScaling.Difficulty.Health.BossMultiplier",
+        ];
+        let mut text = String::from("CoAContentScaling.Enable = 1\n");
+        for key in keys {
+            text.push_str(&format!("{key} = 1.0\n"));
+        }
+        fs::write(&conf, text).unwrap();
+        for key in keys {
+            let changes = |v: &str| BTreeMap::from([(key.to_string(), v.to_string())]);
+            for bad in ["NaN", "inf", "0", "0.09", "10.01", "-1", "abc", ""] {
+                assert!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes(bad)).is_err(), "{key} {bad}");
+            }
+            for good in ["0.1", "0.4", "1", "2.5", "10"] {
+                assert_eq!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes(good)).unwrap(), [key]);
+                assert_eq!(settings_in(&cat, &root, "content-scaling").unwrap().iter().find(|s| s.key == key).unwrap().value, good);
+            }
+        }
+    }
+
+    #[test]
+    fn an_older_file_name_is_used_when_the_current_one_is_missing_and_a_part_that_cannot_be_switched_stays_on() {
         let d = tempfile::tempdir().unwrap();
         let (root, meta) = server(d.path());
         fs::write(
