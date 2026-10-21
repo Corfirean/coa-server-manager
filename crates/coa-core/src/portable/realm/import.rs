@@ -200,7 +200,7 @@ pub fn preflight(
     opts: &ImportOptions,
 ) -> Result<PreflightReport> {
     let mut report = PreflightReport::default();
-    let realm_ruleset = ruleset_of(db);
+    let realm_ruleset = ruleset_of(db)?;
     if model.ruleset != realm_ruleset {
         report.problems.push(ImportProblem::WrongRuleset {
             character: model.ruleset,
@@ -452,7 +452,7 @@ pub fn import_character_in_session(
     let plan = match build_plan(
         &model,
         &PlanContext {
-            ruleset: ruleset_of(db),
+            ruleset: ruleset_of(db)?,
             account,
             revision: record.revision,
             nonce: ticket.nonce,

@@ -1438,7 +1438,7 @@ impl PortableService {
         let model = self.host.load_current(character_id)?;
         let encoded = super::super::snapshot::encode(&model)?;
         let mut collections = BTreeMap::new();
-        if realm::ruleset_of(&db) == super::super::model::Ruleset::Coa {
+        if realm::ruleset_of(&db)? == super::super::model::Ruleset::Coa {
             if let Some(account) = realm::collections::account_of(&db, local_guid)? {
                 for kind in ["coa:appearance", "coa:vanity"] {
                     if let Ok(set) = realm::collections::read_set(&db, account, kind) {

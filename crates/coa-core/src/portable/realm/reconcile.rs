@@ -738,8 +738,9 @@ fn update_inner(
         merged
     };
     let schema = probe(db)?;
+    let ruleset = ruleset_of(db)?;
     let context = |nonce| UpdateContext {
-        ruleset: ruleset_of(db),
+        ruleset,
         local_guid: guid,
         revision: record.revision,
         nonce,

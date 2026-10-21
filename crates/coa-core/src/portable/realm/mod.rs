@@ -51,10 +51,11 @@ pub use reconcile::{
 pub use script::SchemaProbe;
 
 /// The ruleset a database belongs to is decided by which realm profile it is (`realms::Mode`), never by the caller.
-pub fn ruleset_of(db: &Db) -> Ruleset {
+pub fn ruleset_of(db: &Db) -> Result<Ruleset> {
     match db.realm() {
-        Mode::Coa => Ruleset::Coa,
-        Mode::Wildcard => Ruleset::Wildcard,
+        Mode::Coa => Ok(Ruleset::Coa),
+        Mode::Wildcard => Ok(Ruleset::Wildcard),
+        Mode::Reborn => Err(PortableError::Invalid("Portable characters are not supported on Warcraft Reborn realms yet.".into())),
     }
 }
 
@@ -216,7 +217,7 @@ pub fn export_character_with_pets(
     export::build(
         &raw,
         &ExportRequest {
-            ruleset: ruleset_of(db),
+            ruleset: ruleset_of(db)?,
             local_guid,
             character_id,
             prior_items,
@@ -240,7 +241,7 @@ pub fn read_session_character(
     export::build(
         &raw,
         &ExportRequest {
-            ruleset: ruleset_of(db),
+            ruleset: ruleset_of(db)?,
             local_guid,
             character_id: Some(character_id),
             prior_items,

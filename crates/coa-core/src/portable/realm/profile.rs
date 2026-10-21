@@ -92,7 +92,7 @@ pub fn assemble(
     let mut extension_realm = NoRealm { probe };
     let extensions = registry.supported_on(&mut extension_realm);
     let content = ContentProfile {
-        ruleset: ruleset_of(db),
+        ruleset: ruleset_of(db)?,
         character_formats: ContentProfile::manager_formats(),
         online_import_job_formats: core
             .map(|c| c.portable.job_formats.clone())

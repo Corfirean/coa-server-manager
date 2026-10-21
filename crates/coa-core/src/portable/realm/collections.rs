@@ -35,7 +35,7 @@ fn realm_error(e: crate::Error) -> PortableError {
 }
 
 fn coa_only(db: &Db) -> Result<()> {
-    if ruleset_of(db) != Ruleset::Coa {
+    if ruleset_of(db)? != Ruleset::Coa {
         return Err(PortableError::Invalid(
             "collections are carried for CoA realms only (Wildcard transfer is disabled)".into(),
         ));
