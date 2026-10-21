@@ -51,6 +51,26 @@ class ComponentHistoryTests(unittest.TestCase):
             api.assert_called_once_with('repos/owner/repo/contents/changelog.d?ref=' + 'a' * 40)
         with self.assertRaises(ValueError): sync.remote_fragments('owner/repo', 'main', set(), sync.SERVER_AREAS)
 
+    def test_manager_collection_reads_the_real_frozen_tag(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            fragments = root / 'changelog.d'
+            fragments.mkdir()
+            own = fragments / '20261021-own.md'
+            own.write_text('---\narea: manager\ntitle: Characters show their saved versions\n---\n', encoding='utf8')
+            (fragments / '20261021-server.md').write_text('---\narea: server\ntitle: Server only\n---\n', encoding='utf8')
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+            subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Frozen notes'], check=True)
+            subprocess.run(['git', '-C', str(root), 'tag', 'v0.7.0'], check=True)
+            own.write_text('Uncommitted content must not become release notes', encoding='utf8')
+            notes, ids, source = sync.collect_manager(root, 'v0.7.0', set())
+            self.assertEqual(notes, ['Characters show their saved versions'])
+            self.assertEqual(len(ids), 2)
+            self.assertEqual(len(source['commit']), 40)
+            seen = {'Corfirean/coa-server-manager:20261021-own.md'}
+            self.assertEqual(sync.collect_manager(root, 'v0.7.0', seen)[0], [])
+
     def test_render_is_component_scoped_and_stable(self):
         text = sync.render(self.history())
         self.assertIn('# CoA Server Manager changelog', text)
