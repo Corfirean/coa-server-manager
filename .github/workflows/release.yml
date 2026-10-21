@@ -25,11 +25,12 @@ jobs:
         name: Keep already published release assets immutable
         env:
           GH_TOKEN: ${{ github.token }}
+          REQUEST_PUBLISH: ${{ inputs.publish_release && 'true' || 'false' }}
         run: |
           python3 - <<'PY'
           import json, os, subprocess
           build = True
-          if os.environ['GITHUB_EVENT_NAME'] == 'push':
+          if os.environ['GITHUB_EVENT_NAME'] == 'push' or os.environ.get('REQUEST_PUBLISH') == 'true':
               result = subprocess.run(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] + '/releases/tags/' + os.environ['GITHUB_REF_NAME']], capture_output=True, text=True)
               if result.returncode == 0:
                   build = json.loads(result.stdout)['draft']
