@@ -71,6 +71,28 @@ class ComponentHistoryTests(unittest.TestCase):
             seen = {'Corfirean/coa-server-manager:20261021-own.md'}
             self.assertEqual(sync.collect_manager(root, 'v0.7.0', seen)[0], [])
 
+    def test_utf8_bom_does_not_break_a_valid_historical_fragment(self):
+        text = '\ufeff---\narea: bots\ntitle: Companions keep their combat form\n---\n'
+        self.assertEqual(sync.fragment_note(text, sync.SERVER_AREAS), 'Companions keep their combat form')
+
+    def test_imported_upstream_fragments_are_not_credited_as_our_changes(self):
+        import base64
+        listing = [{'name': '20261021-imported.md', 'sha': 'upstream'}, {'name': '20261021-own.md', 'sha': 'own'}]
+        body = base64.b64encode(b'---\narea: server\ntitle: Our portable sessions\n---\n').decode()
+        with patch.object(sync, 'api', side_effect=[listing, {'content': body}]) as calls:
+            notes, consumed = sync.remote_fragments('owner/core', 'a' * 40, set(), sync.SERVER_AREAS, {'upstream'})
+        self.assertEqual(notes, ['Our portable sessions'])
+        self.assertEqual(len(consumed), 2)
+        self.assertEqual(calls.call_count, 2)
+        self.assertTrue(calls.call_args.args[0].endswith('/git/blobs/own'))
+
+    def test_upstream_exclusions_use_the_frozen_source_tree(self):
+        lock = {'components': {'upstream': {'repository': 'upstream/core', 'sha': 'frozen'}}}
+        with patch.object(sync, 'api', side_effect=[{'tree': [{'path': 'changelog.d', 'type': 'tree', 'sha': 'notes-tree'}]}, {'tree': [{'path': '20261021-imported.md', 'type': 'blob', 'sha': 'imported'}, {'path': 'README.md', 'type': 'blob', 'sha': 'readme'}]}]) as calls:
+            self.assertEqual(sync.upstream_fragment_blobs(lock), {'imported'})
+        self.assertEqual(calls.call_args_list[0].args[0], 'repos/upstream/core/git/trees/frozen')
+        self.assertEqual(calls.call_args_list[1].args[0], 'repos/upstream/core/git/trees/notes-tree')
+
     def test_render_is_component_scoped_and_stable(self):
         text = sync.render(self.history())
         self.assertIn('# CoA Server Manager changelog', text)
