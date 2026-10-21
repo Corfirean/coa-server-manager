@@ -7,4 +7,7 @@ license.workspace = true
 [dependencies]
 coa-core = { path = "../coa-core" }
 serde_json = "1"
+base64 = "0.22"
+ed25519-dalek = "2"
+tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

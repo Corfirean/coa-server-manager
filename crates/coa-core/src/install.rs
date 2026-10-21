@@ -148,10 +148,6 @@ pub(crate) fn bootstrap_database(root: &Path) -> Result<()> {
     with_scratch_ports(root, || bootstrap_database_inner(root))
 }
 
-fn free_port() -> Result<u16> {
-    Ok(std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
-}
-
 /// Run `f` with the staging copy listening on unused ports, so an installation never collides with a server (or any
 /// other program) already using the shipped ports. The shipped ports are put back afterwards.
 pub(crate) fn with_scratch_ports<T>(root: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -159,10 +155,14 @@ pub(crate) fn with_scratch_ports<T>(root: &Path, f: impl FnOnce() -> Result<T>) 
     let path = root.join("Settings/repack.json");
     let original: serde_json::Value = fsx::read_json(&path)?;
     let mut scratch = original.clone();
+    let mut listeners = Vec::new();
     for k in KEYS {
-        scratch[k] = free_port()?.into();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        scratch[k] = listener.local_addr()?.port().into();
+        listeners.push(listener);
     }
     fsx::atomic_write_json(&path, &scratch)?;
+    drop(listeners);
     let result = f();
     // keep whatever else changed meanwhile (console credentials), restore only the ports
     let mut now: serde_json::Value = fsx::read_json(&path).unwrap_or(scratch);

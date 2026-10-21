@@ -81,20 +81,41 @@ fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
 
 /// Run a launcher verb to completion (blocking; call from a worker thread).
 pub fn run(root: &Path, verb: Verb) -> Result<DriverOutcome> {
-    run_inner(root, verb, false)
+    run_inner(root, verb, false, false)
 }
 
 pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
-    run_inner(root, Verb::StartAll, true)
+    run_inner(root, Verb::StartAll, true, true)
 }
 
-fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverOutcome> {
+pub(crate) fn start_after_update(root: &Path) -> Result<DriverOutcome> {
+    run_inner(root, Verb::StartAll, true, false)
+}
+
+pub(crate) fn validate_secondary(root: &Path) -> Result<DriverOutcome> {
+    run_inner(root, Verb::StartWorld, true, true)
+}
+
+/// Validate without accepting game connections or submitting reports. Child supervisors inherit the flag.
+pub(crate) fn offline_launcher(text: &str) -> Result<String> {
+    let normalized = text.replace("\r\n", "\n");
+    let text = normalized.as_str();
+    if text.contains("# coa-offline-validation") { return Ok(text.into()); }
+    if !text.contains("def spawn(name, command, cwd, log):") || !text.contains("def relay_worker():") {
+        return Err(Error::Invalid("This launcher cannot isolate an update validation. Update was not applied.".into()));
+    }
+    let spawn = "def spawn(name, command, cwd, log):\n    # coa-offline-validation\n    if os.environ.get('COA_UPDATE_VALIDATION') == '1':\n        for filename in ('worldserver.conf', 'authserver.conf'):\n            path = ROOT / 'Core/configs' / filename\n            if path.exists():\n                text = path.read_text(encoding='utf-8-sig')\n                for key, value in (('BindIP', '\"127.0.0.1\"'), ('Ra.IP', '\"127.0.0.1\"'), ('SOAP.Enabled', '0')):\n                    text = re.sub(r'(?m)^\\s*' + re.escape(key) + r'\\s*=.*$', '', text)\n                    text += '\\n' + key + ' = ' + value + '\\n'\n                path.write_text(text, encoding='utf-8')\n";
+    let relay = "def relay_worker():\n    if os.environ.get('COA_UPDATE_VALIDATION') == '1':\n        save_process('relay-ready', os.getpid())\n        while not (STATE / 'stop-relay').exists():\n            time.sleep(0.5)\n        return\n";
+    Ok(text.replacen("def spawn(name, command, cwd, log):\n", spawn, 1).replacen("def relay_worker():\n", relay, 1))
+}
+
+fn run_inner(root: &Path, verb: Verb, validating_update: bool, offline: bool) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
     let _update_lock = if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
         Some(crate::update::operation_lock(&crate::registry::metadata_dir_for(&root)?)?)
     } else { None };
     if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
-        crate::update::ensure_recovered(&crate::registry::metadata_dir_for(&root)?)?;
+        crate::update::recover_before_start(&root, &crate::registry::metadata_dir_for(&root)?)?;
     }
     if matches!(verb, Verb::StartAll | Verb::StartWorld) { crate::modules::ensure_bot_exclusivity(&root)?; }
     if crate::docker::is_docker(&root) {
@@ -115,7 +136,8 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     if matches!(verb, Verb::StartAll | Verb::StartWorld) { crate::modules::ensure_bot_exclusivity(&root)?; }
     let (python, script) = launcher(&root)?;
     let original = std::fs::read_to_string(&script)?;
-    let patched = patch_launcher_imports(&original)?;
+    let imported = patch_launcher_imports(&original)?;
+    let patched = if offline { offline_launcher(&imported)? } else { imported };
     if original != patched {
         fsx::atomic_write(&script, patched.as_bytes())?;
         if let Ok(dir) = crate::registry::metadata_dir_for(&root) {
@@ -128,8 +150,10 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         }
     }
     let mut cmd = Command::new(&python);
-    cmd.arg("-B").arg("-c").arg(LAUNCH_SCRIPT).arg(&script).arg(verb.arg())
+    let launch = if offline && crate::update_fault::python_failure(&root) { "raise RuntimeError('Injected disposable-fixture Python failure')" } else { LAUNCH_SCRIPT };
+    cmd.arg("-B").arg("-c").arg(launch).arg(&script).arg(verb.arg())
         .current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if offline { cmd.env("COA_UPDATE_VALIDATION", "1"); }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -179,7 +203,10 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         }
     };
     tracing::info!(?verb, ok, ?code, "driver: launcher verb finished");
-    if ok && verb == Verb::StartAll { crate::multiworld::start(&root)?; }
+    if ok && verb == Verb::StartAll {
+        if offline { crate::multiworld::start_validation(&root)?; }
+        else { crate::multiworld::start(&root)?; }
+    }
     Ok(DriverOutcome { ok, exit_code, code, human: code.map(ErrorCode::human), output })
 }
 
@@ -198,6 +225,7 @@ pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
 pub(crate) fn launcher_matches(signed: &str, actual: &[u8]) -> bool {
     if signed.as_bytes() == actual { return true; }
     if patch_launcher_imports(signed).is_ok_and(|s| s.as_bytes() == actual) { return true; }
+    if patch_launcher_imports(signed).and_then(|s| offline_launcher(&s)).is_ok_and(|s| s.as_bytes() == actual) { return true; }
     crate::realms::patch_launcher(signed).is_ok_and(|s| s.as_bytes() == actual
         || patch_launcher_imports(&s).is_ok_and(|p| p.as_bytes() == actual))
 }

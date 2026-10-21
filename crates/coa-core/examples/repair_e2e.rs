@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     fsx::atomic_write(&update_tree.join(format!("_migrations/world/{id}.sql")), sql.as_bytes())?;
     let options = |kind, version: &str, migrations| BuildOptions { kind, version: version.into(), core_commit: None, built_at: "fixture".into(), part_size: 1 << 20, bots_commit: None, migrations };
     let base = package::build(&base_tree, &base_pkg, &options(Kind::Base, "1.0.0", vec![]), &|_| {})?;
-    let update = package::build(&update_tree, &update_pkg, &options(Kind::Update, "1.0.1", vec![Migration { id: id.into(), db: "world".into(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false }]), &|_| {})?;
+    let update = package::build(&update_tree, &update_pkg, &options(Kind::Update, "1.0.1", vec![Migration { compatible_sha256: vec![], id: id.into(), db: "world".into(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false }]), &|_| {})?;
     // A test-only trust key, unrelated to production signing material.
     let key = SigningKey::from_bytes(&[23; 32]);
     let public = STANDARD.encode(key.verifying_key().as_bytes());

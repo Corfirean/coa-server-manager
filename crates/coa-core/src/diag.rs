@@ -249,6 +249,14 @@ pub fn export_package(root: &Path, meta_dir: &Path, manager_log: &Path, meta: &I
     if let Ok(b) = fs::read(meta_dir.join("logs/database-checks.json")) {
         add("database-checks.json", redact(&String::from_utf8_lossy(&b)).as_bytes())?;
     }
+    if let Ok(b) = fs::read(meta_dir.join("logs/update-result.json")) {
+        add("update-result.json", redact(&String::from_utf8_lossy(&b)).as_bytes())?;
+    }
+    if let Ok(Some(txn)) = crate::update::latest(meta_dir) {
+        if let Ok(b) = fs::read(meta_dir.join("updates").join(&txn.id).join("diagnostic.json")) {
+            add("update-diagnostic.json", redact(&String::from_utf8_lossy(&b)).as_bytes())?;
+        }
+    }
     zip.finish().map_err(|e| Error::Invalid(e.to_string()))?;
     Ok(n)
 }

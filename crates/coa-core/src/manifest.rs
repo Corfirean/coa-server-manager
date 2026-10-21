@@ -48,6 +48,8 @@ pub struct FileEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Migration {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compatible_sha256: Vec<String>,
     pub id: String,
     pub db: String,
     pub sha256: String,
@@ -133,6 +135,11 @@ impl Manifest {
         }
         if parse_version(&self.min_manager_version).is_none() {
             return bad(format!("bad minManagerVersion {:?}", self.min_manager_version));
+        }
+        for migration in &self.migrations {
+            if !is_sha256(&migration.sha256) || migration.compatible_sha256.iter().any(|h| !is_sha256(h) || h == &"0".repeat(64)) {
+                return bad(format!("{}: invalid migration checksum compatibility", migration.id));
+            }
         }
         for (label, rev) in [("core", Some(&self.core)), ("bots", self.bots.as_ref())] {
             if let Some(Revision { commit: Some(c) }) = rev {

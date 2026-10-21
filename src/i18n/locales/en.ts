@@ -404,6 +404,7 @@ const en = {
   "upd.backNote": "Going back restores files and settings. If database updates started, it also restores all databases to the backup taken before the update. Later progress will be lost.",
   "upd.goBackTo": "Go back to version {v}",
   "upd.goBackBefore": "Go back to the version before the update",
+  "upd.autoRestored": "The update failed validation. Your previous server was restored automatically.",
   "upd.title": "Server updates",
   "upd.text": "Updates are checked for authenticity, backed up first, and can be undone.",
   "upd.check": "Check for updates",

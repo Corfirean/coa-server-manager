@@ -37,6 +37,7 @@ pub trait Store {
     fn load(&self) -> Result<Vec<LedgerRow>>;
     fn put(&self, row: &LedgerRow) -> Result<()>;
     fn run_file(&self, schema: &str, file: &Path) -> Result<()>;
+    fn checkpoint(&self, _point: &str) {}
 }
 
 fn hex_of(s: &str) -> String {
@@ -48,6 +49,9 @@ fn ident_ok(s: &str) -> bool {
 }
 
 impl Store for Db {
+    fn checkpoint(&self, point: &str) {
+        if let Some(root) = self.native_root() { crate::update_fault::checkpoint(&root, point); }
+    }
     fn load(&self) -> Result<Vec<LedgerRow>> {
         self.query(&format!(
             "CREATE TABLE IF NOT EXISTS `{LEDGER_SCHEMA}`.`{LEDGER_TABLE}` (`db` VARCHAR(32) NOT NULL, `id` VARCHAR(190) NOT NULL, `sha256` CHAR(64) NOT NULL, `status` VARCHAR(16) NOT NULL, `applied_at` DATETIME NOT NULL, `error` TEXT NULL, `baseline` TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (`db`,`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
@@ -148,7 +152,7 @@ fn recorded<'a>(rows: &'a [LedgerRow], m: &Migration) -> Option<&'a LedgerRow> {
 }
 
 fn hash_changed(row: &LedgerRow, m: &Migration) -> bool {
-    row.status == Status::Applied && row.sha256 != "0".repeat(64) && !row.sha256.eq_ignore_ascii_case(&m.sha256)
+    row.status == Status::Applied && row.sha256 != "0".repeat(64) && !row.sha256.eq_ignore_ascii_case(&m.sha256) && !m.compatible_sha256.iter().any(|h| h.eq_ignore_ascii_case(&row.sha256))
 }
 
 /// Record migrations as already present without running them (adopting an existing server whose database
@@ -217,10 +221,13 @@ pub fn apply_pending(store: &dyn Store, list: &[Migration], dir: &Path, snapshot
     for (m, schema, path) in files {
         tracing::info!(migration = %m.id, database = %m.db, "database migration starting");
         store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Running, error: Some("Interrupted SQL must be recovered before replay.".into()), baseline: false })?;
+        store.checkpoint(&format!("before-sql:{}", m.id));
         match store.run_file(schema, &path) {
             Ok(()) => {
+                store.checkpoint(&format!("after-sql:{}", m.id));
                 store.put(&LedgerRow { db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), status: Status::Applied, error: None, baseline: false })?;
                 report.applied.push(m.id.clone());
+                store.checkpoint(&format!("recorded-sql:{}", m.id));
                 tracing::info!(migration = %m.id, database = %m.db, "database migration applied");
             }
             Err(e) => {
@@ -273,7 +280,7 @@ mod tests {
         for (db, id, sql) in files {
             std::fs::create_dir_all(d.path().join(db)).unwrap();
             std::fs::write(d.path().join(db).join(format!("{id}.sql")), sql).unwrap();
-            list.push(Migration { id: id.to_string(), db: db.to_string(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
+            list.push(Migration { compatible_sha256: vec![], id: id.to_string(), db: db.to_string(), sha256: fsx::sha256_bytes(sql.as_bytes()), destructive: false });
         }
         (d, list)
     }
@@ -302,6 +309,19 @@ mod tests {
         assert_eq!(status(&store, &list).unwrap()[0].status, Status::Failed);
         assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
         assert!(store.ran.borrow().is_empty());
+    }
+
+    #[test]
+    fn only_explicit_published_compatibility_skips_changed_hash_without_rewriting_history() {
+        let (d, mut list) = setup(&[("characters", "repair", "SELECT 1;\n")]);
+        let store = Mem::default();
+        let previous = fsx::sha256_bytes(b"SELECT 1;\r\n");
+        store.rows.borrow_mut().push(LedgerRow { db: "characters".into(), id: "repair".into(), sha256: previous.clone(), status: Status::Applied, error: None, baseline: false });
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).is_err());
+        list[0].compatible_sha256.push(previous.clone());
+        assert!(apply_pending(&store, &list, d.path(), &no_snapshot).unwrap().applied.is_empty());
+        assert!(store.ran.borrow().is_empty());
+        assert_eq!(store.rows.borrow()[0].sha256, previous);
     }
 
     #[test]

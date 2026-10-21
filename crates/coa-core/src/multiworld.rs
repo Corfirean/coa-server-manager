@@ -125,6 +125,14 @@ fn secondary_launcher(source: &str) -> Result<String> {
 }
 
 pub fn start(main: &Path) -> Result<()> {
+    start_inner(main, false)
+}
+
+pub(crate) fn start_validation(main: &Path) -> Result<()> {
+    start_inner(main, true)
+}
+
+fn start_inner(main: &Path, offline: bool) -> Result<()> {
     if !realms::state(main)?.simultaneous { return Ok(()); }
     if is_running(main) {
         let second = root(main);
@@ -132,7 +140,7 @@ pub fn start(main: &Path) -> Result<()> {
         return Err(Error::Invalid("The second realm is still starting or stopping.".into()));
     }
     let second = prepare(main)?;
-    let out = driver::run(&second, Verb::StartWorld)?;
+    let out = if offline { driver::validate_secondary(&second)? } else { driver::run(&second, Verb::StartWorld)? };
     if !out.ok { return Err(Error::Invalid(format!("The second realm did not start: {}", out.output))); }
     Ok(())
 }

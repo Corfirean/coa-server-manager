@@ -383,6 +383,7 @@ const zh = {
   "upd.backNote": "回滚将恢复文件和设置。如果数据库更新已开始，所有数据库也将从更新前的备份恢复。之后的进度将丢失。",
   "upd.goBackTo": "回滚至版本 {v}",
   "upd.goBackBefore": "回滚至更新前的版本",
+  "upd.autoRestored": "更新验证失败。之前的服务器已自动恢复。",
   "upd.title": "服务器更新",
   "upd.text": "更新均经过真实性签名校验，并在执行前自动备份，随时可安全撤销。",
   "upd.check": "检查更新",

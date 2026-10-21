@@ -697,7 +697,28 @@ async fn check_update(state: State<'_, AppState>, id: String, source: Option<Str
 #[tauri::command]
 fn pending_update(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::Txn>, UiError> {
     let root = path_of(&state, &id)?;
-    Ok(update::unfinished(&meta_dir(&root)?))
+    let dir = meta_dir(&root)?;
+    let latest = update::latest(&dir)?;
+    Ok(update::unfinished(&dir).or_else(|| latest.filter(|t| t.state == update::State::Committed && t.server_stopped)))
+}
+
+#[tauri::command]
+async fn recover_update(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::Txn>, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || update::recover(&root, &meta_dir(&root)?)).await.map_err(UiError::from)
+}
+
+#[tauri::command]
+fn last_update(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::Txn>, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(update::latest(&meta_dir(&root)?)?)
+}
+
+#[tauri::command]
+fn last_update_result(state: State<'_, AppState>, id: String) -> std::result::Result<Option<update::ExecutionResult>, UiError> {
+    let root = path_of(&state, &id)?;
+    Ok(update::last_execution_result(&meta_dir(&root)?)?)
 }
 
 #[tauri::command]
@@ -707,22 +728,14 @@ async fn apply_update(
     id: String,
     source: Option<String>,
     resolutions: BTreeMap<String, Resolution>,
-) -> std::result::Result<update::Outcome, UiError> {
+) -> std::result::Result<update::ExecutionResult, UiError> {
     let root = path_of(&state, &id)?;
     let src = update_source(source);
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
         let (dir, _) = install_meta(&root)?;
-        // Files cannot be replaced while the server runs: stop it first (gracefully), like the Stop button.
-        let observed = coa_core::process::observe(&root, &layout::read_ports(&root));
-        if observed.world.state != coa_core::process::ServiceState::Stopped || observed.auth.state != coa_core::process::ServiceState::Stopped || coa_core::multiworld::is_running(&root) {
-            let out = driver::run(&root, Verb::StopAll)?;
-            if !out.ok {
-                return Err(Error::Invalid("The server could not be stopped, so the update was not started.".into()));
-            }
-        }
         let env = update::RepackEnv { root: &root, meta_dir: &dir };
-        update::apply(
+        update::execute(
             &update::Params { root: &root, meta_dir: &dir, source: src, trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY, cancel: Cancel::default(), resolutions, env: &env, fail_after_ops: None },
             &|step, percent| {
                 let _ = app.emit("update-progress", serde_json::json!({ "step": step, "percent": percent }));
@@ -1569,6 +1582,9 @@ pub fn run() {
             create_account,
             check_update,
             pending_update,
+            recover_update,
+            last_update,
+            last_update_result,
             apply_update,
             rollback_update,
             retry_update_validation,

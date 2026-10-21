@@ -13,6 +13,7 @@ use crate::package::{self, BuildOptions};
 
 #[derive(Debug, Clone)]
 pub struct SqlFile {
+    pub compatible_sha256: Vec<String>,
     pub db: String,
     pub id: String,
     /// Path relative to the checkout it came from (used only for ordering and display).
@@ -49,7 +50,7 @@ pub fn collect_core_sql(core: &Path) -> Result<Vec<SqlFile>> {
     let mut out = Vec::new();
     let mut push = |db: &str, id: String, abs: PathBuf, origin: String| -> Result<()> {
         let sha256 = fsx::sha256_file(&abs)?;
-        out.push(SqlFile { db: db.into(), id, origin, abs, sha256 });
+        out.push(SqlFile { compatible_sha256: vec![], db: db.into(), id, origin, abs, sha256 });
         Ok(())
     };
     for (kind, dirs) in [("auth", ["db_auth", "pending_db_auth"]), ("characters", ["db_characters", "pending_db_characters"]), ("world", ["db_world", "pending_db_world"])] {
@@ -92,13 +93,13 @@ pub fn collect_bots_sql(bots: &Path) -> Result<Vec<SqlFile>> {
     let mut out = Vec::new();
     for f in sql_in(&bots.join("dist/sql")) {
         let stem = f.file_stem().unwrap().to_string_lossy().into_owned();
-        out.push(SqlFile { db: "characters".into(), id: format!("mod_coa_playerbots__{stem}"), origin: format!("dist/sql/{stem}.sql"), sha256: fsx::sha256_file(&f)?, abs: f });
+        out.push(SqlFile { compatible_sha256: vec![], db: "characters".into(), id: format!("mod_coa_playerbots__{stem}"), origin: format!("dist/sql/{stem}.sql"), sha256: fsx::sha256_file(&f)?, abs: f });
     }
     Ok(out)
 }
 
 fn to_migrations(files: &[SqlFile]) -> Vec<Migration> {
-    files.iter().map(|f| Migration { id: f.id.clone(), db: f.db.clone(), sha256: f.sha256.clone(), destructive: false }).collect()
+    files.iter().map(|f| Migration { compatible_sha256: f.compatible_sha256.clone(), id: f.id.clone(), db: f.db.clone(), sha256: f.sha256.clone(), destructive: false }).collect()
 }
 
 pub struct UpdateParams<'a> {
@@ -226,7 +227,7 @@ mod tests {
         write(&tree, "Core/newlib.dll", "n");
         write(&tree, crate::schema_check::CONTRACT, "same contract");
         write(&sqldir, "world.sql", "SELECT 1;");
-        let sql = vec![SqlFile { db: "world".into(), id: "m1".into(), origin: "x".into(), abs: sqldir.join("world.sql"), sha256: fsx::sha256_file(&sqldir.join("world.sql")).unwrap() }];
+        let sql = vec![SqlFile { compatible_sha256: vec![], db: "world".into(), id: "m1".into(), origin: "x".into(), abs: sqldir.join("world.sql"), sha256: fsx::sha256_file(&sqldir.join("world.sql")).unwrap() }];
         let m = pack_update(&UpdateParams { tree: &tree, base_manifest: &base, sql: &sql, out: &upd_out, version: "1.1.0".into(), core_commit: Some("a".repeat(40)), bots_commit: Some("b".repeat(40)), part_size: 1 << 20 }, &|_| {}).unwrap();
         let paths: Vec<&str> = m.files.iter().map(|f| f.path.as_str()).collect();
         assert!(paths.contains(&"Core/worldserver.exe") && paths.contains(&"Core/newlib.dll"));

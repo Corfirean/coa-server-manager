@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/coa-core", "crates/coa-release", "src-tauri"]
 
 [workspace.package]
-version = "0.6.4"
+version = "0.6.5"
 edition = "2021"
 license = "AGPL-3.0-only"
 

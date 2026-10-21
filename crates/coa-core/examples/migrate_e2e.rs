@@ -29,7 +29,7 @@ fn main() {
         let dst = staging.join(db).join(format!("{id}.sql"));
         std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
         std::fs::write(&dst, &bytes).unwrap();
-        list.push(Migration { id, db: db.into(), sha256: fsx::sha256_bytes(&bytes), destructive: false });
+        list.push(Migration { compatible_sha256: vec![], id, db: db.into(), sha256: fsx::sha256_bytes(&bytes), destructive: false });
     };
     for (kind, dirs) in [("auth", ["db_auth", "pending_db_auth"]), ("characters", ["db_characters", "pending_db_characters"]), ("world", ["db_world", "pending_db_world"])] {
         for d in dirs {

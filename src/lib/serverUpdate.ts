@@ -17,7 +17,7 @@ export interface ServerUpdateState {
   /** The full error of the last update attempt, for the Settings card. */
   uiError: UiError | null;
   /** How the last update ended; kept here so the Settings card can show it after the user left and came back. */
-  result: { committed: string } | { pending: UpdateTxn } | null;
+  result: { committed: string } | { pending: UpdateTxn } | { recovered: UpdateTxn } | null;
 }
 
 const EMPTY: ServerUpdateState = { preview: null, available: false, checking: false, applying: false, step: null, percent: 0, error: null, uiError: null, result: null };
@@ -48,7 +48,21 @@ export async function checkServerUpdate(id: string): Promise<void> {
 
 /** Check now and then every five minutes. Returns the function that stops it. */
 export function startServerUpdatePolling(id: string): () => void {
-  void checkServerUpdate(id);
+  void (async () => {
+    try {
+      const pending = await api.pendingUpdate(id);
+      if (pending) {
+        set(id, { applying: true, step: "Recovering the interrupted update", result: null });
+        const recovered = await api.recoverUpdate(id);
+        if (recovered) set(id, { result: recovered.state === "committed" ? { committed: recovered.to_version } : { recovered } });
+      }
+    } catch (e) {
+      const ui = asUiError(e);
+      set(id, { error: ui.human.code, uiError: ui });
+      return;
+    } finally { set(id, { applying: false, step: null }); }
+    await checkServerUpdate(id);
+  })();
   const t = setInterval(() => void checkServerUpdate(id), CHECK_EVERY_MS);
   return () => clearInterval(t);
 }
@@ -76,8 +90,14 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
   }
   try {
     const out = await api.applyUpdate(id, opts?.choices ?? {}, opts?.source);
-    set(id, { result: out.txn.state === "committed" ? { committed: out.txn.to_version ?? "" } : { pending: out.txn } });
-    return true;
+    if (out.disposition === "updated" && out.txn) {
+      set(id, { result: { committed: out.txn.to_version } });
+      return true;
+    }
+    if (out.txn) set(id, { result: out.disposition === "restored" ? { recovered: out.txn } : { pending: out.txn } });
+    const ui = asUiError(out.message ?? out.disposition);
+    set(id, { error: ui.human.code, uiError: ui });
+    return false;
   } catch (e) {
     const ui = asUiError(e);
     set(id, { error: ui.human.code, uiError: ui });

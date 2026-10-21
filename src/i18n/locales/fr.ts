@@ -371,6 +371,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "upd.backNote": "Le retour restaure les fichiers et les paramètres. Si la mise à jour des bases a commencé, toutes les bases sont aussi restaurées depuis la sauvegarde précédant la mise à jour. La progression ultérieure sera perdue.",
   "upd.goBackTo": "Revenir à la version {v}",
   "upd.goBackBefore": "Revenir à la version d’avant la mise à jour",
+  "upd.autoRestored": "La mise à jour a échoué. Le serveur précédent a été restauré automatiquement.",
   "upd.title": "Mises à jour du serveur",
   "upd.text": "Les mises à jour sont vérifiées, sauvegardées au préalable et peuvent être annulées.",
   "upd.check": "Rechercher des mises à jour",

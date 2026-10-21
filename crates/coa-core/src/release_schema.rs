@@ -16,7 +16,7 @@ pub fn collect(core: &Path, bots: Option<&Path>, repairs: Option<&Path>) -> Resu
             paths.sort();
             for path in paths.into_iter().filter(|p| p.extension().is_some_and(|e| e == "sql")) {
                 let stem = path.file_stem().unwrap().to_string_lossy();
-                files.push(SqlFile { db: kind.into(), id: format!("manager_repair__{stem}"), origin: format!("{kind}/{stem}.sql"), sha256: fsx::sha256_file(&path)?, abs: path });
+                files.push(SqlFile { compatible_sha256: vec![], db: kind.into(), id: format!("manager_repair__{stem}"), origin: format!("{kind}/{stem}.sql"), sha256: fsx::sha256_file(&path)?, abs: path });
             }
         }
     }
@@ -47,7 +47,7 @@ pub fn capture_release(fixture: &Path, tree: &Path, sql: &[SqlFile]) -> Result<(
         return Err(Error::Invalid("Refusing to apply release SQL to a non-fixture server.".into()));
     }
     let staging = tempfile::tempdir()?;
-    let migrations: Vec<_> = sql.iter().map(|f| Migration { db: f.db.clone(), id: f.id.clone(), sha256: f.sha256.clone(), destructive: false }).collect();
+    let migrations: Vec<_> = sql.iter().map(|f| Migration { compatible_sha256: f.compatible_sha256.clone(), db: f.db.clone(), id: f.id.clone(), sha256: f.sha256.clone(), destructive: false }).collect();
     for file in sql {
         let path = fsx::safe_join(staging.path(), &format!("{}/{}.sql", file.db, file.id))?;
         fsx::atomic_write(&path, &std::fs::read(&file.abs)?)?;

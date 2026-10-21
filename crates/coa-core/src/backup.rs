@@ -51,6 +51,8 @@ pub struct Component {
     pub sha256: Option<String>,
     pub tables: Option<usize>,
     pub files: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub file_sha256: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,7 +93,10 @@ pub fn list(meta: &Path) -> Vec<RecoveryPoint> {
 }
 
 pub fn get(meta: &Path, id: &str) -> Result<RecoveryPoint> {
-    fsx::read_json(&point_dir(meta, id)?.join("backup.json")).map_err(|_| Error::Invalid(format!("backup {id} was not found")))
+    let path = fsx::ensure_within(meta, &point_dir(meta, id)?.join("backup.json"))?;
+    let point: RecoveryPoint = fsx::read_json(&path).map_err(|_| Error::Invalid(format!("backup {id} was not found or its metadata is damaged")))?;
+    if point.id != id || point.schema != 1 { return Err(Error::Invalid(format!("Backup {id} has inconsistent identity or an unsupported schema."))); }
+    Ok(point)
 }
 
 /// Files that make up "configuration": everything a user or the Manager may have changed, minus secrets.
@@ -132,6 +137,7 @@ pub fn config_files(root: &Path) -> Vec<String> {
     walk(root, &root.join("Settings/realm-profiles"), &mut out);
     if root.join("Settings/realm-profile.json").is_file() { out.push("Settings/realm-profile.json".into()); }
     out.sort();
+    out.dedup();
     out
 }
 
@@ -139,13 +145,17 @@ fn copy_configs(root: &Path, dir: &Path) -> Result<Component> {
     let files = config_files(root);
     let target = dir.join("files");
     let mut bytes = 0;
+    let mut file_sha256 = std::collections::BTreeMap::new();
     for rel in &files {
         let src = fsx::safe_join(root, rel)?;
         let dst = fsx::safe_join(&target, rel)?;
         fs::create_dir_all(dst.parent().unwrap())?;
-        bytes += fs::copy(&src, &dst)?;
+        let contents = fs::read(&src)?;
+        fsx::atomic_write(&dst, &contents)?;
+        bytes += contents.len() as u64;
+        file_sha256.insert(rel.clone(), fsx::sha256_bytes(&contents));
     }
-    Ok(Component { name: "configs".into(), path: "files".into(), bytes, sha256: None, tables: None, files: Some(files) })
+    Ok(Component { name: "configs".into(), path: "files".into(), bytes, sha256: None, tables: None, files: Some(files), file_sha256 })
 }
 
 /// Make sure the database is up for `f`. If we had to start it (and nothing else is running), stop it again.
@@ -215,7 +225,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
                 let tables = db.tables(schema)?.len();
                 let file = format!("{name}.sql.zst");
                 let (bytes, sha) = db.dump_to(schema, &partial.join(&file))?;
-                Ok(Component { name, path: file, bytes, sha256: Some(sha), tables: Some(tables), files: None })
+                Ok(Component { name, path: file, bytes, sha256: Some(sha), tables: Some(tables), files: None, file_sha256: Default::default() })
             })?;
             components.push(component);
         }
@@ -245,7 +255,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
         components,
     };
     fsx::atomic_write_json(&partial.join("backup.json"), &point)?;
-    fs::rename(&partial, &final_dir)?;
+    fsx::durable_replace(&partial, &final_dir)?;
     tracing::info!(%id, ?kind, ?trigger, "recovery point created");
     if trigger == Trigger::Automatic {
         prune_automatic(meta, 10);
@@ -255,6 +265,7 @@ pub fn create(root: &Path, meta: &Path, kind: Kind, trigger: Trigger, label: Opt
 
 /// Keep the newest `keep` automatic recovery points; manual and safety ones are never pruned.
 pub fn prune_automatic(meta: &Path, keep: usize) {
+    if crate::update::ensure_recovered(meta).is_err() { return; }
     let autos: Vec<_> = list(meta).into_iter().filter(|p| p.trigger == Trigger::Automatic).collect();
     for p in autos.into_iter().skip(keep) {
         if let Ok(dir) = point_dir(meta, &p.id) {
@@ -274,7 +285,7 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
     let dir = point_dir(meta, id)?;
     let mut problems = Vec::new();
     for c in &point.components {
-        let path = dir.join(&c.path);
+        let path = fsx::ensure_within(&dir, &fsx::safe_join(&dir, &c.path)?)?;
         match (&c.sha256, &c.files) {
             (Some(sha), _) => match fsx::sha256_file(&path) {
                 Ok(actual) if actual.eq_ignore_ascii_case(sha) => {}
@@ -285,6 +296,8 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
                 for f in files {
                     if !fsx::safe_join(&path, f).map(|p| p.is_file()).unwrap_or(false) {
                         problems.push(format!("configuration file {f} is missing"));
+                    } else if let Some(expected) = c.file_sha256.get(f) {
+                        if fsx::sha256_file(&fsx::safe_join(&path, f)?).ok().as_deref() != Some(expected.as_str()) { problems.push(format!("configuration file {f} is damaged")); }
                     }
                 }
             }
@@ -296,6 +309,9 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
 
 /// Delete one recovery point (its own folder only).
 pub fn delete(meta: &Path, id: &str) -> Result<()> {
+    // A damaged journal cannot reliably identify which copies recovery needs.
+    // Preserve every available point until the installation is consistent.
+    crate::update::ensure_recovered(meta)?;
     if crate::update::unfinished(meta).is_some_and(|t| t.recovery_point.as_deref() == Some(id)) {
         return Err(Error::Invalid("This recovery point is required by an unfinished update and cannot be deleted.".into()));
     }
@@ -324,6 +340,20 @@ pub fn restore_configs(root: &Path, meta: &Path, id: &str) -> Result<RecoveryPoi
     Ok(safety)
 }
 
+/// Transaction recovery has already protected the original state. Do not require a second backup.
+pub(crate) fn restore_update_configs(root: &Path, meta: &Path, id: &str) -> Result<()> {
+    let point = get(meta, id)?;
+    if !verify(meta, id)?.ok { return Err(Error::Invalid("The update recovery point is damaged.".into())); }
+    let comp = point.components.iter().find(|c| c.name == "configs").ok_or_else(|| Error::Invalid("The update recovery point has no configuration.".into()))?;
+    if comp.files.as_deref().unwrap_or_default().iter().any(|file| !comp.file_sha256.contains_key(file)) {
+        return Err(Error::Invalid("This legacy recovery point has no configuration checksums. Automatic recovery cannot verify the original settings; copies were preserved for inspection.".into()));
+    }
+    for rel in comp.files.as_deref().unwrap_or_default() {
+        fsx::atomic_write(&fsx::ensure_within(root, &fsx::safe_join(root, rel)?)?, &fs::read(fsx::safe_join(&point_dir(meta, id)?.join(&comp.path), rel)?)?)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 pub struct DbRestore {
     /// The database the restore replaced, kept intact under this name.
@@ -335,6 +365,14 @@ pub struct DbRestore {
 /// Restore one database from a recovery point without dropping anything:
 /// import into a staging schema, sanity-check it, then swap tables atomically and keep the old schema.
 pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Result<DbRestore> {
+    restore_database_inner(root, meta, id, name, true)
+}
+
+pub(crate) fn restore_update_database(root: &Path, meta: &Path, id: &str, name: &str) -> Result<DbRestore> {
+    restore_database_inner(root, meta, id, name, false)
+}
+
+fn restore_database_inner(root: &Path, meta: &Path, id: &str, name: &str, safety_copy: bool) -> Result<DbRestore> {
     let point = get(meta, id)?;
     if point.realm != crate::realms::state(root)?.active {
         return Err(Error::Invalid("Select the realm this backup belongs to before restoring it.".into()));
@@ -350,21 +388,48 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
     let live = if name.contains('-') || name == "playerbots" { db::schema_of(name)? } else { point.realm.schema(name)? };
     let expected_tables = comp.tables.unwrap_or(0);
     let dump = point_dir(meta, id)?.join(&comp.path);
-    let stamp = uuid::Uuid::new_v4().simple().to_string()[..16].to_string();
+    let reconstructed_hash = point_dir(meta, id)?.join(format!("restore-{name}.sha256"));
+    let stamp = if safety_copy { uuid::Uuid::new_v4().simple().to_string()[..16].to_string() }
+        else { fsx::sha256_bytes(format!("update-recovery:{id}:{name}").as_bytes())[..16].to_string() };
 
     // 1. Safety copy of the current state, so even a wrong restore is reversible.
-    let safety = create(root, meta, Kind::Database, Trigger::BeforeRestore, Some(format!("before restoring {name} from {id}")), &|_| {})?;
+    let safety = if safety_copy { Some(create(root, meta, Kind::Database, Trigger::BeforeRestore, Some(format!("before restoring {name} from {id}")), &|_| {})?.id) } else { None };
 
     with_database(root, |db| {
         let db = db.clone().for_realm(crate::realms::Mode::Coa);
         let staging = format!("{live}_restore_{stamp}");
         let old = format!("{live}_before_restore_{stamp}");
-        if db.schema_exists(&staging)? || db.schema_exists(&old)? {
+        if safety_copy && (db.schema_exists(&staging)? || db.schema_exists(&old)?) {
             return Err(Error::Invalid("A previous restore left its work schemas behind; try again in a moment.".into()));
+        }
+        if !safety_copy {
+            if db.schema_exists(&old)? {
+                // RENAME TABLE is atomic. An empty staging schema proves that the old tables
+                // were moved out and the complete restored set was moved into live together.
+                if reconstructed_hash.is_file() && db.schema_exists(&staging)? && db.tables(&staging)?.is_empty() && db.tables(live)?.len() == expected_tables {
+                    db.query(&format!("DROP DATABASE `{old}`; DROP DATABASE `{staging}`;"))?;
+                    return Ok(DbRestore { previous_schema: old, safety_backup: String::new(), tables_restored: expected_tables });
+                }
+                // A server crash can interrupt a rename involving MyISAM tables.
+                // The original dump was verified above and is authoritative: discard only
+                // this recovery's deterministic work schemas and import a complete set again.
+                db.query(&format!("DROP DATABASE `{old}`;"))?;
+            }
+            if db.schema_exists(&staging)? { db.query(&format!("DROP DATABASE `{staging}`;"))?; }
         }
         // 2. Import into staging.
         db.query(&format!("CREATE DATABASE `{staging}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"))?;
         db.import_from(&staging, &dump)?;
+        if !safety_copy {
+            // SHOW CREATE TABLE can make implicit character sets explicit on import.
+            // Compare live against the independently reconstructed snapshot, keeping all
+            // schema and row bytes rather than accepting a table-count approximation.
+            let check = point_dir(meta, id)?.join(format!("restore-{name}.sql.zst"));
+            let (_, hash) = db.dump_to(&staging, &check)?;
+            fsx::atomic_write(&reconstructed_hash, hash.as_bytes())?;
+            fs::remove_file(check)?;
+        }
+        crate::update_fault::checkpoint(root, &format!("restore-database:{name}:imported"));
         // 3. Sanity checks.
         let staged = db.tables(&staging)?;
         if comp.tables.is_some_and(|expected| staged.len() != expected) || (comp.tables.is_none() && staged.is_empty()) {
@@ -384,7 +449,11 @@ pub fn restore_database(root: &Path, meta: &Path, id: &str, name: &str) -> Resul
             renames.push(format!("`{staging}`.`{t}` TO `{live}`.`{t}`"));
         }
         if !renames.is_empty() { db.query(&format!("RENAME TABLE {};", renames.join(", ")))?; }
-        Ok(DbRestore { previous_schema: old, safety_backup: safety.id.clone(), tables_restored: staged.len() })
+        crate::update_fault::checkpoint(root, &format!("restore-database:{name}:swapped"));
+        // For emergency recovery, completed temporary schemas are disposable. A crash before
+        // cleanup leaves the original dump intact, and another recovery can repeat the swap.
+        if !safety_copy { db.query(&format!("DROP DATABASE `{old}`; DROP DATABASE `{staging}`;"))?; }
+        Ok(DbRestore { previous_schema: old, safety_backup: safety.clone().unwrap_or_default(), tables_restored: staged.len() })
     })
 }
 
@@ -403,6 +472,18 @@ mod tests {
         });
         fs::create_dir_all(&meta).unwrap();
         (dir, root, meta)
+    }
+
+    #[test]
+    fn corrupt_update_journal_preserves_available_backups() {
+        let (_d, root, meta) = setup();
+        let point = create(&root, &meta, Kind::Config, Trigger::Automatic, None, &|_| {}).unwrap();
+        let updates = meta.join("updates").join("interrupted");
+        fs::create_dir_all(&updates).unwrap();
+        fs::write(updates.join("txn.json"), b"{damaged").unwrap();
+        assert!(delete(&meta, &point.id).is_err());
+        prune_automatic(&meta, 0);
+        assert!(get(&meta, &point.id).is_ok());
     }
 
     #[test]

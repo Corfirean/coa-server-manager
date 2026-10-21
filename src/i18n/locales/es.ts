@@ -371,6 +371,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "upd.backNote": "Volver restaura los archivos y los ajustes. Si comenzaron las actualizaciones de las bases de datos, también se restauran todas las bases desde la copia anterior a la actualización. Se perderá el progreso posterior.",
   "upd.goBackTo": "Volver a la versión {v}",
   "upd.goBackBefore": "Volver a la versión anterior a la actualización",
+  "upd.autoRestored": "La actualización falló. El servidor anterior se restauró automáticamente.",
   "upd.title": "Actualizaciones del servidor",
   "upd.text": "Las actualizaciones se comprueban, se respaldan antes y se pueden deshacer.",
   "upd.check": "Buscar actualizaciones",

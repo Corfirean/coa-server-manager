@@ -46,6 +46,65 @@ fn run() -> Result<(), String> {
     let e = |x: coa_core::Error| x.to_string();
     let part = a.get("part-size").and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
+        "verify-registry" => {
+            let sql = coa_core::migration_registry::reconcile(&PathBuf::from(need(&a, "registry")?), Vec::new()).map_err(e)?;
+            println!("Verified {} historical migrations, order and signed byte variants", sql.len());
+        }
+        "resolve" => {
+            let package = coa_core::pkgsource::fetch_package(&coa_core::pkgsource::Source::Url(need(&a, "source")?.clone()), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            coa_core::fsx::atomic_write(&PathBuf::from(need(&a, "out")?), &package.bytes).map_err(e)?;
+        }
+        "extract-game-data" => {
+            let source = PathBuf::from(need(&a, "package")?);
+            let package = coa_core::pkgsource::fetch_package(&coa_core::pkgsource::Source::Dir(source.clone()), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            if !package.manifest.files.iter().any(|f| f.path.starts_with("Data/")) { return Err("Signed base has no game data.".into()); }
+            coa_core::package::extract_selected(&source, &package.manifest, &PathBuf::from(need(&a, "fixture")?), &|p| p.starts_with("Data/"), &|_, _| {}).map_err(e)?;
+        }
+        "repackage" => {
+            let source = PathBuf::from(need(&a, "package")?);
+            let pinned = coa_core::pkgsource::fetch_package(&coa_core::pkgsource::Source::Dir(source.clone()), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            let work = tempfile::tempdir().map_err(|e| e.to_string())?;
+            coa_core::package::extract(&source, &pinned.manifest, work.path(), &|_, _| {}).map_err(e)?;
+            let mut sql: Vec<_> = pinned.manifest.migrations.iter().map(|m| coa_core::release::SqlFile {
+                compatible_sha256: m.compatible_sha256.clone(), db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), origin: "signed package".into(), abs: work.path().join("_migrations").join(&m.db).join(format!("{}.sql", m.id)),
+            }).collect();
+            let repairs = PathBuf::from(need(&a, "repairs")?);
+            for repair in coa_core::release_schema::collect(&work.path().join("no-core"), None, Some(&repairs)).map_err(e)? {
+                if !sql.iter().any(|m| m.db == repair.db && m.id == repair.id) { sql.push(repair); }
+            }
+            let sql = coa_core::migration_registry::reconcile(&PathBuf::from(need(&a, "registry")?), sql).map_err(e)?;
+            let migrations = sql.iter().map(|m| coa_core::manifest::Migration { compatible_sha256: m.compatible_sha256.clone(), db: m.db.clone(), id: m.id.clone(), sha256: m.sha256.clone(), destructive: false }).collect();
+            for file in &sql { coa_core::fsx::atomic_write(&work.path().join("_migrations").join(&file.db).join(format!("{}.sql", file.id)), &std::fs::read(&file.abs).map_err(|e| e.to_string())?).map_err(e)?; }
+            let out = PathBuf::from(need(&a, "out")?);
+            let opts = BuildOptions { kind: Kind::Update, version: need(&a, "version")?.clone(), core_commit: pinned.manifest.core.commit, bots_commit: pinned.manifest.bots.and_then(|b| b.commit), built_at: chrono_now(), part_size: part, migrations };
+            let mut manifest = build(work.path(), &out, &opts, &|s| eprintln!("{s}")).map_err(e)?;
+            manifest.min_manager_version = coa_core::MANAGER_VERSION.into();
+            coa_core::fsx::atomic_write_json(&out.join("manifest.json"), &manifest).map_err(e)?;
+        }
+        "archive-migrations" => {
+            coa_core::migration_registry::import(&PathBuf::from(need(&a, "package")?), &PathBuf::from(need(&a, "registry")?), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            println!("Published migration bytes and compatibility archived");
+        }
+        "verify-channel" => {
+            let pointer = coa_core::pkgsource::verify_channel(&std::fs::read(need(&a, "file")?).map_err(|e| e.to_string())?, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            let dir = PathBuf::from(need(&a, "dir")?);
+            let manifest: Manifest = coa_core::fsx::read_json(&dir.join("manifest.json")).map_err(e)?;
+            if manifest.version != pointer.version || coa_core::fsx::sha256_file(&dir.join("manifest.json")).map_err(e)? != pointer.manifest_sha256 || pointer.acceptance_sha256.as_deref() != Some(&coa_core::fsx::sha256_file(&dir.join("acceptance.json")).map_err(e)?) {
+                return Err("Signed channel differs from the tested package/report".into());
+            }
+        }
+        "channel" => {
+            use base64::{engine::general_purpose::STANDARD, Engine};
+            use ed25519_dalek::{Signer, SigningKey};
+            let dir = PathBuf::from(need(&a, "dir")?);
+            let pinned = coa_core::pkgsource::fetch_package(&coa_core::pkgsource::Source::Dir(dir.clone()), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            let pointer = coa_core::pkgsource::Channel { schema: 1, version: pinned.manifest.version.clone(), release: format!("https://github.com/Corfirean/coa-server-build/releases/download/server-{}/", pinned.manifest.version), manifest_sha256: coa_core::fsx::sha256_bytes(&pinned.bytes), acceptance_sha256: Some(coa_core::fsx::sha256_file(&dir.join("acceptance.json")).map_err(e)?) };
+            let payload = serde_json::to_vec(&pointer).map_err(|e| e.to_string())?;
+            let seed: [u8; 32] = STANDARD.decode(signing_key()?.trim()).map_err(|e| e.to_string())?.try_into().map_err(|_| "Wrong signing key length")?;
+            let signed = coa_core::pkgsource::SignedChannel { payload: STANDARD.encode(&payload), signature: STANDARD.encode(SigningKey::from_bytes(&seed).sign(&payload).to_bytes()) };
+            coa_core::signing::verify_embedded(&payload, &signed.signature).map_err(e)?;
+            coa_core::fsx::atomic_write_json(&PathBuf::from(need(&a, "out")?), &signed).map_err(e)?;
+        }
         "extract-schema-base" => {
             coa_core::release_schema::extract_base(
                 &PathBuf::from(need(&a, "package")?), &PathBuf::from(need(&a, "fixture")?),
@@ -59,7 +118,8 @@ fn run() -> Result<(), String> {
             if let Some(core) = a.get("core") {
                 let bots = a.get("bots").map(PathBuf::from);
                 let repairs = a.get("repairs").map(PathBuf::from);
-                let sql = coa_core::release_schema::collect(&PathBuf::from(core), bots.as_deref(), repairs.as_deref()).map_err(e)?;
+                let mut sql = coa_core::release_schema::collect(&PathBuf::from(core), bots.as_deref(), repairs.as_deref()).map_err(e)?;
+                if let Some(registry) = a.get("registry") { sql = coa_core::migration_registry::reconcile(&PathBuf::from(registry), sql).map_err(e)?; }
                 coa_core::release_schema::capture_release(&repack, &tree, &sql).map_err(e)?;
             } else {
                 coa_core::backup::with_database(&repack, |db| coa_core::schema_check::capture(db, &tree)).map_err(e)?;
@@ -77,7 +137,8 @@ fn run() -> Result<(), String> {
             coa_core::schema_check::require_release_contract(&PathBuf::from(need(&a, "tree")?)).map_err(e)?;
             let bots = a.get("bots").map(PathBuf::from);
             let repairs = a.get("repairs").map(PathBuf::from);
-            let sql = coa_core::release_schema::collect(&PathBuf::from(need(&a, "core")?), bots.as_deref(), repairs.as_deref()).map_err(e)?;
+            let mut sql = coa_core::release_schema::collect(&PathBuf::from(need(&a, "core")?), bots.as_deref(), repairs.as_deref()).map_err(e)?;
+            if let Some(registry) = a.get("registry") { sql = coa_core::migration_registry::reconcile(&PathBuf::from(registry), sql).map_err(e)?; }
             let out = PathBuf::from(need(&a, "out")?);
             let m = pack_update(
                 &UpdateParams { tree: &PathBuf::from(need(&a, "tree")?), base_manifest: &base, sql: &sql, out: &out, version: need(&a, "version")?.clone(), core_commit: a.get("core-commit").cloned(), bots_commit: a.get("bots-commit").cloned(), part_size: part },

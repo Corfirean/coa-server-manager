@@ -4,6 +4,8 @@
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::{Deserialize, Serialize};
 
 use crate::download::{self, Cancel, Job, Progress};
 use crate::error::{Error, Result};
@@ -18,6 +20,77 @@ pub enum Source {
     Url(String),
     /// A folder produced by `package::build` plus its `manifest.json.sig` (offline / local installs).
     Dir(PathBuf),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Channel {
+    pub schema: u32,
+    pub version: String,
+    pub release: String,
+    pub manifest_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance_sha256: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SignedChannel {
+    pub payload: String,
+    pub signature: String,
+}
+
+pub fn verify_channel(bytes: &[u8], trusted_key: &str) -> Result<Channel> {
+    let signed: SignedChannel = serde_json::from_slice(bytes).map_err(|e| Error::InvalidManifest(e.to_string()))?;
+    let payload = STANDARD.decode(&signed.payload).map_err(|e| Error::InvalidManifest(e.to_string()))?;
+    signing::verify(&payload, &signed.signature, trusted_key)?;
+    let pointer: Channel = serde_json::from_slice(&payload).map_err(|e| Error::InvalidManifest(e.to_string()))?;
+    let required = format!("https://github.com/Corfirean/coa-server-build/releases/download/server-{}/", pointer.version);
+    if pointer.schema != 1 || crate::manifest::parse_version(&pointer.version).is_none() || pointer.release != required {
+        return Err(Error::InvalidManifest("Channel does not point to an immutable server release.".into()));
+    }
+    Ok(pointer)
+}
+
+/// A channel is one atomically replaced signed envelope. Its target is immutable.
+pub struct PinnedPackage {
+    pub source: Source,
+    pub manifest: Manifest,
+    pub bytes: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+
+pub fn fetch_package(source: &Source, trusted_key: &str) -> Result<PinnedPackage> {
+    let channel = match source {
+        Source::Dir(d) if !d.join("channel.json").exists() => None,
+        _ => match fetch_small(source, "channel.json") {
+            Ok(bytes) => Some(bytes),
+            Err(Error::PackageNotPublished(_)) => None,
+            Err(e) => return Err(e),
+        },
+    };
+    let (mut resolved, expected) = if let Some(bytes) = channel {
+        let pointer = verify_channel(&bytes, trusted_key)?;
+        (Source::Url(pointer.release.clone()), Some(pointer))
+    } else { (source.clone(), None) };
+    let mut bytes = fetch_small(&resolved, "manifest.json")?;
+    let mut signature = fetch_small(&resolved, "manifest.json.sig")?;
+    signing::verify(&bytes, &String::from_utf8_lossy(&signature), trusted_key)?;
+    let manifest = Manifest::parse(&bytes)?;
+    // Legacy moving channels are pinned by matching their signed manifest to the immutable tag.
+    if matches!(&resolved, Source::Url(url) if matches!(url.trim_end_matches('/'), "https://github.com/Corfirean/coa-server-build/releases/download/stable" | "https://github.com/Corfirean/coa-server-build/releases/download/edge")) {
+        resolved = Source::Url(format!("https://github.com/Corfirean/coa-server-build/releases/download/server-{}/", manifest.version));
+        let immutable = fetch_small(&resolved, "manifest.json")?;
+        let sig = fetch_small(&resolved, "manifest.json.sig")?;
+        signing::verify(&immutable, &String::from_utf8_lossy(&sig), trusted_key)?;
+        if immutable != bytes { return Err(Error::InvalidManifest("Moving channel differs from its immutable release.".into())); }
+        bytes = immutable;
+        signature = sig;
+    }
+    if let Some(pointer) = expected {
+        if pointer.version != manifest.version || pointer.manifest_sha256 != fsx::sha256_bytes(&bytes) {
+            return Err(Error::InvalidManifest("Immutable release does not match the signed channel.".into()));
+        }
+    }
+    Ok(PinnedPackage { source: resolved, manifest, bytes, signature })
 }
 
 /// Read a small file (manifest, signature) from the source.
@@ -44,11 +117,8 @@ pub fn fetch_small(source: &Source, name: &str) -> Result<Vec<u8>> {
 
 /// Download and verify the manifest. Returns the parsed manifest and its exact bytes.
 pub fn fetch_manifest(source: &Source, trusted_key: &str) -> Result<(Manifest, Vec<u8>)> {
-    let bytes = fetch_small(source, "manifest.json")?;
-    let sig = String::from_utf8_lossy(&fetch_small(source, "manifest.json.sig")?).into_owned();
-    signing::verify(&bytes, &sig, trusted_key)?;
-    let manifest = Manifest::parse(&bytes)?;
-    Ok((manifest, bytes))
+    let pinned = fetch_package(source, trusted_key)?;
+    Ok((pinned.manifest, pinned.bytes))
 }
 
 /// Make every archive part available in a verified folder: a local source is used in place, a remote one is

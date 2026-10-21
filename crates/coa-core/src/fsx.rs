@@ -123,7 +123,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = parent.join(format!(
         ".{}.{}.tmp",
         path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-        std::process::id()
+        uuid::Uuid::new_v4().simple()
     ));
     let write = || -> std::io::Result<()> {
         let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
@@ -135,11 +135,39 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = fs::remove_file(&tmp);
         return Err(e.into());
     }
-    if let Err(e) = fs::rename(&tmp, path) {
+    if let Err(e) = durable_replace(&tmp, path) {
         let _ = fs::remove_file(&tmp);
         return Err(e.into());
     }
     Ok(())
+}
+
+/// The temporary file must already be flushed, on the same volume as the destination.
+pub(crate) fn durable_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
+        fn wide(path: &Path) -> std::io::Result<Vec<u16>> {
+            let absolute = std::path::absolute(path)?;
+            let text = absolute.as_os_str().to_string_lossy().replace('/', "\\");
+            let extended = if text.starts_with("\\\\?\\") { text }
+                else if let Some(unc) = text.strip_prefix("\\\\") { format!("\\\\?\\UNC\\{unc}") }
+                else { format!("\\\\?\\{text}") };
+            Ok(std::ffi::OsStr::new(&extended).encode_wide().chain(Some(0)).collect())
+        }
+        let src = wide(from)?;
+        let dst = wide(to)?;
+        if unsafe { MoveFileExW(src.as_ptr(), dst.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        fs::rename(from, to)?;
+        File::open(to.parent().unwrap())?.sync_all()
+    }
 }
 
 pub fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -198,6 +226,16 @@ pub fn require_space(path: &Path, needed: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durable_replacement_handles_long_transaction_backup_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("a".repeat(90)).join("b".repeat(90));
+        let path = parent.join("configuration-with-a-long-name.template");
+        atomic_write(&path, b"old").unwrap();
+        atomic_write(&path, b"new").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+    }
 
     #[test]
     fn safe_join_accepts_normal_and_rejects_traversal() {

@@ -36,7 +36,15 @@ export function SettingsHome({ serverId }: { serverId: string }) {
   const [source, setSource] = useState("");
 
   useEffect(() => {
-    void api.pendingUpdate(serverId).then(setPending).catch(() => {});
+    void api.pendingUpdate(serverId).then(setPending).catch((e) => setError(asUiError(e)));
+    void api.lastUpdateResult(serverId).then(async (result) => {
+      const txn = result?.txn ?? await api.lastUpdate(serverId);
+      if (result?.disposition === "rejected" || result?.disposition === "recovery-required") {
+        setDone(null);
+        if (result.message) setError(asUiError(result.message));
+      } else if (txn?.outcome === "restored" && txn.recovery_verified) setDone(t("upd.autoRestored"));
+      else if (result?.disposition === "updated" && txn) setDone(t("upd.updatedTo", { v: txn.to_version }));
+    }).catch((e) => setError(asUiError(e)));
   }, [serverId]);
 
   // the update finished (possibly while another tab was open): drop the stale preview, show what is left to decide
@@ -44,7 +52,10 @@ export function SettingsHome({ serverId }: { serverId: string }) {
     if (!upd.result) return;
     setPreview(null);
     if ("pending" in upd.result) setPending(upd.result.pending);
-    else void api.pendingUpdate(serverId).then(setPending).catch(() => {});
+    else {
+      if ("recovered" in upd.result && upd.result.recovered.recovery_verified) setDone(t("upd.autoRestored"));
+      void api.pendingUpdate(serverId).then(setPending).catch((e) => setError(asUiError(e)));
+    }
   }, [upd.result, serverId]);
 
   async function check() {
@@ -68,6 +79,9 @@ export function SettingsHome({ serverId }: { serverId: string }) {
     setError(null);
     setDone(null);
     await applyServerUpdate(serverId, { choices, source: source.trim() || undefined });
+    const txn = await api.lastUpdate(serverId).catch(() => null);
+    if (txn?.outcome === "restored" && txn.recovery_verified) setDone(t("upd.autoRestored"));
+    setPending(await api.pendingUpdate(serverId).catch(() => null));
   }
 
   async function rollback(txn: UpdateTxn) {

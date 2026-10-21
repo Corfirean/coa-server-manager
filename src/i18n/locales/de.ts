@@ -371,6 +371,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "upd.backNote": "Die Rückkehr stellt Dateien und Einstellungen wieder her. Wurden Datenbankupdates begonnen, werden auch alle Datenbanken aus der Sicherung vor dem Update wiederhergestellt. Späterer Fortschritt geht verloren.",
   "upd.goBackTo": "Zu Version {v} zurückkehren",
   "upd.goBackBefore": "Zur Version vor dem Update zurückkehren",
+  "upd.autoRestored": "Die Aktualisierung ist fehlgeschlagen. Der vorherige Server wurde automatisch wiederhergestellt.",
   "upd.title": "Server-Updates",
   "upd.text": "Updates werden auf Echtheit geprüft, vorher gesichert und können rückgängig gemacht werden.",
   "upd.check": "Nach Updates suchen",

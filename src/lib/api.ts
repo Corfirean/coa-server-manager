@@ -95,6 +95,12 @@ export interface UiError {
   fields?: FieldError[];
 }
 
+export interface UpdateExecutionResult {
+  disposition: "updated" | "rejected" | "restored" | "recovery-required";
+  txn: UpdateTxn | null;
+  message: string | null;
+}
+
 export type Scope = "bots" | "server";
 export type Restart = "runtime" | "world" | "full";
 export type JsonValue = string | number | boolean;
@@ -275,12 +281,18 @@ export interface UpdatePreview {
 
 export interface UpdateTxn {
   id: string;
-  state: "prepared" | "applying" | "applied" | "needs-decision" | "committed" | "rolled-back" | "failed";
+  state: "prepared" | "stopping" | "snapshotting" | "trialing" | "applying" | "applied" | "migrating" | "validating" | "committing" | "restoring" | "needs-decision" | "committed" | "rolled-back" | "failed";
+  failure_stage?: UpdateTxn["state"];
   from_version: string | null;
   to_version: string;
   recovery_point: string | null;
   databases_started: boolean;
   message: string | null;
+  outcome?: "updated" | "rejected" | "restored" | "recovery-required" | null;
+  manifest_sha256?: string | null;
+  was_running?: boolean;
+  recovery_verified?: boolean;
+  trial_completed?: boolean;
 }
 
 export interface Population {
@@ -429,8 +441,11 @@ export const api = {
     invoke<void>("create_account", { id, username, password, administrator }),
   checkUpdate: (id: string, source?: string) => invoke<UpdatePreview>("check_update", { id, source: source ?? null }),
   pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
+  lastUpdate: (id: string) => invoke<UpdateTxn | null>("last_update", { id }),
+  recoverUpdate: (id: string) => invoke<UpdateTxn | null>("recover_update", { id }),
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
-    invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
+    invoke<UpdateExecutionResult>("apply_update", { id, source: source ?? null, resolutions }),
+  lastUpdateResult: (id: string) => invoke<UpdateExecutionResult | null>("last_update_result", { id }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
   population: (id: string) => invoke<Population | null>("get_population", { id }),

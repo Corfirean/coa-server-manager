@@ -89,6 +89,9 @@ pub(crate) fn credentials(root: &Path) -> Result<(String, String)> {
 }
 
 impl Db {
+    pub(crate) fn native_root(&self) -> Option<PathBuf> {
+        if self.container.is_some() { None } else { self.bin.parent().and_then(|p| p.parent()).map(Path::to_path_buf) }
+    }
     pub fn from_repack(root: &Path, account: Account) -> Result<Db> {
         let creds: Credentials = fsx::read_json(&root.join("Settings/database.json"))
             .map_err(|_| Error::Invalid("The database settings of this server could not be read.".into()))?;
@@ -265,7 +268,7 @@ impl Db {
         let file = File::create(out)?;
         let mut enc = zstd::Encoder::new(BufWriter::new(file), 3)?;
         let copy = std::io::copy(&mut stdout, &mut enc);
-        let finish = enc.finish().and_then(|mut w| w.flush());
+        let finish = enc.finish().and_then(|mut w| { w.flush()?; w.get_ref().sync_all() });
         let status = child.wait()?;
         let stderr_bytes = err_thread.join().unwrap_or_default();
         if !status.success() {
@@ -280,6 +283,8 @@ impl Db {
 
     /// Run a plain SQL file against `schema`; the first error aborts and is returned.
     pub fn run_sql_file(&self, schema: &str, file: &Path) -> Result<()> {
+        let injected = if let Some(root) = self.native_root() { crate::update_fault::failing_sql(&root, file)? } else { None };
+        let file = injected.as_ref().map(|f| f.path()).unwrap_or(file);
         let schema = self.realm_schema(schema);
         if !ident_ok(schema) {
             return Err(Error::Invalid("bad schema name".into()));
