@@ -5,10 +5,12 @@
 A Windows app that installs and runs your own **Conquest of Azeroth** server (AzerothCore) with a few clicks:
 no console, no config files, no database tools. Tauri 2 + Rust + React.
 
-![Overview](docs/screenshots/play.png)
+![Your server at a glance](docs/screenshots/overview.png)
 
 ## What it does
 
+* **Portable characters (Experimental).** Keep saved characters in the Manager, review their saved versions and make an existing character portable from a realm you can access. See the [short guide](docs/PORTABLE-CHARACTERS.md).
+* **Find a realm.** Browse public realms and compare their game modes, level caps, rates, modules and population.
 * **One-click install.** Downloads a signed, verified server package (resumable, checked file by file), sets up the
   database and creates your first account. Or import a server you already have.
 * **Start / Stop / PLAY.** One button for the whole server (database, auth, world) with live status, uptime and
@@ -41,17 +43,22 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   supports LAN, direct and private-network (Tailscale) play, with step-by-step guides and a package to send to friends.
 * **Updates to the Manager itself** download in the background and install when you close it. Your servers are never
   stopped or changed by a Manager update.
-* **Languages:** English, Russian, German, French, Spanish.
+* **Languages:** English, Russian, German, French, Spanish, Simplified Chinese.
 
-| Install | Ready |
-|---------|-------|
-| ![Installing](docs/screenshots/install.png) | ![Ready](docs/screenshots/ready.png) |
+## See the Manager
 
-| Overview | Server updates |
-|----------|----------------|
-| ![Overview](docs/screenshots/overview.png) | ![Updates](docs/screenshots/updates.png) |
+| Portable characters (Experimental) | Public realms |
+|---|---|
+| ![Portable characters](docs/screenshots/portable.png) | ![Public realms](docs/screenshots/realms.png) |
 
-![Backups](docs/screenshots/backups.png)
+| Companions | Backups |
+|---|---|
+| ![Companions](docs/screenshots/bots.png) | ![Backups](docs/screenshots/backups.png) |
+
+The full gallery also covers setup, modules, game clients, playing with friends and making an existing character portable.
+
+
+[Browse the screenshot gallery](docs/SCREENSHOTS.md).
 
 ## Install
 
@@ -66,10 +73,7 @@ Manager and server updates have separate version histories.
 
 ## Status
 
-Phases 0–15 are complete: foundation, import, start/stop, config engine, backups, clean install from signed packages,
-updates, companions, client launch, friends, public registry, end-to-end control plane (Noise XX), portable characters
-with remote transfer and level projection, game relay fallback, verified direct connectivity (UPnP / NAT-PMP),
-and security/release hardening.
+**In active development.** Bugs may still occur. If you run into a problem, please [open an issue](https://github.com/Corfirean/coa-server-manager/issues/new/choose).
 
 ### Known Limitations
 * **Native client login prefill**: Ascension's 3.3.5 client does not accept command-line credentials; users type their password once or link an existing account.
