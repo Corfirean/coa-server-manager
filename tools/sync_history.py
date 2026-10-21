@@ -75,14 +75,14 @@ def remote_fragments(repo, sha, seen, areas):
 
 
 def collect_manager(root, tag, seen):
-    sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', tag + '^{commit}'], encoding='utf8', newline='\n').strip()
-    paths = subprocess.check_output(['git', '-C', str(root), 'ls-tree', '-r', '--name-only', sha, 'changelog.d'], encoding='utf8', newline='\n').splitlines()
+    sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', tag + '^{commit}'], encoding='utf8').strip()
+    paths = subprocess.check_output(['git', '-C', str(root), 'ls-tree', '-r', '--name-only', sha, 'changelog.d'], encoding='utf8').splitlines()
     paths = [p for p in paths if re.fullmatch(r'changelog.d/\d{8}-[a-z0-9-]+\.md', p)]
     repo = 'Corfirean/coa-server-manager'
     notes = []
     for path in paths:
         if repo + ':' + Path(path).name not in seen:
-            text = subprocess.check_output(['git', '-C', str(root), 'show', f'{sha}:{path}'], encoding='utf8', newline='\n')
+            text = subprocess.check_output(['git', '-C', str(root), 'show', f'{sha}:{path}'], encoding='utf8')
             note = fragment_note(text, MANAGER_AREAS)
             if note:
                 notes.append(note)
