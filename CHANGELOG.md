@@ -8,6 +8,19 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.7.1 — 2026-10-22
+
+Close the game, then open Modules → Custom Races → Repair Client Patch to update existing patches, or Install Client Patch for a new installation. Updating the Manager does not automatically replace game files or update your server.
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Updated Custom Races client patches to the complete 1.8.3 package.
+- Race patch installation now includes the hide-armor and talent-reset addons.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.7.0...v0.7.1)
+
+[Guides and screenshots](https://github.com/Corfirean/coa-server-manager/blob/master/docs/README.md)
+
 ## 0.7.0 — 2026-10-21
 
 Portable transfers into Warcraft Reborn are not supported yet.
