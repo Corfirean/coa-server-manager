@@ -90,17 +90,10 @@ impl Ruleset {
             Ruleset::Reborn => 3,
         }
     }
-    pub fn schema(self, kind: &str) -> &'static str {
-        match (self, kind) {
-            (_, "auth") => "acore_auth",
-            (Self::Coa, "characters") => "acore_characters",
-            (Self::Coa, "world") => "acore_world",
-            (Self::Wildcard, "characters") => "acore_characters_wildcard",
-            (Self::Wildcard, "world") => "acore_world_wildcard",
-            (Self::Reborn, "characters") => "acore_characters_reborn",
-            (Self::Reborn, "world") => "acore_world_reborn",
-            _ => "acore_characters",
-        }
+    pub fn schema(self, kind: &str) -> Result<&'static str> {
+        let mode: crate::realms::Mode = self.into();
+        mode.schema(kind)
+            .map_err(|e| PortableError::Invalid(e.to_string()))
     }
     pub fn collection_namespace(self) -> &'static str {
         match self {
@@ -880,5 +873,23 @@ impl PortableCharacter {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_mapping_never_falls_back_on_unknown_database_kind() {
+        for ruleset in [Ruleset::Coa, Ruleset::Wildcard, Ruleset::Reborn] {
+            assert!(ruleset.schema("auth").is_ok());
+            assert!(ruleset.schema("characters").is_ok());
+            assert!(ruleset.schema("world").is_ok());
+            assert!(ruleset.schema("characters_extra").is_err());
+            assert!(ruleset.schema("unknown").is_err());
+            assert!(ruleset.schema("").is_err());
+            assert!(ruleset.schema("acore_characters").is_err());
+        }
     }
 }

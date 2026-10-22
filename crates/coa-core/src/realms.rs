@@ -23,10 +23,26 @@ pub enum Mode {
 
 impl Mode {
     pub fn name(self) -> &'static str {
-        match self { Self::Coa => "coa", Self::Wildcard => "wildcard", Self::Reborn => "reborn" }
+        match self {
+            Self::Coa => "coa",
+            Self::Wildcard => "wildcard",
+            Self::Reborn => "reborn",
+        }
     }
-    pub fn realm_id(self) -> u32 { match self { Self::Coa => 1, Self::Wildcard => 2, Self::Reborn => 3 } }
-    pub fn label(self) -> &'static str { match self { Self::Coa => "Conquest of Azeroth", Self::Wildcard => "Wildcard", Self::Reborn => "Warcraft Reborn" } }
+    pub fn realm_id(self) -> u32 {
+        match self {
+            Self::Coa => 1,
+            Self::Wildcard => 2,
+            Self::Reborn => 3,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Coa => "Conquest of Azeroth",
+            Self::Wildcard => "Wildcard",
+            Self::Reborn => "Warcraft Reborn",
+        }
+    }
     pub fn schema(self, kind: &str) -> Result<&'static str> {
         match (self, kind) {
             (_, "auth") => Ok("acore_auth"),
@@ -56,10 +72,20 @@ pub struct RealmState {
 }
 
 impl RealmState {
-    pub fn created(&self, mode: Mode) -> bool { match mode { Mode::Coa => true, Mode::Wildcard => self.wildcard_created, Mode::Reborn => self.reborn_created } }
+    pub fn created(&self, mode: Mode) -> bool {
+        match mode {
+            Mode::Coa => true,
+            Mode::Wildcard => self.wildcard_created,
+            Mode::Reborn => self.reborn_created,
+        }
+    }
     pub fn modes(&self) -> Vec<Mode> {
         let mut modes = vec![self.active];
-        modes.extend([Mode::Coa, Mode::Wildcard, Mode::Reborn].into_iter().filter(|m| *m != self.active && self.created(*m)));
+        modes.extend(
+            [Mode::Coa, Mode::Wildcard, Mode::Reborn]
+                .into_iter()
+                .filter(|m| *m != self.active && self.created(*m)),
+        );
         modes
     }
 }
@@ -98,9 +124,23 @@ pub fn view(root: &Path) -> Result<View> {
     let s = state(root)?;
     // Inspect the binary itself; templates or an old log cannot prove installed support.
     let binary = fs::read(world_binary(root))?;
-    let reborn_supported = binary.windows(b"Warcraft Reborn class spells are unavailable".len()).any(|w| w == b"Warcraft Reborn class spells are unavailable");
-    let supported = binary.windows(b"Wildcard synergy settings".len()).any(|w| w == b"Wildcard synergy settings");
-    Ok(View { active: s.active, wildcard_created: s.wildcard_created, reborn_created: s.reborn_created, reborn_supported, supported, recovery_pending: root.join(JOURNAL).exists(), simultaneous: s.simultaneous, secondary_world_port: s.secondary_world_port, secondary_running: crate::multiworld::is_running(root) })
+    let reborn_supported = binary
+        .windows(b"Warcraft Reborn class spells are unavailable".len())
+        .any(|w| w == b"Warcraft Reborn class spells are unavailable");
+    let supported = binary
+        .windows(b"Wildcard synergy settings".len())
+        .any(|w| w == b"Wildcard synergy settings");
+    Ok(View {
+        active: s.active,
+        wildcard_created: s.wildcard_created,
+        reborn_created: s.reborn_created,
+        reborn_supported,
+        supported,
+        recovery_pending: root.join(JOURNAL).exists(),
+        simultaneous: s.simultaneous,
+        secondary_world_port: s.secondary_world_port,
+        secondary_running: crate::multiworld::is_running(root),
+    })
 }
 
 pub fn guard_module(root: &Path, id: &str) -> Result<()> {
@@ -223,24 +263,53 @@ fn wildcard_configs(mut files: Files) -> Result<Files> {
             value,
         )?;
     }
-    set(&mut files, "Core/configs/modules/playerbots.conf", "AiPlayerbot.Enabled", "0")?;
+    set(
+        &mut files,
+        "Core/configs/modules/playerbots.conf",
+        "AiPlayerbot.Enabled",
+        "0",
+    )?;
     Ok(files)
 }
 
 fn reborn_configs(mut files: Files) -> Result<Files> {
     for (key, value) in [
-        ("CoA.ClassModel", "\"wcr\""), ("CoA.GameModeMask", "0"),
-        ("CoA.MapClass10ToWarrior", "0"), ("CoA.RealmType", "\"live\""),
+        ("CoA.ClassModel", "\"wcr\""),
+        ("CoA.GameModeMask", "0"),
+        ("CoA.MapClass10ToWarrior", "0"),
+        ("CoA.RealmType", "\"live\""),
         ("CoA.ClientBooleanConfigs", "\"\""),
-    ] { set(&mut files, "Core/configs/modules/coa.conf", key, value)?; }
-    set(&mut files, "Core/configs/modules/mod-coa-challenges.conf", "CoAChallenges.GameModes.Realm", "\"\"")?;
-    for path in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
-        if files.contains_key(path) { set(&mut files, path, "RealmID", "3")?; }
+    ] {
+        set(&mut files, "Core/configs/modules/coa.conf", key, value)?;
+    }
+    set(
+        &mut files,
+        "Core/configs/modules/mod-coa-challenges.conf",
+        "CoAChallenges.GameModes.Realm",
+        "\"\"",
+    )?;
+    for path in [
+        "Settings/worldserver.conf.template",
+        "Core/configs/worldserver.conf",
+    ] {
+        if files.contains_key(path) {
+            set(&mut files, path, "RealmID", "3")?;
+        }
     }
     for (key, value) in [("CoaBots.Enable", "0"), ("CoaBots.AutoLoginOnStartup", "0")] {
-        set(&mut files, "Core/configs/modules/mod_coa_playerbots.conf", key, value)?;
+        set(
+            &mut files,
+            "Core/configs/modules/mod_coa_playerbots.conf",
+            key,
+            value,
+        )?;
     }
-    set(&mut files, "Core/configs/modules/playerbots.conf", "AiPlayerbot.Enabled", "0")?;
+    set(
+        &mut files,
+        "Core/configs/modules/playerbots.conf",
+        "AiPlayerbot.Enabled",
+        "0",
+    )?;
     Ok(files)
 }
 
@@ -278,8 +347,15 @@ pub fn recover(root: &Path) -> Result<()> {
 fn create_databases(root: &Path, mode: Mode) -> Result<()> {
     crate::backup::with_database(root, |_| {
         let db = Db::from_repack(root, Account::Admin)?.for_realm(Mode::Coa);
-        if db.query(&format!("SELECT COUNT(*) FROM acore_auth.realmlist WHERE id={};", mode.realm_id()))? != "0" {
-            return Err(Error::Invalid(format!("Realm ID {} is already in use. Its settings were left intact.", mode.realm_id())));
+        if db.query(&format!(
+            "SELECT COUNT(*) FROM acore_auth.realmlist WHERE id={};",
+            mode.realm_id()
+        ))? != "0"
+        {
+            return Err(Error::Invalid(format!(
+                "Realm ID {} is already in use. Its settings were left intact.",
+                mode.realm_id()
+            )));
         }
         for kind in ["world", "characters"] {
             let source = Mode::Coa.schema(kind)?;
@@ -294,7 +370,10 @@ fn create_databases(root: &Path, mode: Mode) -> Result<()> {
                 ));
             }
         }
-        for (kind, tables) in crate::schema_check::WILDCARD_TABLES.iter().filter(|_| mode == Mode::Wildcard) {
+        for (kind, tables) in crate::schema_check::WILDCARD_TABLES
+            .iter()
+            .filter(|_| mode == Mode::Wildcard)
+        {
             let schema = crate::db::schema_of(kind)?;
             let present = db.tables(schema)?;
             let missing: Vec<_> = tables
@@ -384,21 +463,37 @@ pub fn select(root: &Path, mode: Mode) -> Result<View> {
         ));
     }
     if mode == Mode::Reborn && !view(root)?.reborn_supported {
-        return Err(Error::Invalid("Update the server to a build with Warcraft Reborn support first.".into()));
+        return Err(Error::Invalid(
+            "Update the server to a build with Warcraft Reborn support first.".into(),
+        ));
     }
     if s.simultaneous && mode != s.active {
-        return Err(Error::Invalid("Disable simultaneous startup before switching realms.".into()));
+        return Err(Error::Invalid(
+            "Disable simultaneous startup before switching realms.".into(),
+        ));
     }
     // Verify launcher support before creating databases or changing the selected realm.
     prepare_launcher(root)?;
     let before = configs(root)?;
     fsx::atomic_write_json(&snapshot(root, s.active), &before)?;
     if !s.created(mode) {
-        let base = if s.active == Mode::Coa { before.clone() } else { fsx::read_json(&snapshot(root, Mode::Coa))? };
-        let files = match mode { Mode::Wildcard => wildcard_configs(base)?, Mode::Reborn => reborn_configs(base)?, Mode::Coa => unreachable!() };
+        let base = if s.active == Mode::Coa {
+            before.clone()
+        } else {
+            fsx::read_json(&snapshot(root, Mode::Coa))?
+        };
+        let files = match mode {
+            Mode::Wildcard => wildcard_configs(base)?,
+            Mode::Reborn => reborn_configs(base)?,
+            Mode::Coa => unreachable!(),
+        };
         fsx::atomic_write_json(&snapshot(root, mode), &files)?;
         create_databases(root, mode)?;
-        match mode { Mode::Wildcard => s.wildcard_created = true, Mode::Reborn => s.reborn_created = true, Mode::Coa => {} }
+        match mode {
+            Mode::Wildcard => s.wildcard_created = true,
+            Mode::Reborn => s.reborn_created = true,
+            Mode::Coa => {}
+        }
         fsx::atomic_write_json(&root.join(STATE), &s)?;
     }
     let target: Files = fsx::read_json(&snapshot(root, mode))?;
@@ -481,9 +576,16 @@ const LAUNCHER_REALM_REPLACEMENTS: &[(&str, &str)] = &[
 const LAUNCHER_REALM_INSERT: &str = "# coa-manager-realm-profiles-v1\ndef coa_realm():\n    path = ROOT / 'Settings/realm-profile.json'\n    return json.loads(path.read_text(encoding='utf-8')).get('active', 'coa') if path.exists() else 'coa'\n\ndef coa_realm_id():\n    return 2 if coa_realm() == 'wildcard' else 1\n\ndef coa_realm_name():\n    return 'Wildcard' if coa_realm() == 'wildcard' else 'Conquest of Azeroth'\n\n";
 
 fn launcher_insert() -> String {
-    LAUNCHER_REALM_INSERT.replace("profiles-v1", "profiles-v2")
-        .replace("return 2 if", "return 3 if coa_realm() == 'reborn' else 2 if")
-        .replace("return 'Wildcard' if", "return 'Warcraft Reborn' if coa_realm() == 'reborn' else 'Wildcard' if")
+    LAUNCHER_REALM_INSERT
+        .replace("profiles-v1", "profiles-v2")
+        .replace(
+            "return 2 if",
+            "return 3 if coa_realm() == 'reborn' else 2 if",
+        )
+        .replace(
+            "return 'Wildcard' if",
+            "return 'Warcraft Reborn' if coa_realm() == 'reborn' else 'Wildcard' if",
+        )
 }
 
 fn launcher_replacements() -> Vec<(&'static str, String)> {
@@ -493,19 +595,31 @@ fn launcher_replacements() -> Vec<(&'static str, String)> {
 }
 
 pub(crate) fn patch_launcher(source: &str) -> Result<String> {
-    if source.contains("# coa-manager-realm-profiles-v2") { return Ok(source.into()); }
+    if source.contains("# coa-manager-realm-profiles-v2") {
+        return Ok(source.into());
+    }
     if source.contains("# coa-manager-realm-profiles-v1") {
-        let original = unpatch_launcher(source).ok_or_else(|| Error::Invalid("Unrecognised realm launcher patch.".into()))?;
+        let original = unpatch_launcher(source)
+            .ok_or_else(|| Error::Invalid("Unrecognised realm launcher patch.".into()))?;
         return patch_launcher(&original);
     }
     let mut out = source.to_string();
     for (from, to) in launcher_replacements() {
-        if !out.contains(from) { return Err(Error::Invalid("This launcher does not support realm profiles. Update the server package first.".into())); }
+        if !out.contains(from) {
+            return Err(Error::Invalid(
+                "This launcher does not support realm profiles. Update the server package first."
+                    .into(),
+            ));
+        }
         out = out.replace(from, &to);
     }
     // Insert before the entry point so ROOT, json and functions are all defined when called.
     let marker = "if __name__ == \"__main__\":";
-    if !out.contains(marker) { return Err(Error::Invalid("Unrecognised server launcher entry point.".into())); }
+    if !out.contains(marker) {
+        return Err(Error::Invalid(
+            "Unrecognised server launcher entry point.".into(),
+        ));
+    }
     Ok(out.replace(marker, &format!("{}{marker}", launcher_insert())))
 }
 
@@ -514,13 +628,28 @@ pub(crate) fn unpatch_launcher(source: &str) -> Option<String> {
     let (insert, replacements) = if source.contains(&launcher_insert()) {
         (launcher_insert(), launcher_replacements())
     } else if source.contains(LAUNCHER_REALM_INSERT) {
-        (LAUNCHER_REALM_INSERT.into(), LAUNCHER_REALM_REPLACEMENTS.iter().map(|(a,b)| (*a, b.to_string())).collect())
-    } else { return None; };
+        (
+            LAUNCHER_REALM_INSERT.into(),
+            LAUNCHER_REALM_REPLACEMENTS
+                .iter()
+                .map(|(a, b)| (*a, b.to_string()))
+                .collect(),
+        )
+    } else {
+        return None;
+    };
     let mut original = source.replacen(&insert, "", 1);
-    for (from, to) in &replacements { original = original.replace(to, from); }
+    for (from, to) in &replacements {
+        original = original.replace(to, from);
+    }
     let mut check = original.clone();
-    for (from, to) in &replacements { check = check.replace(from, to); }
-    check = check.replace("if __name__ == \"__main__\":", &format!("{insert}if __name__ == \"__main__\":"));
+    for (from, to) in &replacements {
+        check = check.replace(from, to);
+    }
+    check = check.replace(
+        "if __name__ == \"__main__\":",
+        &format!("{insert}if __name__ == \"__main__\":"),
+    );
     (check == source).then_some(original)
 }
 
@@ -531,18 +660,40 @@ pub fn before_start(root: &Path) -> Result<()> {
         return Ok(());
     }
     prepare_launcher(root)?;
-    if s.simultaneous && !view(root)?.supported { return Err(Error::Invalid("The installed server build does not support simultaneous Wildcard startup.".into())); }
-    if s.simultaneous && s.active == Mode::Reborn { return Err(Error::Invalid("Simultaneous startup supports CoA and Wildcard only.".into())); }
-    if s.simultaneous { fsx::atomic_write_json(&snapshot(root, s.active), &configs(root)?)?; }
-    if s.active == Mode::Reborn && !view(root)?.reborn_supported { return Err(Error::Invalid("The installed server build does not support Warcraft Reborn.".into())); }
+    if s.simultaneous && !view(root)?.supported {
+        return Err(Error::Invalid(
+            "The installed server build does not support simultaneous Wildcard startup.".into(),
+        ));
+    }
+    if s.simultaneous && s.active == Mode::Reborn {
+        return Err(Error::Invalid(
+            "Simultaneous startup supports CoA and Wildcard only.".into(),
+        ));
+    }
+    if s.simultaneous {
+        fsx::atomic_write_json(&snapshot(root, s.active), &configs(root)?)?;
+    }
+    if s.active == Mode::Reborn && !view(root)?.reborn_supported {
+        return Err(Error::Invalid(
+            "The installed server build does not support Warcraft Reborn.".into(),
+        ));
+    }
     if s.active != Mode::Coa {
-        if s.active == Mode::Wildcard && !view(root)?.supported { return Err(Error::Invalid("The installed server build does not support Wildcard.".into())); }
+        if s.active == Mode::Wildcard && !view(root)?.supported {
+            return Err(Error::Invalid(
+                "The installed server build does not support Wildcard.".into(),
+            ));
+        }
         let path = root.join("Core/configs/modules/mod_coa_playerbots.conf");
         let mut conf = ConfFile::parse_bytes(&fs::read(&path)?)?;
         conf.set("CoaBots.Enable", "0", &[]);
         fsx::atomic_write(&path, conf.to_text().as_bytes())?;
         let path = root.join("Core/configs/modules/playerbots.conf");
-        let bytes = if path.exists() { fs::read(&path)? } else { b"[worldserver]\n".to_vec() };
+        let bytes = if path.exists() {
+            fs::read(&path)?
+        } else {
+            b"[worldserver]\n".to_vec()
+        };
         let mut conf = ConfFile::parse_bytes(&bytes)?;
         conf.set("AiPlayerbot.Enabled", "0", &[]);
         fsx::atomic_write(&path, conf.to_text().as_bytes())?;
@@ -552,7 +703,9 @@ pub fn before_start(root: &Path) -> Result<()> {
 
 pub fn setup_realmlist(root: &Path) -> Result<()> {
     let s = state(root)?;
-    if !root.join(STATE).exists() { return Ok(()); }
+    if !root.join(STATE).exists() {
+        return Ok(());
+    }
     let db = Db::from_repack(root, Account::Admin)?.for_realm(Mode::Coa);
     let port = layout::read_ports(root).world;
     for mode in s.modes().into_iter().filter(|m| *m != Mode::Coa) {
@@ -560,8 +713,16 @@ pub fn setup_realmlist(root: &Path) -> Result<()> {
         let name = mode.label();
         db.query(&format!("INSERT INTO acore_auth.realmlist (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,gamebuild) SELECT {id},'{name}',address,localAddress,localSubnetMask,{port},icon,2,timezone,gamebuild FROM acore_auth.realmlist WHERE id=1 ON DUPLICATE KEY UPDATE port={port};"))?;
     }
-    let ids = s.modes().iter().map(|m| m.realm_id().to_string()).collect::<Vec<_>>().join(",");
-    db.query(&format!("UPDATE acore_auth.realmlist SET flag=2 WHERE id IN ({ids}) AND id<>{};", s.active.realm_id()))?;
+    let ids = s
+        .modes()
+        .iter()
+        .map(|m| m.realm_id().to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    db.query(&format!(
+        "UPDATE acore_auth.realmlist SET flag=2 WHERE id IN ({ids}) AND id<>{};",
+        s.active.realm_id()
+    ))?;
     if s.simultaneous {
         let second = s
             .secondary_world_port
@@ -582,10 +743,16 @@ mod tests {
 
     #[test]
     fn legacy_states_and_all_created_realms_are_enumerated_once() {
-        let legacy: RealmState = serde_json::from_str(r#"{"active":"wildcard","wildcard_created":true}"#).unwrap();
+        let legacy: RealmState =
+            serde_json::from_str(r#"{"active":"wildcard","wildcard_created":true}"#).unwrap();
         assert!(!legacy.reborn_created);
         assert_eq!(legacy.modes(), [Mode::Wildcard, Mode::Coa]);
-        let all = RealmState { active: Mode::Reborn, wildcard_created: true, reborn_created: true, ..Default::default() };
+        let all = RealmState {
+            active: Mode::Reborn,
+            wildcard_created: true,
+            reborn_created: true,
+            ..Default::default()
+        };
         assert_eq!(all.modes(), [Mode::Reborn, Mode::Coa, Mode::Wildcard]);
         assert_eq!(serde_json::to_string(&Mode::Reborn).unwrap(), "\"reborn\"");
         assert_eq!(Mode::Reborn.realm_id(), 3);
@@ -596,19 +763,46 @@ mod tests {
     fn reborn_has_its_own_settings_and_restores_the_coa_profile() {
         let t = tempfile::tempdir().unwrap();
         let mut coa = Files::new();
-        coa.insert("Core/configs/modules/coa.conf".into(), b"[worldserver]\nCoA.ClassModel = coa\nCoA.GameModeMask = 0\n".to_vec());
-        coa.insert("Settings/worldserver.conf.template".into(), b"[worldserver]\nRealmID = 1\n".to_vec());
-        coa.insert("Core/configs/modules/playerbots.conf".into(), b"[worldserver]\nAiPlayerbot.Enabled = 1\n".to_vec());
+        coa.insert(
+            "Core/configs/modules/coa.conf".into(),
+            b"[worldserver]\nCoA.ClassModel = coa\nCoA.GameModeMask = 0\n".to_vec(),
+        );
+        coa.insert(
+            "Settings/worldserver.conf.template".into(),
+            b"[worldserver]\nRealmID = 1\n".to_vec(),
+        );
+        coa.insert(
+            "Core/configs/modules/playerbots.conf".into(),
+            b"[worldserver]\nAiPlayerbot.Enabled = 1\n".to_vec(),
+        );
         let reborn = reborn_configs(coa.clone()).unwrap();
         let conf = ConfFile::parse_bytes(&reborn["Core/configs/modules/coa.conf"]).unwrap();
         assert_eq!(conf.get("CoA.ClassModel"), Some("\"wcr\""));
         assert_eq!(conf.get("CoA.GameModeMask"), Some("0"));
-        assert_eq!(ConfFile::parse_bytes(&reborn["Settings/worldserver.conf.template"]).unwrap().get("RealmID"), Some("3"));
-        assert_eq!(ConfFile::parse_bytes(&reborn["Core/configs/modules/playerbots.conf"]).unwrap().get("AiPlayerbot.Enabled"), Some("0"));
+        assert_eq!(
+            ConfFile::parse_bytes(&reborn["Settings/worldserver.conf.template"])
+                .unwrap()
+                .get("RealmID"),
+            Some("3")
+        );
+        assert_eq!(
+            ConfFile::parse_bytes(&reborn["Core/configs/modules/playerbots.conf"])
+                .unwrap()
+                .get("AiPlayerbot.Enabled"),
+            Some("0")
+        );
         write_configs(t.path(), &reborn).unwrap();
         write_configs(t.path(), &coa).unwrap();
         assert_eq!(configs(t.path()).unwrap(), coa);
-        fsx::atomic_write_json(&t.path().join(STATE), &RealmState { active: Mode::Reborn, reborn_created: true, ..Default::default() }).unwrap();
+        fsx::atomic_write_json(
+            &t.path().join(STATE),
+            &RealmState {
+                active: Mode::Reborn,
+                reborn_created: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(guard_module(t.path(), "companions").is_err());
         assert!(guard_module(t.path(), "playerbots").is_err());
         assert!(guard_module(t.path(), "content-scaling").is_ok());
@@ -617,9 +811,17 @@ mod tests {
     #[test]
     fn reborn_support_requires_the_new_code_in_the_installed_binary() {
         let t = tempfile::tempdir().unwrap();
-        fsx::atomic_write(&t.path().join("Core/worldserver.exe"), b"Wildcard synergy settings").unwrap();
+        fsx::atomic_write(
+            &t.path().join("Core/worldserver.exe"),
+            b"Wildcard synergy settings",
+        )
+        .unwrap();
         assert!(!view(t.path()).unwrap().reborn_supported);
-        fsx::atomic_write(&t.path().join("Core/worldserver.exe"), b"Warcraft Reborn class spells are unavailable").unwrap();
+        fsx::atomic_write(
+            &t.path().join("Core/worldserver.exe"),
+            b"Warcraft Reborn class spells are unavailable",
+        )
+        .unwrap();
         let v = view(t.path()).unwrap();
         assert!(v.reborn_supported);
         assert!(!v.supported);
@@ -629,8 +831,13 @@ mod tests {
     fn old_launcher_upgrades_and_both_patch_versions_are_reversible() {
         let original = "(\"WorldDatabaseInfo\", \"acore_world\")\n(\"CharacterDatabaseInfo\", \"acore_characters\")\nSET name='AzerothCore',address=\nWHERE id=1;\nmysql(\"UPDATE acore_auth.realmlist SET flag=0\nif __name__ == \"__main__\":\n";
         let mut old = original.to_string();
-        for (from, to) in LAUNCHER_REALM_REPLACEMENTS { old = old.replace(from, to); }
-        old = old.replace("if __name__ == \"__main__\":", &format!("{LAUNCHER_REALM_INSERT}if __name__ == \"__main__\":"));
+        for (from, to) in LAUNCHER_REALM_REPLACEMENTS {
+            old = old.replace(from, to);
+        }
+        old = old.replace(
+            "if __name__ == \"__main__\":",
+            &format!("{LAUNCHER_REALM_INSERT}if __name__ == \"__main__\":"),
+        );
         assert_eq!(unpatch_launcher(&old).as_deref(), Some(original));
         let new = patch_launcher(&old).unwrap();
         assert!(new.contains("acore_world_reborn"));

@@ -173,7 +173,9 @@ fn installed_module_commits(root: &Path) -> BTreeMap<String, String> {
 
 fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     let installed_commits = installed_module_commits(root);
-    let wildcard = crate::realms::state(root).map(|s| s.active != crate::realms::Mode::Coa).unwrap_or(true);
+    let wildcard = crate::realms::state(root)
+        .map(|s| s.active != crate::realms::Mode::Coa)
+        .unwrap_or(true);
     cat.iter()
         .cloned()
         .map(|e| {
@@ -532,10 +534,17 @@ fn save_settings_in(
                 ));
             }
         }
-        if id == "content-scaling" && key.starts_with("CoAContentScaling.Difficulty.Health.") && key.ends_with("Multiplier") {
-            let multiplier = value.parse::<f32>().map_err(|_| Error::Invalid("Health multipliers must be a number from 0.1 to 10.".into()))?;
+        if id == "content-scaling"
+            && key.starts_with("CoAContentScaling.Difficulty.Health.")
+            && key.ends_with("Multiplier")
+        {
+            let multiplier = value.parse::<f32>().map_err(|_| {
+                Error::Invalid("Health multipliers must be a number from 0.1 to 10.".into())
+            })?;
             if !multiplier.is_finite() || !(0.1..=10.0).contains(&multiplier) {
-                return Err(Error::Invalid("Health multipliers must be a number from 0.1 to 10.".into()));
+                return Err(Error::Invalid(
+                    "Health multipliers must be a number from 0.1 to 10.".into(),
+                ));
             }
         }
         if id == "content-scaling" && key == "CoAContentScaling.World.Leech.Percent" {
@@ -1202,17 +1211,33 @@ mod tests {
         for key in keys {
             let changes = |v: &str| BTreeMap::from([(key.to_string(), v.to_string())]);
             for bad in ["NaN", "inf", "0", "0.09", "10.01", "-1", "abc", ""] {
-                assert!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes(bad)).is_err(), "{key} {bad}");
+                assert!(
+                    save_settings_in(&cat, &root, &meta, "content-scaling", &changes(bad)).is_err(),
+                    "{key} {bad}"
+                );
             }
             for good in ["0.1", "0.4", "1", "2.5", "10"] {
-                assert_eq!(save_settings_in(&cat, &root, &meta, "content-scaling", &changes(good)).unwrap(), [key]);
-                assert_eq!(settings_in(&cat, &root, "content-scaling").unwrap().iter().find(|s| s.key == key).unwrap().value, good);
+                assert_eq!(
+                    save_settings_in(&cat, &root, &meta, "content-scaling", &changes(good))
+                        .unwrap(),
+                    [key]
+                );
+                assert_eq!(
+                    settings_in(&cat, &root, "content-scaling")
+                        .unwrap()
+                        .iter()
+                        .find(|s| s.key == key)
+                        .unwrap()
+                        .value,
+                    good
+                );
             }
         }
     }
 
     #[test]
-    fn an_older_file_name_is_used_when_the_current_one_is_missing_and_a_part_that_cannot_be_switched_stays_on() {
+    fn an_older_file_name_is_used_when_the_current_one_is_missing_and_a_part_that_cannot_be_switched_stays_on(
+    ) {
         let d = tempfile::tempdir().unwrap();
         let (root, meta) = server(d.path());
         fs::write(

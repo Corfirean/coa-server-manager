@@ -206,11 +206,13 @@ impl Store {
             });
         }
         for next in version..supported {
+            self.conn.pragma_update(None, "foreign_keys", false)?;
             let tx = self.conn.transaction()?;
             tx.execute_batch(MIGRATIONS[next as usize])?;
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", next + 1)?;
             tx.commit()?;
+            self.conn.pragma_update(None, "foreign_keys", true)?;
         }
         Ok(())
     }

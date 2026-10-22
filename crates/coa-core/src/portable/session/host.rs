@@ -614,7 +614,14 @@ impl<'a> HostService<'a> {
             };
             let character = self.store.character(s.character_id)?;
             for kind in collection_kinds(character.ruleset) {
-                self.observe_collection(bridge, account, character.ruleset, kind, now_secs, events)?;
+                self.observe_collection(
+                    bridge,
+                    account,
+                    character.ruleset,
+                    kind,
+                    now_secs,
+                    events,
+                )?;
             }
         }
         Ok(())
@@ -652,7 +659,12 @@ impl<'a> HostService<'a> {
             )?;
             return Ok(());
         }
-        let bytes = collection_to_json(&CollectionObserved::new(&self.server_id, ruleset, kind, &set)?)?;
+        let bytes = collection_to_json(&CollectionObserved::new(
+            &self.server_id,
+            ruleset,
+            kind,
+            &set,
+        )?)?;
         self.store.host_collection_observe(
             &self.server_id,
             account,

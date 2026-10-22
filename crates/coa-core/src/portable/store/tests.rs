@@ -928,7 +928,12 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
     assert!(!empty.changed && empty.info.is_none());
 
     let first = store
-        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
+        .merge_collection(
+            profile,
+            ruleset,
+            kind,
+            &IdSet::from_ids([10, 20, 30]).unwrap(),
+        )
         .unwrap();
     assert!(first.changed);
     assert_eq!(first.added, 3);
@@ -946,13 +951,23 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
         "same revision, same hash"
     );
     let same = store
-        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
+        .merge_collection(
+            profile,
+            ruleset,
+            kind,
+            &IdSet::from_ids([10, 20, 30]).unwrap(),
+        )
         .unwrap();
     assert!(!same.changed);
 
     // a realm with new unlocks (and without the old ones) only adds
     let more = store
-        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([30, 40, 5]).unwrap())
+        .merge_collection(
+            profile,
+            ruleset,
+            kind,
+            &IdSet::from_ids([30, 40, 5]).unwrap(),
+        )
         .unwrap();
     assert!(more.changed);
     assert_eq!(more.added, 2);
@@ -964,7 +979,10 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
     assert_eq!(set.ids(), &[5, 10, 20, 30, 40]);
     assert_eq!(info, info2);
     assert_eq!(
-        store.collection_info(profile, ruleset, kind).unwrap().unwrap(),
+        store
+            .collection_info(profile, ruleset, kind)
+            .unwrap()
+            .unwrap(),
         info2
     );
 
@@ -991,7 +1009,9 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
     ] {
         let ids: Vec<u32> = (0..count).map(|n| n * 7 + (n % 5)).collect();
         let set = IdSet::from_ids(ids).unwrap();
-        let merge = store.merge_collection(profile, Ruleset::Coa, kind, &set).unwrap();
+        let merge = store
+            .merge_collection(profile, Ruleset::Coa, kind, &set)
+            .unwrap();
         assert_eq!(merge.added, count as usize);
         let stored_bytes: i64 = store
             .conn
@@ -1005,7 +1025,10 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
             stored_bytes < count as i64 * 2 + 16,
             "{kind}: {count} ids took {stored_bytes} bytes"
         );
-        let (_, back) = store.collection(profile, Ruleset::Coa, kind).unwrap().unwrap();
+        let (_, back) = store
+            .collection(profile, Ruleset::Coa, kind)
+            .unwrap()
+            .unwrap();
         assert_eq!(back, set);
     }
 }
@@ -1014,7 +1037,12 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
 fn a_tampered_collection_is_detected() {
     let (mut store, profile) = fresh();
     store
-        .merge_collection(profile, Ruleset::Coa, "coa:vanity", &IdSet::from_ids([1, 2, 3]).unwrap())
+        .merge_collection(
+            profile,
+            Ruleset::Coa,
+            "coa:vanity",
+            &IdSet::from_ids([1, 2, 3]).unwrap(),
+        )
         .unwrap();
     let forged = IdSet::from_ids([1, 2, 3, 4]).unwrap().encode();
     store
@@ -1939,4 +1967,150 @@ fn a_store_that_holds_format_1_snapshots_reads_them_and_compares_them_by_what_th
         "the old revision is still readable as it was"
     );
     assert_eq!(owner.load_current(id).unwrap(), other);
+}
+
+#[test]
+fn released_v0_7_x_database_upgrades_transactionally_through_migration_009_and_accepts_reborn() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = Store::path_of(dir.path());
+    let profile = ProfileId::new();
+    let char_coa = CharacterId::new();
+    let char_wc = CharacterId::new();
+    let item_coa = PortableItemId::new();
+    let now = "2026-10-22T12:00:00Z";
+
+    // Build realistic pre-multiruleset v0.7.x database (migrations 0..8)
+    {
+        let conn = Connection::open(&file).unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        for m in &MIGRATIONS[..8] {
+            conn.execute_batch(m).unwrap();
+        }
+        conn.pragma_update(None, "application_id", APPLICATION_ID)
+            .unwrap();
+        conn.pragma_update(None, "user_version", 8).unwrap();
+
+        // 1. Profile
+        conn.execute(
+            "INSERT INTO profile (profile_id, created_at, format_version) VALUES (?1, ?2, 1)",
+            params![profile.to_string(), now],
+        )
+        .unwrap();
+
+        // 2. Characters (CoA and Wildcard allowed in pre-009 schema)
+        conn.execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'coa', 'Varian', 'coa:race:1', 'coa:class:1', 0, 80, 1, ?3, ?3, 0)",
+            params![char_coa.to_string(), profile.to_string(), now],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'wildcard', 'RogueMage', 'coa:race:1', 'coa:class:4', 1, 60, 2, ?3, ?3, 0)",
+            params![char_wc.to_string(), profile.to_string(), now],
+        ).unwrap();
+
+        // Verify pre-009 CHECK constraint rejects 'reborn'
+        let err = conn.execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'reborn', 'Paladin', 'coa:race:1', 'coa:class:2', 0, 70, 1, ?3, ?3, 0)",
+            params![CharacterId::new().to_string(), profile.to_string(), now],
+        );
+        assert!(err.is_err(), "pre-009 schema must reject reborn");
+
+        // 3. Snapshots and revisions
+        conn.execute(
+            "INSERT INTO snapshot (character_id, revision, snapshot_format_version, created_at, source_server_id, content_hash, uncompressed_size, payload, note)
+             VALUES (?1, 1, 2, ?2, 'realm-a', ?3, 4, X'01020304', 'genesis')",
+            params![char_coa.to_string(), now, [0x42u8; 32]],
+        ).unwrap();
+
+        // 4. Mappings and server bindings
+        conn.execute(
+            "INSERT INTO character_server_mapping (character_id, server_id, local_guid, last_revision, state, updated_at)
+             VALUES (?1, 'realm-a', 101, 1, 'active', ?2)",
+            params![char_coa.to_string(), now],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO item_mapping (character_id, server_id, portable_item_id, local_item_guid, entry, identity, state, created_revision, confirmed_revision, created_at, updated_at)
+             VALUES (?1, 'realm-a', ?2, 202, 'item_entry', 'ident', 'active', 1, 1, ?3, ?3)",
+            params![char_coa.to_string(), item_coa.to_string(), now],
+        ).unwrap();
+
+        // 5. Baseline session (realm_baseline)
+        conn.execute(
+            "INSERT INTO realm_baseline (character_id, server_id, c0_revision, head_revision, state, c0_hash, c0_payload, b0_hash, b0_payload, created_at, updated_at)
+             VALUES (?1, 'realm-a', 1, 1, 'open', ?2, X'AA', ?2, X'BB', ?3, ?3)",
+            params![char_coa.to_string(), [0x42u8; 32], now],
+        ).unwrap();
+
+        // 6. Pre-009 Collection (single profile_id, kind PK)
+        conn.execute(
+            "INSERT INTO collection (profile_id, kind, collection_revision, collection_hash, format_version, item_count, updated_at, payload)
+             VALUES (?1, 'coa:appearance', 1, ?2, 1, 0, ?3, X'00')",
+            params![profile.to_string(), [0x42u8; 32], now],
+        ).unwrap();
+    }
+
+    // Upgrade through Store::open_file (applies migration 009)
+    let store = Store::open_file(&file).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 9);
+
+    // Verify all original rows and fields survived byte-for-byte and constraint-wise
+    let coa_rec = store.character(char_coa).unwrap();
+    assert_eq!(coa_rec.ruleset, Ruleset::Coa);
+    assert_eq!(coa_rec.name, "Varian");
+    assert_eq!(coa_rec.revision, 1);
+    assert_eq!(coa_rec.level, 80);
+    assert_eq!(coa_rec.created_at, now);
+
+    let wc_rec = store.character(char_wc).unwrap();
+    assert_eq!(wc_rec.ruleset, Ruleset::Wildcard);
+    assert_eq!(wc_rec.name, "RogueMage");
+    assert_eq!(wc_rec.revision, 2);
+
+    // Verify child tables survived without cascading drop
+    let server_maps = store.server_mappings(char_coa).unwrap();
+    assert_eq!(server_maps.len(), 1);
+    assert_eq!(server_maps[0].local_guid, 101);
+
+    let item_maps = store.item_mappings(char_coa, "realm-a").unwrap();
+    assert_eq!(item_maps.len(), 1);
+    assert_eq!(item_maps[0].portable_item_id, item_coa);
+    assert_eq!(item_maps[0].local_item_guid, 202);
+
+    // Verify collection migrated to composite key (profile_id, ruleset, kind)
+    let coll_info = store
+        .collection_info(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_info.revision, 1);
+
+    // Verify insertion of Reborn character succeeds now on migrated DB
+    let char_rb = CharacterId::new();
+    let rb_rec = store.conn.execute(
+        "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+         VALUES (?1, ?2, 'reborn', 'Mograine', 'coa:race:1', 'coa:class:2', 0, 70, 1, ?3, ?3, 0)",
+        params![char_rb.to_string(), profile.to_string(), now],
+    );
+    assert!(
+        rb_rec.is_ok(),
+        "migrated database must accept reborn ruleset"
+    );
+
+    let loaded_rb = store.character(char_rb).unwrap();
+    assert_eq!(loaded_rb.ruleset, Ruleset::Reborn);
+    assert_eq!(loaded_rb.name, "Mograine");
+
+    // Verify invalid ruleset is still rejected by CHECK constraint
+    let err = store.conn.execute(
+        "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+         VALUES (?1, ?2, 'invalid_ruleset', 'Bad', 'coa:race:1', 'coa:class:1', 0, 1, 1, ?3, ?3, 0)",
+        params![CharacterId::new().to_string(), profile.to_string(), now],
+    );
+    assert!(
+        err.is_err(),
+        "migrated database must reject invalid ruleset"
+    );
 }

@@ -338,12 +338,22 @@ impl Store {
         };
         let record = read_character(&tx, row.character_id)?;
         let seen_hash = head_hash(&tx, row.character_id, record.revision)?;
-        let outcome =
-            |o: AckOutcome| ack(record.ruleset, msg.session_id, msg.sequence, o, record.revision, seen_hash);
+        let outcome = |o: AckOutcome| {
+            ack(
+                record.ruleset,
+                msg.session_id,
+                msg.sequence,
+                o,
+                record.revision,
+                seen_hash,
+            )
+        };
         let reject = |why: &str| outcome(AckOutcome::Rejected(why.into()));
 
         if msg.ruleset != record.ruleset {
-            return Ok(reject("the checkpoint ruleset does not match the character"));
+            return Ok(reject(
+                "the checkpoint ruleset does not match the character",
+            ));
         }
         if msg.character_id != row.character_id || msg.server_id != row.server_id {
             return Ok(reject("the message does not belong to this session"));

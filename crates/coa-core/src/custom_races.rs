@@ -206,10 +206,9 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
                 ));
             }
             Some(name.to_string())
-        } else if let Some(name) = line.strip_prefix("ADDON:") {
-            Some(format!("Interface/AddOns/{name}"))
         } else {
-            None
+            line.strip_prefix("ADDON:")
+                .map(|name| format!("Interface/AddOns/{name}"))
         };
         if let Some(path) = path {
             fsx::safe_join(client, &path)?;

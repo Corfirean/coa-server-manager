@@ -456,8 +456,9 @@ mod tests {
                 ruleset: Ruleset::Coa,
                 character_formats: ContentProfile::manager_formats(),
                 online_import_job_formats: jobs.to_vec(),
-                session_protocol: 2,
-                collection_protocol: 2,
+                session_protocol: crate::portable::session::protocol::SESSION_PROTOCOL_VERSION,
+                collection_protocol:
+                    crate::portable::session::protocol::COLLECTION_PROTOCOL_VERSION,
                 features: features.iter().copied().collect(),
                 collection_kinds: ["coa:appearance".to_string(), "coa:vanity".to_string()]
                     .into_iter()

@@ -1,25 +1,41 @@
 # Multi-Ruleset Realms & Portable Characters: Architectural Audit
 
-This audit evaluates the released **CoA Server Manager v0.7.0/v0.7.1** architecture to support three independent, strictly isolated gameplay rulesets:
+This audit evaluates the architecture to support three independent, strictly isolated gameplay rulesets:
 1. **Conquest of Azeroth (`coa`)**
 2. **Wildcard (`wildcard`)**
 3. **Warcraft Reborn (`reborn`)**
 
 Date: October 2026  
-Status: Pre-Implementation Audit Baseline
+Status: Updated for MR1.1 Gate (Post-Foundation Fixes)
 
 ---
 
-## 1. Executive Summary & Existing Representation
+## 1. Executive Summary: Baseline vs Implemented vs Planned
 
-Current codebase inspection reveals that while `realms::Mode` already defines `Coa`, `Wildcard`, and `Reborn` for local realm profiles and database switching, the **Portable Characters and Public Realm Registry subsystems** were designed almost entirely around `coa`, with experimental/preliminary partial awareness of `wildcard`, and an explicit blocking error for `reborn` (`ruleset_of`: *"Portable characters are not supported on Warcraft Reborn realms yet"*).
+### 1.1 Baseline Discovered Before Implementation (v0.7.0 Master)
+- `realms::Mode` defined `Coa`, `Wildcard`, and `Reborn` for local realm profiles and database switching (`acore_characters`, `acore_characters_wildcard`, `acore_characters_reborn`).
+- The **Portable Characters and Public Realm Registry subsystems** were designed almost entirely around `coa`, with experimental/preliminary partial awareness of `wildcard`, and an explicit blocking error for `reborn` (`ruleset_of`: *"Portable characters are not supported on Warcraft Reborn realms yet"*).
+- SQLite `character` table had `CHECK (ruleset IN ('coa', 'wildcard'))`, which hard-failed on any `reborn` row.
+- SQLite `collection` table was keyed by `(profile_id, kind)` without `ruleset`, causing cross-ruleset collision.
+- `Request::TransferOffer`, `PortableSessionStarted`, `PortableCheckpoint`, `OwnerAck`, `CollectionObserved`, `CollectionState`, and `CollectionAck` lacked explicit protocol-level `ruleset` fields or version negotiation.
+- Collection validation used unsafe prefix checks (`kind.starts_with(ruleset)`), permitting prefix confusion attacks.
+- `Ruleset::schema(kind)` contained a fallback `_ => "acore_characters"`, routing unknown database kinds to CoA.
 
-Furthermore, several critical isolation gaps exist across the stack:
-- **Registry & Host Identity Conflation:** Local realm publication keys by `srv-<installation_id>` rather than by `(installation_id, ruleset)`. A host running multiple modes (or switching modes) risks mutating or conflating public realm identity.
-- **Collection Bucket Shared per Profile:** Canonical collection storage (`collection` table) is keyed by `(profile_id, kind)` with fixed strings like `coa:appearance` and `coa:vanity`. Wildcard and Reborn collections cannot safely share these keys or numeric id sets without risking collision and cross-ruleset leakage.
-- **Store Schema Constraints:** SQLite `character` table and PostgreSQL Registry `realm` table enforce `CHECK (ruleset IN ('coa', 'wildcard'))`, which rejects `reborn`.
-- **Remote Control & Session Protocols:** `TransferOffer`, `PortableSessionStarted`, `PortableCheckpoint`, and `OwnerAck` messages do not bind `ruleset` in their envelopes, relying solely on character snapshot payload validation or local mapping lookups.
-- **Capability Profiles:** `RealmCapabilities` reports and negotiation hardcode expectations around `coa`, blocking other rulesets.
+### 1.2 Implemented in 58a99f0+ and MR1.1
+- **Authoritative Ruleset Enum:** `Ruleset` (`Coa`, `Wildcard`, `Reborn`) unified across `coa-core`, `coa-registry-proto`, `coa-control-proto`, and frontend models.
+- **Transactional SQLite Migration 009:** Migrates released v0.7.x databases by recreating both `collection` (composite key `profile_id, ruleset, kind`) and `character` (CHECK constraint allowing `'coa', 'wildcard', 'reborn'`) with FK toggles ensuring zero child row loss.
+- **Protocol Versioning & Negotiation:**
+  - Control protocol bumped to `CONTROL_PROTOCOL_VERSION = 2`. `Request::TransferOffer` requires `ruleset: String` (no default).
+  - Session protocol bumped to `SESSION_PROTOCOL_VERSION = 3`. `SessionOffer`, `PortableSessionStarted`, `PortableCheckpoint`, and `OwnerAck` require explicit `ruleset` (no serde defaults). Old v2 messages require explicit legacy translation.
+  - Collection protocol set to `COLLECTION_PROTOCOL_VERSION = 2`. `CollectionObserved`, `CollectionState`, and `CollectionAck` require explicit `ruleset`.
+- **Schema Safety:** Unsafe fallback in `Ruleset::schema(kind)` removed; unknown database kinds return a hard error.
+- **Exact Collection Namespace Validation:** `carried_kind_for(kind, ruleset)` strictly validates allowed collection kinds; prefix confusion attacks (`coax:appearance`, etc.) are rejected with zero mutation.
+- **Multi-Realm Local Key Resolution:** `find_access` resolves composite keys `srv-<install_id>:<ruleset>` while retaining `srv-<install_id>` for existing single-realm publication until MR4.
+
+### 1.3 Still Planned (Subsequent Milestones)
+- **MR2 (Wildcard Vertical Slice):** Full end-to-end import/export, session runtime, and live verification of Wildcard gameplay.
+- **MR3 (Warcraft Reborn Vertical Slice):** Unlocking `ruleset_of` for Reborn, import/export adapters, and live verification.
+- **MR4 (Multi-Realm Publication UI & Registry):** Simultaneous publication of multiple RealmIds from a single Manager host under distinct identities and keypairs.
 
 ---
 

@@ -261,7 +261,9 @@ pub fn config_files(root: &Path) -> Vec<String> {
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
             // database.json holds generated database passwords; it is launcher state, not configuration.
-            if e.path().is_file() && (n.contains(".template") || n == "repack.json" || n == "docker.json") {
+            if e.path().is_file()
+                && (n.contains(".template") || n == "repack.json" || n == "docker.json")
+            {
                 out.push(format!("Settings/{n}"));
             }
         }
@@ -381,12 +383,19 @@ pub fn create(
     let build = || -> Result<Vec<Component>> {
         let mut components = Vec::new();
         let realm = crate::realms::state(root)?;
-        let mut databases: Vec<(String, &str)> = wanted_databases(kind).iter()
-            .map(|name| Ok((name.to_string(), realm.active.schema(name)?))).collect::<Result<_>>()?;
+        let mut databases: Vec<(String, &str)> = wanted_databases(kind)
+            .iter()
+            .map(|name| Ok((name.to_string(), realm.active.schema(name)?)))
+            .collect::<Result<_>>()?;
         if kind != Kind::Config {
             for other in realm.modes().into_iter().filter(|m| *m != realm.active) {
-                databases.push((format!("{}-characters", other.name()), other.schema("characters")?));
-                if kind == Kind::Full { databases.push((format!("{}-world", other.name()), other.schema("world")?)); }
+                databases.push((
+                    format!("{}-characters", other.name()),
+                    other.schema("characters")?,
+                ));
+                if kind == Kind::Full {
+                    databases.push((format!("{}-world", other.name()), other.schema("world")?));
+                }
             }
         }
         if kind != Kind::Config && with_database(root, |db| db.schema_exists("acore_playerbots"))? {
@@ -427,16 +436,24 @@ pub fn create(
             return Err(e);
         }
     };
-    let mysql_snapshot = if kind == Kind::Full && matches!(trigger, Trigger::BeforeUpdate | Trigger::BeforeRepair) && cfg!(windows) && !crate::docker::is_docker(root) {
+    let mysql_snapshot = if kind == Kind::Full
+        && matches!(trigger, Trigger::BeforeUpdate | Trigger::BeforeRepair)
+        && cfg!(windows)
+        && !crate::docker::is_docker(root)
+    {
         progress("Saving a complete stopped MySQL recovery copy");
         match crate::mysql_snapshot::capture(root, &partial) {
             Ok(snapshot) => Some(snapshot),
             Err(error) => {
-                if let Ok(owned) = fsx::ensure_within(&backups_dir(meta), &partial) { let _ = fs::remove_dir_all(owned); }
+                if let Ok(owned) = fsx::ensure_within(&backups_dir(meta), &partial) {
+                    let _ = fs::remove_dir_all(owned);
+                }
                 return Err(error);
             }
         }
-    } else { None };
+    } else {
+        None
+    };
     let point = RecoveryPoint {
         realm: crate::realms::state(root)?.active,
         schema: 1,
@@ -485,7 +502,9 @@ pub fn verify(meta: &Path, id: &str) -> Result<VerifyReport> {
     let dir = point_dir(meta, id)?;
     let mut problems = Vec::new();
     if let Some(snapshot) = &point.mysql_snapshot {
-        if let Err(error) = crate::mysql_snapshot::verify(&dir, snapshot) { problems.push(error.to_string()); }
+        if let Err(error) = crate::mysql_snapshot::verify(&dir, snapshot) {
+            problems.push(error.to_string());
+        }
     }
     let mut names = std::collections::BTreeSet::new();
     let mut schemas = std::collections::BTreeSet::new();

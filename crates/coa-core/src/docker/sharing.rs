@@ -18,7 +18,10 @@ use crate::net::Exposure;
 use crate::process::{ServiceState, ServiceStatus};
 
 fn is_open(cfg: &Config) -> bool {
-    cfg.bind_address.parse::<IpAddr>().map(|ip| !ip.is_loopback()).unwrap_or(false)
+    cfg.bind_address
+        .parse::<IpAddr>()
+        .map(|ip| !ip.is_loopback())
+        .unwrap_or(false)
 }
 
 /// Whether the login and world servers are published beyond this computer.
@@ -46,7 +49,11 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
         if let Ok(bytes) = fs::read(&coa_conf) {
             let mut conf = ConfFile::parse_bytes(&bytes)?;
             if conf.get("CoA.AllowRemoteClients").map(str::trim) != Some("1") {
-                conf.set("CoA.AllowRemoteClients", "1", &["Set by CoA Server Manager together with the friends mode"]);
+                conf.set(
+                    "CoA.AllowRemoteClients",
+                    "1",
+                    &["Set by CoA Server Manager together with the friends mode"],
+                );
                 originals.push((coa_conf.clone(), bytes));
                 coa_edit = Some(conf.to_text());
             }
@@ -55,7 +62,16 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
     if !changed && coa_edit.is_none() {
         return Ok(false);
     }
-    take_snapshot(meta, Scope::Server, if open { "before opening the servers to friends" } else { "before closing the servers to friends" }, &originals)?;
+    take_snapshot(
+        meta,
+        Scope::Server,
+        if open {
+            "before opening the servers to friends"
+        } else {
+            "before closing the servers to friends"
+        },
+        &originals,
+    )?;
     if changed {
         fsx::atomic_write_json(&root.join(MARKER), &cfg)?;
     }
@@ -73,10 +89,30 @@ pub fn exposure(root: &Path, ports: &Ports) -> Vec<Exposure> {
     let observed = crate::process::observe(root, ports);
     let up = |s: &ServiceStatus| matches!(s.state, ServiceState::Running | ServiceState::Starting);
     vec![
-        Exposure { port: ports.mysql, what: "database", listening: up(&observed.mysql), reachable_from_network: false },
-        Exposure { port: ports.ra, what: "server console", listening: up(&observed.world), reachable_from_network: false },
-        Exposure { port: ports.auth, what: "login server", listening: up(&observed.auth), reachable_from_network: open && up(&observed.auth) },
-        Exposure { port: ports.world, what: "game world", listening: up(&observed.world), reachable_from_network: open && up(&observed.world) },
+        Exposure {
+            port: ports.mysql,
+            what: "database",
+            listening: up(&observed.mysql),
+            reachable_from_network: false,
+        },
+        Exposure {
+            port: ports.ra,
+            what: "server console",
+            listening: up(&observed.world),
+            reachable_from_network: false,
+        },
+        Exposure {
+            port: ports.auth,
+            what: "login server",
+            listening: up(&observed.auth),
+            reachable_from_network: open && up(&observed.auth),
+        },
+        Exposure {
+            port: ports.world,
+            what: "game world",
+            listening: up(&observed.world),
+            reachable_from_network: open && up(&observed.world),
+        },
     ]
 }
 
@@ -91,9 +127,15 @@ mod tests {
         fs::create_dir_all(root.join("Settings")).unwrap();
         fs::create_dir_all(root.join("Core/configs/modules")).unwrap();
         fs::create_dir_all(&meta).unwrap();
-        let extra = bind.map(|b| format!(r#","bindAddress":"{b}""#)).unwrap_or_default();
+        let extra = bind
+            .map(|b| format!(r#","bindAddress":"{b}""#))
+            .unwrap_or_default();
         fs::write(root.join(MARKER), format!(r#"{{"project":"t1"{extra}}}"#)).unwrap();
-        fs::write(root.join("Core/configs/modules/coa.conf"), "CoA.Enable = 1\n").unwrap();
+        fs::write(
+            root.join("Core/configs/modules/coa.conf"),
+            "CoA.Enable = 1\n",
+        )
+        .unwrap();
         (d, root, meta)
     }
 
@@ -104,8 +146,15 @@ mod tests {
         assert!(set_open(&root, &meta, true).unwrap(), "a restart is needed");
         assert!(bind_is_open(&root));
         assert_eq!(Config::load(&root).unwrap().bind_address, "0.0.0.0");
-        assert!(fs::read_to_string(root.join("Core/configs/modules/coa.conf")).unwrap().contains("CoA.AllowRemoteClients = 1"));
-        assert!(!set_open(&root, &meta, true).unwrap(), "nothing left to change");
+        assert!(
+            fs::read_to_string(root.join("Core/configs/modules/coa.conf"))
+                .unwrap()
+                .contains("CoA.AllowRemoteClients = 1")
+        );
+        assert!(
+            !set_open(&root, &meta, true).unwrap(),
+            "nothing left to change"
+        );
         assert!(set_open(&root, &meta, false).unwrap());
         assert!(!bind_is_open(&root));
         assert_eq!(Config::load(&root).unwrap().bind_address, "127.0.0.1");
@@ -114,7 +163,11 @@ mod tests {
     #[test]
     fn enabling_remote_client_protocol_requires_restart_even_when_ports_are_open() {
         let (_d, root, meta) = server(Some("0.0.0.0"));
-        fs::write(root.join("Core/configs/modules/coa.conf"), "CoA.Enable = 1\nCoA.AllowRemoteClients = 0\n").unwrap();
+        fs::write(
+            root.join("Core/configs/modules/coa.conf"),
+            "CoA.Enable = 1\nCoA.AllowRemoteClients = 0\n",
+        )
+        .unwrap();
         assert!(set_open(&root, &meta, true).unwrap());
         assert_eq!(Config::load(&root).unwrap().bind_address, "0.0.0.0");
         assert!(!set_open(&root, &meta, true).unwrap());
@@ -123,7 +176,10 @@ mod tests {
     #[test]
     fn an_address_chosen_by_hand_is_kept_when_opening_and_other_settings_survive() {
         let (_d, root, meta) = server(Some("192.168.1.20"));
-        assert!(bind_is_open(&root), "any address but the loopback is the network");
+        assert!(
+            bind_is_open(&root),
+            "any address but the loopback is the network"
+        );
         set_open(&root, &meta, true).unwrap();
         let cfg = Config::load(&root).unwrap();
         assert_eq!(cfg.bind_address, "192.168.1.20");
@@ -142,7 +198,9 @@ mod tests {
         let (_d, root, _meta) = server(Some("0.0.0.0"));
         let rows = exposure(&root, &Ports::default());
         let by = |what: &str| rows.iter().find(|e| e.what == what).unwrap();
-        assert!(!by("database").reachable_from_network && !by("server console").reachable_from_network);
+        assert!(
+            !by("database").reachable_from_network && !by("server console").reachable_from_network
+        );
         // Nothing runs in this test (docker is not asked to start anything), so nothing is reachable yet.
         assert!(rows.iter().all(|e| !e.reachable_from_network));
     }

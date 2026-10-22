@@ -377,7 +377,7 @@ fn remote_transfer_over_coordinator_channel_e2e() {
     let collections = BTreeMap::from([("coa:appearance".to_string(), vec![42, 99])]);
 
     // Perform transfer
-    let outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).unwrap();
+    let outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).unwrap();
     assert!(outcome.local_guid > 0);
     assert_ne!(outcome.session_id, Uuid::nil());
 
@@ -386,20 +386,20 @@ fn remote_transfer_over_coordinator_channel_e2e() {
     assert!(!env.wire_contains("Varian"), "account name was encrypted");
 
     // Idempotent retry with same payload discovers existing commit
-    let retry_outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).unwrap();
+    let retry_outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).unwrap();
     assert_eq!(outcome.local_guid, retry_outcome.local_guid);
     assert_eq!(outcome.session_id, retry_outcome.session_id);
 
     // Update with revision 2 updates working copy without duplicate
     let payload2 = b"SECRET_PORTABLE_CHARACTER_PAYLOAD_VARIAN_REV2".to_vec();
     let hash2: [u8; 32] = Sha256::digest(&payload2).into();
-    let update_outcome = pc.transfer_character(&mut ch, cid, 2, &payload2, hash2, collections).unwrap();
+    let update_outcome = pc.transfer_character(&mut ch, cid, "coa", 2, &payload2, hash2, collections).unwrap();
     assert_eq!(outcome.local_guid, update_outcome.local_guid);
 
     // Incompatible realm rejects
     let incomp_id = Uuid::now_v7();
     env.fake.incompatible.lock().unwrap().insert(incomp_id);
-    let err = pc.transfer_character(&mut ch, incomp_id, 1, b"any", [0u8; 32], BTreeMap::new()).unwrap_err();
+    let err = pc.transfer_character(&mut ch, incomp_id, "coa", 1, b"any", [0u8; 32], BTreeMap::new()).unwrap_err();
     assert_eq!(err.code(), "incompatible");
 }
 
@@ -426,13 +426,13 @@ fn remote_transfer_worst_case_large_payload_near_limit() {
     massive_collections.insert("coa:appearance".to_string(), ids);
 
     let cid = Uuid::now_v7();
-    let outcome = pc.transfer_character(&mut ch, cid, 1, &large_payload, large_hash, massive_collections).unwrap();
+    let outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &large_payload, large_hash, massive_collections).unwrap();
     assert!(outcome.local_guid > 0);
     assert_ne!(outcome.session_id, Uuid::nil());
 
     // 2. Standard request exceeding 4096 bytes is rejected
     let bloated_hello = coa_control_proto::app::Request::Hello {
-        protocol: 1,
+        protocol: coa_control_proto::CONTROL_PROTOCOL_VERSION,
         client: "A".repeat(5000),
     };
     let encoded = serde_json::to_vec(&bloated_hello).unwrap();

@@ -1961,8 +1961,16 @@ fn database_identities(
     let mut identities = BTreeMap::new();
     for (schema, table, columns) in [
         ("acore_characters", "characters", "guid,account,HEX(name)"),
-        ("acore_characters_wildcard", "characters", "guid,account,HEX(name)"),
-        ("acore_characters_reborn", "characters", "guid,account,HEX(name)"),
+        (
+            "acore_characters_wildcard",
+            "characters",
+            "guid,account,HEX(name)",
+        ),
+        (
+            "acore_characters_reborn",
+            "characters",
+            "guid,account,HEX(name)",
+        ),
         ("acore_auth", "account", "id,HEX(username)"),
     ] {
         if !db.schema_exists(schema)? || !db.tables(schema)?.iter().any(|name| name == table) {

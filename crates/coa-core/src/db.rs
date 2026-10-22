@@ -75,11 +75,23 @@ pub const SCHEMAS: [(&str, &str); 3] = [
 ];
 
 pub fn schema_of(kind: &str) -> Result<&'static str> {
-    if kind == "playerbots" { return Ok("acore_playerbots"); }
-    if let Some(kind) = kind.strip_prefix("wildcard-") { return crate::realms::Mode::Wildcard.schema(kind); }
-    if let Some(kind) = kind.strip_prefix("reborn-") { return crate::realms::Mode::Reborn.schema(kind); }
-    if let Some(kind) = kind.strip_prefix("coa-") { return crate::realms::Mode::Coa.schema(kind); }
-    SCHEMAS.iter().find(|(k, _)| *k == kind).map(|(_, s)| *s).ok_or_else(|| Error::Invalid(format!("unknown database {kind}")))
+    if kind == "playerbots" {
+        return Ok("acore_playerbots");
+    }
+    if let Some(kind) = kind.strip_prefix("wildcard-") {
+        return crate::realms::Mode::Wildcard.schema(kind);
+    }
+    if let Some(kind) = kind.strip_prefix("reborn-") {
+        return crate::realms::Mode::Reborn.schema(kind);
+    }
+    if let Some(kind) = kind.strip_prefix("coa-") {
+        return crate::realms::Mode::Coa.schema(kind);
+    }
+    SCHEMAS
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, s)| *s)
+        .ok_or_else(|| Error::Invalid(format!("unknown database {kind}")))
 }
 
 fn ident_ok(name: &str) -> bool {
@@ -357,9 +369,11 @@ impl Db {
 
     pub fn recovery_objects(&self, schema: &str) -> Result<Vec<serde_json::Value>> {
         let schema = self.realm_schema(schema);
-        if !ident_ok(schema) { return Err(Error::Invalid("bad schema name".into())); }
+        if !ident_ok(schema) {
+            return Err(Error::Invalid("bad schema name".into()));
+        }
         let sql = format!("SELECT routine_type,HEX(routine_name) FROM information_schema.routines WHERE routine_schema='{schema}' UNION ALL SELECT 'TRIGGER',HEX(trigger_name) FROM information_schema.triggers WHERE trigger_schema='{schema}' UNION ALL SELECT 'VIEW',HEX(table_name) FROM information_schema.views WHERE table_schema='{schema}' ORDER BY 1,2;");
-        parse_recovery_objects(&schema, &self.query(&sql)?)
+        parse_recovery_objects(schema, &self.query(&sql)?)
     }
 
     /// Consistent dump of one schema, zstd-compressed to `out`. Returns (compressed bytes, sha256 of the file).
@@ -469,15 +483,23 @@ impl Db {
 }
 
 fn parse_recovery_objects(schema: &str, text: &str) -> Result<Vec<serde_json::Value>> {
-    text.lines().filter(|line| !line.is_empty()).map(|line| {
-        let (kind, name) = line.split_once('\t').ok_or_else(|| Error::Invalid("unexpected database object reply".into()))?;
-        if !matches!(kind, "PROCEDURE" | "FUNCTION" | "TRIGGER" | "VIEW") {
-            return Err(Error::Invalid("unexpected database object type".into()));
-        }
-        let name = hex::decode(name).ok().and_then(|bytes| String::from_utf8(bytes).ok())
-            .filter(|name| !name.is_empty()).ok_or_else(|| Error::Invalid("unexpected database object name".into()))?;
-        Ok(serde_json::json!({ "database": schema, "kind": kind, "name": name }))
-    }).collect()
+    text.lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let (kind, name) = line
+                .split_once('\t')
+                .ok_or_else(|| Error::Invalid("unexpected database object reply".into()))?;
+            if !matches!(kind, "PROCEDURE" | "FUNCTION" | "TRIGGER" | "VIEW") {
+                return Err(Error::Invalid("unexpected database object type".into()));
+            }
+            let name = hex::decode(name)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| Error::Invalid("unexpected database object name".into()))?;
+            Ok(serde_json::json!({ "database": schema, "kind": kind, "name": name }))
+        })
+        .collect()
 }
 
 /// Name of the service account the Manager uses for the server console (RA). Accounts are stored upper-case.
@@ -587,7 +609,10 @@ mod tests {
         use crate::realms::Mode;
         let sql = "SELECT * FROM `acore_characters`.characters WHERE name='acore_world'; -- acore_world\nSELECT * FROM acore_world.items; SELECT * FROM acore_world_wildcard.items;";
         assert_eq!(super::route_sql(sql, Mode::Reborn), "SELECT * FROM `acore_characters_reborn`.characters WHERE name='acore_world'; -- acore_world\nSELECT * FROM acore_world_reborn.items; SELECT * FROM acore_world_wildcard.items;");
-        assert_eq!(super::schema_of("reborn-characters").unwrap(), "acore_characters_reborn");
+        assert_eq!(
+            super::schema_of("reborn-characters").unwrap(),
+            "acore_characters_reborn"
+        );
         assert_eq!(super::schema_of("reborn-auth").unwrap(), "acore_auth");
     }
     use super::*;

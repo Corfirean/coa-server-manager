@@ -761,7 +761,7 @@ impl HostService {
             );
         }
         for kind in collections.keys() {
-            if !kind.starts_with(offer_ruleset.as_str()) {
+            if !crate::portable::session::protocol::carried_kind_for(kind, offer_ruleset) {
                 return err(
                     AppError::Incompatible,
                     "Collection kind does not belong to this ruleset.",
@@ -1454,7 +1454,7 @@ mod tests {
             &Uuid::now_v7(),
             "K",
             Request::Hello {
-                protocol: 1,
+                protocol: coa_control_proto::CONTROL_PROTOCOL_VERSION,
                 client: "t".into(),
             },
         )
@@ -2435,7 +2435,13 @@ mod tests {
             collections: BTreeMap::new(),
         };
         let r = s.handle(&mut session, &p, "K", wc_offer);
-        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }));
+        assert!(matches!(
+            r,
+            Response::Error {
+                code: AppError::Incompatible,
+                ..
+            }
+        ));
 
         // 2. Host is CoA, offer is Reborn -> Rejected
         let rb_offer = Request::TransferOffer {
@@ -2448,7 +2454,13 @@ mod tests {
             collections: BTreeMap::new(),
         };
         let r = s.handle(&mut session, &p, "K", rb_offer);
-        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }));
+        assert!(matches!(
+            r,
+            Response::Error {
+                code: AppError::Incompatible,
+                ..
+            }
+        ));
 
         // 3. Collection kinds for another ruleset -> Rejected
         let foreign_coll_offer = Request::TransferOffer {
@@ -2461,7 +2473,13 @@ mod tests {
             collections: BTreeMap::from([("wildcard:appearance".into(), vec![1, 2, 3])]),
         };
         let r = s.handle(&mut session, &p, "K", foreign_coll_offer);
-        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }));
+        assert!(matches!(
+            r,
+            Response::Error {
+                code: AppError::Incompatible,
+                ..
+            }
+        ));
 
         // Ensure 0 DB imports happened
         assert!(realm.imported.lock().unwrap().is_empty());

@@ -1,12 +1,25 @@
 # Warcraft Reborn Portable Characters Audit
 
-## 1. Overview & Current State
-The master branch codebase already contains foundational support for Warcraft Reborn (`Mode::Reborn`, realm ID `3`, characters DB `acore_characters_reborn`, world DB `acore_world_reborn`, shared auth DB `acore_auth`).
-In previous releases (v0.7.0), portable character transfers into Warcraft Reborn were temporarily guarded by:
+## 1. Overview & Baseline vs Current Implementation
+
+### 1.1 Baseline Discovered Before Implementation
+The released v0.7.0 master branch codebase contained foundational support for local realm execution (`Mode::Reborn`, realm ID `3`, characters DB `acore_characters_reborn`, world DB `acore_world_reborn`, shared auth DB `acore_auth`).
+Portable character transfers into Warcraft Reborn were temporarily guarded by:
 ```rust
 // crates/coa-core/src/portable/realm/mod.rs
 Mode::Reborn => Err(PortableError::Invalid("Portable characters are not supported on Warcraft Reborn realms yet.".into())),
 ```
+
+### 1.2 Implemented in 58a99f0+ and MR1.1
+- **RulesetId / Ruleset**: `Ruleset::Reborn` is established across `coa-core`, `coa-registry-proto`, `coa-control-proto`, and TypeScript models (`"reborn"` wire value, display name `"Warcraft Reborn"`).
+- **SQLite Portable Storage:** Migration `009_multiruleset.sql` upgrades released databases to permit `reborn` characters in the `character` table CHECK constraint without dropping child records.
+- **Collections:** `reborn:appearance` and `reborn:vanity` defined and carried under exact allowlist in `carried_kind_for`. Partitioned under `(profile_id, 'reborn', kind)`.
+- **Wire Protocols:** Control protocol v2, Session protocol v3, and Collection protocol v2 bind `ruleset: Ruleset` explicitly in all messages.
+
+### 1.3 Still Planned (MR3 Phase)
+- Implement concrete gameplay adapter for Reborn character import/export.
+- Flip `ruleset_of(&reborn_db)` from the temporary error to `Ok(Ruleset::Reborn)`.
+- End-to-end regression testing of Reborn characters and strict isolation gates.
 
 ## 2. Ruleset Identity & DB Schemas
 - **RulesetId / Ruleset**:

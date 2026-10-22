@@ -223,13 +223,13 @@ fn gate_phase12_1_live_vps_remote_transfer() {
     let collections = BTreeMap::from([("coa:appearance".to_string(), vec![101, 202])]);
 
     // 1. Remote transfer over Coordinator WSS channel
-    let outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).expect("transfer_character");
+    let outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).expect("transfer_character");
     assert!(outcome.local_guid > 0);
     assert_ne!(outcome.session_id, Uuid::nil());
     println!("GATE 12.1 PASS  remote transfer succeeded over WSS: local_guid={}, session_id={}", outcome.local_guid, outcome.session_id);
 
     // 2. Idempotent retry with same payload discovers existing commit
-    let retry_outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).expect("retry transfer");
+    let retry_outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).expect("retry transfer");
     assert_eq!(outcome.local_guid, retry_outcome.local_guid, "idempotent retry must return existing guid");
     assert_eq!(outcome.session_id, retry_outcome.session_id, "idempotent retry must return existing session");
     println!("GATE 12.1 PASS  idempotent retry returned existing commit without duplication");
@@ -237,14 +237,14 @@ fn gate_phase12_1_live_vps_remote_transfer() {
     // 3. Update with newer revision 2 updates working copy without duplicating character
     let payload2 = b"REMOTE_PORTABLE_CHARACTER_VARIAN_PAYLOAD_V2".to_vec();
     let hash2: [u8; 32] = Sha256::digest(&payload2).into();
-    let update_outcome = pc.transfer_character(&mut ch, cid, 2, &payload2, hash2, collections).expect("update transfer");
+    let update_outcome = pc.transfer_character(&mut ch, cid, "coa", 2, &payload2, hash2, collections).expect("update transfer");
     assert_eq!(outcome.local_guid, update_outcome.local_guid, "revision update must preserve guid");
     println!("GATE 12.1 PASS  revision 2 update succeeded without character duplication");
 
     // 4. Incompatible realm rejects before mutation
     let incomp_id = Uuid::now_v7();
     fake.incompatible.lock().unwrap().insert(incomp_id);
-    let err = pc.transfer_character(&mut ch, incomp_id, 1, b"incomp", [0u8; 32], BTreeMap::new()).expect_err("should reject");
+    let err = pc.transfer_character(&mut ch, incomp_id, "coa", 1, b"incomp", [0u8; 32], BTreeMap::new()).expect_err("should reject");
     assert_eq!(err.code(), "incompatible");
     println!("GATE 12.1 PASS  incompatible character rejected cleanly");
 

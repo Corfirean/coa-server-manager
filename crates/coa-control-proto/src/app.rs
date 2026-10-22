@@ -16,10 +16,6 @@ pub const MIN_PASSWORD: usize = 8;
 pub const MAX_PASSWORD: usize = 16;
 pub const MAX_CHARACTERS: usize = 200;
 
-fn default_ruleset() -> String {
-    "coa".to_string()
-}
-
 /// A game account name: 3 to 16 ASCII letters, digits or `_`, not beginning or ending with `_`.
 pub fn valid_username(s: &str) -> bool {
     (MIN_USERNAME..=MAX_USERNAME).contains(&s.len())
@@ -107,7 +103,6 @@ pub enum Request {
     TransferOffer {
         transfer_id: Uuid,
         character_id: Uuid,
-        #[serde(default = "default_ruleset")]
         ruleset: String,
         canonical_revision: u64,
         content_hash: String,
@@ -478,5 +473,21 @@ mod tests {
         };
         let resp_dec = decode_response(&encode_response(&resp)).unwrap();
         assert_eq!(resp, resp_dec);
+
+        // Control protocol v2 requires ruleset in TransferOffer; missing is rejected
+        let missing_ruleset_json = serde_json::json!({
+            "op": "transfer_offer",
+            "transfer_id": tid,
+            "character_id": cid,
+            "canonical_revision": 5,
+            "content_hash": hash,
+            "total_size": 1024,
+            "collections": {}
+        });
+        let encoded_missing = serde_json::to_vec(&missing_ruleset_json).unwrap();
+        assert!(
+            decode_request(&encoded_missing).is_err(),
+            "missing ruleset in v2 must be rejected"
+        );
     }
 }

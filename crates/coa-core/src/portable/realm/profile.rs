@@ -14,7 +14,9 @@ use super::super::extension::{
 };
 use super::super::ids::CharacterId;
 use super::super::model::PortableCharacter;
-use super::super::session::protocol::{collection_kinds, PROTOCOL_VERSION};
+use super::super::session::protocol::{
+    collection_kinds, COLLECTION_PROTOCOL_VERSION, SESSION_PROTOCOL_VERSION,
+};
 use super::super::store::Store;
 use super::import::ImportOptions;
 use super::script::SchemaProbe;
@@ -97,8 +99,8 @@ pub fn assemble(
         online_import_job_formats: core
             .map(|c| c.portable.job_formats.clone())
             .unwrap_or_default(),
-        session_protocol: PROTOCOL_VERSION,
-        collection_protocol: PROTOCOL_VERSION,
+        session_protocol: SESSION_PROTOCOL_VERSION,
+        collection_protocol: COLLECTION_PROTOCOL_VERSION,
         features,
         collection_kinds: if probe.has("account_appearance_collection")
             && probe.has("account_vanity_collection")

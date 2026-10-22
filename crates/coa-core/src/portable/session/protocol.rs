@@ -13,20 +13,19 @@ use super::super::model::{limits::MAX_COMPRESSED_BYTES, PortableCharacter};
 use super::super::projection::{ProgressionPin, ProjectionContext};
 use super::super::snapshot;
 
-/// Version 2 (Phase 8): `PortableSessionStarted` carries the progression the session runs under, every `PortableCheckpoint` and `OwnerAck` its pin.
-/// A version 1 peer and a version 2 peer read each other's messages as unsupported, and the realm's capability profile (`session_protocol`)
-/// says so before any character is armed.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// Version 3: `SessionOffer`, `PortableSessionStarted`, `PortableCheckpoint`, and `OwnerAck` require explicit `ruleset`.
+/// Version 2 (Phase 8): `PortableSessionStarted` carried progression and pins.
+pub const SESSION_PROTOCOL_VERSION: u32 = 3;
+/// Protocol version for collection synchronization (`CollectionObserved`, `CollectionState`, `CollectionAck`).
+pub const COLLECTION_PROTOCOL_VERSION: u32 = 2;
+/// Backward-compatibility alias for session protocol version.
+pub const PROTOCOL_VERSION: u32 = SESSION_PROTOCOL_VERSION;
 /// A message carries at most one compressed snapshot (base64: 4/3) plus a little structure.
 pub const MAX_MESSAGE_BYTES: usize = MAX_COMPRESSED_BYTES * 4 / 3 + 64 * 1024;
 /// The most item/pet ids an acknowledgement lists.
 pub const MAX_ACK_IDS: usize = 20_000;
 /// The largest serialized collection message accepted.
 pub const MAX_COLLECTION_MESSAGE_BYTES: usize = 1024 * 1024;
-
-fn default_session_ruleset() -> super::super::model::Ruleset {
-    super::super::model::Ruleset::Coa
-}
 
 /// A sealed snapshot: the hash of the canonical JSON and the compressed bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,7 +84,6 @@ impl Envelope {
 #[serde(deny_unknown_fields)]
 pub struct SessionOffer {
     pub protocol_version: u32,
-    #[serde(default = "default_session_ruleset")]
     pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     pub character_id: CharacterId,
@@ -131,7 +129,6 @@ impl SessionProgression {
 #[serde(deny_unknown_fields)]
 pub struct PortableSessionStarted {
     pub protocol_version: u32,
-    #[serde(default = "default_session_ruleset")]
     pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     pub character_id: CharacterId,
@@ -149,7 +146,6 @@ pub struct PortableSessionStarted {
 #[serde(deny_unknown_fields)]
 pub struct PortableCheckpoint {
     pub protocol_version: u32,
-    #[serde(default = "default_session_ruleset")]
     pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     pub character_id: CharacterId,
@@ -200,7 +196,6 @@ pub struct NextSession {
 #[serde(deny_unknown_fields)]
 pub struct OwnerAck {
     pub protocol_version: u32,
-    #[serde(default = "default_session_ruleset")]
     pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     /// 0 acknowledges `PortableSessionStarted`.
@@ -398,7 +393,6 @@ impl CompactSet {
 #[serde(deny_unknown_fields)]
 pub struct CollectionObserved {
     pub protocol_version: u32,
-    #[serde(default = "default_session_ruleset")]
     pub ruleset: super::super::model::Ruleset,
     pub server_id: String,
     pub kind: String,
@@ -410,7 +404,6 @@ pub struct CollectionObserved {
 #[serde(deny_unknown_fields)]
 pub struct CollectionState {
     pub protocol_version: u32,
-    #[serde(default = "default_session_ruleset")]
     pub ruleset: super::super::model::Ruleset,
     pub kind: String,
     pub collection_revision: u64,
@@ -437,7 +430,6 @@ pub enum CollectionOutcome {
 #[serde(deny_unknown_fields)]
 pub struct CollectionAck {
     pub protocol_version: u32,
-    #[serde(default = "default_session_ruleset")]
     pub ruleset: super::super::model::Ruleset,
     pub kind: String,
     pub outcome: CollectionOutcome,
@@ -469,24 +461,29 @@ pub fn collection_from_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
         .get("protocol_version")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| PortableError::Invalid("the message has no protocol version".into()))?;
-    if version != PROTOCOL_VERSION as u64 {
+    if version != COLLECTION_PROTOCOL_VERSION as u64 {
         return Err(PortableError::UnsupportedFormat {
             found: version.min(u32::MAX as u64) as u32,
-            supported: PROTOCOL_VERSION,
+            supported: COLLECTION_PROTOCOL_VERSION,
         });
     }
     Ok(serde_json::from_value(value)?)
 }
 
 impl CollectionObserved {
-    pub fn new(server_id: &str, ruleset: super::super::model::Ruleset, kind: &str, set: &IdSet) -> Result<Self> {
+    pub fn new(
+        server_id: &str,
+        ruleset: super::super::model::Ruleset,
+        kind: &str,
+        set: &IdSet,
+    ) -> Result<Self> {
         if !carried_kind_for(kind, ruleset) {
             return Err(PortableError::Invalid(format!(
                 "collection kind {kind:?} is not carried for {ruleset:?}"
             )));
         }
         Ok(Self {
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: COLLECTION_PROTOCOL_VERSION,
             ruleset,
             server_id: server_id.to_string(),
             kind: kind.to_string(),
@@ -496,13 +493,141 @@ impl CollectionObserved {
 }
 
 impl CollectionState {
-    pub fn new(ruleset: super::super::model::Ruleset, kind: &str, revision: u64, set: &IdSet) -> Result<Self> {
+    pub fn new(
+        ruleset: super::super::model::Ruleset,
+        kind: &str,
+        revision: u64,
+        set: &IdSet,
+    ) -> Result<Self> {
         Ok(Self {
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: COLLECTION_PROTOCOL_VERSION,
             ruleset,
             kind: kind.to_string(),
             collection_revision: revision,
             set: CompactSet::seal(kind, set)?,
         })
+    }
+}
+
+/// Legacy Session Protocol v2 representation (Phase 8), where absence of ruleset is defined to mean CoA.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyV2SessionOffer {
+    pub protocol_version: u32,
+    pub session_id: SessionId,
+    pub character_id: CharacterId,
+    pub server_id: String,
+    pub canonical_revision: u64,
+    pub snapshot: Envelope,
+}
+
+impl LegacyV2SessionOffer {
+    pub fn into_session_offer(self) -> SessionOffer {
+        SessionOffer {
+            protocol_version: SESSION_PROTOCOL_VERSION,
+            ruleset: super::super::model::Ruleset::Coa,
+            session_id: self.session_id,
+            character_id: self.character_id,
+            server_id: self.server_id,
+            canonical_revision: self.canonical_revision,
+            snapshot: self.snapshot,
+        }
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    use crate::portable::Ruleset;
+
+    #[test]
+    fn session_protocol_v3_requires_ruleset_and_rejects_missing_or_unknown() {
+        let envelope = Envelope {
+            content_hash: "00".repeat(32),
+            payload: "AA==".to_string(),
+        };
+
+        // 1. Valid v3 SessionOffer with explicit ruleset (CoA, Wildcard, Reborn)
+        for r in [Ruleset::Coa, Ruleset::Wildcard, Ruleset::Reborn] {
+            let offer = SessionOffer {
+                protocol_version: SESSION_PROTOCOL_VERSION,
+                ruleset: r,
+                session_id: SessionId::new(),
+                character_id: CharacterId::new(),
+                server_id: "realm-1".to_string(),
+                canonical_revision: 1,
+                snapshot: envelope.clone(),
+            };
+            let bytes = to_json(&offer).unwrap();
+            let parsed: SessionOffer = from_json(&bytes).unwrap();
+            assert_eq!(parsed.ruleset, r);
+        }
+
+        // 2. Missing ruleset in v3 JSON is rejected (never silently defaults to CoA)
+        let missing_ruleset_v3 = serde_json::json!({
+            "protocol_version": SESSION_PROTOCOL_VERSION,
+            "session_id": SessionId::new().to_string(),
+            "character_id": CharacterId::new().to_string(),
+            "server_id": "realm-1",
+            "canonical_revision": 1,
+            "snapshot": {
+                "content_hash": "00".repeat(32),
+                "payload": "AA=="
+            }
+        });
+        let bytes = serde_json::to_vec(&missing_ruleset_v3).unwrap();
+        let err: std::result::Result<SessionOffer, _> = from_json(&bytes);
+        assert!(
+            err.is_err(),
+            "missing ruleset must be rejected in protocol v3"
+        );
+
+        // 3. Unknown ruleset in v3 JSON is rejected
+        let unknown_ruleset_v3 = serde_json::json!({
+            "protocol_version": SESSION_PROTOCOL_VERSION,
+            "ruleset": "cyberpunk",
+            "session_id": SessionId::new().to_string(),
+            "character_id": CharacterId::new().to_string(),
+            "server_id": "realm-1",
+            "canonical_revision": 1,
+            "snapshot": {
+                "content_hash": "00".repeat(32),
+                "payload": "AA=="
+            }
+        });
+        let bytes = serde_json::to_vec(&unknown_ruleset_v3).unwrap();
+        let err: std::result::Result<SessionOffer, _> = from_json(&bytes);
+        assert!(err.is_err(), "unknown ruleset must be rejected");
+
+        // 4. Old v2 peer message (protocol_version 2) is rejected by current v3 parser
+        let legacy_v2_json = serde_json::json!({
+            "protocol_version": 2,
+            "session_id": SessionId::new().to_string(),
+            "character_id": CharacterId::new().to_string(),
+            "server_id": "realm-1",
+            "canonical_revision": 1,
+            "snapshot": {
+                "content_hash": "00".repeat(32),
+                "payload": "AA=="
+            }
+        });
+        let bytes = serde_json::to_vec(&legacy_v2_json).unwrap();
+        let err: std::result::Result<SessionOffer, _> = from_json(&bytes);
+        assert!(
+            matches!(
+                err,
+                Err(PortableError::UnsupportedFormat {
+                    found: 2,
+                    supported: 3
+                })
+            ),
+            "v2 peer must be rejected with UnsupportedFormat"
+        );
+
+        // 5. Explicit LegacyV2SessionOffer decode correctly interprets absence of ruleset as CoA
+        let v2_parsed: LegacyV2SessionOffer = serde_json::from_slice(&bytes).unwrap();
+        let upgraded = v2_parsed.into_session_offer();
+        assert_eq!(upgraded.ruleset, Ruleset::Coa);
+        assert_eq!(upgraded.protocol_version, SESSION_PROTOCOL_VERSION);
     }
 }

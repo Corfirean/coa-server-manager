@@ -39,7 +39,7 @@ fn realm_error(e: crate::Error) -> PortableError {
 
 fn check_ruleset(db: &Db, kind: &str) -> Result<()> {
     let r = ruleset_of(db)?;
-    if !kind.starts_with(r.as_str()) {
+    if !crate::portable::session::protocol::carried_kind_for(kind, r) {
         return Err(PortableError::Invalid(format!(
             "collection kind {kind:?} does not belong to realm ruleset {r:?}"
         )));
@@ -95,7 +95,9 @@ pub fn read_set(db: &Db, account: u32, kind: &str) -> Result<IdSet> {
             .trim()
             .parse()
             .map_err(|_| PortableError::CorruptSnapshot(format!("{line:?} is not an id")))?;
-        if (kind == "coa:vanity" || kind == "wildcard:vanity" || kind == "reborn:vanity") && is_bank_vanity_item(id) {
+        if (kind == "coa:vanity" || kind == "wildcard:vanity" || kind == "reborn:vanity")
+            && is_bank_vanity_item(id)
+        {
             continue;
         }
         ids.push(id);
@@ -124,18 +126,18 @@ pub fn apply_set(
     check_ruleset(db, kind)?;
     let (table, column, has_source) = layout(kind)?;
     let known = |id: u32| match kind {
-        "coa:appearance" | "wildcard:appearance" | "reborn:appearance" => knowledge.knows_appearance(id),
+        "coa:appearance" | "wildcard:appearance" | "reborn:appearance" => {
+            knowledge.knows_appearance(id)
+        }
         _ => knowledge.knows_vanity(id) && !is_bank_vanity_item(id),
     };
     let held = read_set(db, account, kind)?;
     let mut applied = Applied::default();
     let mut wanted = Vec::new();
-    for id in canonical
-        .ids()
-        .iter()
-        .copied()
-        .filter(|id| !((kind == "coa:vanity" || kind == "wildcard:vanity" || kind == "reborn:vanity") && is_bank_vanity_item(*id)))
-    {
+    for id in canonical.ids().iter().copied().filter(|id| {
+        !((kind == "coa:vanity" || kind == "wildcard:vanity" || kind == "reborn:vanity")
+            && is_bank_vanity_item(*id))
+    }) {
         if !known(id) {
             applied.unknown += 1;
         } else if held.contains(id) {

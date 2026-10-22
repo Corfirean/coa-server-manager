@@ -1,7 +1,7 @@
 //! Signed channel pointers select one immutable package for an entire transaction.
-use serde::{Deserialize, Serialize};
-use crate::{Error, Result};
 use crate::pkgsource::{fetch_small, Source};
+use crate::{Error, Result};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -21,15 +21,22 @@ pub struct Envelope {
 }
 
 pub fn verify(bytes: &[u8], channel: &str, key: &str) -> Result<Pointer> {
-    let envelope: Envelope = serde_json::from_slice(bytes).map_err(|e| Error::InvalidManifest(e.to_string()))?;
+    let envelope: Envelope =
+        serde_json::from_slice(bytes).map_err(|e| Error::InvalidManifest(e.to_string()))?;
     crate::signing::verify(envelope.payload.as_bytes(), &envelope.signature, key)?;
-    let pointer: Pointer = serde_json::from_str(&envelope.payload).map_err(|e| Error::InvalidManifest(e.to_string()))?;
-    if pointer.schema != 1 || pointer.channel != channel
+    let pointer: Pointer = serde_json::from_str(&envelope.payload)
+        .map_err(|e| Error::InvalidManifest(e.to_string()))?;
+    if pointer.schema != 1
+        || pointer.channel != channel
         || pointer.release_tag != format!("server-{}", pointer.version)
         || pointer.version.is_empty()
-        || !pointer.version.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        || !pointer
+            .version
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b == b'.')
         || pointer.snapshot.len() != 64
-        || !pointer.snapshot.bytes().all(|b| b.is_ascii_hexdigit()) {
+        || !pointer.snapshot.bytes().all(|b| b.is_ascii_hexdigit())
+    {
         return Err(Error::InvalidManifest("Invalid channel pointer".into()));
     }
     Ok(pointer)
@@ -39,21 +46,37 @@ pub fn resolve(channel: &str) -> Result<Source> {
     if channel != "stable" && channel != "edge" {
         return Err(Error::InvalidManifest("Unknown release channel".into()));
     }
-    let source = Source::Url("https://raw.githubusercontent.com/Corfirean/coa-server-build/channels".into());
+    let source =
+        Source::Url("https://raw.githubusercontent.com/Corfirean/coa-server-build/channels".into());
     let bytes = fetch_small(&source, &format!("{channel}.json"))?;
     let pointer = verify(&bytes, channel, crate::signing::EMBEDDED_PUBLIC_KEY)?;
-    Ok(Source::Url(format!("https://github.com/Corfirean/coa-server-build/releases/download/{}", pointer.release_tag)))
+    Ok(Source::Url(format!(
+        "https://github.com/Corfirean/coa-server-build/releases/download/{}",
+        pointer.release_tag
+    )))
 }
 
 pub fn sign(pointer: &Pointer, seed: &str) -> Result<Vec<u8>> {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use ed25519_dalek::{Signer, SigningKey};
-    let seed: [u8; 32] = STANDARD.decode(seed.trim()).map_err(|_| Error::Invalid("Invalid signing key".into()))?
-        .try_into().map_err(|_| Error::Invalid("Invalid signing key length".into()))?;
+    let seed: [u8; 32] = STANDARD
+        .decode(seed.trim())
+        .map_err(|_| Error::Invalid("Invalid signing key".into()))?
+        .try_into()
+        .map_err(|_| Error::Invalid("Invalid signing key length".into()))?;
     let payload = serde_json::to_string(pointer).map_err(|e| Error::Invalid(e.to_string()))?;
-    let signature = STANDARD.encode(SigningKey::from_bytes(&seed).sign(payload.as_bytes()).to_bytes());
-    let bytes = serde_json::to_vec(&Envelope { payload, signature }).map_err(|e| Error::Invalid(e.to_string()))?;
-    verify(&bytes, &pointer.channel, crate::signing::EMBEDDED_PUBLIC_KEY)?;
+    let signature = STANDARD.encode(
+        SigningKey::from_bytes(&seed)
+            .sign(payload.as_bytes())
+            .to_bytes(),
+    );
+    let bytes = serde_json::to_vec(&Envelope { payload, signature })
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    verify(
+        &bytes,
+        &pointer.channel,
+        crate::signing::EMBEDDED_PUBLIC_KEY,
+    )?;
     Ok(bytes)
 }
 
@@ -67,12 +90,21 @@ mod tests {
         let sk = SigningKey::from_bytes(&[17; 32]);
         let payload = serde_json::to_string(pointer).unwrap();
         let signature = STANDARD.encode(sk.sign(payload.as_bytes()).to_bytes());
-        (serde_json::to_vec(&Envelope { payload, signature }).unwrap(), STANDARD.encode(sk.verifying_key().to_bytes()))
+        (
+            serde_json::to_vec(&Envelope { payload, signature }).unwrap(),
+            STANDARD.encode(sk.verifying_key().to_bytes()),
+        )
     }
 
     #[test]
     fn verifies_identity_signature_and_immutable_tag() {
-        let mut p = Pointer { schema: 1, channel: "stable".into(), version: "0.261010.40".into(), release_tag: "server-0.261010.40".into(), snapshot: "a".repeat(64) };
+        let mut p = Pointer {
+            schema: 1,
+            channel: "stable".into(),
+            version: "0.261010.40".into(),
+            release_tag: "server-0.261010.40".into(),
+            snapshot: "a".repeat(64),
+        };
         let (bytes, key) = signed(&p);
         assert_eq!(verify(&bytes, "stable", &key).unwrap().version, p.version);
         assert!(verify(&bytes, "edge", &key).is_err());

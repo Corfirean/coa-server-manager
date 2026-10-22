@@ -344,7 +344,11 @@ fn a_realm_that_lacks_an_unlock_never_removes_it_and_gets_what_it_knows_back() {
     // the Owner unioned the realm's ids (700 included: the realm showed it) and kept everything else
     let appearance_ack = acks.iter().find(|a| a.kind == APPEARANCE).unwrap();
     assert_eq!(appearance_ack.outcome, CollectionOutcome::Applied);
-    let (_, canonical) = o.store().collection(profile, Ruleset::Coa, APPEARANCE).unwrap().unwrap();
+    let (_, canonical) = o
+        .store()
+        .collection(profile, Ruleset::Coa, APPEARANCE)
+        .unwrap()
+        .unwrap();
     assert_eq!(canonical.len(), 501);
     assert!(
         canonical.contains(700) && canonical.contains(1) && canonical.contains(500),
@@ -376,7 +380,9 @@ fn an_account_with_unlocks_arrives_on_a_second_realm_from_the_owners_state_alone
     owner
         .merge_collection(profile, Ruleset::Coa, VANITY, &ids(50..=60))
         .unwrap();
-    let states = OwnerService::new(&mut owner).collection_states(Ruleset::Coa).unwrap();
+    let states = OwnerService::new(&mut owner)
+        .collection_states(Ruleset::Coa)
+        .unwrap();
     assert_eq!(states.len(), 2);
 
     let mut host = Store::open_in_memory().unwrap();
@@ -415,9 +421,10 @@ fn hostile_or_broken_collection_messages_change_nothing() {
     let mut owner = Store::open_in_memory().unwrap();
     let profile = owner.default_profile().unwrap();
     let mut o = OwnerService::new(&mut owner);
-    let good =
-        collection_to_json(&CollectionObserved::new(SERVER, Ruleset::Coa, APPEARANCE, &ids(1..=10)).unwrap())
-            .unwrap();
+    let good = collection_to_json(
+        &CollectionObserved::new(SERVER, Ruleset::Coa, APPEARANCE, &ids(1..=10)).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         o.handle_collection(&good).unwrap().outcome,
         CollectionOutcome::Applied
@@ -487,13 +494,39 @@ fn hostile_or_broken_collection_messages_change_nothing() {
     // a set that decodes to more ids than the cap allows is refused before it is built
     let mut huge = vec![1u8];
     huge.extend([0xFF, 0xFF, 0xFF, 0xFF, 0x0F]);
-    let message = serde_json::json!({"protocol_version": PROTOCOL_VERSION, "server_id": SERVER, "kind": APPEARANCE, "set": {"hash": "00".repeat(32), "count": 1, "ids": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, huge)}});
+    let message = serde_json::json!({"protocol_version": COLLECTION_PROTOCOL_VERSION, "ruleset": "coa", "server_id": SERVER, "kind": APPEARANCE, "set": {"hash": "00".repeat(32), "count": 1, "ids": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, huge)}});
     assert!(matches!(
         o.handle_collection(&serde_json::to_vec(&message).unwrap())
             .unwrap()
             .outcome,
         CollectionOutcome::Rejected(_)
     ));
+
+    // attack test: prefix-confusion collection kinds are strictly rejected with zero state change
+    for evil_kind in [
+        "coax:appearance",
+        "coaevil:vanity",
+        "wildcard2:appearance",
+        "reborn-extra:vanity",
+        "coa:",
+        "unknown",
+        "coa:appearance:extra",
+    ] {
+        let mut v: serde_json::Value = serde_json::from_slice(&good).unwrap();
+        v["kind"] = evil_kind.into();
+        let ack = o
+            .handle_collection(&serde_json::to_vec(&v).unwrap())
+            .unwrap();
+        assert!(
+            matches!(ack.outcome, CollectionOutcome::Rejected(_)),
+            "evil kind {evil_kind} must be rejected"
+        );
+    }
+    assert_eq!(
+        state_of(&o),
+        before,
+        "prefix confusion attacks must mutate nothing"
+    );
 }
 
 #[test]

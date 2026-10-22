@@ -1501,7 +1501,10 @@ impl PortableService {
         let encoded = super::super::snapshot::encode(&model)?;
         let mut collections = BTreeMap::new();
         for kind in super::super::session::protocol::collection_kinds(model.ruleset) {
-            if let Ok(Some((_, set))) = self.owner.collection(self.owner_profile, model.ruleset, kind) {
+            if let Ok(Some((_, set))) =
+                self.owner
+                    .collection(self.owner_profile, model.ruleset, kind)
+            {
                 collections.insert(kind.to_string(), set.ids().to_vec());
             }
         }
@@ -1600,7 +1603,7 @@ impl PortableService {
                 "Character ruleset does not match realm database ruleset.",
             ));
         }
-        let caps_ruleset: crate::portable::model::Ruleset = caps.content.ruleset.into();
+        let caps_ruleset: crate::portable::model::Ruleset = caps.content.ruleset;
         if model.ruleset != caps_ruleset {
             return Err(fail(
                 "incompatible",
@@ -1625,7 +1628,9 @@ impl PortableService {
         for (kind, ids) in &params.collections {
             if kind.starts_with(model.ruleset.as_str()) {
                 if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
-                    let _ = self.host.merge_collection(self.host_profile, model.ruleset, kind, &set);
+                    let _ =
+                        self.host
+                            .merge_collection(self.host_profile, model.ruleset, kind, &set);
                 }
             }
         }

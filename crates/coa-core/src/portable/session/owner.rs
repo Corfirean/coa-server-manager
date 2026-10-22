@@ -51,9 +51,12 @@ impl<'a> OwnerService<'a> {
         let profile = self.store.default_profile()?;
         let ruleset = msg.ruleset;
         let rejected = |store: &Store, reason: &str| -> Result<CollectionAck> {
-            let info = store.collection_info(profile, ruleset, &msg.kind).ok().flatten();
+            let info = store
+                .collection_info(profile, ruleset, &msg.kind)
+                .ok()
+                .flatten();
             Ok(CollectionAck {
-                protocol_version: PROTOCOL_VERSION,
+                protocol_version: crate::portable::session::protocol::COLLECTION_PROTOCOL_VERSION,
                 ruleset,
                 kind: msg.kind.clone(),
                 outcome: CollectionOutcome::Rejected(reason.to_string()),
@@ -63,13 +66,18 @@ impl<'a> OwnerService<'a> {
             })
         };
         if !carried_kind_for(&msg.kind, ruleset) {
-            return rejected(self.store, "this collection kind is not carried for this ruleset");
+            return rejected(
+                self.store,
+                "this collection kind is not carried for this ruleset",
+            );
         }
         let observed = match msg.set.open(&msg.kind) {
             Ok(set) => set,
             Err(e) => return rejected(self.store, &e.to_string()),
         };
-        let merge = self.store.merge_collection(profile, ruleset, &msg.kind, &observed)?;
+        let merge = self
+            .store
+            .merge_collection(profile, ruleset, &msg.kind, &observed)?;
         let (info, canonical) = self
             .store
             .collection(profile, ruleset, &msg.kind)?
@@ -79,13 +87,16 @@ impl<'a> OwnerService<'a> {
             &info,
             observed.count_new(&canonical) == 0 && canonical.count_new(&observed) == 0,
         ) {
-            (Some(info), false) => {
-                Some(CollectionState::new(ruleset, &msg.kind, info.revision, &canonical)?)
-            }
+            (Some(info), false) => Some(CollectionState::new(
+                ruleset,
+                &msg.kind,
+                info.revision,
+                &canonical,
+            )?),
             _ => None,
         };
         Ok(CollectionAck {
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: crate::portable::session::protocol::COLLECTION_PROTOCOL_VERSION,
             ruleset,
             kind: msg.kind,
             outcome: if merge.changed {
@@ -100,7 +111,10 @@ impl<'a> OwnerService<'a> {
     }
 
     /// The canonical collections as messages (for a realm that has none of them yet, or a new one).
-    pub fn collection_states(&mut self, ruleset: crate::portable::model::Ruleset) -> Result<Vec<CollectionState>> {
+    pub fn collection_states(
+        &mut self,
+        ruleset: crate::portable::model::Ruleset,
+    ) -> Result<Vec<CollectionState>> {
         let profile = self.store.default_profile()?;
         let mut out = Vec::new();
         for kind in collection_kinds(ruleset) {

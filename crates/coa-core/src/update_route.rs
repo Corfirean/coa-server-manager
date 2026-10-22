@@ -1,4 +1,9 @@
-use crate::{manifest::Manifest, pkgsource::{self, Source}, registry::InstallMeta, update, Result};
+use crate::{
+    manifest::Manifest,
+    pkgsource::{self, Source},
+    registry::InstallMeta,
+    update, Result,
+};
 
 #[derive(Debug)]
 pub struct Selection {
@@ -8,13 +13,22 @@ pub struct Selection {
 }
 
 pub fn select(meta: &InstallMeta, source: Source, key: &str) -> Result<Selection> {
-    select_with(meta, source, &mut |source| pkgsource::fetch_manifest(source, key))
+    select_with(meta, source, &mut |source| {
+        pkgsource::fetch_manifest(source, key)
+    })
 }
 
-fn select_with(meta: &InstallMeta, source: Source, fetch: &mut impl FnMut(&Source) -> Result<(Manifest, Vec<u8>)>) -> Result<Selection> {
+fn select_with(
+    meta: &InstallMeta,
+    source: Source,
+    fetch: &mut impl FnMut(&Source) -> Result<(Manifest, Vec<u8>)>,
+) -> Result<Selection> {
     let (manifest, _) = fetch(&source)?;
     update::validate_candidate(meta, &manifest)?;
-    Ok(Selection { source, latest_version: None })
+    Ok(Selection {
+        source,
+        latest_version: None,
+    })
 }
 
 #[cfg(test)]
@@ -42,23 +56,51 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let signing = SigningKey::from_bytes(&[37; 32]);
         let bytes = serde_json::to_vec(value).unwrap();
-        fs::write(folder.path().join("manifest.json.sig"), STANDARD.encode(signing.sign(&bytes).to_bytes())).unwrap();
-        fs::write(folder.path().join("manifest.json"), if tamper { b"tampered".as_slice() } else { &bytes }).unwrap();
+        fs::write(
+            folder.path().join("manifest.json.sig"),
+            STANDARD.encode(signing.sign(&bytes).to_bytes()),
+        )
+        .unwrap();
+        fs::write(
+            folder.path().join("manifest.json"),
+            if tamper {
+                b"tampered".as_slice()
+            } else {
+                &bytes
+            },
+        )
+        .unwrap();
         (folder, STANDARD.encode(signing.verifying_key().to_bytes()))
     }
 
     #[test]
     fn every_known_older_version_selects_the_latest_signed_package_once() {
-        for installed in ["0.2.0", "0.261004.20", "0.261005.0", "0.261007.24", "0.261011.800006", "0.261013.54", "0.261015.58"] {
+        for installed in [
+            "0.2.0",
+            "0.261004.20",
+            "0.261005.0",
+            "0.261007.24",
+            "0.261011.800006",
+            "0.261013.54",
+            "0.261015.58",
+        ] {
             let (folder, key) = fixture(&package(), false);
-            for kind in [crate::registry::InstallKind::New, crate::registry::InstallKind::Imported] {
+            for kind in [
+                crate::registry::InstallKind::New,
+                crate::registry::InstallKind::Imported,
+            ] {
                 let mut installation = meta(installed);
                 installation.kind = kind;
                 let mut calls = 0;
-                let selected = select_with(&installation, Source::Dir(folder.path().into()), &mut |source| {
-                    calls += 1;
-                    pkgsource::fetch_manifest(source, &key)
-                }).unwrap();
+                let selected = select_with(
+                    &installation,
+                    Source::Dir(folder.path().into()),
+                    &mut |source| {
+                        calls += 1;
+                        pkgsource::fetch_manifest(source, &key)
+                    },
+                )
+                .unwrap();
                 assert!(matches!(selected.source, Source::Dir(path) if path == folder.path()));
                 assert!(selected.latest_version.is_none());
                 assert_eq!(calls, 1, "no intermediate package fetches for {installed}");
@@ -77,17 +119,33 @@ mod tests {
     #[test]
     fn signed_target_is_required_even_for_unlisted_old_versions() {
         let (folder, key) = fixture(&package(), true);
-        assert!(select(&meta("0.261004.20"), Source::Dir(folder.path().into()), &key).is_err());
+        assert!(select(
+            &meta("0.261004.20"),
+            Source::Dir(folder.path().into()),
+            &key
+        )
+        .is_err());
     }
 
     #[test]
     fn platform_and_manager_requirements_are_still_enforced() {
-        for (field, value) in [("minManagerVersion", "99.0.0"), ("platform", "other-platform")] {
+        for (field, value) in [
+            ("minManagerVersion", "99.0.0"),
+            ("platform", "other-platform"),
+        ] {
             let mut target = package();
-            if field == "platform" { target["compatibility"][field] = value.into(); }
-            else { target[field] = value.into(); }
+            if field == "platform" {
+                target["compatibility"][field] = value.into();
+            } else {
+                target[field] = value.into();
+            }
             let (folder, key) = fixture(&target, false);
-            assert!(select(&meta("0.261004.20"), Source::Dir(folder.path().into()), &key).is_err());
+            assert!(select(
+                &meta("0.261004.20"),
+                Source::Dir(folder.path().into()),
+                &key
+            )
+            .is_err());
         }
     }
 }

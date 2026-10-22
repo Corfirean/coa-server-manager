@@ -170,7 +170,9 @@ fn account_collections_are_read_cheaply_unioned_and_written_without_duplicates_o
     store
         .merge_collection(profile, Ruleset::Coa, APPEARANCE, &wardrobe)
         .unwrap();
-    store.merge_collection(profile, Ruleset::Coa, VANITY, &vanity).unwrap();
+    store
+        .merge_collection(profile, Ruleset::Coa, VANITY, &vanity)
+        .unwrap();
     let fingerprint_a = fingerprint(&r.a, 5001, APPEARANCE).unwrap();
     assert_eq!(
         fingerprint(&r.a, 5001, APPEARANCE).unwrap(),
@@ -331,10 +333,20 @@ fn the_result_comes_back_to_realm_a_unchanged_gameplay_and_complete_collections(
     reconcile_session(&r.b, &mut store, id, B, true, None).unwrap();
     for kind in [APPEARANCE, VANITY] {
         store
-            .merge_collection(profile, Ruleset::Coa, kind, &read_set(&r.b, ACCOUNT, kind).unwrap())
+            .merge_collection(
+                profile,
+                Ruleset::Coa,
+                kind,
+                &read_set(&r.b, ACCOUNT, kind).unwrap(),
+            )
             .unwrap();
         store
-            .merge_collection(profile, Ruleset::Coa, kind, &read_set(&r.a, 5001, kind).unwrap())
+            .merge_collection(
+                profile,
+                Ruleset::Coa,
+                kind,
+                &read_set(&r.a, 5001, kind).unwrap(),
+            )
             .unwrap();
     }
 
@@ -343,7 +355,10 @@ fn the_result_comes_back_to_realm_a_unchanged_gameplay_and_complete_collections(
     let updated =
         update_realm_character(&r.a, &mut store, id, "realm-a", &options(a_known.clone())).unwrap();
     assert!(updated.updated, "{updated:?}");
-    let (_, canonical_wardrobe) = store.collection(profile, Ruleset::Coa, APPEARANCE).unwrap().unwrap();
+    let (_, canonical_wardrobe) = store
+        .collection(profile, Ruleset::Coa, APPEARANCE)
+        .unwrap()
+        .unwrap();
     let applied = apply_set(&r.a, 5001, APPEARANCE, &canonical_wardrobe, &a_known).unwrap();
     assert_eq!(applied.inserted, 1, "only 1300 is new to A");
     assert_eq!(

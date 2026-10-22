@@ -9,7 +9,7 @@ CREATE TABLE profile (
 CREATE TABLE character (
     character_id TEXT PRIMARY KEY,
     profile_id   TEXT NOT NULL REFERENCES profile(profile_id),
-    ruleset      TEXT NOT NULL CHECK (ruleset IN ('coa', 'wildcard', 'reborn')),
+    ruleset      TEXT NOT NULL CHECK (ruleset IN ('coa', 'wildcard')),
     name         TEXT NOT NULL,
     race         TEXT NOT NULL,
     class        TEXT NOT NULL,
