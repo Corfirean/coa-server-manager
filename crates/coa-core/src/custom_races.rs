@@ -14,25 +14,12 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "1.8";
+pub const CLIENT_VERSION: &str = "1.8.3";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
 pub const ARCHIVES: &[(&str, &str)] = &[
-    (
-        "CoA-Custom-1.6-main-20261012-4dd3a4ec.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-main-20261012-4dd3a4ec.zip",
-    ),
-    (
-        "CoA-Custom-1.6-client-part1.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-client-part1.zip",
-    ),
-    (
-        "CoA-Custom-1.6-client-part2.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.6/CoA-Custom-1.6-client-part2.zip",
-    ),
-    (
-        "CoA-Custom-1.8-Client.zip",
-        "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8/CoA-Custom-1.8-Client.zip",
-    ),
+    ("CoA-Custom-1.8.3-Client-1.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8.3/CoA-Custom-1.8.3-Client-1.zip"),
+    ("CoA-Custom-1.8.3-Client-2.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8.3/CoA-Custom-1.8.3-Client-2.zip"),
+    ("CoA-Custom-1.8.3-Client-3.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8.3/CoA-Custom-1.8.3-Client-3.zip"),
 ];
 
 pub const RACE_MPQS: &[&str] = &[
@@ -62,11 +49,19 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZZV.MPQ",
     "patch-ZZW.MPQ",
     "patch-ZZZ.MPQ",
+    "patch-ZK.MPQ",
+    "patch-ZZX.MPQ",
+    "patch-ZZZC.MPQ",
+    "patch-ZZZD.MPQ",
 ];
 
 pub const RACE_ADDONS: &[&str] = &[
     "CoAWC2Cursor/CoAWC2Cursor.lua",
     "CoAWC2Cursor/CoAWC2Cursor.toc",
+    "CoAHideArmor/CoAHideArmor.lua",
+    "CoAHideArmor/CoAHideArmor.toc",
+    "CoA_TalentReset/CoA_TalentReset.lua",
+    "CoA_TalentReset/CoA_TalentReset.toc",
 ];
 
 pub const EXCLUDED_BOT_RACES_RECOMMENDED: &str =
@@ -189,6 +184,8 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
         include_str!("custom_races_hashes_1_6.json")
     } else if manifest.lines().any(|line| line == "# CoA Custom 1.7") {
         include_str!("custom_races_hashes_1_7.json")
+    } else if manifest.lines().any(|line| line == "# CoA Custom 1.8") {
+        include_str!("custom_races_hashes_1_8.json")
     } else {
         include_str!("custom_races_hashes.json")
     };
@@ -608,17 +605,14 @@ pub fn uninstall_client_patches(client: &Path) -> Result<()> {
 
 fn verify_archive(path: &Path, filename: &str) -> Result<()> {
     let expected = match filename {
-        "CoA-Custom-1.6-main-20261012-4dd3a4ec.zip" => {
-            "dfe802ea70047c129ac2e0aaa557bab3110e3cc6926d36403b8c880a0e310ee4"
+        "CoA-Custom-1.8.3-Client-1.zip" => {
+            "a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568"
         }
-        "CoA-Custom-1.6-client-part1.zip" => {
-            "1dbf1901ad5be61eba66973609df90712ffc78ef9e9b2c8549a5f3e36332bf12"
+        "CoA-Custom-1.8.3-Client-2.zip" => {
+            "ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e"
         }
-        "CoA-Custom-1.6-client-part2.zip" => {
-            "689f7f946b4180fe977dabedc7cfe642e3e7f27431600c64c4dd5b7960b1bc66"
-        }
-        "CoA-Custom-1.8-Client.zip" => {
-            "b0ee9275a373e4024dda7744321d02b686fb1c703603ad635b32bfb6ed9b48aa"
+        "CoA-Custom-1.8.3-Client-3.zip" => {
+            "270c7b306624bf9e5c3fe577e3bd058601221df223dd9e449ff7c25de70b9461"
         }
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
@@ -1043,6 +1037,55 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires the downloaded release archives in the normal download cache"]
+    fn release_archives_install_toggle_and_uninstall_in_a_disposable_client() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("Data")).unwrap();
+        fs::write(root.join("Ascension.exe"), b"original game executable").unwrap();
+        fs::write(root.join("Data/patch-T.MPQ"), b"original game patch").unwrap();
+        fs::write(root.join("Data/patch-user.MPQ"), b"unrelated user patch").unwrap();
+        install_client_patches(root, &Cancel::default(), &|_, _| {}).unwrap();
+        let status = client_patch_status(root);
+        assert_eq!(status.version.as_deref(), Some(CLIENT_VERSION));
+        assert_eq!(status.state, ClientPatchState::Enabled);
+        assert!(root.join("Data/patch-ZZZD.MPQ").is_file());
+        assert!(root
+            .join("Interface/AddOns/CoAHideArmor/CoAHideArmor.lua")
+            .is_file());
+        set_client_patch_enabled(root, false).unwrap();
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Disabled);
+        assert_eq!(
+            fs::read(root.join("Ascension.exe")).unwrap(),
+            b"original game executable"
+        );
+        assert_eq!(
+            fs::read(root.join("Data/patch-T.MPQ")).unwrap(),
+            b"original game patch"
+        );
+        set_client_patch_enabled(root, true).unwrap();
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Enabled);
+        uninstall_client_patches(root).unwrap();
+        assert_eq!(
+            client_patch_status(root).state,
+            ClientPatchState::NotInstalled
+        );
+        assert_eq!(
+            fs::read(root.join("Ascension.exe")).unwrap(),
+            b"original game executable"
+        );
+        assert_eq!(
+            fs::read(root.join("Data/patch-T.MPQ")).unwrap(),
+            b"original game patch"
+        );
+        assert_eq!(
+            fs::read(root.join("Data/patch-user.MPQ")).unwrap(),
+            b"unrelated user patch"
+        );
+        assert!(!root.join("Data/patch-ZZZD.MPQ").exists());
+    }
+
+    #[test]
     fn legacy_installation_uses_its_own_hashes_when_preserving_originals() {
         let temp = tempfile::tempdir().unwrap();
         fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.5\n").unwrap();
@@ -1085,6 +1128,27 @@ mod tests {
         assert_ne!(legacy["Data/patch-T.MPQ"], current["Data/patch-T.MPQ"]);
         assert!(!files.iter().any(|file| file.path == "Data/patch-ZZW.MPQ"));
         assert!(legacy.keys().all(|key| current.contains_key(key)));
+    }
+
+    #[test]
+    fn previous_appearance_release_keeps_its_hashes_and_requests_an_update() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.8\n").unwrap();
+        let legacy: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(include_str!("custom_races_hashes_1_8.json")).unwrap();
+        let current: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(include_str!("custom_races_hashes.json")).unwrap();
+        let files = patch_files(temp.path()).unwrap();
+        assert_eq!(files.len(), legacy.len());
+        for file in files {
+            assert_eq!(file.sha256, legacy[&file.path]);
+        }
+        assert!(legacy.keys().all(|path| current.contains_key(path)));
+        assert!(!legacy.contains_key("Data/patch-ZZZD.MPQ"));
+        assert!(current.contains_key("Data/patch-ZZZD.MPQ"));
+        let status = client_patch_status(temp.path());
+        assert_eq!(status.version.as_deref(), Some("1.8"));
+        assert_eq!(status.state, ClientPatchState::PartiallyInstalled);
     }
 
     #[test]
