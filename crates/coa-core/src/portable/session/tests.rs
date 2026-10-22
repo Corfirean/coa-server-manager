@@ -1561,6 +1561,20 @@ fn reborn_hostile_attacks_are_rejected_with_zero_mutation() {
         coll_err2.is_err(),
         "Reborn merging wildcard:vanity must fail"
     );
+
+    // 9. HostService with malformed server_id ruleset suffixes fails closed
+    for bad_server_id in ["srv-1:unknown", "srv-1:garbage", "srv-1:reborn:extra"] {
+        let mut h_bad = HostService::new(&mut host, bad_server_id, HostConfig::default());
+        let mut offer_bad = OwnerService::new(&mut owner)
+            .offer(id_reb, "srv-1:reborn")
+            .unwrap();
+        offer_bad.server_id = bad_server_id.to_string();
+        let res_bad = h_bad.accept_offer(host_profile, &offer_bad);
+        assert!(
+            res_bad.is_err(),
+            "accept_offer on malformed server id {bad_server_id} must fail closed"
+        );
+    }
 }
 
 #[test]

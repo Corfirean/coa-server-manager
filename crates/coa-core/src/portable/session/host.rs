@@ -183,13 +183,17 @@ impl<'a> HostService<'a> {
             });
         }
         if let Some((_, rs)) = self.server_id.split_once(':') {
-            if let Ok(host_ruleset) = rs.parse::<crate::portable::Ruleset>() {
-                if offer.ruleset != host_ruleset || model.ruleset != host_ruleset {
-                    return Err(PortableError::RulesetMismatch {
-                        character: model.ruleset,
-                        realm: host_ruleset,
-                    });
-                }
+            let host_ruleset = rs.parse::<crate::portable::Ruleset>().map_err(|_| {
+                PortableError::Invalid(format!(
+                    "malformed or unknown ruleset suffix in server_id: {:?}",
+                    self.server_id
+                ))
+            })?;
+            if offer.ruleset != host_ruleset || model.ruleset != host_ruleset {
+                return Err(PortableError::RulesetMismatch {
+                    character: model.ruleset,
+                    realm: host_ruleset,
+                });
             }
         }
         self.store

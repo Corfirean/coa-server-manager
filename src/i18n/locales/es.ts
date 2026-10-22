@@ -888,6 +888,12 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "crash.hideRaw": "Ocultar informe completo",
   "crash.copyReport": "Copiar informe",
   "crash.copied": "¡Copiado!",
+  "portable.filter.none": "Ningún personaje coincide con el modo de juego seleccionado.",
+  "portable.filter.all": "Todos",
+  "browse.hidden_characters_one": "{n} personaje de otros modos de juego está oculto",
+  "browse.hidden_characters_few": "{n} personajes de otros modos de juego están ocultos",
+  "browse.hidden_characters_many": "{n} personajes de otros modos de juego están ocultos",
+  "browse.hidden_characters_other": "{n} personajes de otros modos de juego están ocultos",
 };
 
 export default es;

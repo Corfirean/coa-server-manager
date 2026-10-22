@@ -318,7 +318,7 @@ export function PortablePage({ onOpenSettings }: { onOpenSettings?: () => void }
             rulesetFilter === "" ? "bg-white/10 text-ink shadow-sm" : "text-muted hover:text-ink"
           )}
         >
-          {t("browse.any")}
+          {t("portable.filter.all")}
         </button>
         <button
           type="button"
@@ -355,7 +355,7 @@ export function PortablePage({ onOpenSettings }: { onOpenSettings?: () => void }
     {characters.length === 0 && <Card className="mt-3 p-5 text-sm text-muted">{t("portable.characters.none")}</Card>}
     {characters.length > 0 && filteredCharacters.length === 0 && (
       <Card className="mt-3 p-5 text-sm text-muted">
-        No characters match the selected ruleset filter.
+        {t("portable.filter.none")}
       </Card>
     )}
     <div className="mt-3 space-y-4">

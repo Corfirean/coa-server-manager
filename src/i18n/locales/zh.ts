@@ -890,6 +890,12 @@ const zh = {
   "crash.hideRaw": "隐藏完整日志",
   "crash.copyReport": "复制崩溃报告",
   "crash.copied": "已复制！",
+  "portable.filter.none": "没有符合所选游戏模式的角色。",
+  "portable.filter.all": "全部",
+  "browse.hidden_characters_one": "已隐藏 {n} 个其他游戏模式的角色",
+  "browse.hidden_characters_few": "已隐藏 {n} 个其他游戏模式的角色",
+  "browse.hidden_characters_many": "已隐藏 {n} 个其他游戏模式的角色",
+  "browse.hidden_characters_other": "已隐藏 {n} 个其他游戏模式的角色",
 } as const;
 
 export default zh;

@@ -68,7 +68,7 @@ function SortHeader({ id, sort, order, onSort, children, className }: { id: Sort
 }
 
 function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog: Catalog; onClose: () => void }) {
-  const { t, locale } = useI18n();
+  const { t, tn, locale } = useI18n();
   const { state, refresh: refreshPortable } = usePortable();
   const [detail, setDetail] = useState<RealmDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -159,7 +159,7 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
             <p className="text-muted">{t("browse.noCharacter")}</p>
             {hiddenCount > 0 && (
               <p className="text-xs text-muted">
-                {hiddenCount} {hiddenCount === 1 ? "character" : "characters"} from other game modes {hiddenCount === 1 ? "is" : "are"} hidden
+                {tn("browse.hidden_characters", hiddenCount)}
               </p>
             )}
           </div>
@@ -171,7 +171,7 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
             </select>
             {hiddenCount > 0 && (
               <p className="text-xs text-muted">
-                {hiddenCount} {hiddenCount === 1 ? "character" : "characters"} from other game modes {hiddenCount === 1 ? "is" : "are"} hidden
+                {tn("browse.hidden_characters", hiddenCount)}
               </p>
             )}
           </div>
