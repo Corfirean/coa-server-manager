@@ -708,6 +708,13 @@ impl Store {
                 "invalid collection kind {kind:?}"
             )));
         }
+        if let Some((ns, _)) = kind.split_once(':') {
+            if matches!(ns, "coa" | "wildcard" | "reborn") && ns != ruleset.as_str() {
+                return Err(PortableError::Invalid(format!(
+                    "collection kind namespace {ns:?} does not match ruleset {ruleset:?}"
+                )));
+            }
+        }
         let tx = self.write_tx()?;
         let profile_exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM profile WHERE profile_id = ?1)",

@@ -53,6 +53,7 @@ pub struct CopyView {
 pub struct CharacterView {
     pub id: String,
     pub name: String,
+    pub ruleset: super::super::model::Ruleset,
     pub class_name: String,
     pub race: String,
     pub level: u8,

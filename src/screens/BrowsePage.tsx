@@ -7,6 +7,7 @@ import { asUiError } from "@/lib/api";
 import { useRegistryStatus } from "@/lib/registry";
 import { asPortableError, portable, usePortable, type PreflightView } from "@/lib/portable";
 import { Notes, Projection } from "@/screens/PortablePage";
+import { RulesetBadge, formatRulesetLabel } from "@/components/RulesetBadge";
 import { JoinPanel } from "@/screens/JoinPanel";
 import { asControlError, control } from "@/lib/control";
 import { browse, rate, type BrowseParams, type ModuleEntry, type ModuleInfo, type RealmDetail, type RealmSummary, type SortKey } from "@/lib/browse";
@@ -50,9 +51,7 @@ function Online({ p }: { p: RealmSummary["population"] }) {
 }
 
 function Mode({ ruleset }: { ruleset: string }) {
-  if (ruleset === "wildcard") return <span>Wildcard</span>;
-  if (ruleset === "reborn") return <span>Warcraft Reborn</span>;
-  return <span>CoA</span>;
+  return <RulesetBadge ruleset={ruleset} size="sm" />;
 }
 
 function compactRates(r: RealmSummary["rates"], t: (k: Key, v?: Record<string, string | number>) => string): string {
@@ -77,6 +76,11 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
   const [pre, setPre] = useState<PreflightView | null>(null);
   const [preError, setPreError] = useState<string | null>(null);
   const characters = state?.characters ?? [];
+  const matchingCharacters = useMemo(
+    () => characters.filter((c) => c.ruleset === summary.ruleset),
+    [characters, summary.ruleset]
+  );
+  const hiddenCount = characters.length - matchingCharacters.length;
 
   useEffect(() => {
     let alive = true;
@@ -84,7 +88,13 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
     void browse.detail(summary.realm_id).then((d) => { if (alive) setDetail(d); }).catch((e) => { if (alive) setError(asUiError(e).technical); });
     return () => { alive = false; };
   }, [summary.realm_id]);
-  useEffect(() => { if (!character && characters.length > 0) setCharacter(characters[0].id); }, [characters.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if ((!character || !matchingCharacters.some((c) => c.id === character)) && matchingCharacters.length > 0) {
+      setCharacter(matchingCharacters[0].id);
+    } else if (matchingCharacters.length === 0) {
+      setCharacter("");
+    }
+  }, [matchingCharacters, character]);
   useEffect(() => {
     if (!character || !detail) { setPre(null); return; }
     let alive = true;
@@ -144,11 +154,27 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
         <h3 className="mb-1 font-medium">{t("browse.compat")}</h3>
         {error && <p className="text-bad" role="alert">{error}</p>}
         {!error && !d && <p className="flex items-center gap-2 text-muted"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />{t("portable.make.loading")}</p>}
-        {characters.length === 0 && <p className="text-muted">{t("browse.noCharacter")}</p>}
-        {characters.length > 0 && <>
-          <select aria-label={t("browse.character")} value={character} onChange={(e) => setCharacter(e.target.value)} className="w-full rounded-md border border-line bg-card px-3 py-2">
-            {characters.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.class_name}, {t("portable.level", { level: c.level })}</option>)}
-          </select>
+        {matchingCharacters.length === 0 && (
+          <div className="space-y-1">
+            <p className="text-muted">{t("browse.noCharacter")}</p>
+            {hiddenCount > 0 && (
+              <p className="text-xs text-muted">
+                {hiddenCount} {hiddenCount === 1 ? "character" : "characters"} from other game modes {hiddenCount === 1 ? "is" : "are"} hidden
+              </p>
+            )}
+          </div>
+        )}
+        {matchingCharacters.length > 0 && <>
+          <div className="space-y-1">
+            <select aria-label={t("browse.character")} value={character} onChange={(e) => setCharacter(e.target.value)} className="w-full rounded-md border border-line bg-card px-3 py-2">
+              {matchingCharacters.map((c) => <option key={c.id} value={c.id}>[{formatRulesetLabel(c.ruleset)}] {c.name} — {c.class_name}, {t("portable.level", { level: c.level })}</option>)}
+            </select>
+            {hiddenCount > 0 && (
+              <p className="text-xs text-muted">
+                {hiddenCount} {hiddenCount === 1 ? "character" : "characters"} from other game modes {hiddenCount === 1 ? "is" : "are"} hidden
+              </p>
+            )}
+          </div>
           {preError && <p className="mt-2 text-warn">{preError}</p>}
           {pre && chosen && <div className={cn("mt-2 rounded-md border p-3", blocked ? "border-bad/50 bg-bad/10" : pre.verdict === "degraded" ? "border-warn/50 bg-warn/10" : "border-ok/40 bg-ok/10")} data-verdict={pre.verdict}>
             <p className="font-medium">{blocked ? t("browse.cannotPlay") : t("browse.canPlay")}</p>

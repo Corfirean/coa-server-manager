@@ -1092,6 +1092,45 @@ fn setup_wildcard_in(mut owner: Store, mut host: Store, server_id: &str) -> Setu
     }
 }
 
+fn setup_reborn_in(mut owner: Store, mut host: Store, server_id: &str) -> Setup {
+    let profile = owner.default_profile().unwrap();
+    let mut model = geared_level_eighty();
+    model.ruleset = Ruleset::Reborn;
+    model.content_namespace = "reborn".into();
+    let id = owner
+        .create_character(profile, model, "reborn-origin")
+        .unwrap();
+    let c0 = owner.load_current(id).unwrap();
+    let offer = OwnerService::new(&mut owner).offer(id, server_id).unwrap();
+    let host_profile = host.default_profile().unwrap();
+    let mut realm = FakeRealm::new(GUID);
+    realm.normalize = normalizes;
+    {
+        let mut h = HostService::new(&mut host, server_id, HostConfig::default());
+        h.accept_offer(host_profile, &offer).unwrap();
+        realm
+            .import(
+                &mut host,
+                id,
+                server_id,
+                offer.canonical_revision,
+                offer.session_id,
+            )
+            .unwrap();
+        HostService::new(&mut host, server_id, HostConfig::default())
+            .bind(offer.session_id, GUID)
+            .unwrap();
+    }
+    Setup {
+        owner,
+        host,
+        realm,
+        id,
+        session: offer.session_id,
+        c0,
+    }
+}
+
 #[test]
 fn wildcard_session_offer_carrying_coa_snapshot_is_rejected_with_zero_mutation() {
     let mut owner = Store::open_in_memory().unwrap();
@@ -1356,4 +1395,254 @@ fn full_wildcard_session_lifecycle() {
     let final_model = o.store().load_current(id).unwrap();
     assert_eq!(final_model.ruleset, Ruleset::Wildcard);
     assert_eq!(final_model.progression.money, c0.progression.money + 75_000);
+}
+
+#[test]
+fn reborn_hostile_attacks_are_rejected_with_zero_mutation() {
+    let mut owner = Store::open_in_memory().unwrap();
+    let mut host = Store::open_in_memory().unwrap();
+    let profile = owner.default_profile().unwrap();
+    let host_profile = host.default_profile().unwrap();
+
+    let coa_model = geared_level_eighty();
+    let id_coa = owner
+        .create_character(profile, coa_model, "realm-coa")
+        .unwrap();
+
+    let mut wc_model = geared_level_eighty();
+    wc_model.ruleset = Ruleset::Wildcard;
+    let id_wc = owner
+        .create_character(profile, wc_model, "realm-wc")
+        .unwrap();
+
+    let mut reb_model = geared_level_eighty();
+    reb_model.ruleset = Ruleset::Reborn;
+    let id_reb = owner
+        .create_character(profile, reb_model, "realm-reb")
+        .unwrap();
+
+    // 1. Reborn offer carrying CoA snapshot
+    let mut offer_reb_with_coa = OwnerService::new(&mut owner)
+        .offer(id_coa, "srv-1:reborn")
+        .unwrap();
+    offer_reb_with_coa.ruleset = Ruleset::Reborn;
+    {
+        let mut h_reborn = HostService::new(&mut host, "srv-1:reborn", HostConfig::default());
+        let res1 = h_reborn.accept_offer(host_profile, &offer_reb_with_coa);
+        assert!(matches!(
+            res1,
+            Err(PortableError::RulesetMismatch {
+                character: Ruleset::Coa,
+                realm: Ruleset::Reborn
+            })
+        ));
+    }
+    assert!(host.character(id_coa).is_err());
+
+    // 2. Reborn offer carrying Wildcard snapshot
+    let mut offer_reb_with_wc = OwnerService::new(&mut owner)
+        .offer(id_wc, "srv-1:reborn")
+        .unwrap();
+    offer_reb_with_wc.ruleset = Ruleset::Reborn;
+    {
+        let mut h_reborn = HostService::new(&mut host, "srv-1:reborn", HostConfig::default());
+        let res2 = h_reborn.accept_offer(host_profile, &offer_reb_with_wc);
+        assert!(matches!(
+            res2,
+            Err(PortableError::RulesetMismatch {
+                character: Ruleset::Wildcard,
+                realm: Ruleset::Reborn
+            })
+        ));
+    }
+    assert!(host.character(id_wc).is_err());
+
+    // 3. CoA offer -> Reborn realm
+    let mut offer_coa = OwnerService::new(&mut owner)
+        .offer(id_coa, "srv-1:reborn")
+        .unwrap();
+    offer_coa.ruleset = Ruleset::Coa;
+    {
+        let mut h_reborn = HostService::new(&mut host, "srv-1:reborn", HostConfig::default());
+        let res3 = h_reborn.accept_offer(host_profile, &offer_coa);
+        assert!(matches!(
+            res3,
+            Err(PortableError::RulesetMismatch {
+                character: Ruleset::Coa,
+                realm: Ruleset::Reborn
+            })
+        ));
+    }
+
+    // 4. Wildcard offer -> Reborn realm
+    let mut offer_wc = OwnerService::new(&mut owner)
+        .offer(id_wc, "srv-1:reborn")
+        .unwrap();
+    offer_wc.ruleset = Ruleset::Wildcard;
+    {
+        let mut h_reborn = HostService::new(&mut host, "srv-1:reborn", HostConfig::default());
+        let res4 = h_reborn.accept_offer(host_profile, &offer_wc);
+        assert!(matches!(
+            res4,
+            Err(PortableError::RulesetMismatch {
+                character: Ruleset::Wildcard,
+                realm: Ruleset::Reborn
+            })
+        ));
+    }
+
+    // 5. Reborn offer -> CoA realm
+    let mut offer_reb = OwnerService::new(&mut owner)
+        .offer(id_reb, "srv-1:coa")
+        .unwrap();
+    offer_reb.ruleset = Ruleset::Reborn;
+    {
+        let mut h_coa = HostService::new(&mut host, "srv-1:coa", HostConfig::default());
+        let res5 = h_coa.accept_offer(host_profile, &offer_reb);
+        assert!(matches!(
+            res5,
+            Err(PortableError::RulesetMismatch {
+                character: Ruleset::Reborn,
+                realm: Ruleset::Coa
+            })
+        ));
+    }
+
+    // 6. Reborn offer -> Wildcard realm
+    let mut offer_reb_to_wc = OwnerService::new(&mut owner)
+        .offer(id_reb, "srv-1:wildcard")
+        .unwrap();
+    offer_reb_to_wc.ruleset = Ruleset::Reborn;
+    {
+        let mut h_wc = HostService::new(&mut host, "srv-1:wildcard", HostConfig::default());
+        let res6 = h_wc.accept_offer(host_profile, &offer_reb_to_wc);
+        assert!(matches!(
+            res6,
+            Err(PortableError::RulesetMismatch {
+                character: Ruleset::Reborn,
+                realm: Ruleset::Wildcard
+            })
+        ));
+    }
+
+    // 7. Reborn session using foreign server ID srv-1:coa or srv-1:wildcard
+    {
+        let mut h_reborn = HostService::new(&mut host, "srv-1:reborn", HostConfig::default());
+        let offer_for_coa = OwnerService::new(&mut owner)
+            .offer(id_reb, "srv-1:coa")
+            .unwrap();
+        let res7 = h_reborn.accept_offer(host_profile, &offer_for_coa);
+        assert!(res7.is_err());
+        let offer_for_wc = OwnerService::new(&mut owner)
+            .offer(id_reb, "srv-1:wildcard")
+            .unwrap();
+        let res8 = h_reborn.accept_offer(host_profile, &offer_for_wc);
+        assert!(res8.is_err());
+    }
+
+    // 8. Reborn collection containing foreign collections coa:appearance or wildcard:vanity
+    let coll_err1 = host.merge_collection(
+        host_profile,
+        Ruleset::Reborn,
+        "coa:appearance",
+        &crate::portable::IdSet::from_ids([1]).unwrap(),
+    );
+    assert!(
+        coll_err1.is_err(),
+        "Reborn merging coa:appearance must fail"
+    );
+    let coll_err2 = host.merge_collection(
+        host_profile,
+        Ruleset::Reborn,
+        "wildcard:vanity",
+        &crate::portable::IdSet::from_ids([1]).unwrap(),
+    );
+    assert!(
+        coll_err2.is_err(),
+        "Reborn merging wildcard:vanity must fail"
+    );
+}
+
+#[test]
+fn full_reborn_session_lifecycle() {
+    let Setup {
+        mut owner,
+        mut host,
+        mut realm,
+        id,
+        session,
+        c0,
+    } = setup_reborn_in(
+        Store::open_in_memory().unwrap(),
+        Store::open_in_memory().unwrap(),
+        "srv-1:reborn",
+    );
+    let mut h = HostService::new(&mut host, "srv-1:reborn", HostConfig::default());
+    let mut o = OwnerService::new(&mut owner);
+
+    // 1. Start session
+    start(&mut h, &mut o, &mut realm);
+    assert_eq!(o.session(session).unwrap().unwrap().0, "open");
+
+    // 2. Play on Reborn realm: earn gold and level up
+    realm.play(|m| {
+        m.progression.money += 100_000;
+        m.progression.xp += 5_000;
+    });
+
+    // 3. Online checkpoint
+    checkpoint(&mut h, &mut o, &mut realm, 100);
+    let rev2 = o.store().character(id).unwrap().revision;
+    assert_eq!(rev2, 2);
+    let curr2 = o.store().load_current(id).unwrap();
+    assert_eq!(curr2.ruleset, Ruleset::Reborn);
+    assert_eq!(curr2.progression.money, c0.progression.money + 100_000);
+
+    // 4. Test Reborn checkpoint marked CoA / Wildcard rejected by owner
+    let outbox = h.outbox().unwrap();
+    if let Some(msg) = outbox.first() {
+        let mut cp: PortableCheckpoint = from_json(&msg.bytes).unwrap();
+        cp.ruleset = Ruleset::Coa;
+        let tampered_bytes = to_json(&cp).unwrap();
+        let initial_rev = o.store().character(id).unwrap().revision;
+        let ack = o.handle_checkpoint(&tampered_bytes).unwrap();
+        assert!(matches!(ack.outcome, AckOutcome::Rejected(_)));
+        assert_eq!(o.store().character(id).unwrap().revision, initial_rev);
+    }
+
+    // 5. Test OwnerAck marked CoA rejected by Reborn host
+    if let Some(msg) = outbox.first() {
+        if let Ok(mut ack) = o.handle_checkpoint(&msg.bytes) {
+            ack.ruleset = Ruleset::Coa;
+            let res_ack = h.receive_ack(&mut realm, &ack);
+            assert!(matches!(
+                res_ack,
+                Err(PortableError::RulesetMismatch {
+                    character: Ruleset::Reborn,
+                    realm: Ruleset::Coa
+                })
+            ));
+        }
+    }
+
+    // 6. More gameplay then logout
+    realm.play(|m| {
+        m.progression.money += 50_000;
+    });
+    realm.logout();
+    h.tick(&mut realm, 200).unwrap();
+    h.tick(&mut realm, 201).unwrap();
+    let acks = deliver(&mut h, &mut o, &mut realm);
+    assert!(acks.iter().any(|a| a.outcome == AckOutcome::Applied));
+
+    // 7. Verify final canonical state
+    let rec = o.store().character(id).unwrap();
+    assert_eq!(rec.revision, 3);
+    assert_eq!(rec.ruleset, Ruleset::Reborn);
+    let final_model = o.store().load_current(id).unwrap();
+    assert_eq!(final_model.ruleset, Ruleset::Reborn);
+    assert_eq!(
+        final_model.progression.money,
+        c0.progression.money + 150_000
+    );
 }

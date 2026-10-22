@@ -4,6 +4,8 @@ import { AlertTriangle, CheckCircle2, History, Loader2, Plus, ShieldAlert, Sword
 import { useT, type Key } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { RulesetBadge } from "@/components/RulesetBadge";
+import type { Ruleset } from "@/lib/browse";
 import { cn } from "@/lib/utils";
 import {
   asPortableError, portable, usePortable,
@@ -110,7 +112,10 @@ function PlayDialog({ character, realms, initial, onClose, onChanged }: { charac
   return <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6" role="dialog" aria-modal="true" aria-labelledby="play-title">
     <Card className="max-h-full w-full max-w-xl overflow-y-auto p-6">
       <div className="flex items-start justify-between">
-        <h2 id="play-title" className="text-lg font-semibold">{t("portable.play.title", { name: character.name })}</h2>
+        <div className="flex items-center gap-3">
+          <h2 id="play-title" className="text-lg font-semibold">{t("portable.play.title", { name: character.name })}</h2>
+          <RulesetBadge ruleset={character.ruleset} size="sm" />
+        </div>
         <button onClick={onClose} aria-label={t("portable.cancel")} className="cursor-pointer text-muted hover:text-ink"><X className="h-5 w-5" /></button>
       </div>
       <label className="mt-4 block text-sm font-medium" htmlFor="play-realm">{t("portable.play.realm")}</label>
@@ -218,7 +223,10 @@ function HistoryDialog({ character, onClose }: { character: CharacterView; onClo
   return <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6" role="dialog" aria-modal="true" aria-labelledby="hist-title">
     <Card className="max-h-full w-full max-w-xl overflow-y-auto p-6">
       <div className="flex items-start justify-between">
-        <h2 id="hist-title" className="text-lg font-semibold">{t("portable.history.title", { name: character.name })}</h2>
+        <div className="flex items-center gap-3">
+          <h2 id="hist-title" className="text-lg font-semibold">{t("portable.history.title", { name: character.name })}</h2>
+          <RulesetBadge ruleset={character.ruleset} size="sm" />
+        </div>
         <button onClick={onClose} aria-label={t("portable.close")} className="cursor-pointer text-muted hover:text-ink"><X className="h-5 w-5" /></button>
       </div>
       {!list && !error && <Loader2 className="mt-4 h-4 w-4 animate-spin" aria-hidden />}
@@ -240,8 +248,13 @@ export function PortablePage({ onOpenSettings }: { onOpenSettings?: () => void }
   const [making, setMaking] = useState(false);
   const [error, setError] = useState<PortableError | null>(null);
   const [copied, setCopied] = useState(false);
+  const [rulesetFilter, setRulesetFilter] = useState<"" | Ruleset>("");
   const realms = state?.realms ?? [];
   const characters = state?.characters ?? [];
+  const filteredCharacters = useMemo(() => {
+    if (!rulesetFilter) return characters;
+    return characters.filter((c) => c.ruleset === rulesetFilter);
+  }, [characters, rulesetFilter]);
   const usable = useMemo(() => realms, [realms]);
 
   async function addRealm() {
@@ -294,14 +307,66 @@ export function PortablePage({ onOpenSettings }: { onOpenSettings?: () => void }
       <div className="px-5 py-3"><Button size="sm" variant="ghost" onClick={() => void addRealm()}><Plus className="h-4 w-4" aria-hidden />{t("portable.realm.add")}</Button></div>
     </Card>
 
-    <h2 className="mt-8 text-lg font-semibold">{t("portable.characters.title")}</h2>
+    <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-lg font-semibold">{t("portable.characters.title")}</h2>
+      <div className="flex rounded-md border border-line bg-card p-0.5 text-xs">
+        <button
+          type="button"
+          onClick={() => setRulesetFilter("")}
+          className={cn(
+            "cursor-pointer rounded px-2.5 py-1 font-medium transition-colors",
+            rulesetFilter === "" ? "bg-white/10 text-ink shadow-sm" : "text-muted hover:text-ink"
+          )}
+        >
+          {t("browse.any")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setRulesetFilter("coa")}
+          className={cn(
+            "cursor-pointer rounded px-2.5 py-1 font-medium transition-colors",
+            rulesetFilter === "coa" ? "bg-sky-500/20 text-sky-300 shadow-sm" : "text-muted hover:text-ink"
+          )}
+        >
+          Conquest of Azeroth
+        </button>
+        <button
+          type="button"
+          onClick={() => setRulesetFilter("wildcard")}
+          className={cn(
+            "cursor-pointer rounded px-2.5 py-1 font-medium transition-colors",
+            rulesetFilter === "wildcard" ? "bg-amber-500/20 text-amber-300 shadow-sm" : "text-muted hover:text-ink"
+          )}
+        >
+          Wildcard
+        </button>
+        <button
+          type="button"
+          onClick={() => setRulesetFilter("reborn")}
+          className={cn(
+            "cursor-pointer rounded px-2.5 py-1 font-medium transition-colors",
+            rulesetFilter === "reborn" ? "bg-emerald-500/20 text-emerald-300 shadow-sm" : "text-muted hover:text-ink"
+          )}
+        >
+          Warcraft Reborn
+        </button>
+      </div>
+    </div>
     {characters.length === 0 && <Card className="mt-3 p-5 text-sm text-muted">{t("portable.characters.none")}</Card>}
+    {characters.length > 0 && filteredCharacters.length === 0 && (
+      <Card className="mt-3 p-5 text-sm text-muted">
+        No characters match the selected ruleset filter.
+      </Card>
+    )}
     <div className="mt-3 space-y-4">
-      {characters.map((c) => <Card key={c.id} className="p-5" data-character={c.name}>
+      {filteredCharacters.map((c) => <Card key={c.id} className="p-5" data-character={c.name}>
         <div className="flex flex-wrap items-center gap-3">
           <Swords className="h-5 w-5 text-gold" aria-hidden />
           <div className="min-w-0 flex-1">
-            <p className="text-lg font-semibold">{c.name}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-lg font-semibold">{c.name}</p>
+              <RulesetBadge ruleset={c.ruleset} size="sm" />
+            </div>
             <p className="text-sm text-muted">{c.class_name} · {t("portable.level", { level: c.level })} · {t("portable.revision", { n: c.revision })}</p>
             <p className="text-xs text-muted">{t("portable.lastSync", { when: when(c.updated_at) })}{c.active_realm ? ` · ${t("portable.activeOn", { realm: c.active_realm })}` : ""}</p>
           </div>

@@ -182,6 +182,16 @@ impl<'a> HostService<'a> {
                 realm: offer.ruleset,
             });
         }
+        if let Some((_, rs)) = self.server_id.split_once(':') {
+            if let Ok(host_ruleset) = rs.parse::<crate::portable::Ruleset>() {
+                if offer.ruleset != host_ruleset || model.ruleset != host_ruleset {
+                    return Err(PortableError::RulesetMismatch {
+                        character: model.ruleset,
+                        realm: host_ruleset,
+                    });
+                }
+            }
+        }
         self.store
             .host_install_copy(profile, &model, offer.canonical_revision, "owner")?;
         self.store.host_prepare_session(offer, &model)

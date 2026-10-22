@@ -16,10 +16,19 @@ Mode::Reborn => Err(PortableError::Invalid("Portable characters are not supporte
 - **Collections:** `reborn:appearance` and `reborn:vanity` defined and carried under exact allowlist in `carried_kind_for`. Partitioned under `(profile_id, 'reborn', kind)`.
 - **Wire Protocols:** Control protocol v2, Session protocol v3, and Collection protocol v2 bind `ruleset: Ruleset` explicitly in all messages.
 
-### 1.3 Still Planned (MR3 Phase)
-- Implement concrete gameplay adapter for Reborn character import/export.
-- Flip `ruleset_of(&reborn_db)` from the temporary error to `Ok(Ruleset::Reborn)`.
-- End-to-end regression testing of Reborn characters and strict isolation gates.
+### 1.3 Implemented in MR3 Vertical Slice
+- Concrete support for Warcraft Reborn character import/export, claiming, session lifecycle, checkpoints, and logout sync.
+- `ruleset_of(&reborn_db)` returns `Ok(Ruleset::Reborn)`.
+- Reborn character class formatting correctly maps vanilla/standard classes (`reborn:class:1..11`) alongside custom classes.
+- Direct ingress and routing respect active primary Reborn realm (realm ID 3, `acore_characters_reborn`, `acore_world_reborn`, port 8085) and fail closed when Reborn is inactive.
+- Frontend UI displays `RulesetBadge` with human-facing labels ("Warcraft Reborn", "Wildcard", "Conquest of Azeroth"), ruleset filter tabs in Portable Characters screen, and ruleset-filtered Character Picker in the JOIN drawer.
+- Three-space isolation fixture and torture tests prove complete mutation isolation:
+  - Reborn character -> CoA realm (rejected with zero DB mutation).
+  - Reborn character -> Wildcard realm (rejected with zero DB mutation).
+  - CoA character -> Reborn realm (rejected with zero DB mutation).
+  - Wildcard character -> Reborn realm (rejected with zero DB mutation).
+  - Reborn collections (`reborn:appearance`, `reborn:vanity`) reject foreign namespaced collections.
+- Physical external-client smoke is deferred to the combined manual verification gate.
 
 ## 2. Ruleset Identity & DB Schemas
 - **RulesetId / Ruleset**:

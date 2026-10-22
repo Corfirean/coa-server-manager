@@ -413,6 +413,20 @@ mod tests {
         );
         assert!(backend.world_port("srv-test1:reborn").is_err());
 
+        // When active is Reborn:
+        fs::write(
+            root.join("Settings/realm-profile.json"),
+            r#"{"active": "reborn", "wildcard_created": true, "reborn_created": true, "simultaneous": false}"#,
+        )
+        .unwrap();
+
+        // Reborn succeeds with primary world port 8085
+        assert_eq!(backend.world_port("srv-test1:reborn").unwrap(), 8085);
+        // CoA must FAIL CLOSED when Reborn is active
+        assert!(backend.world_port("srv-test1:coa").is_err());
+        // Wildcard must FAIL CLOSED when Reborn is active
+        assert!(backend.world_port("srv-test1:wildcard").is_err());
+
         // Malformed and unknown suffixes must fail closed
         assert!(backend.access("srv-test1:unknown").is_err());
         assert!(backend.access("srv-test1:garbage").is_err());

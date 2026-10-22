@@ -182,6 +182,16 @@ pub fn class_name(class: &str) -> String {
         .and_then(|n| n.parse().ok())
         .unwrap_or(0);
     match id {
+        1 => "Warrior",
+        2 => "Paladin",
+        3 => "Hunter",
+        4 => "Rogue",
+        5 => "Priest",
+        6 => "Death Knight",
+        7 => "Shaman",
+        8 => "Mage",
+        9 => "Warlock",
+        11 => "Druid",
         12 => "Barbarian",
         13 => "Witch Doctor",
         14 => "Felsworn",
@@ -744,6 +754,7 @@ impl PortableService {
             characters.push(CharacterView {
                 id: c.character_id.to_string(),
                 name: c.name,
+                ruleset: c.ruleset,
                 class_name: class_name(&c.class),
                 race: c.race,
                 level: c.level,
@@ -1372,6 +1383,7 @@ impl PortableService {
             .map_err(|e| fail("realm_offline", e.to_string()))?;
         let list =
             realm::inspect_characters(&db).map_err(|e| fail("realm_offline", e.to_string()))?;
+        let realm_ruleset = realm::ruleset_of(&db)?;
         let mut out = Vec::new();
         for c in list {
             if self.host.find_by_local(realm_id, c.local_guid)?.is_some() {
@@ -1380,7 +1392,7 @@ impl PortableService {
             out.push(LocalCharacterView {
                 token: c.local_guid,
                 name: c.name.clone(),
-                class_name: class_name(&format!("coa:class:{}", c.class)),
+                class_name: class_name(&format!("{}:class:{}", realm_ruleset.as_str(), c.class)),
                 level: c.level,
                 account: c.username.clone().unwrap_or_default(),
                 eligible: c.eligible(),

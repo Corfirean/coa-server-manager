@@ -2342,4 +2342,144 @@ fn three_space_isolation_fixture_proves_wildcard_activity_leaves_coa_and_reborn_
     assert_eq!(items_c.len(), 1);
     assert_eq!(items_c[0].portable_item_id, item_c);
     assert_eq!(items_c[0].local_item_guid, 200);
+
+    // ---- MUTATE REBORN C ONLY ----
+    let mut model_c_mut = store.load_current(char_c).unwrap();
+    model_c_mut.progression.money += 300_000;
+    model_c_mut.progression.level = 80;
+    store
+        .commit_snapshot(
+            char_c,
+            1,
+            model_c_mut,
+            "srv-1:reborn",
+            Some("reborn gameplay progression"),
+        )
+        .unwrap();
+
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Reborn,
+            "reborn:appearance",
+            &IdSet::from_ids([1, 2, 5, 8888]).unwrap(),
+        )
+        .unwrap();
+
+    let new_item_c = PortableItemId::new();
+    store
+        .reconcile_item_mappings(
+            char_c,
+            "srv-1:reborn",
+            2,
+            &[
+                obs(item_c, 200, 10, "e3"),
+                obs(new_item_c, 202, 10, "e3_new"),
+            ],
+        )
+        .unwrap();
+
+    // ---- ASSERT REBORN C ADVANCED TO REV 2 ----
+    let rec_c2 = store.character(char_c).unwrap();
+    assert_eq!(rec_c2.revision, 2);
+    let (_, coll_c2) = store
+        .collection(profile, Ruleset::Reborn, "reborn:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_c2.ids(), &[1, 2, 5, 8888]);
+    assert_eq!(
+        store.item_mappings(char_c, "srv-1:reborn").unwrap().len(),
+        2
+    );
+
+    // ---- ASSERT COA A REMAINS 100% UNTOUCHED (STILL REV 1) ----
+    let rec_a2 = store.character(char_a).unwrap();
+    assert_eq!(rec_a2.revision, 1);
+    assert_eq!(store.load_snapshot(char_a, 1).unwrap(), hash_a_before);
+    let (_, coll_a2) = store
+        .collection(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_a2.ids(), &[1, 2, 3]);
+    assert_eq!(store.item_mappings(char_a, "srv-1:coa").unwrap().len(), 1);
+
+    // ---- ASSERT WILDCARD B REMAINS 100% UNTOUCHED (STILL REV 2) ----
+    let rec_b2 = store.character(char_b).unwrap();
+    assert_eq!(rec_b2.revision, 2);
+    let (_, coll_b2) = store
+        .collection(profile, Ruleset::Wildcard, "wildcard:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_b2.ids(), &[1, 2, 4, 999]);
+    assert_eq!(
+        store.item_mappings(char_b, "srv-1:wildcard").unwrap().len(),
+        2
+    );
+}
+
+#[test]
+fn reborn_store_corruption_fails_closed() {
+    let mut store = Store::open_in_memory().unwrap();
+    let profile = store.default_profile().unwrap();
+
+    // 1. summary = reborn + snapshot = coa
+    let mut model_coa = fixtures::geared_level_eighty();
+    model_coa.ruleset = Ruleset::Coa;
+    let enc_coa = crate::portable::snapshot::encode(&model_coa).unwrap();
+
+    // Insert corrupt summary with reborn ruleset but pointing to coa snapshot
+    let id_1 = CharacterId::new();
+    let at = "2026-10-22T12:00:00Z";
+    store
+        .conn
+        .execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'reborn', 'HeroReborn', 'coa:race:1', 'coa:class:1', 0, 80, 1, ?3, ?3, 0)",
+            rusqlite::params![id_1.to_string(), profile.to_string(), at],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO snapshot (character_id, revision, snapshot_format_version, created_at, source_server_id, content_hash, uncompressed_size, payload, note)
+             VALUES (?1, 1, 2, ?2, 'srv-1:reborn', ?3, ?4, ?5, 'corrupted snapshot test')",
+            rusqlite::params![id_1.to_string(), at, enc_coa.content_hash.as_slice(), enc_coa.payload.len() as i64, enc_coa.payload],
+        )
+        .unwrap();
+
+    // Loading current snapshot must FAIL CLOSED with ruleset mismatch error
+    let res1 = store.load_current(id_1);
+    assert!(
+        res1.is_err(),
+        "Loading reborn summary with CoA snapshot must fail closed"
+    );
+
+    // 2. summary = reborn + snapshot = wildcard
+    let mut model_wc = fixtures::geared_level_eighty();
+    model_wc.ruleset = Ruleset::Wildcard;
+    let enc_wc = crate::portable::snapshot::encode(&model_wc).unwrap();
+
+    let id_2 = CharacterId::new();
+    store
+        .conn
+        .execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'reborn', 'HeroReborn2', 'coa:race:1', 'coa:class:1', 0, 80, 1, ?3, ?3, 0)",
+            rusqlite::params![id_2.to_string(), profile.to_string(), at],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO snapshot (character_id, revision, snapshot_format_version, created_at, source_server_id, content_hash, uncompressed_size, payload, note)
+             VALUES (?1, 1, 2, ?2, 'srv-1:reborn', ?3, ?4, ?5, 'corrupted snapshot test 2')",
+            rusqlite::params![id_2.to_string(), at, enc_wc.content_hash.as_slice(), enc_wc.payload.len() as i64, enc_wc.payload],
+        )
+        .unwrap();
+
+    let res2 = store.load_current(id_2);
+    assert!(
+        res2.is_err(),
+        "Loading reborn summary with Wildcard snapshot must fail closed"
+    );
 }
