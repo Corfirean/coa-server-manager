@@ -1,44 +1,31 @@
-# Database checks, repair and simultaneous worlds
+# Updates, backups and repair
 
-Settings includes **Check files and database**, **Repair**, and **Start CoA and Wildcard together**.
+## Update your server
 
-Database checks inspect both realm schemas when Wildcard exists, the migration ledger, character-save columns and CoA starting class data. Results are saved in the installation metadata's `logs/database-checks.json` and included in exported diagnostics. Hash checks skip mutable MySQL data and configuration files.
+Select your server in the Manager. When an update is available, choose **UPDATE** and follow the prompts. Keep the Manager open until it finishes: it stops the server, creates a recovery point and checks the updated server.
 
-Repair requires both worlds and auth to be stopped, no unfinished update, and the installed version to match the currently published signed update. The signed base must match the installed base as well. It verifies packages before changing files, creates a full database/config backup, saves every replaced file and a recovery inventory under `<server>.manager/repairs/<backup-id>/`, then restores official files and applies pending migrations to both worlds. Settings and player databases are not replaced. A failure during file replacement restores the original files. Interrupted repair can be retried; its file inventory and backups remain available.
+Updates preserve accounts, characters and settings and cover every realm you have created. If an update fails, read the displayed error before trying again; recovery information remains available in the Manager.
 
-Repair reports unresolved schema damage. It does not guess ALTER statements or replay already applied SQL: those cases need a new corrective migration. Applied SQL whose recorded SHA-256 changed is reported and rejected. Manager failure records take precedence over the core's old `updates` entries.
+## Keep a backup
 
-## Release schema contracts
+Use **Backups** to save characters, accounts and settings before important changes. Full backups also include world data. Check the realm recorded in a recovery point before restoring it, and stop the server before a restore.
 
-`clean-base` clears the character migration ledger after rebuilding the character database and captures `Scripts/database-schema.json`. It contains expected table/column names and column types. Installation and migration validation inspect this contract; older packages receive the narrower character-save checks, clearly labelled in the UI.
+Portable character saved versions do not replace server backups. **Portable characters are experimental.**
 
-For each update, capture a fresh contract **from a disposable database already migrated to the exact packaged core**, into the release tree before `pack-update`:
+## Check or repair an installation
 
-```powershell
-cargo run -p coa-release -- extract-schema-base --package C:\games\signed-base --fixture C:\games\coa-schema-fixture-build
-cargo run -p coa-release -- schema-contract --repack C:\games\coa-schema-fixture-build --tree C:\games\release-tree --core C:\games\release-core --bots C:\games\release-bots --repairs C:\games\release-repairs
-```
+1. Stop the server.
+2. Open **Settings** and run **Check files and database**.
+3. Review the results. If official server files need restoring, use **Repair** and follow the prompts.
 
-The first command verifies every entry in the signed base archive and extracts only the runtime needed for a disposable database. The second applies the release SQL with temporary ports, checks critical feature tables independently of migration history, and captures the resulting schema. It requires the disposable fixture marker and never starts a world server.
+Repair creates a recovery backup and restores official files while preserving settings and player databases. It may require the installed version to match the currently published signed package. Missing player data requires a backup; some database problems require a corrective server update.
 
-Base and update packaging require a complete contract for all three databases. Cumulative updates always carry it, even when unchanged. Signing and verification check the archive contents and contract before publication. Never capture it from a user's server or from an unmigrated previous release database.
+If an operation stays blocked or fails again, use **Report a problem** and include diagnostics and the error message. Do not delete database files or recovery records to clear an error.
 
-Corrective SQL under `repairs/{auth,characters,world}` receives new `manager_repair__` migration IDs and runs after historical SQL. Missing Wildcard tables can therefore be restored without replaying historical data deletion. Existing malformed tables still fail schema checks; creating a missing table does not recover its lost rows.
+## Run CoA and Wildcard together
 
-## Simultaneous worlds
+In **Settings**, enable **Start CoA and Wildcard together**. Both realms share accounts but keep separate characters and world data. Both statuses appear on Overview, and Stop shuts down both.
 
-On Windows the checkbox creates Wildcard when needed and saves distinct secondary world/RA ports. Both worlds start with one shared authserver/MySQL and separate world/character databases. The second world has its own executable copy, config, supervisor, logs and report spool in `.realms/secondary`; Data is read through the primary installation's absolute path. This runtime folder is excluded from packages.
+If friends networking was configured before enabling the second realm, run its setup again so both realms are reachable. Disable simultaneous startup before switching to Warcraft Reborn.
 
-The selected realm remains the primary world used by the Manager's console, companions, settings and Play. Selecting another realm still stops/restarts both to preserve that relationship. CoA companion restrictions on Wildcard remain in force. Both world statuses are shown on Overview.
-
-Stop shuts down the secondary supervisor/world before the primary launcher may stop the shared database. Database restores, updates and profile changes reject a running secondary world. Each start refreshes its executable/config copies, so server updates cannot leave an old secondary binary behind. The secondary world inherits the primary network bind setting; its RA console remains on loopback. Enabling friends networking opens/maps both world ports. If networking was enabled before the second realm, enable it again to add the second port's rule/mapping.
-
-## Disposable probes
-
-```powershell
-cargo run -p coa-core --example multiworld_e2e -- C:\games\your-fixture
-cargo run -p coa-core --example repair_e2e -- C:\games\your-fixture
-cargo run -p coa-core --example schema_e2e -- C:\games\your-fixture
-```
-
-The first checks both processes, ports, shared services and graceful shutdown. The second uses a test-only signing key, corrupts a fixture file, applies SQL to both worlds, verifies backups and account/character counts, and drops a column only in Wildcard to prove schema checks are isolated. These probes modify the fixture; never use a real server.
+[All guides](README.md)

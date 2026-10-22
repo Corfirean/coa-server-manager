@@ -4,7 +4,28 @@ Manager releases only. Updating the Manager does not update the server.
 
 [Server changelog](https://github.com/Corfirean/coa-server-build/blob/main/CHANGELOG.md)
 
+Published releases and previews. Pre-release entries do not change the stable update channel.
+
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
+
+## 0.7.0 — 2026-10-21
+
+Portable transfers into Warcraft Reborn are not supported yet.
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Keep portable characters and their saved versions in the Manager, and use them on compatible realms.
+- Make an existing character portable from a connected realm.
+- Browse public realms and see their connection details.
+- Link an existing realm account or create one on hosts that allow it.
+- Switch between CoA, Wildcard and Warcraft Reborn realm profiles on supported server builds.
+- Adjust creature health for different locations and enemy types in Content Scaling.
+- Switch Custom Races patches faster, with visible feedback while changes are applied.
+- Handle Windows requests for administrator permission when launching the game.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.6.22...v0.7.0)
+
+[Player guides and screenshots](https://github.com/Corfirean/coa-server-manager/tree/d22ff09ac6fd7628aac14d90ec23f547cd9b4bf1/docs)
 
 ## 0.6.22 — 2026-10-19
 

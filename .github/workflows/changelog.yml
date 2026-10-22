@@ -6,7 +6,7 @@ on:
   pull_request:
     paths: [tools/sync_history.py, tools/test_sync_history.py, changelog/history.json, .github/workflows/changelog.yml]
   release:
-    types: [published, released]
+    types: [published, prereleased, released]
   workflow_run:
     workflows: [release]
     types: [completed]

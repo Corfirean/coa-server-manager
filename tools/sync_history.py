@@ -32,7 +32,7 @@ def version_key(version):
 
 def eligible(release, component):
     pattern = r'v(\d+(?:\.\d+)+)' if component == 'manager' else r'server-(\d+(?:\.\d+)+)'
-    return not release['draft'] and not release['prerelease'] and re.fullmatch(pattern, release['tag_name'])
+    return not release['draft'] and re.fullmatch(pattern, release['tag_name'])
 
 
 def published(repo, component):
@@ -58,7 +58,7 @@ def fragment_note(text, areas):
     return title
 
 
-def remote_fragments(repo, sha, seen, areas, excluded_blobs=()):
+def remote_fragments(repo, sha, seen, areas, excluded_blobs=(), overrides=None):
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
         raise ValueError('Changelog collection requires an immutable source SHA')
     listing = api(f'repos/{repo}/contents/changelog.d?ref={sha}')
@@ -66,8 +66,16 @@ def remote_fragments(repo, sha, seen, areas, excluded_blobs=()):
     new = [f for f in files if repo + ':' + f['name'] not in seen and f['sha'] not in excluded_blobs]
 
     def read(item):
+        reviewed = (overrides or {}).get(repo + ':' + item['sha'])
+        if reviewed is not None:
+            if not isinstance(reviewed, str) or not reviewed.strip():
+                raise ValueError('Reviewed fragment override needs a player-facing title')
+            return reviewed
         blob = api(f'repos/{repo}/git/blobs/{item["sha"]}')
-        return fragment_note(base64.b64decode(blob['content']).decode('utf-8'), areas)
+        try:
+            return fragment_note(base64.b64decode(blob['content']).decode('utf-8'), areas)
+        except ValueError as error:
+            raise ValueError(f'{repo}:{item["name"]}@{sha}: {error}') from error
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         notes = [note for note in pool.map(read, new) if note]
@@ -86,7 +94,10 @@ def collect_manager(root, tag, seen):
             note = fragment_note(text, MANAGER_AREAS)
             if note:
                 notes.append(note)
-    return notes, [repo + ':' + Path(p).name for p in paths], {'commit': sha}
+    source = {'commit': sha}
+    if any('portable' in note.lower() and 'experimental' in note.lower() for note in notes):
+        source['experimentalFeatures'] = ['portable-characters']
+    return notes, [repo + ':' + Path(p).name for p in paths], source
 
 
 def upstream_fragment_blobs(lock):
@@ -102,7 +113,7 @@ def upstream_fragment_blobs(lock):
     return {item['sha'] for item in files if item['type'] == 'blob' and re.fullmatch(r'\d{8}-[a-z0-9-]+\.md', item['path'])}
 
 
-def collect_server(repo, tag, seen, previous):
+def collect_server(repo, tag, seen, previous, overrides=None):
     with tempfile.TemporaryDirectory() as folder:
         subprocess.run(['gh', 'release', 'download', tag, '--repo', repo, '--pattern', 'release-lock.json', '--dir', folder], check=True)
         lock = json.loads((Path(folder) / 'release-lock.json').read_text(encoding='utf-8-sig'))
@@ -114,7 +125,8 @@ def collect_server(repo, tag, seen, previous):
             raise ValueError('Release lock has no ' + role + ' source')
         if item['repository'] == 'Corfirean/coa-server-manager':
             raise ValueError('A Manager source cannot supply server release notes')
-        entries, found = remote_fragments(item['repository'], item['sha'], seen, SERVER_AREAS, imported_blobs if role == 'core' else ())
+        entries, found = remote_fragments(item['repository'], item['sha'], seen, SERVER_AREAS,
+                                         imported_blobs if role == 'core' else (), overrides)
         notes.extend(entries)
         ids.extend(found)
     old = previous.get('components', {})
@@ -128,16 +140,24 @@ def collect_server(repo, tag, seen, previous):
                 notes.append(f'Updated {label} to {version}')
     if lock['components'].get('upstream', {}).get('sha') != old.get('upstream', {}).get('sha'):
         notes.append('Updated the reviewed CoA upstream snapshot')
-    return list(dict.fromkeys(notes)), ids, {'snapshot': lock['snapshot'], 'components': lock['components']}
+    return list(dict.fromkeys(notes)), ids, {'snapshot': lock['snapshot'], 'components': lock['components'],
+                                           'experimentalFeatures': lock.get('experimentalFeatures', [])}
 
 
 def notes_md(record):
-    lines = [f'## {record["version"]} — {record["date"]}', '']
-    lines.extend('- ' + note.rstrip('.') + '.' for note in record['notes'])
+    status = ' (Pre-release)' if record.get('prerelease') else ''
+    lines = [f'## {record["version"]}{status} — {record["date"]}', '']
+    if record.get('notice'):
+        lines += [record['notice'], '']
+    if 'portable-characters' in record.get('experimentalFeatures', []):
+        lines += ['**Portable Characters are experimental and may contain bugs.**', '']
+    lines.extend('- ' + note.strip().rstrip('.') + '.' for note in record['notes'])
     label = 'Archived release record' if record.get('legacy') else 'Release'
     lines += ['', f'[{label}]({record["url"]})']
     if record.get('compare'):
         lines[-1] += f' · [Source changes]({record["compare"]})'
+    if record.get('links'):
+        lines += ['', *(link.strip() for link in record['links'])]
     return '\n'.join(lines) + '\n'
 
 
@@ -149,7 +169,8 @@ def render(history):
     lines = [f'# {title} changelog', '',
              ('Manager releases only. Updating the Manager does not update the server.' if component == 'manager'
               else 'Server packages, companions and server modules only. Manager releases have their own changelog.'),
-             '', other, '', 'Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.', '']
+             '', other, '', 'Published releases and previews. Pre-release entries do not change the stable update channel.', '',
+             'Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.', '']
     for record in sorted(history['releases'], key=lambda r: (r['date'], version_key(r['version'])), reverse=True):
         lines.append(notes_md(record))
     return '\n'.join(lines).rstrip() + '\n'
@@ -175,6 +196,45 @@ def validate_history(history):
         raise ValueError('Server history cannot consume Manager fragments')
 
 
+def reconcile(history, releases, root):
+    component, repo = history['component'], history['repository']
+    records = {r['tag']: r for r in history['releases']}
+    seen = set(history.get('consumedFragments', []))
+    for release in releases:
+        tag = release['tag_name']
+        preview = bool(release.get('prerelease'))
+        if tag in records:
+            record = records[tag]
+            if preview:
+                record['prerelease'] = True
+            elif record.pop('prerelease', False):
+                seen.update(record.pop('fragments', []))
+            continue
+        version = tag.removeprefix('server-').removeprefix('v')
+        older = [r for r in history['releases'] if not r.get('prerelease')
+                 and version_key(r['version']) < version_key(version)]
+        previous = max(older, key=lambda r: version_key(r['version']), default={})
+        if component == 'manager':
+            notes, ids, source = collect_manager(root, tag, frozenset(seen))
+        else:
+            notes, ids, source = collect_server(repo, tag, frozenset(seen), previous,
+                                               history.get('fragmentOverrides'))
+        if not notes:
+            notes = ['No additional player-facing changes were recorded for this build']
+        record = {'tag': tag, 'version': version, 'date': release['published_at'][:10],
+                  'url': release['html_url'], 'notes': notes, **source}
+        if preview:
+            record.update(prerelease=True, fragments=ids)
+        else:
+            seen.update(ids)
+        if previous.get('tag'):
+            record['compare'] = f'https://github.com/{repo}/compare/{previous["tag"]}...{tag}'
+        history['releases'].append(record)
+        records[tag] = record
+    history['consumedFragments'] = sorted(seen)
+    validate_history(history)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=Path, default=Path.cwd())
@@ -188,32 +248,8 @@ def main():
     component, repo = history['component'], history['repository']
     if component not in ('server', 'manager'):
         raise ValueError('History must belong to one component')
-    existing = {r['tag'] for r in history['releases']}
-    seen = set(history.get('consumedFragments', []))
     releases = [] if args.render_only else published(repo, component)
-    previous = sorted(history['releases'], key=lambda r: (r['date'], version_key(r['version'])))[-1] if existing else {}
-    for release in releases:
-        tag = release['tag_name']
-        if tag in existing:
-            continue
-        version = tag.removeprefix('server-').removeprefix('v')
-        if previous and version_key(version) <= version_key(previous['version']):
-            raise ValueError('Historical backfill requires a reviewed history correction: ' + tag)
-        if component == 'manager':
-            notes, ids, source = collect_manager(args.root, tag, seen)
-        else:
-            notes, ids, source = collect_server(repo, tag, seen, previous)
-        if not notes:
-            notes = ['Detailed player-facing notes were not recorded; see the source changes for this release']
-        record = {'tag': tag, 'version': tag.removeprefix('server-').removeprefix('v'),
-                  'date': release['published_at'][:10], 'url': release['html_url'], 'notes': notes, **source}
-        if previous.get('tag'):
-            record['compare'] = f'https://github.com/{repo}/compare/{previous["tag"]}...{tag}'
-        history['releases'].append(record)
-        seen.update(ids)
-        previous = record
-    history['consumedFragments'] = sorted(seen)
-    validate_history(history)
+    reconcile(history, releases, args.root)
     # Keep a separately reviewed history as the source of truth for historical corrections.
     path.write_text(json.dumps(history, indent=2, ensure_ascii=False) + '\n', encoding='utf8', newline='\n')
     (args.root / 'CHANGELOG.md').write_text(render(history), encoding='utf8', newline='\n')
@@ -222,7 +258,7 @@ def main():
         for record in history['releases']:
             release = actual.get(record['tag'])
             if not release:
-                continue  # Never create a missing historical release or touch a prerelease.
+                continue  # Never create a missing historical release.
             body = notes_md(record)
             if (release.get('body') or '').strip() != body.strip():
                 with tempfile.TemporaryDirectory() as folder:

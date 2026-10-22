@@ -2,8 +2,6 @@
 
 **Portable characters are experimental.** The feature is in active development and may contain bugs.
 
-Draft for owner review — Manager 0.7.0 preview.
-
 Portable characters let you keep a saved character in the Manager and play it on compatible CoA realms.
 
 ## Make your first character portable
@@ -43,5 +41,3 @@ A realm with a lower level cap may play your character at a lower level. Check t
 ## Saved versions and conflicts
 
 Use **Saved versions** to see when progress was saved. If the Manager reports a conflict, follow its explanation before continuing. Avoid playing two copies at once, and keep normal server backups as well.
-
-Screenshots and exact wording will be reviewed before publication. Cross-server live play has not been re-qualified by this branch sync alone.
