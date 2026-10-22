@@ -1,12 +1,16 @@
 # CoA Server Manager
 
+**Portable characters are experimental.** This feature is in active development and may contain bugs.
+
 A Windows app that installs and runs your own **Conquest of Azeroth** server (AzerothCore) with a few clicks:
 no console, no config files, no database tools. Tauri 2 + Rust + React.
 
-![Overview](docs/screenshots/play.png)
+![Your server at a glance](docs/screenshots/overview.png)
 
 ## What it does
 
+* **Portable characters (Experimental).** Keep saved characters in the Manager, review their saved versions and make an existing character portable from a realm you can access. See the [short guide](docs/PORTABLE-CHARACTERS.md).
+* **Find a realm.** Browse public realms and compare their game modes, level caps, rates, modules and population.
 * **One-click install.** Downloads a signed, verified server package (resumable, checked file by file), sets up the
   database and creates your first account. Or import a server you already have.
 * **Start / Stop / PLAY.** One button for the whole server (database, auth, world) with live status, uptime and
@@ -18,14 +22,14 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   into **UPDATE**. Updates are authenticated (Ed25519), back up first, keep files you changed and can be rolled back.
 * **Backups.** Characters, accounts and settings on demand, automatically before every update; verify and restore
   from the app.
-* **CoA / Wildcard realms.** Choose the active realm on Overview. A server build with Wildcard support is required;
+* **CoA / Wildcard / Warcraft Reborn realms.** Choose the active realm on Overview. A server build supporting the selected realm is required;
   the first switch copies world data and creates an empty character database. Accounts are shared, characters and
   module settings are separate, and only one world runs. Switching a running server saves characters and restarts it.
   The closed client's saved realm follows this selection and is checked again before PLAY. If the client is open,
   the change is applied on the next launch through the Manager.
-  CoA companions are unavailable on Wildcard; other optional modules are experimental. Backups include both realms,
-  and database updates apply to both.
-  See [realm profiles and validation](docs/WILDCARD.md).
+  Bots are unavailable on Wildcard and Warcraft Reborn; other optional modules are experimental. Backups and
+  database updates include every created realm. Simultaneous startup supports CoA + Wildcard only.
+  See [realm profiles and validation](docs/WILDCARD.md) and [Warcraft Reborn](docs/WARCRAFT-REBORN.md).
 * **Companions (bots).** Fill the world with level-appropriate bots, see progress, stop spawning, take them offline,
   despawn N to relieve the server, and choose how many log in at server start.
 * **Realmlist switcher.** Keep named realmlists (for example *Solo* and *PTR*) and switch the game client between them from a
@@ -39,17 +43,22 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   supports LAN, direct and private-network (Tailscale) play, with step-by-step guides and a package to send to friends.
 * **Updates to the Manager itself** download in the background and install when you close it. Your servers are never
   stopped or changed by a Manager update.
-* **Languages:** English, Russian, German, French, Spanish.
+* **Languages:** English, Russian, German, French, Spanish, Simplified Chinese.
 
-| Install | Ready |
-|---------|-------|
-| ![Installing](docs/screenshots/install.png) | ![Ready](docs/screenshots/ready.png) |
+## See the Manager
 
-| Overview | Server updates |
-|----------|----------------|
-| ![Overview](docs/screenshots/overview.png) | ![Updates](docs/screenshots/updates.png) |
+| Portable characters (Experimental) | Public realms |
+|---|---|
+| ![Portable characters](docs/screenshots/portable.png) | ![Public realms](docs/screenshots/realms.png) |
 
-![Backups](docs/screenshots/backups.png)
+| Companions | Backups |
+|---|---|
+| ![Companions](docs/screenshots/bots.png) | ![Backups](docs/screenshots/backups.png) |
+
+The full gallery also covers setup, modules, game clients, playing with friends and making an existing character portable.
+
+
+[Browse the screenshot gallery](docs/SCREENSHOTS.md).
 
 ## Install
 
@@ -64,9 +73,13 @@ Manager and server updates have separate version histories.
 
 ## Status
 
-Phases 0–10 of the plan in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are done: foundation, import, start/stop,
-config engine, backups, clean install from signed packages, updates, companions, client launch, friends, polish.
-Remaining work (translation review by native speakers, optional extras) is listed in section 9 of that document. Translation notes: [docs/TRANSLATIONS.md](docs/TRANSLATIONS.md).
+**In active development.** Bugs may still occur. If you run into a problem, please [open an issue](https://github.com/Corfirean/coa-server-manager/issues/new/choose).
+
+### Known Limitations
+* **Native client login prefill**: Ascension's 3.3.5 client does not accept command-line credentials; users type their password once or link an existing account.
+* **Non-Windows SecretStore**: Windows uses DPAPI (`CryptProtectData`) with domain separation entropy. On Linux/macOS, keys fall back to strict 0600 file permissions.
+* **Direct to Relay migration**: Established direct TCP sessions cannot migrate mid-stream to Relay; network breaks trigger automatic fallback on the next JOIN.
+* **WorkerThreads**: `CharacterDatabase.WorkerThreads` must be set to `1` (the default) for safe remote portable character imports.
 
 ## Develop
 ```
