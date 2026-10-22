@@ -14,7 +14,7 @@ use super::super::extension::{
 };
 use super::super::ids::CharacterId;
 use super::super::model::PortableCharacter;
-use super::super::session::protocol::{COLLECTION_KINDS, PROTOCOL_VERSION};
+use super::super::session::protocol::{collection_kinds, PROTOCOL_VERSION};
 use super::super::store::Store;
 use super::import::ImportOptions;
 use super::script::SchemaProbe;
@@ -103,7 +103,10 @@ pub fn assemble(
         collection_kinds: if probe.has("account_appearance_collection")
             && probe.has("account_vanity_collection")
         {
-            COLLECTION_KINDS.iter().map(|k| k.to_string()).collect()
+            collection_kinds(ruleset_of(db)?)
+                .iter()
+                .map(|k| k.to_string())
+                .collect()
         } else {
             Default::default()
         },

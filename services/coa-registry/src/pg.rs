@@ -14,6 +14,7 @@ const MIGRATIONS: &[(i32, &str, &str)] = &[
     (2, "protocol_v2", include_str!("../migrations/0002_protocol_v2.sql")),
     (3, "browse_indexes", include_str!("../migrations/0003_browse_indexes.sql")),
     (4, "created_whole_seconds", include_str!("../migrations/0004_created_whole_seconds.sql")),
+    (5, "reborn_ruleset", include_str!("../migrations/0005_reborn_ruleset.sql")),
 ];
 
 pub struct PgConfig {
@@ -124,6 +125,7 @@ pub(crate) fn to_row(r: &Row) -> StoreResult<RealmRow> {
         ruleset: match ruleset.as_str() {
             "coa" => Ruleset::Coa,
             "wildcard" => Ruleset::Wildcard,
+            "reborn" => Ruleset::Reborn,
             other => return Err(StoreError::Backend(format!("a stored ruleset is unknown: {other}"))),
         },
         level_cap: level_cap.map(|n| n as u32),
@@ -179,6 +181,7 @@ fn summary_from(r: &Row, now: i64, ttl: i64) -> StoreResult<RealmSummary> {
         ruleset: match ruleset.as_str() {
             "coa" => Ruleset::Coa,
             "wildcard" => Ruleset::Wildcard,
+            "reborn" => Ruleset::Reborn,
             other => return Err(StoreError::Backend(format!("a stored ruleset is unknown: {other}"))),
         },
         level_cap: level_cap.map(|n| n as u32),

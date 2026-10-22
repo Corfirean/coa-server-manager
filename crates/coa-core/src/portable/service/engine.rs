@@ -136,6 +136,7 @@ struct Saved {
 #[derive(Debug, Clone)]
 pub struct ClaimBundle {
     pub character_id: CharacterId,
+    pub ruleset: super::super::model::Ruleset,
     pub payload: Vec<u8>,
     pub content_hash: [u8; 32],
     pub collections: BTreeMap<String, Vec<u32>>,
@@ -1438,18 +1439,18 @@ impl PortableService {
         let model = self.host.load_current(character_id)?;
         let encoded = super::super::snapshot::encode(&model)?;
         let mut collections = BTreeMap::new();
-        if realm::ruleset_of(&db)? == super::super::model::Ruleset::Coa {
-            if let Some(account) = realm::collections::account_of(&db, local_guid)? {
-                for kind in ["coa:appearance", "coa:vanity"] {
-                    if let Ok(set) = realm::collections::read_set(&db, account, kind) {
-                        collections.insert(kind.to_string(), set.ids().to_vec());
-                    }
+        let realm_ruleset = realm::ruleset_of(&db)?;
+        if let Some(account) = realm::collections::account_of(&db, local_guid)? {
+            for kind in super::super::session::protocol::collection_kinds(realm_ruleset) {
+                if let Ok(set) = realm::collections::read_set(&db, account, kind) {
+                    collections.insert(kind.to_string(), set.ids().to_vec());
                 }
             }
         }
         self.publish();
         Ok(ClaimBundle {
             character_id,
+            ruleset: model.ruleset,
             payload: encoded.payload,
             content_hash: encoded.content_hash,
             collections,
@@ -1473,17 +1474,17 @@ impl PortableService {
                 "The character data does not belong to the character that was claimed.",
             ));
         }
+        let ruleset = model.ruleset;
         if self.owner.character(character_id).is_err() {
             self.owner
                 .create_character_with_id(self.owner_profile, model, realm_id)?;
         }
         for (kind, ids) in collections {
-            if !matches!(kind.as_str(), "coa:appearance" | "coa:vanity") {
-                continue;
+            if kind.starts_with(ruleset.as_str()) {
+                let set = super::super::collection::IdSet::from_ids(ids.iter().copied())?;
+                self.owner
+                    .merge_collection(self.owner_profile, ruleset, kind, &set)?;
             }
-            let set = super::super::collection::IdSet::from_ids(ids.iter().copied())?;
-            self.owner
-                .merge_collection(self.owner_profile, kind, &set)?;
         }
         self.publish();
         self.state()
@@ -1499,13 +1500,14 @@ impl PortableService {
         let model = self.owner.load_current(cid)?;
         let encoded = super::super::snapshot::encode(&model)?;
         let mut collections = BTreeMap::new();
-        for kind in ["coa:appearance", "coa:vanity"] {
-            if let Ok(Some((_, set))) = self.owner.collection(self.owner_profile, kind) {
+        for kind in super::super::session::protocol::collection_kinds(model.ruleset) {
+            if let Ok(Some((_, set))) = self.owner.collection(self.owner_profile, model.ruleset, kind) {
                 collections.insert(kind.to_string(), set.ids().to_vec());
             }
         }
         Ok(ClaimBundle {
             character_id: cid,
+            ruleset: model.ruleset,
             payload: encoded.payload,
             content_hash: encoded.content_hash,
             collections,
@@ -1591,6 +1593,21 @@ impl PortableService {
         let opts = self.options(&access, &caps);
 
         // Preflight compatibility check before ANY mutation
+        let db_ruleset = super::super::realm::ruleset_of(&db)?;
+        if model.ruleset != db_ruleset {
+            return Err(fail(
+                "incompatible",
+                "Character ruleset does not match realm database ruleset.",
+            ));
+        }
+        let caps_ruleset: crate::portable::model::Ruleset = caps.content.ruleset.into();
+        if model.ruleset != caps_ruleset {
+            return Err(fail(
+                "incompatible",
+                "Character ruleset does not match realm capability ruleset.",
+            ));
+        }
+
         let ops = [Operation::OnlineImport, Operation::RuntimeSession];
         let report = self.report(&model, &caps, &opts, &ops, true);
         if verdict_of(report.verdict()) == Verdict::Incompatible {
@@ -1606,9 +1623,9 @@ impl PortableService {
 
         // Monotonic union of collections
         for (kind, ids) in &params.collections {
-            if matches!(kind.as_str(), "coa:appearance" | "coa:vanity") {
+            if kind.starts_with(model.ruleset.as_str()) {
                 if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
-                    let _ = self.host.merge_collection(self.host_profile, kind, &set);
+                    let _ = self.host.merge_collection(self.host_profile, model.ruleset, kind, &set);
                 }
             }
         }
@@ -1625,6 +1642,7 @@ impl PortableService {
         );
         let offer = super::super::session::protocol::SessionOffer {
             protocol_version: super::super::session::protocol::PROTOCOL_VERSION,
+            ruleset: model.ruleset,
             session_id,
             character_id: cid,
             server_id: realm_id.to_string(),

@@ -112,6 +112,7 @@ pub struct RealmAccess {
     pub job_dir: PathBuf,
     pub data_dir: PathBuf,
     pub game_server_users: Vec<String>,
+    pub mode: Option<crate::realms::Mode>,
     source: Source,
 }
 
@@ -198,6 +199,7 @@ impl RealmAccess {
             job_dir: PathBuf::from(&d.job_dir),
             data_dir: PathBuf::from(&d.data_dir),
             game_server_users: d.game_server_users.clone(),
+            mode: None,
             source: Source::Descriptor(Box::new(d)),
         })
     }
@@ -219,6 +221,7 @@ impl RealmAccess {
             job_dir: root.join("Core").join("PortableImport"),
             data_dir: root.join("Data"),
             game_server_users: default_game_users(),
+            mode: None,
             source: Source::Install {
                 root: root.to_path_buf(),
             },
@@ -228,13 +231,19 @@ impl RealmAccess {
     /// The database with full rights (imports and updates of a stopped realm, reading characters).
     pub fn db(&self) -> Result<Db> {
         match &self.source {
-            Source::Install { root } => Db::from_repack(root, Account::Admin),
+            Source::Install { root } => {
+                let mut d = Db::from_repack(root, Account::Admin)?;
+                if let Some(m) = self.mode {
+                    d = d.for_realm(m);
+                }
+                Ok(d)
+            }
             Source::Descriptor(d) => Ok(Db::with_tools(
                 PathBuf::from(&d.mysql_bin),
                 d.db_port,
                 leak(&d.db_user),
                 d.db_password.expose(),
-                Mode::Coa,
+                self.mode.unwrap_or(Mode::Coa),
             )),
         }
     }

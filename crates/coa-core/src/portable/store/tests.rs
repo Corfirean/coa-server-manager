@@ -918,16 +918,17 @@ fn schema_1_item_mappings_survive_the_migration_as_unverified() {
 fn collection_union_never_removes_and_unchanged_means_no_revision() {
     let (mut store, profile) = fresh();
     let kind = "coa:wardrobe";
-    assert!(store.collection(profile, kind).unwrap().is_none());
+    let ruleset = Ruleset::Coa;
+    assert!(store.collection(profile, ruleset, kind).unwrap().is_none());
 
     // nothing stored, nothing incoming: nothing is created
     let empty = store
-        .merge_collection(profile, kind, &IdSet::new())
+        .merge_collection(profile, ruleset, kind, &IdSet::new())
         .unwrap();
     assert!(!empty.changed && empty.info.is_none());
 
     let first = store
-        .merge_collection(profile, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
+        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
         .unwrap();
     assert!(first.changed);
     assert_eq!(first.added, 3);
@@ -936,7 +937,7 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
 
     // another realm returns a subset: nothing is lost, nothing changes
     let subset = store
-        .merge_collection(profile, kind, &IdSet::from_ids([20]).unwrap())
+        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([20]).unwrap())
         .unwrap();
     assert!(!subset.changed);
     assert_eq!(
@@ -945,13 +946,13 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
         "same revision, same hash"
     );
     let same = store
-        .merge_collection(profile, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
+        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
         .unwrap();
     assert!(!same.changed);
 
     // a realm with new unlocks (and without the old ones) only adds
     let more = store
-        .merge_collection(profile, kind, &IdSet::from_ids([30, 40, 5]).unwrap())
+        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([30, 40, 5]).unwrap())
         .unwrap();
     assert!(more.changed);
     assert_eq!(more.added, 2);
@@ -959,22 +960,22 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
     assert_eq!((info2.revision, info2.count), (2, 5));
     assert_ne!(info2.hash, info1.hash);
 
-    let (info, set) = store.collection(profile, kind).unwrap().unwrap();
+    let (info, set) = store.collection(profile, ruleset, kind).unwrap().unwrap();
     assert_eq!(set.ids(), &[5, 10, 20, 30, 40]);
     assert_eq!(info, info2);
     assert_eq!(
-        store.collection_info(profile, kind).unwrap().unwrap(),
+        store.collection_info(profile, ruleset, kind).unwrap().unwrap(),
         info2
     );
 
     // kinds are separate collections
     assert!(store
-        .collection_info(profile, "coa:vanity")
+        .collection_info(profile, ruleset, "coa:vanity")
         .unwrap()
         .is_none());
     assert!(
         store
-            .merge_collection(profile, "wardrobe", &IdSet::new())
+            .merge_collection(profile, ruleset, "wardrobe", &IdSet::new())
             .is_err(),
         "kinds must be namespaced"
     );
@@ -990,7 +991,7 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
     ] {
         let ids: Vec<u32> = (0..count).map(|n| n * 7 + (n % 5)).collect();
         let set = IdSet::from_ids(ids).unwrap();
-        let merge = store.merge_collection(profile, kind, &set).unwrap();
+        let merge = store.merge_collection(profile, Ruleset::Coa, kind, &set).unwrap();
         assert_eq!(merge.added, count as usize);
         let stored_bytes: i64 = store
             .conn
@@ -1004,7 +1005,7 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
             stored_bytes < count as i64 * 2 + 16,
             "{kind}: {count} ids took {stored_bytes} bytes"
         );
-        let (_, back) = store.collection(profile, kind).unwrap().unwrap();
+        let (_, back) = store.collection(profile, Ruleset::Coa, kind).unwrap().unwrap();
         assert_eq!(back, set);
     }
 }
@@ -1013,7 +1014,7 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
 fn a_tampered_collection_is_detected() {
     let (mut store, profile) = fresh();
     store
-        .merge_collection(profile, "coa:vanity", &IdSet::from_ids([1, 2, 3]).unwrap())
+        .merge_collection(profile, Ruleset::Coa, "coa:vanity", &IdSet::from_ids([1, 2, 3]).unwrap())
         .unwrap();
     let forged = IdSet::from_ids([1, 2, 3, 4]).unwrap().encode();
     store
@@ -1021,7 +1022,7 @@ fn a_tampered_collection_is_detected() {
         .execute("UPDATE collection SET payload = ?1", [forged])
         .unwrap();
     assert!(matches!(
-        store.collection(profile, "coa:vanity"),
+        store.collection(profile, Ruleset::Coa, "coa:vanity"),
         Err(PortableError::CorruptSnapshot(_))
     ));
 }

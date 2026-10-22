@@ -128,7 +128,7 @@ fn a_changed_content_profile_makes_the_realm_report_its_collections_again_and_re
     } = rig(|_| {});
     let profile = owner.default_profile().unwrap();
     owner
-        .merge_collection(profile, APPEARANCE, &ids(1..=500))
+        .merge_collection(profile, Ruleset::Coa, APPEARANCE, &ids(1..=500))
         .unwrap();
     // the realm's client data knows 1..=300 of the canonical 500
     realm.knowledge = RealmKnowledge::new(ids(1..=300), IdSet::new());
@@ -186,7 +186,7 @@ fn a_changed_content_profile_makes_the_realm_report_its_collections_again_and_re
     );
     assert_eq!(
         o.store()
-            .collection(profile, APPEARANCE)
+            .collection(profile, Ruleset::Coa, APPEARANCE)
             .unwrap()
             .unwrap()
             .1

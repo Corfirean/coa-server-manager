@@ -27,6 +27,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/006_collections.sql"),
     include_str!("migrations/007_capabilities.sql"),
     include_str!("migrations/008_projection.sql"),
+    include_str!("migrations/009_multiruleset.sql"),
 ];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
@@ -173,12 +174,12 @@ impl Store {
     }
 
     fn init(conn: Connection) -> Result<Store> {
-        conn.pragma_update(None, "foreign_keys", true)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
         let _ = conn.pragma_update(None, "synchronous", "NORMAL");
         let mut store = Store { conn };
         store.migrate()?;
+        store.conn.pragma_update(None, "foreign_keys", true)?;
         Ok(store)
     }
 
@@ -328,12 +329,45 @@ impl Store {
         read_character(&self.conn, id)
     }
 
+    pub fn get_character(
+        &self,
+        id: CharacterId,
+        expected_ruleset: Option<Ruleset>,
+    ) -> Result<CharacterRecord> {
+        let rec = read_character(&self.conn, id)?;
+        if let Some(expected) = expected_ruleset {
+            if rec.ruleset != expected {
+                return Err(PortableError::RulesetMismatch {
+                    character: rec.ruleset,
+                    realm: expected,
+                });
+            }
+        }
+        Ok(rec)
+    }
+
     pub fn list_characters(&self, profile: ProfileId) -> Result<Vec<CharacterRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT character_id FROM character WHERE profile_id = ?1 ORDER BY character_id",
         )?;
         let ids: Vec<String> = stmt
             .query_map([profile.to_string()], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        ids.iter()
+            .map(|text| read_character(&self.conn, text.parse()?))
+            .collect()
+    }
+
+    pub fn list_characters_by_ruleset(
+        &self,
+        profile: ProfileId,
+        ruleset: Ruleset,
+    ) -> Result<Vec<CharacterRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT character_id FROM character WHERE profile_id = ?1 AND ruleset = ?2 ORDER BY character_id",
+        )?;
+        let ids: Vec<String> = stmt
+            .query_map(params![profile.to_string(), ruleset.as_str()], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?;
         ids.iter()
             .map(|text| read_character(&self.conn, text.parse()?))
@@ -663,6 +697,7 @@ impl Store {
     pub fn merge_collection(
         &mut self,
         profile: ProfileId,
+        ruleset: Ruleset,
         kind: &str,
         incoming: &IdSet,
     ) -> Result<CollectionMerge> {
@@ -682,7 +717,7 @@ impl Store {
                 "profile {profile} does not exist"
             )));
         }
-        let stored = read_collection(&tx, profile, kind)?;
+        let stored = read_collection(&tx, profile, ruleset, kind)?;
         let (current_set, revision) = match &stored {
             Some((info, set)) => (set.clone(), info.revision),
             None => (IdSet::new(), 0),
@@ -701,11 +736,11 @@ impl Store {
         let payload = merged.encode();
         let at = now();
         tx.execute(
-            "INSERT INTO collection(profile_id, kind, collection_revision, collection_hash, format_version, item_count, updated_at, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(profile_id, kind) DO UPDATE SET collection_revision = excluded.collection_revision, collection_hash = excluded.collection_hash,
+            "INSERT INTO collection(profile_id, ruleset, kind, collection_revision, collection_hash, format_version, item_count, updated_at, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(profile_id, ruleset, kind) DO UPDATE SET collection_revision = excluded.collection_revision, collection_hash = excluded.collection_hash,
                 format_version = excluded.format_version, item_count = excluded.item_count, updated_at = excluded.updated_at, payload = excluded.payload",
-            params![profile.to_string(), kind, (revision + 1) as i64, hash.as_slice(), PORTABLE_COLLECTION_FORMAT_VERSION, merged.len() as i64, at, payload],
+            params![profile.to_string(), ruleset.as_str(), kind, (revision + 1) as i64, hash.as_slice(), PORTABLE_COLLECTION_FORMAT_VERSION, merged.len() as i64, at, payload],
         )?;
         tx.commit()?;
         Ok(CollectionMerge {
@@ -725,13 +760,14 @@ impl Store {
     pub fn collection_info(
         &self,
         profile: ProfileId,
+        ruleset: Ruleset,
         kind: &str,
     ) -> Result<Option<CollectionInfo>> {
         let row = self
             .conn
             .query_row(
-                "SELECT collection_revision, collection_hash, item_count, updated_at FROM collection WHERE profile_id = ?1 AND kind = ?2",
-                params![profile.to_string(), kind],
+                "SELECT collection_revision, collection_hash, item_count, updated_at FROM collection WHERE profile_id = ?1 AND ruleset = ?2 AND kind = ?3",
+                params![profile.to_string(), ruleset.as_str(), kind],
                 |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?)),
             )
             .optional()?;
@@ -750,9 +786,41 @@ impl Store {
     pub fn collection(
         &self,
         profile: ProfileId,
+        ruleset: Ruleset,
         kind: &str,
     ) -> Result<Option<(CollectionInfo, IdSet)>> {
-        read_collection(&self.conn, profile, kind)
+        read_collection(&self.conn, profile, ruleset, kind)
+    }
+
+    pub fn list_collections(
+        &self,
+        profile: ProfileId,
+        ruleset: Ruleset,
+    ) -> Result<Vec<CollectionInfo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, collection_revision, collection_hash, item_count, updated_at FROM collection WHERE profile_id = ?1 AND ruleset = ?2 ORDER BY kind",
+        )?;
+        let rows = stmt.query_map(params![profile.to_string(), ruleset.as_str()], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (kind, revision, hash, count, updated_at) = row?;
+            out.push(CollectionInfo {
+                kind,
+                revision: revision as u64,
+                hash: hash_from_blob(hash)?,
+                count: count as usize,
+                updated_at,
+            });
+        }
+        Ok(out)
     }
 
     /// Rewrite the current revision exactly as format 1 stored it (the stores of Phases 1-5 hold such snapshots). Tests only.
@@ -776,12 +844,13 @@ impl Store {
 fn read_collection(
     conn: &Connection,
     profile: ProfileId,
+    ruleset: Ruleset,
     kind: &str,
 ) -> Result<Option<(CollectionInfo, IdSet)>> {
     let row = conn
         .query_row(
-            "SELECT collection_revision, collection_hash, item_count, updated_at, payload FROM collection WHERE profile_id = ?1 AND kind = ?2",
-            params![profile.to_string(), kind],
+            "SELECT collection_revision, collection_hash, item_count, updated_at, payload FROM collection WHERE profile_id = ?1 AND ruleset = ?2 AND kind = ?3",
+            params![profile.to_string(), ruleset.as_str(), kind],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?, r.get::<_, Vec<u8>>(4)?)),
         )
         .optional()?;

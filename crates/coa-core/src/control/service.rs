@@ -26,6 +26,7 @@ pub struct RealmInfo {
     pub automatic: bool,
     /// An address a player's game client can reach right now, when the owner has stated one. Not a relay and not discovery.
     pub route: Option<String>,
+    pub ruleset: crate::portable::model::Ruleset,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -303,6 +304,7 @@ impl HostService {
             Request::TransferOffer {
                 transfer_id,
                 character_id,
+                ruleset,
                 canonical_revision,
                 content_hash,
                 total_size,
@@ -311,6 +313,7 @@ impl HostService {
                 player,
                 transfer_id,
                 character_id,
+                ruleset,
                 canonical_revision,
                 content_hash,
                 total_size,
@@ -726,6 +729,7 @@ impl HostService {
         player: &Uuid,
         transfer_id: Uuid,
         character_id: Uuid,
+        ruleset: String,
         canonical_revision: u64,
         content_hash: String,
         total_size: usize,
@@ -740,6 +744,30 @@ impl HostService {
                 "This player has no account on this realm yet.",
             );
         };
+
+        // 0. Strict ruleset isolation: target realm ruleset must match offer ruleset
+        let info = match self.backend.info(&self.local_id) {
+            Ok(i) => i,
+            Err(e) => return unavailable("reading realm info", &e),
+        };
+        let offer_ruleset = match crate::portable::model::Ruleset::parse(&ruleset) {
+            Ok(r) => r,
+            Err(_) => return err(AppError::Incompatible, "Invalid ruleset in transfer offer."),
+        };
+        if offer_ruleset != info.ruleset {
+            return err(
+                AppError::Incompatible,
+                "Character ruleset does not match this realm.",
+            );
+        }
+        for kind in collections.keys() {
+            if !kind.starts_with(offer_ruleset.as_str()) {
+                return err(
+                    AppError::Incompatible,
+                    "Collection kind does not belong to this ruleset.",
+                );
+            }
+        }
 
         // 1. Ownership check: another player cannot overwrite a character claimed here
         if let Ok(Some(claim)) = self
@@ -1083,6 +1111,7 @@ impl HostService {
 #[cfg(any(test, feature = "testkit"))]
 pub mod fake {
     use super::*;
+    use crate::portable::Ruleset;
 
     #[derive(Default)]
     pub struct FakeRealm {
@@ -1141,6 +1170,7 @@ pub mod fake {
     impl RealmBackend for FakeRealm {
         fn info(&self, _: &str) -> Result<RealmInfo> {
             Ok(RealmInfo {
+                ruleset: Ruleset::Coa,
                 automatic: *self.automatic.lock().unwrap(),
                 route: self.route.lock().unwrap().clone(),
             })
@@ -1870,6 +1900,7 @@ mod tests {
 
         // 1. Offer
         let offer = Request::TransferOffer {
+            ruleset: "coa".into(),
             transfer_id: tid,
             character_id: cid,
             canonical_revision: 1,
@@ -1943,6 +1974,7 @@ mod tests {
         realm.incompatible.lock().unwrap().insert(cid);
 
         let offer = Request::TransferOffer {
+            ruleset: "coa".into(),
             transfer_id: tid,
             character_id: cid,
             canonical_revision: 1,
@@ -1982,6 +2014,7 @@ mod tests {
         let hash = hex::encode(Sha256::digest(&full));
 
         let offer = Request::TransferOffer {
+            ruleset: "coa".into(),
             transfer_id: tid,
             character_id: cid,
             canonical_revision: 1,
@@ -2076,6 +2109,7 @@ mod tests {
         let hash = hex::encode(Sha256::digest(&payload));
 
         let offer = Request::TransferOffer {
+            ruleset: "coa".into(),
             transfer_id: tid,
             character_id: cid,
             canonical_revision: 1,
@@ -2138,6 +2172,7 @@ mod tests {
         // Client starts a new transfer for the exact same committed revision: discovers committed state
         let tid2 = Uuid::now_v7();
         let offer2 = Request::TransferOffer {
+            ruleset: "coa".into(),
             transfer_id: tid2,
             character_id: cid,
             canonical_revision: 1,
@@ -2174,6 +2209,7 @@ mod tests {
         let hash = hex::encode(Sha256::digest(&payload));
 
         let offer = Request::TransferOffer {
+            ruleset: "coa".into(),
             transfer_id: tid,
             character_id: cid,
             canonical_revision: 1,
@@ -2240,6 +2276,7 @@ mod tests {
 
         let tid_impostor = Uuid::now_v7();
         let impostor_offer = Request::TransferOffer {
+            ruleset: "coa".into(),
             transfer_id: tid_impostor,
             character_id: cid,
             canonical_revision: 2,
@@ -2277,6 +2314,7 @@ mod tests {
             &p,
             "K",
             Request::TransferOffer {
+                ruleset: "coa".into(),
                 transfer_id: tid1,
                 character_id: cid,
                 canonical_revision: 1,
@@ -2328,6 +2366,7 @@ mod tests {
             &p,
             "K",
             Request::TransferOffer {
+                ruleset: "coa".into(),
                 transfer_id: tid2,
                 character_id: cid,
                 canonical_revision: 2,
@@ -2376,5 +2415,55 @@ mod tests {
             1,
             "update, not duplicate import"
         );
+    }
+
+    #[test]
+    fn cross_ruleset_transfer_offers_are_rejected_before_mutation() {
+        let (realm, s, p, _acc) = claimed_setup();
+        let mut session = Session::default();
+        let cid = Uuid::now_v7();
+        let tid = Uuid::now_v7();
+
+        // 1. Host is CoA, offer is Wildcard -> Rejected
+        let wc_offer = Request::TransferOffer {
+            ruleset: "wildcard".into(),
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: "a".repeat(64),
+            total_size: 100,
+            collections: BTreeMap::new(),
+        };
+        let r = s.handle(&mut session, &p, "K", wc_offer);
+        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }));
+
+        // 2. Host is CoA, offer is Reborn -> Rejected
+        let rb_offer = Request::TransferOffer {
+            ruleset: "reborn".into(),
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: "a".repeat(64),
+            total_size: 100,
+            collections: BTreeMap::new(),
+        };
+        let r = s.handle(&mut session, &p, "K", rb_offer);
+        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }));
+
+        // 3. Collection kinds for another ruleset -> Rejected
+        let foreign_coll_offer = Request::TransferOffer {
+            ruleset: "coa".into(),
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: "a".repeat(64),
+            total_size: 100,
+            collections: BTreeMap::from([("wildcard:appearance".into(), vec![1, 2, 3])]),
+        };
+        let r = s.handle(&mut session, &p, "K", foreign_coll_offer);
+        assert!(matches!(r, Response::Error { code: AppError::Incompatible, .. }));
+
+        // Ensure 0 DB imports happened
+        assert!(realm.imported.lock().unwrap().is_empty());
     }
 }

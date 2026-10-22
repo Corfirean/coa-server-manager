@@ -176,6 +176,12 @@ impl<'a> HostService<'a> {
                 found: model.character_id,
             });
         }
+        if offer.ruleset != model.ruleset {
+            return Err(PortableError::RulesetMismatch {
+                character: model.ruleset,
+                realm: offer.ruleset,
+            });
+        }
         self.store
             .host_install_copy(profile, &model, offer.canonical_revision, "owner")?;
         self.store.host_prepare_session(offer, &model)
@@ -606,8 +612,9 @@ impl<'a> HostService<'a> {
             let Some(account) = bridge.account_of(guid)? else {
                 continue;
             };
-            for kind in COLLECTION_KINDS {
-                self.observe_collection(bridge, account, kind, now_secs, events)?;
+            let character = self.store.character(s.character_id)?;
+            for kind in collection_kinds(character.ruleset) {
+                self.observe_collection(bridge, account, character.ruleset, kind, now_secs, events)?;
             }
         }
         Ok(())
@@ -619,6 +626,7 @@ impl<'a> HostService<'a> {
         &mut self,
         bridge: &mut dyn RealmBridge,
         account: u32,
+        ruleset: crate::portable::model::Ruleset,
         kind: &str,
         now_secs: u64,
         events: &mut Vec<HostEvent>,
@@ -644,7 +652,7 @@ impl<'a> HostService<'a> {
             )?;
             return Ok(());
         }
-        let bytes = collection_to_json(&CollectionObserved::new(&self.server_id, kind, &set)?)?;
+        let bytes = collection_to_json(&CollectionObserved::new(&self.server_id, ruleset, kind, &set)?)?;
         self.store.host_collection_observe(
             &self.server_id,
             account,
@@ -674,7 +682,7 @@ impl<'a> HostService<'a> {
         account: u32,
         ack: &CollectionAck,
     ) -> Result<Option<Applied>> {
-        if !carried_kind(&ack.kind) {
+        if !carried_kind_for(&ack.kind, ack.ruleset) {
             return Err(PortableError::Invalid(
                 "the acknowledgement is for a kind that is not carried".into(),
             ));
@@ -742,7 +750,7 @@ impl<'a> HostService<'a> {
         account: u32,
         state: &CollectionState,
     ) -> Result<Option<Applied>> {
-        if !carried_kind(&state.kind) {
+        if !carried_kind_for(&state.kind, state.ruleset) {
             return Err(PortableError::Invalid(
                 "the collection kind is not carried".into(),
             ));

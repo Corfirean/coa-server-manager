@@ -122,22 +122,39 @@ pub fn modules_of(root: &Path) -> Vec<ModuleEntry> {
     out
 }
 
-/// The realm a local id names: an installed server (`srv-<install id>` or the bare install id) or a prepared descriptor.
+/// The realm a local id names: an installed server (`srv-<install id>`, `srv-<install id>:<ruleset>` or the bare install id) or a prepared descriptor.
 pub fn find_access(
     descriptors: &Path,
     installs: &[(String, PathBuf)],
     local_id: &str,
 ) -> Option<RealmAccess> {
+    let (base_id, explicit_mode) = if let Some((base, rs)) = local_id.split_once(':') {
+        let m = match rs {
+            "coa" => Some(crate::realms::Mode::Coa),
+            "wildcard" => Some(crate::realms::Mode::Wildcard),
+            "reborn" => Some(crate::realms::Mode::Reborn),
+            _ => None,
+        };
+        (base, m)
+    } else {
+        (local_id, None)
+    };
     if let Some((id, root)) = installs
         .iter()
-        .find(|(id, _)| format!("srv-{id}") == local_id || id == local_id)
+        .find(|(id, _)| format!("srv-{id}") == base_id || id == base_id)
     {
-        return Some(RealmAccess::from_install(id, root));
+        let mut access = RealmAccess::from_install(id, root);
+        if let Some(m) = explicit_mode {
+            access.id = format!("srv-{id}:{}", m.name());
+            access.name = format!("{} — {}", access.name, m.label());
+            access.mode = Some(m);
+        }
+        return Some(access);
     }
     let (found, _) = load_descriptors(descriptors);
     found
         .into_iter()
-        .find(|d| d.id == local_id)
+        .find(|d| d.id == local_id || d.id == base_id)
         .and_then(|d| RealmAccess::from_descriptor(d).ok())
 }
 

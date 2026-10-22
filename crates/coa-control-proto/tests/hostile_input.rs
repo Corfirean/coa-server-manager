@@ -90,6 +90,7 @@ fn test_app_request_hostile_limits_and_validation() {
     let offer = Request::TransferOffer {
         transfer_id: Uuid::now_v7(),
         character_id: Uuid::now_v7(),
+        ruleset: "coa".into(),
         canonical_revision: 1,
         content_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
         total_size: 1024,
@@ -105,12 +106,25 @@ fn test_app_request_hostile_limits_and_validation() {
     let bad_hash_offer = Request::TransferOffer {
         transfer_id: Uuid::now_v7(),
         character_id: Uuid::now_v7(),
+        ruleset: "coa".into(),
         canonical_revision: 1,
         content_hash: "not_a_valid_hex_hash".into(),
         total_size: 1024,
         collections: BTreeMap::new(),
     };
     assert!(decode_request(&encode_request(&bad_hash_offer)).is_err());
+
+    // 4b. Invalid ruleset rejected
+    let bad_ruleset_offer = Request::TransferOffer {
+        transfer_id: Uuid::now_v7(),
+        character_id: Uuid::now_v7(),
+        ruleset: "invalid_ruleset".into(),
+        canonical_revision: 1,
+        content_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+        total_size: 1024,
+        collections: BTreeMap::new(),
+    };
+    assert!(decode_request(&encode_request(&bad_ruleset_offer)).is_err());
 
     // 5. TransferChunk offset out of bounds
     let bad_offset_chunk = Request::TransferChunk {

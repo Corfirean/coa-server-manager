@@ -49,10 +49,12 @@ impl<'a> OwnerService<'a> {
     pub fn handle_collection(&mut self, bytes: &[u8]) -> Result<CollectionAck> {
         let msg: CollectionObserved = collection_from_json(bytes)?;
         let profile = self.store.default_profile()?;
+        let ruleset = msg.ruleset;
         let rejected = |store: &Store, reason: &str| -> Result<CollectionAck> {
-            let info = store.collection_info(profile, &msg.kind).ok().flatten();
+            let info = store.collection_info(profile, ruleset, &msg.kind).ok().flatten();
             Ok(CollectionAck {
                 protocol_version: PROTOCOL_VERSION,
+                ruleset,
                 kind: msg.kind.clone(),
                 outcome: CollectionOutcome::Rejected(reason.to_string()),
                 collection_revision: info.as_ref().map_or(0, |i| i.revision),
@@ -60,17 +62,17 @@ impl<'a> OwnerService<'a> {
                 canonical: None,
             })
         };
-        if !carried_kind(&msg.kind) {
-            return rejected(self.store, "this collection kind is not carried");
+        if !carried_kind_for(&msg.kind, ruleset) {
+            return rejected(self.store, "this collection kind is not carried for this ruleset");
         }
         let observed = match msg.set.open(&msg.kind) {
             Ok(set) => set,
             Err(e) => return rejected(self.store, &e.to_string()),
         };
-        let merge = self.store.merge_collection(profile, &msg.kind, &observed)?;
+        let merge = self.store.merge_collection(profile, ruleset, &msg.kind, &observed)?;
         let (info, canonical) = self
             .store
-            .collection(profile, &msg.kind)?
+            .collection(profile, ruleset, &msg.kind)?
             .map(|(i, s)| (Some(i), s))
             .unwrap_or((None, IdSet::new()));
         let canonical_state = match (
@@ -78,12 +80,13 @@ impl<'a> OwnerService<'a> {
             observed.count_new(&canonical) == 0 && canonical.count_new(&observed) == 0,
         ) {
             (Some(info), false) => {
-                Some(CollectionState::new(&msg.kind, info.revision, &canonical)?)
+                Some(CollectionState::new(ruleset, &msg.kind, info.revision, &canonical)?)
             }
             _ => None,
         };
         Ok(CollectionAck {
             protocol_version: PROTOCOL_VERSION,
+            ruleset,
             kind: msg.kind,
             outcome: if merge.changed {
                 CollectionOutcome::Applied
@@ -97,12 +100,12 @@ impl<'a> OwnerService<'a> {
     }
 
     /// The canonical collections as messages (for a realm that has none of them yet, or a new one).
-    pub fn collection_states(&mut self) -> Result<Vec<CollectionState>> {
+    pub fn collection_states(&mut self, ruleset: crate::portable::model::Ruleset) -> Result<Vec<CollectionState>> {
         let profile = self.store.default_profile()?;
         let mut out = Vec::new();
-        for kind in COLLECTION_KINDS {
-            if let Some((info, set)) = self.store.collection(profile, kind)? {
-                out.push(CollectionState::new(kind, info.revision, &set)?);
+        for kind in collection_kinds(ruleset) {
+            if let Some((info, set)) = self.store.collection(profile, ruleset, kind)? {
+                out.push(CollectionState::new(ruleset, kind, info.revision, &set)?);
             }
         }
         Ok(out)

@@ -21,6 +21,12 @@ pub const PROTOCOL_VERSION: u32 = 2;
 pub const MAX_MESSAGE_BYTES: usize = MAX_COMPRESSED_BYTES * 4 / 3 + 64 * 1024;
 /// The most item/pet ids an acknowledgement lists.
 pub const MAX_ACK_IDS: usize = 20_000;
+/// The largest serialized collection message accepted.
+pub const MAX_COLLECTION_MESSAGE_BYTES: usize = 1024 * 1024;
+
+fn default_session_ruleset() -> super::super::model::Ruleset {
+    super::super::model::Ruleset::Coa
+}
 
 /// A sealed snapshot: the hash of the canonical JSON and the compressed bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +85,8 @@ impl Envelope {
 #[serde(deny_unknown_fields)]
 pub struct SessionOffer {
     pub protocol_version: u32,
+    #[serde(default = "default_session_ruleset")]
+    pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     pub character_id: CharacterId,
     pub server_id: String,
@@ -123,6 +131,8 @@ impl SessionProgression {
 #[serde(deny_unknown_fields)]
 pub struct PortableSessionStarted {
     pub protocol_version: u32,
+    #[serde(default = "default_session_ruleset")]
+    pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     pub character_id: CharacterId,
     pub server_id: String,
@@ -139,6 +149,8 @@ pub struct PortableSessionStarted {
 #[serde(deny_unknown_fields)]
 pub struct PortableCheckpoint {
     pub protocol_version: u32,
+    #[serde(default = "default_session_ruleset")]
+    pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     pub character_id: CharacterId,
     pub server_id: String,
@@ -188,6 +200,8 @@ pub struct NextSession {
 #[serde(deny_unknown_fields)]
 pub struct OwnerAck {
     pub protocol_version: u32,
+    #[serde(default = "default_session_ruleset")]
+    pub ruleset: super::super::model::Ruleset,
     pub session_id: SessionId,
     /// 0 acknowledges `PortableSessionStarted`.
     pub sequence: u64,
@@ -250,16 +264,17 @@ impl PortableSessionStarted {
         if let Some(p) = &progression {
             p.validate()?;
         }
-        let b0 = Envelope::seal(b0)?;
+        let sealed_b0 = Envelope::seal(b0)?;
         Ok(Self {
             protocol_version: PROTOCOL_VERSION,
+            ruleset: b0.ruleset,
             session_id,
             character_id,
             server_id: server_id.to_string(),
             base_canonical_revision,
             baseline_generation,
-            content_hash: b0.content_hash.clone(),
-            b0,
+            content_hash: sealed_b0.content_hash.clone(),
+            b0: sealed_b0,
             progression,
         })
     }
@@ -279,6 +294,7 @@ impl PortableCheckpoint {
         let realm_snapshot = Envelope::seal(b1)?;
         Ok(Self {
             protocol_version: PROTOCOL_VERSION,
+            ruleset: b1.ruleset,
             session_id,
             character_id,
             server_id: server_id.to_string(),
@@ -300,13 +316,30 @@ impl PortableCheckpoint {
 
 use super::super::collection::{valid_kind, IdSet, MAX_ENCODED_BYTES};
 
-/// The collection kinds the v1 protocol carries.
-pub const COLLECTION_KINDS: [&str; 2] = ["coa:appearance", "coa:vanity"];
-/// A collection message carries at most one encoded set (base64: 4/3) plus a little structure.
-pub const MAX_COLLECTION_MESSAGE_BYTES: usize = MAX_ENCODED_BYTES * 4 / 3 + 64 * 1024;
+/// The collection kinds the protocol carries.
+pub const COLLECTION_KINDS: [&str; 6] = [
+    "coa:appearance",
+    "coa:vanity",
+    "wildcard:appearance",
+    "wildcard:vanity",
+    "reborn:appearance",
+    "reborn:vanity",
+];
+
+pub fn collection_kinds(ruleset: super::super::model::Ruleset) -> &'static [&'static str] {
+    match ruleset {
+        super::super::model::Ruleset::Coa => &["coa:appearance", "coa:vanity"],
+        super::super::model::Ruleset::Wildcard => &["wildcard:appearance", "wildcard:vanity"],
+        super::super::model::Ruleset::Reborn => &["reborn:appearance", "reborn:vanity"],
+    }
+}
 
 pub fn carried_kind(kind: &str) -> bool {
     valid_kind(kind) && COLLECTION_KINDS.contains(&kind)
+}
+
+pub fn carried_kind_for(kind: &str, ruleset: super::super::model::Ruleset) -> bool {
+    valid_kind(kind) && collection_kinds(ruleset).contains(&kind)
 }
 
 /// A compact id set as it travels: hash of the kind and content, number of ids, base64 of [`IdSet::encode`].
@@ -365,6 +398,8 @@ impl CompactSet {
 #[serde(deny_unknown_fields)]
 pub struct CollectionObserved {
     pub protocol_version: u32,
+    #[serde(default = "default_session_ruleset")]
+    pub ruleset: super::super::model::Ruleset,
     pub server_id: String,
     pub kind: String,
     pub set: CompactSet,
@@ -375,6 +410,8 @@ pub struct CollectionObserved {
 #[serde(deny_unknown_fields)]
 pub struct CollectionState {
     pub protocol_version: u32,
+    #[serde(default = "default_session_ruleset")]
+    pub ruleset: super::super::model::Ruleset,
     pub kind: String,
     pub collection_revision: u64,
     pub set: CompactSet,
@@ -400,6 +437,8 @@ pub enum CollectionOutcome {
 #[serde(deny_unknown_fields)]
 pub struct CollectionAck {
     pub protocol_version: u32,
+    #[serde(default = "default_session_ruleset")]
+    pub ruleset: super::super::model::Ruleset,
     pub kind: String,
     pub outcome: CollectionOutcome,
     pub collection_revision: u64,
@@ -440,14 +479,15 @@ pub fn collection_from_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
 }
 
 impl CollectionObserved {
-    pub fn new(server_id: &str, kind: &str, set: &IdSet) -> Result<Self> {
-        if !carried_kind(kind) {
+    pub fn new(server_id: &str, ruleset: super::super::model::Ruleset, kind: &str, set: &IdSet) -> Result<Self> {
+        if !carried_kind_for(kind, ruleset) {
             return Err(PortableError::Invalid(format!(
-                "collection kind {kind:?} is not carried"
+                "collection kind {kind:?} is not carried for {ruleset:?}"
             )));
         }
         Ok(Self {
             protocol_version: PROTOCOL_VERSION,
+            ruleset,
             server_id: server_id.to_string(),
             kind: kind.to_string(),
             set: CompactSet::seal(kind, set)?,
@@ -456,9 +496,10 @@ impl CollectionObserved {
 }
 
 impl CollectionState {
-    pub fn new(kind: &str, revision: u64, set: &IdSet) -> Result<Self> {
+    pub fn new(ruleset: super::super::model::Ruleset, kind: &str, revision: u64, set: &IdSet) -> Result<Self> {
         Ok(Self {
             protocol_version: PROTOCOL_VERSION,
+            ruleset,
             kind: kind.to_string(),
             collection_revision: revision,
             set: CompactSet::seal(kind, set)?,

@@ -86,9 +86,15 @@ impl LocalBackend {
 impl RealmBackend for LocalBackend {
     fn info(&self, local_id: &str) -> Result<RealmInfo> {
         let cfg = settings::load(&self.settings_dir)?.realms.remove(local_id);
+        let ruleset = self
+            .access(local_id)
+            .and_then(|a| a.db())
+            .and_then(|db| realm::ruleset_of(&db).map_err(|e| Error::Invalid(e.to_string())))
+            .unwrap_or(crate::portable::model::Ruleset::Coa);
         Ok(RealmInfo {
             automatic: cfg.as_ref().is_none_or(|c| !c.existing_only),
             route: cfg.and_then(|c| c.route),
+            ruleset,
         })
     }
 

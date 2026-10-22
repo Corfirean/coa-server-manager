@@ -290,6 +290,7 @@ pub(crate) async fn join_realm(
                         .transfer_character(
                             &mut ch,
                             cuuid,
+                            bundle.ruleset.as_str(),
                             1,
                             &bundle.payload,
                             bundle.content_hash,

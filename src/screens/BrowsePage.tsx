@@ -50,7 +50,9 @@ function Online({ p }: { p: RealmSummary["population"] }) {
 }
 
 function Mode({ ruleset }: { ruleset: string }) {
-  return <span>{ruleset === "wildcard" ? "Wildcard" : "CoA"}</span>;
+  if (ruleset === "wildcard") return <span>Wildcard</span>;
+  if (ruleset === "reborn") return <span>Warcraft Reborn</span>;
+  return <span>CoA</span>;
 }
 
 function compactRates(r: RealmSummary["rates"], t: (k: Key, v?: Record<string, string | number>) => string): string {
@@ -166,7 +168,7 @@ export function BrowsePage() {
   const { t } = useI18n();
   const { status } = useRegistryStatus(5000);
   const [q, setQ] = useState("");
-  const [ruleset, setRuleset] = useState<"" | "coa" | "wildcard">("");
+  const [ruleset, setRuleset] = useState<"" | "coa" | "wildcard" | "reborn">("");
   const [capMin, setCapMin] = useState("");
   const [capMax, setCapMax] = useState("");
   const [module, setModule] = useState("");
@@ -247,8 +249,8 @@ export function BrowsePage() {
 
     <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
       <input aria-label={t("browse.search")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("browse.search")} className="col-span-2 rounded-md border border-line bg-card px-3 py-2 text-sm" />
-      <select aria-label={t("browse.mode")} value={ruleset} onChange={(e) => setRuleset(e.target.value as "" | "coa" | "wildcard")} className="rounded-md border border-line bg-card px-3 py-2 text-sm">
-        <option value="">{t("browse.mode")}: {t("browse.any")}</option><option value="coa">CoA</option><option value="wildcard">Wildcard</option>
+      <select aria-label={t("browse.mode")} value={ruleset} onChange={(e) => setRuleset(e.target.value as "" | "coa" | "wildcard" | "reborn")} className="rounded-md border border-line bg-card px-3 py-2 text-sm">
+        <option value="">{t("browse.mode")}: {t("browse.any")}</option><option value="coa">CoA</option><option value="wildcard">Wildcard</option><option value="reborn">Warcraft Reborn</option>
       </select>
       <div className="flex items-center gap-1 text-sm"><input aria-label={t("browse.capMin")} inputMode="numeric" value={capMin} onChange={(e) => setCapMin(e.target.value.replace(/\D/g, ""))} placeholder={t("browse.capMin")} className="w-full rounded-md border border-line bg-card px-2 py-2" /><span className="text-muted">–</span><input aria-label={t("browse.capMax")} inputMode="numeric" value={capMax} onChange={(e) => setCapMax(e.target.value.replace(/\D/g, ""))} placeholder={t("browse.capMax")} className="w-full rounded-md border border-line bg-card px-2 py-2" /></div>
       <select aria-label={t("browse.module")} value={module} onChange={(e) => setModule(e.target.value)} className="rounded-md border border-line bg-card px-3 py-2 text-sm">

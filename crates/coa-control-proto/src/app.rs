@@ -16,6 +16,10 @@ pub const MIN_PASSWORD: usize = 8;
 pub const MAX_PASSWORD: usize = 16;
 pub const MAX_CHARACTERS: usize = 200;
 
+fn default_ruleset() -> String {
+    "coa".to_string()
+}
+
 /// A game account name: 3 to 16 ASCII letters, digits or `_`, not beginning or ending with `_`.
 pub fn valid_username(s: &str) -> bool {
     (MIN_USERNAME..=MAX_USERNAME).contains(&s.len())
@@ -103,6 +107,8 @@ pub enum Request {
     TransferOffer {
         transfer_id: Uuid,
         character_id: Uuid,
+        #[serde(default = "default_ruleset")]
+        ruleset: String,
         canonical_revision: u64,
         content_hash: String,
         total_size: usize,
@@ -273,11 +279,15 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request> {
             return invalid("the client name is too long")
         }
         Request::TransferOffer {
+            ruleset,
             content_hash,
             total_size,
             collections,
             ..
         } => {
+            if !matches!(ruleset.as_str(), "coa" | "wildcard" | "reborn") {
+                return invalid("transfer ruleset must be coa, wildcard, or reborn");
+            }
             if content_hash.len() != 64 || !content_hash.chars().all(|c| c.is_ascii_hexdigit()) {
                 return invalid("transfer content hash must be 64 hex characters");
             }
@@ -430,6 +440,7 @@ mod tests {
         let offer = Request::TransferOffer {
             transfer_id: tid,
             character_id: cid,
+            ruleset: "coa".into(),
             canonical_revision: 5,
             content_hash: hash.clone(),
             total_size: 1024,
@@ -442,6 +453,7 @@ mod tests {
         let bad_hash = Request::TransferOffer {
             transfer_id: tid,
             character_id: cid,
+            ruleset: "coa".into(),
             canonical_revision: 5,
             content_hash: "too_short".into(),
             total_size: 1024,

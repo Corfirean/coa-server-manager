@@ -229,7 +229,8 @@ impl ListQuery {
                     q.ruleset = Some(match value.as_str() {
                         "coa" => Ruleset::Coa,
                         "wildcard" => Ruleset::Wildcard,
-                        _ => return invalid("ruleset is coa or wildcard"),
+                        "reborn" => Ruleset::Reborn,
+                        _ => return invalid("ruleset is coa, wildcard or reborn"),
                     })
                 }
                 "cap_min" => q.cap_min = Some(number("cap_min", &value, 255)?),

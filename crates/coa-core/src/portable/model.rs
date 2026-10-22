@@ -59,12 +59,13 @@ pub mod limits {
 
 use limits::*;
 
-/// A character belongs to exactly one ruleset for its whole life; CoA and Wildcard never mix.
+/// A character belongs to exactly one ruleset for its whole life; rulesets never mix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ruleset {
     Coa,
     Wildcard,
+    Reborn,
 }
 
 impl Ruleset {
@@ -72,12 +73,47 @@ impl Ruleset {
         match self {
             Ruleset::Coa => "coa",
             Ruleset::Wildcard => "wildcard",
+            Ruleset::Reborn => "reborn",
+        }
+    }
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Ruleset::Coa => "Conquest of Azeroth",
+            Ruleset::Wildcard => "Wildcard",
+            Ruleset::Reborn => "Warcraft Reborn",
+        }
+    }
+    pub fn realm_id(self) -> u32 {
+        match self {
+            Ruleset::Coa => 1,
+            Ruleset::Wildcard => 2,
+            Ruleset::Reborn => 3,
+        }
+    }
+    pub fn schema(self, kind: &str) -> &'static str {
+        match (self, kind) {
+            (_, "auth") => "acore_auth",
+            (Self::Coa, "characters") => "acore_characters",
+            (Self::Coa, "world") => "acore_world",
+            (Self::Wildcard, "characters") => "acore_characters_wildcard",
+            (Self::Wildcard, "world") => "acore_world_wildcard",
+            (Self::Reborn, "characters") => "acore_characters_reborn",
+            (Self::Reborn, "world") => "acore_world_reborn",
+            _ => "acore_characters",
+        }
+    }
+    pub fn collection_namespace(self) -> &'static str {
+        match self {
+            Ruleset::Coa => "coa",
+            Ruleset::Wildcard => "wildcard",
+            Ruleset::Reborn => "reborn",
         }
     }
     pub fn parse(s: &str) -> Result<Self> {
         match s {
             "coa" => Ok(Ruleset::Coa),
             "wildcard" => Ok(Ruleset::Wildcard),
+            "reborn" => Ok(Ruleset::Reborn),
             other => Err(PortableError::Invalid(format!("unknown ruleset {other:?}"))),
         }
     }
@@ -86,6 +122,46 @@ impl Ruleset {
 impl std::fmt::Display for Ruleset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl From<crate::realms::Mode> for Ruleset {
+    fn from(m: crate::realms::Mode) -> Self {
+        match m {
+            crate::realms::Mode::Coa => Ruleset::Coa,
+            crate::realms::Mode::Wildcard => Ruleset::Wildcard,
+            crate::realms::Mode::Reborn => Ruleset::Reborn,
+        }
+    }
+}
+
+impl From<Ruleset> for crate::realms::Mode {
+    fn from(r: Ruleset) -> Self {
+        match r {
+            Ruleset::Coa => crate::realms::Mode::Coa,
+            Ruleset::Wildcard => crate::realms::Mode::Wildcard,
+            Ruleset::Reborn => crate::realms::Mode::Reborn,
+        }
+    }
+}
+
+impl From<coa_registry_proto::caps::Ruleset> for Ruleset {
+    fn from(r: coa_registry_proto::caps::Ruleset) -> Self {
+        match r {
+            coa_registry_proto::caps::Ruleset::Coa => Ruleset::Coa,
+            coa_registry_proto::caps::Ruleset::Wildcard => Ruleset::Wildcard,
+            coa_registry_proto::caps::Ruleset::Reborn => Ruleset::Reborn,
+        }
+    }
+}
+
+impl From<Ruleset> for coa_registry_proto::caps::Ruleset {
+    fn from(r: Ruleset) -> Self {
+        match r {
+            Ruleset::Coa => coa_registry_proto::caps::Ruleset::Coa,
+            Ruleset::Wildcard => coa_registry_proto::caps::Ruleset::Wildcard,
+            Ruleset::Reborn => coa_registry_proto::caps::Ruleset::Reborn,
+        }
     }
 }
 

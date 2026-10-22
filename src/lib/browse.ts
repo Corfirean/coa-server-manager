@@ -12,7 +12,7 @@ export interface Rates {
 export interface ModuleEntry { id: string; version: string | null; enabled: boolean }
 export interface Population { players: number; bots: number; capacity: number | null }
 export interface AccountProvisioning { automatic: boolean; existing_only: boolean }
-export type Ruleset = "coa" | "wildcard";
+export type Ruleset = "coa" | "wildcard" | "reborn";
 
 export interface RealmSummary {
   realm_id: string;

@@ -413,6 +413,7 @@ impl PlayerControl {
         &self,
         ch: &mut PlayerChannel,
         character_id: Uuid,
+        ruleset: &str,
         canonical_revision: u64,
         payload: &[u8],
         content_hash: [u8; 32],
@@ -423,6 +424,7 @@ impl PlayerControl {
         let offer = Request::TransferOffer {
             transfer_id,
             character_id,
+            ruleset: ruleset.to_string(),
             canonical_revision,
             content_hash: content_hash_str.clone(),
             total_size: payload.len(),

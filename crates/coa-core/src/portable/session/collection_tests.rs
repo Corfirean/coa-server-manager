@@ -7,7 +7,7 @@ use super::*;
 use crate::portable::collection::IdSet;
 use crate::portable::fixtures::geared_level_eighty;
 use crate::portable::ids::{CharacterId, SessionId};
-use crate::portable::model::PortableCharacter;
+use crate::portable::model::{PortableCharacter, Ruleset};
 use crate::portable::realm::knowledge::RealmKnowledge;
 use crate::portable::store::Store;
 
@@ -328,10 +328,10 @@ fn a_realm_that_lacks_an_unlock_never_removes_it_and_gets_what_it_knows_back() {
     // the Owner already holds a big wardrobe from other realms
     let profile = owner.default_profile().unwrap();
     owner
-        .merge_collection(profile, APPEARANCE, &ids(1..=500))
+        .merge_collection(profile, Ruleset::Coa, APPEARANCE, &ids(1..=500))
         .unwrap();
     owner
-        .merge_collection(profile, VANITY, &ids(1000..=1010))
+        .merge_collection(profile, Ruleset::Coa, VANITY, &ids(1000..=1010))
         .unwrap();
     // this realm knows only part of it and holds only a few
     realm.knowledge = knows(ids(1..=300), ids(1000..=1005));
@@ -344,7 +344,7 @@ fn a_realm_that_lacks_an_unlock_never_removes_it_and_gets_what_it_knows_back() {
     // the Owner unioned the realm's ids (700 included: the realm showed it) and kept everything else
     let appearance_ack = acks.iter().find(|a| a.kind == APPEARANCE).unwrap();
     assert_eq!(appearance_ack.outcome, CollectionOutcome::Applied);
-    let (_, canonical) = o.store().collection(profile, APPEARANCE).unwrap().unwrap();
+    let (_, canonical) = o.store().collection(profile, Ruleset::Coa, APPEARANCE).unwrap().unwrap();
     assert_eq!(canonical.len(), 501);
     assert!(
         canonical.contains(700) && canonical.contains(1) && canonical.contains(500),
@@ -371,12 +371,12 @@ fn an_account_with_unlocks_arrives_on_a_second_realm_from_the_owners_state_alone
     let mut owner = Store::open_in_memory().unwrap();
     let profile = owner.default_profile().unwrap();
     owner
-        .merge_collection(profile, APPEARANCE, &ids(1..=40))
+        .merge_collection(profile, Ruleset::Coa, APPEARANCE, &ids(1..=40))
         .unwrap();
     owner
-        .merge_collection(profile, VANITY, &ids(50..=60))
+        .merge_collection(profile, Ruleset::Coa, VANITY, &ids(50..=60))
         .unwrap();
-    let states = OwnerService::new(&mut owner).collection_states().unwrap();
+    let states = OwnerService::new(&mut owner).collection_states(Ruleset::Coa).unwrap();
     assert_eq!(states.len(), 2);
 
     let mut host = Store::open_in_memory().unwrap();
@@ -416,7 +416,7 @@ fn hostile_or_broken_collection_messages_change_nothing() {
     let profile = owner.default_profile().unwrap();
     let mut o = OwnerService::new(&mut owner);
     let good =
-        collection_to_json(&CollectionObserved::new(SERVER, APPEARANCE, &ids(1..=10)).unwrap())
+        collection_to_json(&CollectionObserved::new(SERVER, Ruleset::Coa, APPEARANCE, &ids(1..=10)).unwrap())
             .unwrap();
     assert_eq!(
         o.handle_collection(&good).unwrap().outcome,
@@ -424,7 +424,7 @@ fn hostile_or_broken_collection_messages_change_nothing() {
     );
     let state_of = |o: &OwnerService| {
         o.store()
-            .collection_info(profile, APPEARANCE)
+            .collection_info(profile, Ruleset::Coa, APPEARANCE)
             .unwrap()
             .unwrap()
     };
@@ -555,7 +555,7 @@ fn ten_thousand_and_fifty_thousand_ids_stay_cheap() {
         assert_eq!(realm.full_reads, reads);
         let stored = o
             .store()
-            .collection_info(profile, APPEARANCE)
+            .collection_info(profile, Ruleset::Coa, APPEARANCE)
             .unwrap()
             .unwrap();
         assert_eq!(stored.count, count as usize);
@@ -565,7 +565,7 @@ fn ten_thousand_and_fifty_thousand_ids_stay_cheap() {
         let mut empty_realm = FakeRealm::new(GUID);
         empty_realm.knowledge = realm.knowledge.clone();
         let state = o
-            .collection_states()
+            .collection_states(Ruleset::Coa)
             .unwrap()
             .into_iter()
             .find(|s| s.kind == APPEARANCE)
@@ -627,7 +627,7 @@ fn a_lost_acknowledgement_resends_the_same_set_and_the_owner_counts_it_once() {
         .any(|p| p.kind == APPEARANCE));
     assert_eq!(
         o.store()
-            .collection_info(profile, APPEARANCE)
+            .collection_info(profile, Ruleset::Coa, APPEARANCE)
             .unwrap()
             .unwrap()
             .revision,
