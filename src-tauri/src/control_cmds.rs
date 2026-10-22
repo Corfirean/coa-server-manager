@@ -285,6 +285,17 @@ pub(crate) async fn join_realm(
                     let char_id_str = character.clone();
                     let bundle =
                         portable.call(move |s| s.export_for_remote_transfer(&char_id_str))??;
+                    if bundle.ruleset.as_str() != detail.ruleset.as_str() {
+                        ch.close();
+                        return Err(fail(
+                            "incompatible",
+                            format!(
+                                "Character ruleset ({}) does not match target realm ruleset ({})",
+                                bundle.ruleset,
+                                detail.ruleset.as_str()
+                            ),
+                        ));
+                    }
                     let cuuid = bundle.character_id.as_uuid();
                     let _outcome = pc_bg
                         .transfer_character(
@@ -519,6 +530,10 @@ pub(crate) async fn join_claim(
             .map(|c| c.token)
             .unwrap_or(0);
         let claimed = pc.claim(&mut ch, token).map_err(from_control)?;
+        let claimed_ruleset: coa_core::portable::Ruleset = claimed
+            .ruleset
+            .parse()
+            .map_err(|e| fail("incompatible", format!("Invalid ruleset: {e}")))?;
         let server_id = format!("rr-{rid}");
         let cid = coa_core::portable::ids::CharacterId::from_uuid(claimed.character_id)
             .map_err(|e| fail("other", e.to_string()))?;
@@ -527,6 +542,25 @@ pub(crate) async fn join_claim(
             claimed.sha256,
             claimed.collections.clone(),
         );
+        let decoded = coa_core::portable::snapshot::decode(&payload, Some(&hash))
+            .map_err(|e| fail("invalid", format!("Corrupt claim snapshot: {e}")))?;
+        if decoded.ruleset != claimed_ruleset {
+            return Err(fail(
+                "incompatible",
+                format!(
+                    "Claimed ruleset mismatch: envelope={}, snapshot={}",
+                    claimed.ruleset, decoded.ruleset
+                ),
+            ));
+        }
+        for kind in claimed.collections.keys() {
+            if !coa_core::portable::session::protocol::carried_kind_for(kind, claimed_ruleset) {
+                return Err(fail(
+                    "incompatible",
+                    format!("Foreign collection kind {kind:?} in {claimed_ruleset} claim"),
+                ));
+            }
+        }
         let view = portable
             .call(move |s| s.adopt_claim(&server_id, cid, &payload, &hash, &collections))??;
         pc.acknowledge(&mut ch, claimed.character_id, &rid, &view.name)

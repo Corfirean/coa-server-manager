@@ -190,6 +190,7 @@ pub enum Response {
     /// appearance and vanity ids the Host holds for the account (kind -> ids).
     Claimed {
         character_id: Uuid,
+        ruleset: String,
         sha256: String,
         payload: String,
         collections: BTreeMap<String, Vec<u32>>,

@@ -364,11 +364,26 @@ impl PortableService {
     pub fn reload_realms(&mut self) {
         let (descriptors, broken) = access::load_descriptors(&self.dir.join("realms"));
         self.broken_descriptors = broken;
-        let mut realms: Vec<RealmAccess> = self
-            .installs
-            .iter()
-            .map(|(id, root)| RealmAccess::from_install(id, root))
-            .collect();
+        let mut realms: Vec<RealmAccess> = Vec::new();
+        for (id, root) in &self.installs {
+            realms.push(RealmAccess::from_install(id, root));
+            if let Ok(state) = crate::realms::state(root) {
+                if state.wildcard_created {
+                    let mut wc = RealmAccess::from_install(id, root);
+                    wc.id = format!("srv-{id}:wildcard");
+                    wc.name = format!("{} — Wildcard", wc.name);
+                    wc.mode = Some(crate::realms::Mode::Wildcard);
+                    realms.push(wc);
+                }
+                if state.reborn_created {
+                    let mut rb = RealmAccess::from_install(id, root);
+                    rb.id = format!("srv-{id}:reborn");
+                    rb.name = format!("{} — Warcraft Reborn", rb.name);
+                    rb.mode = Some(crate::realms::Mode::Reborn);
+                    realms.push(rb);
+                }
+            }
+        }
         for d in descriptors {
             match RealmAccess::from_descriptor(d) {
                 Ok(a) if !realms.iter().any(|r| r.id == a.id) => realms.push(a),
@@ -415,10 +430,10 @@ impl PortableService {
     }
 
     fn access(&self, id: &str) -> Res<RealmAccess> {
-        self.realms
-            .iter()
-            .find(|r| r.id == id)
-            .cloned()
+        if let Some(r) = self.realms.iter().find(|r| r.id == id) {
+            return Ok(r.clone());
+        }
+        crate::realm_registry::advert::find_access(&self.dir.join("realms"), &self.installs, id)
             .ok_or_else(|| fail("realm_missing", "That realm is not known to this Manager."))
     }
 
@@ -1475,12 +1490,20 @@ impl PortableService {
             ));
         }
         let ruleset = model.ruleset;
+        for kind in collections.keys() {
+            if !super::super::session::protocol::carried_kind_for(kind, ruleset) {
+                return Err(fail(
+                    "incompatible",
+                    format!("Foreign collection kind {kind:?} in {ruleset} claim"),
+                ));
+            }
+        }
         if self.owner.character(character_id).is_err() {
             self.owner
                 .create_character_with_id(self.owner_profile, model, realm_id)?;
         }
         for (kind, ids) in collections {
-            if kind.starts_with(ruleset.as_str()) {
+            if super::super::session::protocol::carried_kind_for(kind, ruleset) {
                 let set = super::super::collection::IdSet::from_ids(ids.iter().copied())?;
                 self.owner
                     .merge_collection(self.owner_profile, ruleset, kind, &set)?;
@@ -1626,12 +1649,16 @@ impl PortableService {
 
         // Monotonic union of collections
         for (kind, ids) in &params.collections {
-            if kind.starts_with(model.ruleset.as_str()) {
-                if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
-                    let _ =
-                        self.host
-                            .merge_collection(self.host_profile, model.ruleset, kind, &set);
-                }
+            if !super::super::session::protocol::carried_kind_for(kind, model.ruleset) {
+                return Err(fail(
+                    "incompatible",
+                    format!("Foreign collection kind {kind:?} in {} remote transfer", model.ruleset),
+                ));
+            }
+            if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
+                let _ =
+                    self.host
+                        .merge_collection(self.host_profile, model.ruleset, kind, &set);
             }
         }
 

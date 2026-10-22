@@ -23,8 +23,8 @@ pub mod snapshot;
 pub mod store;
 pub mod versions;
 
-#[cfg(test)]
-pub(crate) mod fixtures;
+#[cfg(any(test, feature = "testkit"))]
+pub mod fixtures;
 
 pub use collection::IdSet;
 pub use error::{PortableError, Result};

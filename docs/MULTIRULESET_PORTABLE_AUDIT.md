@@ -6,7 +6,7 @@ This audit evaluates the architecture to support three independent, strictly iso
 3. **Warcraft Reborn (`reborn`)**
 
 Date: October 2026  
-Status: Updated for MR1.1 Gate (Post-Foundation Fixes)
+Status: Updated for MR2 Gate (Wildcard Vertical Slice Completed)
 
 ---
 
@@ -21,19 +21,33 @@ Status: Updated for MR1.1 Gate (Post-Foundation Fixes)
 - Collection validation used unsafe prefix checks (`kind.starts_with(ruleset)`), permitting prefix confusion attacks.
 - `Ruleset::schema(kind)` contained a fallback `_ => "acore_characters"`, routing unknown database kinds to CoA.
 
-### 1.2 Implemented in 58a99f0+ and MR1.1
+### 1.2 Implemented in MR1, MR1.1, and MR2
 - **Authoritative Ruleset Enum:** `Ruleset` (`Coa`, `Wildcard`, `Reborn`) unified across `coa-core`, `coa-registry-proto`, `coa-control-proto`, and frontend models.
 - **Transactional SQLite Migration 009:** Migrates released v0.7.x databases by recreating both `collection` (composite key `profile_id, ruleset, kind`) and `character` (CHECK constraint allowing `'coa', 'wildcard', 'reborn'`) with FK toggles ensuring zero child row loss.
-- **Protocol Versioning & Negotiation:**
-  - Control protocol bumped to `CONTROL_PROTOCOL_VERSION = 2`. `Request::TransferOffer` requires `ruleset: String` (no default).
-  - Session protocol bumped to `SESSION_PROTOCOL_VERSION = 3`. `SessionOffer`, `PortableSessionStarted`, `PortableCheckpoint`, and `OwnerAck` require explicit `ruleset` (no serde defaults). Old v2 messages require explicit legacy translation.
-  - Collection protocol set to `COLLECTION_PROTOCOL_VERSION = 2`. `CollectionObserved`, `CollectionState`, and `CollectionAck` require explicit `ruleset`.
-- **Schema Safety:** Unsafe fallback in `Ruleset::schema(kind)` removed; unknown database kinds return a hard error.
-- **Exact Collection Namespace Validation:** `carried_kind_for(kind, ruleset)` strictly validates allowed collection kinds; prefix confusion attacks (`coax:appearance`, etc.) are rejected with zero mutation.
-- **Multi-Realm Local Key Resolution:** `find_access` resolves composite keys `srv-<install_id>:<ruleset>` while retaining `srv-<install_id>` for existing single-realm publication until MR4.
+- **Fail-Closed Realm Backend:** Removed unsafe `unwrap_or(Ruleset::Coa)` in `LocalBackend::info()`. Unreadable, unknown, or broken realms fail closed immediately with error rather than falling back to CoA.
+- **Control Protocol 2 & Strict Envelopes:**
+  - `CONTROL_PROTOCOL_VERSION = 2`.
+  - `Request::TransferOffer` requires explicit `ruleset: String`.
+  - `Response::Claimed` returns explicit `ruleset: String`.
+  - Claiming and commit verify that the claimed envelope ruleset matches the decoded payload ruleset and matches target realm ruleset.
+  - `HostTransfer` stores `ruleset` in SQLite; `transfer_commit` verifies that canonical JSON hash and ruleset match the offer and destination realm before writing to disk.
+- **Session Protocol 3 & Ruleset Enforcement:**
+  - `SESSION_PROTOCOL_VERSION = 3` and `COLLECTION_PROTOCOL_VERSION = 2`.
+  - `SessionOffer`, `PortableSessionStarted`, `PortableCheckpoint`, and `OwnerAck` require explicit `ruleset`.
+  - Any mismatch between character ruleset, offer ruleset, session ruleset, or checkpoint ruleset rejects immediately with zero DB mutation and zero canonical revision advance.
+- **Wildcard Collections Isolation:**
+  - `wildcard:appearance` and `wildcard:vanity` isolated from `coa:appearance` and `coa:vanity`.
+  - Cross-ruleset collection merges strictly rejected by `carried_kind_for(kind, ruleset)`.
+- **Database Routing & Three-Space Isolation:**
+  - Canonical SQL routes through `Db::query()` and `realm_schema` to `acore_characters_wildcard` and `acore_world_wildcard`.
+  - Multiple characters sharing local GUIDs on distinct server IDs (`srv-1:coa`, `srv-1:wildcard`, `srv-1:reborn`) coexist with zero collision in character mappings and item mappings.
+  - Mutating Wildcard character state, revisions, or collections leaves CoA and Reborn states 100% byte-for-byte untouched.
+- **Direct & Relay Routing for Wildcard:**
+  - `world_port_for_mode` dynamically determines active world port (8085 for primary CoA, 8086 for secondary Wildcard in simultaneous mode).
+  - Direct Ingress proxy and Relay link dynamically route to the correct realm world port.
+  - Direct Ingress Auth rewrite replaces internal realm list address with external mapped Wildcard port (e.g. 48086) and never advertises CoA port 8085.
 
 ### 1.3 Still Planned (Subsequent Milestones)
-- **MR2 (Wildcard Vertical Slice):** Full end-to-end import/export, session runtime, and live verification of Wildcard gameplay.
 - **MR3 (Warcraft Reborn Vertical Slice):** Unlocking `ruleset_of` for Reborn, import/export adapters, and live verification.
 - **MR4 (Multi-Realm Publication UI & Registry):** Simultaneous publication of multiple RealmIds from a single Manager host under distinct identities and keypairs.
 

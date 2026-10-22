@@ -56,6 +56,7 @@ pub struct CharInfo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClaimExport {
     pub character_id: Uuid,
+    pub ruleset: crate::portable::Ruleset,
     pub payload: Vec<u8>,
     pub sha256: [u8; 32],
     pub collections: BTreeMap<String, Vec<u32>>,
@@ -119,6 +120,10 @@ pub trait RealmBackend: Send + Sync {
         local_id: &str,
         params: RemoteImportParams,
     ) -> Result<RemoteImportOutcome>;
+    /// Local world port for this realm.
+    fn world_port(&self, _local_id: &str) -> Result<u16> {
+        Ok(8085)
+    }
 }
 
 /// State of one channel.
@@ -217,6 +222,10 @@ impl HostService {
 
     pub fn realm_id(&self) -> RealmId {
         self.realm_id
+    }
+
+    pub fn local_world_port(&self) -> u16 {
+        self.backend.world_port(&self.local_id).unwrap_or(8085)
     }
 
     /// The player's public key is the one recorded for this player id when there is a record; `None` when the player is new here.
@@ -694,6 +703,7 @@ impl HostService {
         use base64::Engine;
         Response::Claimed {
             character_id: exported.character_id,
+            ruleset: exported.ruleset.as_str().to_string(),
             sha256: hex::encode(exported.sha256),
             payload: base64::engine::general_purpose::STANDARD.encode(&exported.payload),
             collections: exported.collections,
@@ -862,6 +872,7 @@ impl HostService {
             realm_local_id: self.local_id.clone(),
             transfer_id,
             character_id,
+            ruleset: offer_ruleset.as_str().to_string(),
             player_id: *player,
             revision: canonical_revision,
             content_hash,
@@ -1036,16 +1047,53 @@ impl HostService {
             Err(e) => return unavailable("reading transfer file", &Error::Invalid(e.to_string())),
         };
 
-        use sha2::{Digest, Sha256};
-        let hash = hex::encode(Sha256::digest(&payload));
-        if hash != t.content_hash {
-            let _ = std::fs::remove_file(&path);
-            return err(AppError::Invalid, "Content hash mismatch.");
-        }
-
         let mut hash_bytes = [0u8; 32];
         if hex::decode_to_slice(&t.content_hash, &mut hash_bytes).is_err() {
+            let _ = std::fs::remove_file(&path);
             return err(AppError::Invalid, "Invalid content hash format.");
+        }
+
+        let decoded = match crate::portable::snapshot::decode(&payload, Some(&hash_bytes)) {
+            Ok(d) => d,
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                return err(AppError::Invalid, &format!("Corrupt snapshot: {e}"));
+            }
+        };
+        let transfer_ruleset: crate::portable::Ruleset = match t.ruleset.parse() {
+            Ok(r) => r,
+            Err(_) => {
+                let _ = std::fs::remove_file(&path);
+                return err(AppError::Incompatible, "Invalid transfer ruleset.");
+            }
+        };
+        if decoded.character_id.as_uuid() != t.character_id {
+            let _ = std::fs::remove_file(&path);
+            return err(
+                AppError::Invalid,
+                "Snapshot character id does not match TransferOffer.",
+            );
+        }
+        if decoded.ruleset != transfer_ruleset {
+            let _ = std::fs::remove_file(&path);
+            return err(
+                AppError::Incompatible,
+                "Snapshot ruleset does not match TransferOffer.",
+            );
+        }
+        let info = match self.backend.info(&self.local_id) {
+            Ok(i) => i,
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                return unavailable("reading realm info", &e);
+            }
+        };
+        if transfer_ruleset != info.ruleset {
+            let _ = std::fs::remove_file(&path);
+            return err(
+                AppError::Incompatible,
+                "Transfer ruleset does not match target realm ruleset.",
+            );
         }
 
         let Some(m) = self.mapping(player) else {
@@ -1275,6 +1323,7 @@ pub mod fake {
                 .or_insert_with(Uuid::now_v7);
             Ok(ClaimExport {
                 character_id: id,
+                ruleset: crate::portable::Ruleset::Coa,
                 payload: format!("payload-{guid}").into_bytes(),
                 sha256: [7; 32],
                 collections: BTreeMap::from([("coa:appearance".to_string(), vec![1, 2, 3])]),
@@ -1685,6 +1734,7 @@ mod tests {
         );
         let Response::Claimed {
             character_id,
+            ruleset,
             sha256,
             payload,
             collections,
@@ -1692,6 +1742,7 @@ mod tests {
         else {
             panic!()
         };
+        assert_eq!(ruleset, "coa");
         assert_eq!(sha256, hex::encode([7u8; 32]));
         assert!(!payload.is_empty() && collections["coa:appearance"] == vec![1, 2, 3]);
         // asking again returns the same character
@@ -1887,6 +1938,14 @@ mod tests {
         );
     }
 
+    fn test_snapshot(cid: Uuid, ruleset: crate::portable::Ruleset) -> (Vec<u8>, String) {
+        let mut model = crate::portable::fixtures::geared_level_eighty();
+        model.character_id = crate::portable::CharacterId::from_uuid(cid).unwrap();
+        model.ruleset = ruleset;
+        let encoded = crate::portable::snapshot::encode(&model).unwrap();
+        (encoded.payload, hex::encode(encoded.content_hash))
+    }
+
     #[test]
     fn remote_transfer_lifecycle_empty_realm_import_and_ack() {
         let (realm, s, p, _acc) = claimed_setup();
@@ -1894,9 +1953,7 @@ mod tests {
         let cid = Uuid::now_v7();
         let tid = Uuid::now_v7();
 
-        let payload = b"portable_character_snapshot_payload_test_data".to_vec();
-        use sha2::{Digest, Sha256};
-        let hash = hex::encode(Sha256::digest(&payload));
+        let (payload, hash) = test_snapshot(cid, crate::portable::Ruleset::Coa);
 
         // 1. Offer
         let offer = Request::TransferOffer {
@@ -2005,13 +2062,9 @@ mod tests {
         let cid = Uuid::now_v7();
         let tid = Uuid::now_v7();
 
-        let chunk1 = b"first_chunk_of_payload_";
-        let chunk2 = b"second_chunk_of_payload";
-        let mut full = chunk1.to_vec();
-        full.extend_from_slice(chunk2);
-
-        use sha2::{Digest, Sha256};
-        let hash = hex::encode(Sha256::digest(&full));
+        let (full, hash) = test_snapshot(cid, crate::portable::Ruleset::Coa);
+        let mid = full.len() / 2;
+        let (chunk1, chunk2) = full.split_at(mid);
 
         let offer = Request::TransferOffer {
             ruleset: "coa".into(),
@@ -2104,9 +2157,7 @@ mod tests {
         let cid = Uuid::now_v7();
         let tid = Uuid::now_v7();
 
-        let payload = b"idempotency_test_payload".to_vec();
-        use sha2::{Digest, Sha256};
-        let hash = hex::encode(Sha256::digest(&payload));
+        let (payload, hash) = test_snapshot(cid, crate::portable::Ruleset::Coa);
 
         let offer = Request::TransferOffer {
             ruleset: "coa".into(),
@@ -2204,9 +2255,7 @@ mod tests {
         let cid = Uuid::now_v7();
         let tid = Uuid::now_v7();
 
-        let payload = b"player_1_character_data".to_vec();
-        use sha2::{Digest, Sha256};
-        let hash = hex::encode(Sha256::digest(&payload));
+        let (payload, hash) = test_snapshot(cid, crate::portable::Ruleset::Coa);
 
         let offer = Request::TransferOffer {
             ruleset: "coa".into(),
@@ -2304,9 +2353,7 @@ mod tests {
         let cid = Uuid::now_v7();
         let tid1 = Uuid::now_v7();
 
-        let payload1 = b"character_revision_1_data".to_vec();
-        use sha2::{Digest, Sha256};
-        let hash1 = hex::encode(Sha256::digest(&payload1));
+        let (payload1, hash1) = test_snapshot(cid, crate::portable::Ruleset::Coa);
 
         // Rev 1
         s.handle(
@@ -2359,8 +2406,12 @@ mod tests {
 
         // Rev 2
         let tid2 = Uuid::now_v7();
-        let payload2 = b"character_revision_2_newer_data".to_vec();
-        let hash2 = hex::encode(Sha256::digest(&payload2));
+        let mut model2 = crate::portable::fixtures::geared_level_eighty();
+        model2.character_id = crate::portable::CharacterId::from_uuid(cid).unwrap();
+        model2.progression.money += 500;
+        let enc2 = crate::portable::snapshot::encode(&model2).unwrap();
+        let (payload2, hash2) = (enc2.payload, hex::encode(enc2.content_hash));
+
         let r = s.handle(
             &mut session,
             &p,
@@ -2482,6 +2533,124 @@ mod tests {
         ));
 
         // Ensure 0 DB imports happened
+        assert!(realm.imported.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn tampered_payload_at_commit_aborts_with_zero_mutation() {
+        let (realm, s, p, _acc) = claimed_setup();
+        let mut session = Session::default();
+        let cid = Uuid::now_v7();
+        let tid = Uuid::now_v7();
+
+        // 1. Offer announces CoA
+        let (payload_coa, hash_coa) = test_snapshot(cid, crate::portable::Ruleset::Coa);
+        let offer = Request::TransferOffer {
+            ruleset: "coa".into(),
+            transfer_id: tid,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash_coa,
+            total_size: payload_coa.len(),
+            collections: BTreeMap::new(),
+        };
+        s.handle(&mut session, &p, "K", offer);
+
+        // Attacker creates a Wildcard snapshot with the same CID, but uploads it under the CoA offer
+        let (payload_wc, hash_wc) = test_snapshot(cid, crate::portable::Ruleset::Wildcard);
+
+        // Uploading chunks of payload_wc will mismatch the offered hash
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(&payload_wc);
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid,
+                offset: 0,
+                data,
+            },
+        );
+        let commit = Request::TransferCommit { transfer_id: tid };
+        let r = s.handle(&mut session, &p, "K", commit);
+        assert!(matches!(
+            r,
+            Response::Error {
+                code: AppError::Invalid,
+                ..
+            }
+        ));
+        assert!(realm.imported.lock().unwrap().is_empty());
+
+        // 2. What if attacker offered hash_wc matching payload_wc, but offer.ruleset is "coa"?
+        let tid2 = Uuid::now_v7();
+        let offer2 = Request::TransferOffer {
+            ruleset: "coa".into(),
+            transfer_id: tid2,
+            character_id: cid,
+            canonical_revision: 1,
+            content_hash: hash_wc,
+            total_size: payload_wc.len(),
+            collections: BTreeMap::new(),
+        };
+        s.handle(&mut session, &p, "K", offer2);
+        let data2 = base64::engine::general_purpose::STANDARD.encode(&payload_wc);
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid2,
+                offset: 0,
+                data: data2,
+            },
+        );
+        let commit2 = Request::TransferCommit { transfer_id: tid2 };
+        let r2 = s.handle(&mut session, &p, "K", commit2);
+        assert!(matches!(
+            r2,
+            Response::Error {
+                code: AppError::Incompatible,
+                ..
+            }
+        ));
+        assert!(realm.imported.lock().unwrap().is_empty());
+
+        // 3. What if snapshot contains a different character_id than offer?
+        let tid3 = Uuid::now_v7();
+        let other_cid = Uuid::now_v7();
+        let (payload_other, hash_other) = test_snapshot(other_cid, crate::portable::Ruleset::Coa);
+        let offer3 = Request::TransferOffer {
+            ruleset: "coa".into(),
+            transfer_id: tid3,
+            character_id: cid, // offered cid
+            canonical_revision: 1,
+            content_hash: hash_other,
+            total_size: payload_other.len(),
+            collections: BTreeMap::new(),
+        };
+        s.handle(&mut session, &p, "K", offer3);
+        let data3 = base64::engine::general_purpose::STANDARD.encode(&payload_other);
+        s.handle(
+            &mut session,
+            &p,
+            "K",
+            Request::TransferChunk {
+                transfer_id: tid3,
+                offset: 0,
+                data: data3,
+            },
+        );
+        let commit3 = Request::TransferCommit { transfer_id: tid3 };
+        let r3 = s.handle(&mut session, &p, "K", commit3);
+        assert!(matches!(
+            r3,
+            Response::Error {
+                code: AppError::Invalid,
+                ..
+            }
+        ));
         assert!(realm.imported.lock().unwrap().is_empty());
     }
 }

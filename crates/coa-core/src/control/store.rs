@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS host_transfer(
     realm_local_id  TEXT NOT NULL,
     transfer_id     TEXT NOT NULL PRIMARY KEY,
     character_id    TEXT NOT NULL,
+    ruleset         TEXT NOT NULL DEFAULT 'coa',
     player_id       TEXT NOT NULL,
     revision        INTEGER NOT NULL,
     content_hash    TEXT NOT NULL,
@@ -155,6 +156,7 @@ pub struct HostTransfer {
     pub realm_local_id: String,
     pub transfer_id: Uuid,
     pub character_id: Uuid,
+    pub ruleset: String,
     pub player_id: Uuid,
     pub revision: u64,
     pub content_hash: String,
@@ -199,6 +201,7 @@ impl ControlStore {
             .map_err(db)?;
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
         conn.execute_batch(SCHEMA).map_err(db)?;
+        let _ = conn.execute("ALTER TABLE host_transfer ADD COLUMN ruleset TEXT NOT NULL DEFAULT 'coa'", []);
         Ok(Self { conn })
     }
 
@@ -307,7 +310,7 @@ impl ControlStore {
     pub fn host_transfer(&self, realm: &str, transfer_id: &Uuid) -> Result<Option<HostTransfer>> {
         self.conn
             .query_row(
-                "SELECT realm_local_id, transfer_id, character_id, player_id, revision, content_hash, total_size, received_size, state, local_guid, session_id, projected_level, notes, collections FROM host_transfer WHERE realm_local_id = ?1 AND transfer_id = ?2",
+                "SELECT realm_local_id, transfer_id, character_id, player_id, revision, content_hash, total_size, received_size, state, local_guid, session_id, projected_level, notes, collections, ruleset FROM host_transfer WHERE realm_local_id = ?1 AND transfer_id = ?2",
                 params![realm, transfer_id.to_string()],
                 row_transfer,
             )
@@ -323,7 +326,7 @@ impl ControlStore {
     ) -> Result<Option<HostTransfer>> {
         self.conn
             .query_row(
-                "SELECT realm_local_id, transfer_id, character_id, player_id, revision, content_hash, total_size, received_size, state, local_guid, session_id, projected_level, notes, collections FROM host_transfer WHERE realm_local_id = ?1 AND character_id = ?2 ORDER BY updated_at DESC LIMIT 1",
+                "SELECT realm_local_id, transfer_id, character_id, player_id, revision, content_hash, total_size, received_size, state, local_guid, session_id, projected_level, notes, collections, ruleset FROM host_transfer WHERE realm_local_id = ?1 AND character_id = ?2 ORDER BY updated_at DESC LIMIT 1",
                 params![realm, character_id.to_string()],
                 row_transfer,
             )
@@ -337,8 +340,8 @@ impl ControlStore {
         let coll_json = serde_json::to_string(&t.collections).unwrap_or_default();
         self.conn
             .execute(
-                "INSERT INTO host_transfer(realm_local_id, transfer_id, character_id, player_id, revision, content_hash, total_size, received_size, state, local_guid, session_id, projected_level, notes, collections, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                "INSERT INTO host_transfer(realm_local_id, transfer_id, character_id, ruleset, player_id, revision, content_hash, total_size, received_size, state, local_guid, session_id, projected_level, notes, collections, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(transfer_id) DO UPDATE SET
                    received_size = excluded.received_size,
                    state = excluded.state,
@@ -347,11 +350,13 @@ impl ControlStore {
                    projected_level = excluded.projected_level,
                    notes = excluded.notes,
                    collections = excluded.collections,
+                   ruleset = excluded.ruleset,
                    updated_at = excluded.updated_at",
                 params![
                     t.realm_local_id,
                     t.transfer_id.to_string(),
                     t.character_id.to_string(),
+                    t.ruleset,
                     t.player_id.to_string(),
                     t.revision as i64,
                     t.content_hash,
@@ -540,11 +545,13 @@ fn row_transfer(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<HostTransfer>>
     let collections = coll_str
         .and_then(|s| serde_json::from_str::<BTreeMap<String, Vec<u32>>>(&s).ok())
         .unwrap_or_default();
+    let ruleset: String = r.get(14).unwrap_or_else(|_| "coa".to_string());
     Ok((|| {
         Ok(HostTransfer {
             realm_local_id,
             transfer_id: uuid(tid)?,
             character_id: uuid(cid)?,
+            ruleset,
             player_id: uuid(pid)?,
             revision: revision as u64,
             content_hash,
@@ -677,6 +684,7 @@ mod tests {
             realm_local_id: "live".into(),
             transfer_id: t,
             character_id: c,
+            ruleset: "coa".into(),
             player_id: p,
             revision: 3,
             content_hash: "a".repeat(64),

@@ -98,10 +98,11 @@ impl HostControl {
                         let relay_link =
                             crate::control::transport::relay_url(&base, "/relay/v1/host").map(
                                 |r_url| {
-                                    let rl = crate::control::relay_link::RelayLink::start(
+                                    let rl = crate::control::relay_link::RelayLink::start_with_ports(
                                         r_url,
                                         realm_id,
                                         key.clone(),
+                                        Some(service.local_world_port()),
                                     );
                                     service.set_relay(rl.clone());
                                     rl

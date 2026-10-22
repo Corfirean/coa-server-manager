@@ -2,7 +2,16 @@
 
 **Portable characters are experimental.** The feature is in active development and may contain bugs.
 
-Portable characters let you keep a saved character in the Manager and play it on compatible CoA realms.
+Portable characters let you keep a saved character in the Manager and play it on compatible realms (Conquest of Azeroth and Wildcard).
+
+## Multi-Ruleset Isolation Invariant
+
+Portable characters are strictly isolated by gameplay ruleset (`coa`, `wildcard`, `reborn`):
+- A character created or claimed on a **Conquest of Azeroth** realm is a CoA character and can only ever be played on CoA realms.
+- A character created or claimed on a **Wildcard** realm is a Wildcard character and can only ever be played on Wildcard realms.
+- A character created or claimed on a **Warcraft Reborn** realm can only ever be played on Reborn realms.
+
+Cross-ruleset transfers, imports, joins, sessions, and collection merges are impossible: the Manager strictly rejects any mismatched request at every protocol, session, and database boundary with zero mutation to your characters or servers.
 
 ## Make your first character portable
 

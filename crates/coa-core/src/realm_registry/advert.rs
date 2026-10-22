@@ -155,7 +155,15 @@ pub fn find_access(
     found
         .into_iter()
         .find(|d| d.id == local_id || d.id == base_id)
-        .and_then(|d| RealmAccess::from_descriptor(d).ok())
+        .and_then(|d| {
+            let mut access = RealmAccess::from_descriptor(d).ok()?;
+            if let Some(m) = explicit_mode {
+                access.id = format!("{}:{}", access.id, m.name());
+                access.name = format!("{} — {}", access.name, m.label());
+                access.mode = Some(m);
+            }
+            Some(access)
+        })
 }
 
 struct Cached {

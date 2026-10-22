@@ -33,8 +33,9 @@ impl DirectIngress {
         local_auth_port: u16,
         local_world_port: u16,
     ) -> Result<Self> {
+        let auth_host = if auth_bind_port == 0 { "127.0.0.1" } else { "0.0.0.0" };
         let auth_listener =
-            TcpListener::bind(format!("0.0.0.0:{auth_bind_port}")).map_err(|e| {
+            TcpListener::bind(format!("{auth_host}:{auth_bind_port}")).map_err(|e| {
                 Error::Invalid(format!(
                     "Cannot bind direct auth listener on port {auth_bind_port}: {e}"
                 ))
@@ -47,8 +48,9 @@ impl DirectIngress {
             .map_err(|e| Error::Invalid(e.to_string()))?
             .port();
 
+        let world_host = if world_bind_port == 0 { "127.0.0.1" } else { "0.0.0.0" };
         let world_listener =
-            TcpListener::bind(format!("0.0.0.0:{world_bind_port}")).map_err(|e| {
+            TcpListener::bind(format!("{world_host}:{world_bind_port}")).map_err(|e| {
                 Error::Invalid(format!(
                     "Cannot bind direct world listener on port {world_bind_port}: {e}"
                 ))
@@ -114,7 +116,9 @@ impl DirectIngress {
                             std::thread::Builder::new()
                                 .name("direct-world-worker".into())
                                 .spawn(move || {
-                                    let _ = handle_world_client(client_stream, local_world_port);
+                                    if let Err(e) = handle_world_client(client_stream, local_world_port) {
+                                        eprintln!("handle_world_client error: {e}");
+                                    }
                                 })
                                 .ok();
                         }
@@ -174,8 +178,19 @@ fn handle_auth_client(
     local_auth_port: u16,
     world_target: Arc<std::sync::RwLock<String>>,
 ) -> Result<()> {
-    let mut server = TcpStream::connect(format!("127.0.0.1:{local_auth_port}"))
-        .map_err(|e| Error::Invalid(format!("Cannot connect to local authserver: {e}")))?;
+    let mut server = None;
+    for _ in 0..5 {
+        match TcpStream::connect(format!("127.0.0.1:{local_auth_port}")) {
+            Ok(s) => {
+                server = Some(s);
+                break;
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    let mut server = server.ok_or_else(|| {
+        Error::Invalid(format!("Cannot connect to local authserver: {local_auth_port}"))
+    })?;
 
     let _ = client.set_read_timeout(Some(Duration::from_millis(500)));
     let _ = server.set_read_timeout(Some(Duration::from_millis(500)));
@@ -213,7 +228,7 @@ fn handle_auth_client(
         }
         done_c.store(true, Ordering::Relaxed);
         if let Some(s) = server_shutdown {
-            let _ = s.shutdown(std::net::Shutdown::Both);
+            let _ = s.shutdown(std::net::Shutdown::Write);
         }
     });
 
@@ -261,8 +276,19 @@ fn handle_auth_client(
 }
 
 fn handle_world_client(mut client: TcpStream, local_world_port: u16) -> Result<()> {
-    let mut server = TcpStream::connect(format!("127.0.0.1:{local_world_port}"))
-        .map_err(|e| Error::Invalid(format!("Cannot connect to local worldserver: {e}")))?;
+    let mut server = None;
+    for _ in 0..5 {
+        match TcpStream::connect(format!("127.0.0.1:{local_world_port}")) {
+            Ok(s) => {
+                server = Some(s);
+                break;
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    let mut server = server.ok_or_else(|| {
+        Error::Invalid(format!("Cannot connect to local worldserver: {local_world_port}"))
+    })?;
 
     let _ = client.set_nonblocking(false);
     let _ = server.set_nonblocking(false);
@@ -278,11 +304,11 @@ fn handle_world_client(mut client: TcpStream, local_world_port: u16) -> Result<(
 
     let t_c2s = std::thread::spawn(move || {
         let _ = std::io::copy(&mut client_read, &mut server_write);
-        let _ = server_write.shutdown(std::net::Shutdown::Both);
+        let _ = server_write.shutdown(std::net::Shutdown::Write);
     });
 
     let _ = std::io::copy(&mut server, &mut client);
-    let _ = client.shutdown(std::net::Shutdown::Both);
+    let _ = client.shutdown(std::net::Shutdown::Write);
 
     let _ = t_c2s.join();
     Ok(())
@@ -320,6 +346,7 @@ mod tests {
             let n = stream.read(&mut buf).unwrap();
             assert_eq!(&buf[..n], b"WORLD_PING");
             stream.write_all(b"WORLD_PONG").unwrap();
+            stream.flush().unwrap();
             let _ = stream.shutdown(std::net::Shutdown::Write);
         });
 
@@ -337,25 +364,27 @@ mod tests {
             let mut buf = [0u8; 16];
             let _ = stream.read(&mut buf).unwrap();
 
-            let mut fake_realm_list = vec![
-                0x10, // Opcode CMD_REALM_LIST
-                0x00, 0x00, // Size placeholder
-                0x00, 0x00, 0x00, 0x00, // Unused
-                0x01, 0x00, // Realm count: 1
-                0x01, 0x00, 0x00, 0x00, // Icon
-                0x00, // Lock
-                0x00, // Flags
-            ];
-            fake_realm_list.extend_from_slice(b"RealmOne\0");
-            fake_realm_list.extend_from_slice(b"127.0.0.1:8085\0"); // original target
-            fake_realm_list.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // Population
-            fake_realm_list.extend_from_slice(&[0x01]); // Num characters
-            fake_realm_list.extend_from_slice(&[0x01]); // Timezone
-            fake_realm_list.extend_from_slice(&[0x00]); // Realm ID
-            fake_realm_list.extend_from_slice(&[0x02, 0x00]); // Footer
+            let name_bytes = b"RealmOne\0";
+            let addr_bytes = b"127.0.0.1:8085\0";
+            let body_len = 4 + 2 + 3 + name_bytes.len() + addr_bytes.len() + 4 + 1 + 1 + 1 + 2;
 
-            let body_len = (fake_realm_list.len() - 3) as u16;
-            fake_realm_list[1..3].copy_from_slice(&body_len.to_le_bytes());
+            let mut fake_realm_list = Vec::new();
+            fake_realm_list.push(0x10); // Opcode
+            fake_realm_list.extend_from_slice(&(body_len as u16).to_le_bytes()); // Length
+            fake_realm_list.extend_from_slice(&0u32.to_le_bytes()); // Unused
+            fake_realm_list.extend_from_slice(&1u16.to_le_bytes()); // Realm count = 1
+
+            // Realm info:
+            fake_realm_list.extend_from_slice(&[1, 0, 0]); // type, lock, flag
+            fake_realm_list.extend_from_slice(name_bytes);
+            fake_realm_list.extend_from_slice(addr_bytes);
+            fake_realm_list.extend_from_slice(&[0, 0, 0, 0]); // pop
+            fake_realm_list.extend_from_slice(&[0]); // chars
+            fake_realm_list.extend_from_slice(&[1]); // timezone
+            fake_realm_list.extend_from_slice(&[1]); // realm id
+
+            // Footer:
+            fake_realm_list.extend_from_slice(&[0x10, 0x00]);
 
             stream.write_all(&fake_realm_list).unwrap();
             let _ = stream.shutdown(std::net::Shutdown::Write);
@@ -386,7 +415,7 @@ mod tests {
         let mock_world_port = mock_world.local_addr().unwrap().port();
 
         // DirectIngress binds to ephemeral ports (0, 0), so actual ingress port != 8085
-        let ingress = DirectIngress::start(
+        let mut ingress = DirectIngress::start(
             0,
             0,
             "198.51.100.1".to_string(),
@@ -415,25 +444,27 @@ mod tests {
             let mut buf = [0u8; 16];
             let _ = stream.read(&mut buf).unwrap();
 
-            let mut fake_realm_list = vec![
-                0x10, // Opcode CMD_REALM_LIST
-                0x00, 0x00, // Size placeholder
-                0x00, 0x00, 0x00, 0x00, // Unused
-                0x01, 0x00, // Realm count: 1
-                0x01, 0x00, 0x00, 0x00, // Icon
-                0x00, // Lock
-                0x00, // Flags
-            ];
-            fake_realm_list.extend_from_slice(b"RealmOne\0");
-            fake_realm_list.extend_from_slice(b"127.0.0.1:8085\0");
-            fake_realm_list.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-            fake_realm_list.extend_from_slice(&[0x01]);
-            fake_realm_list.extend_from_slice(&[0x01]);
-            fake_realm_list.extend_from_slice(&[0x00]);
-            fake_realm_list.extend_from_slice(&[0x02, 0x00]);
+            let name_bytes = b"RealmOne\0";
+            let addr_bytes = b"127.0.0.1:8085\0";
+            let body_len = 4 + 2 + 3 + name_bytes.len() + addr_bytes.len() + 4 + 1 + 1 + 1 + 2;
 
-            let body_len = (fake_realm_list.len() - 3) as u16;
-            fake_realm_list[1..3].copy_from_slice(&body_len.to_le_bytes());
+            let mut fake_realm_list = Vec::new();
+            fake_realm_list.push(0x10); // Opcode
+            fake_realm_list.extend_from_slice(&(body_len as u16).to_le_bytes()); // Length
+            fake_realm_list.extend_from_slice(&0u32.to_le_bytes()); // Unused
+            fake_realm_list.extend_from_slice(&1u16.to_le_bytes()); // Realm count = 1
+
+            // Realm info:
+            fake_realm_list.extend_from_slice(&[1, 0, 0]); // type, lock, flag
+            fake_realm_list.extend_from_slice(name_bytes);
+            fake_realm_list.extend_from_slice(addr_bytes);
+            fake_realm_list.extend_from_slice(&[0, 0, 0, 0]); // pop
+            fake_realm_list.extend_from_slice(&[0]); // chars
+            fake_realm_list.extend_from_slice(&[1]); // timezone
+            fake_realm_list.extend_from_slice(&[1]); // realm id
+
+            // Footer:
+            fake_realm_list.extend_from_slice(&[0x10, 0x00]);
 
             stream.write_all(&fake_realm_list).unwrap();
             let _ = stream.shutdown(std::net::Shutdown::Write);
@@ -462,5 +493,84 @@ mod tests {
 
         drop(client_auth);
         t_auth.join().unwrap();
+        ingress.stop();
+    }
+
+    #[test]
+    fn test_direct_ingress_wildcard_port_rewrites_to_mapped_port_and_never_advertises_coa_8085() {
+        let ext_wildcard_port = 48086;
+
+        let mock_auth = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mock_auth_port = mock_auth.local_addr().unwrap().port();
+
+        let mock_world = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mock_world_port = mock_world.local_addr().unwrap().port();
+
+        // DirectIngress configured for Wildcard (local_world = mock_world_port, ext_world = 48086)
+        let mut ingress = DirectIngress::start(
+            0,
+            0,
+            "198.51.100.1".to_string(),
+            ext_wildcard_port,
+            mock_auth_port,
+            mock_world_port,
+        )
+        .unwrap();
+
+        // Verify Auth rewrite rewrites to external port 48086 and never mentions 8085 or 8086
+        let t_auth = std::thread::spawn(move || {
+            let (mut stream, _) = mock_auth.accept().unwrap();
+            let mut buf = [0u8; 16];
+            let _ = stream.read(&mut buf).unwrap();
+
+            let name_bytes = b"Wildcard\0";
+            let addr_bytes = b"127.0.0.1:8086\0";
+            let body_len = 4 + 2 + 3 + name_bytes.len() + addr_bytes.len() + 4 + 1 + 1 + 1 + 2;
+
+            let mut fake_realm_list = Vec::new();
+            fake_realm_list.push(0x10); // Opcode
+            fake_realm_list.extend_from_slice(&(body_len as u16).to_le_bytes()); // Length
+            fake_realm_list.extend_from_slice(&0u32.to_le_bytes()); // Unused
+            fake_realm_list.extend_from_slice(&1u16.to_le_bytes()); // Realm count = 1
+
+            // Realm info:
+            fake_realm_list.extend_from_slice(&[1, 0, 0]); // type, lock, flag
+            fake_realm_list.extend_from_slice(name_bytes);
+            fake_realm_list.extend_from_slice(addr_bytes);
+            fake_realm_list.extend_from_slice(&[0, 0, 0, 0]); // pop
+            fake_realm_list.extend_from_slice(&[0]); // chars
+            fake_realm_list.extend_from_slice(&[1]); // timezone
+            fake_realm_list.extend_from_slice(&[1]); // realm id
+
+            // Footer:
+            fake_realm_list.extend_from_slice(&[0x10, 0x00]);
+
+            stream.write_all(&fake_realm_list).unwrap();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+        });
+
+        let mut client_auth =
+            TcpStream::connect(format!("127.0.0.1:{}", ingress.auth_port())).unwrap();
+        client_auth.write_all(b"AUTH_HELLO").unwrap();
+        let mut auth_buf = [0u8; 512];
+        let an = client_auth.read(&mut auth_buf).unwrap();
+        let payload = String::from_utf8_lossy(&auth_buf[..an]);
+
+        assert!(
+            payload.contains("198.51.100.1:48086"),
+            "Expected rewritten realm list to contain external port 48086, got: {payload}"
+        );
+        assert!(
+            !payload.contains("8085"),
+            "DirectIngress for Wildcard must never advertise CoA port 8085"
+        );
+        assert!(
+            !payload.contains(":8086"),
+            "DirectIngress for Wildcard must rewrite internal port 8086 to external 48086"
+        );
+
+        drop(client_auth);
+        t_auth.join().unwrap();
+        ingress.stop();
     }
 }

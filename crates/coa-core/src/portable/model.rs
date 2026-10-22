@@ -112,6 +112,14 @@ impl Ruleset {
     }
 }
 
+impl std::str::FromStr for Ruleset {
+    type Err = PortableError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Self::parse(s)
+    }
+}
+
 impl std::fmt::Display for Ruleset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())

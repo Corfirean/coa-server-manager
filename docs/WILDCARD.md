@@ -19,6 +19,15 @@ Recovery points identify their active realm; select that realm before restoring 
 both realms, with auth applied once. The server updater can replace its launcher: the Manager reapplies the realm
 adapter before the next start.
 
+## Portable Characters on Wildcard
+
+As of v0.7.1 (MR2), Wildcard realms fully participate in the Portable Characters subsystem with strict multi-ruleset isolation:
+- **Canonical Model:** Wildcard portable characters carry `ruleset: "wildcard"` and `content_namespace: "wildcard"`.
+- **Claim & Export:** Real characters played on a Wildcard realm (`acore_characters_wildcard`) can be claimed and exported into canonical portable snapshots. Wildcard character builds—including spells, talents, skills, action bars, settings, inventory, pets, and currencies—are fully captured.
+- **Import & Session Runtime:** A Wildcard portable character can be transferred to a remote Wildcard host, imported into its `acore_characters_wildcard` database, armed in a runtime session (Session Protocol 3), and played live with automatic checkpoints and logout synchronization.
+- **Collections:** Wildcard collections (`wildcard:appearance` and `wildcard:vanity`) are partitioned separately from CoA collections. Unlocks on a Wildcard realm union into the profile's Wildcard collections and never touch CoA collections.
+- **Fail-Closed Protection:** Any attempt to transfer or import a CoA character into a Wildcard realm, or vice versa, is rejected at the protocol and database boundaries with zero mutation.
+
 ![Wildcard overview](screenshots/wildcard-demo/overview.jpg)
 
 ![Module compatibility](screenshots/wildcard-demo/modules.jpg)

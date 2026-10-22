@@ -307,7 +307,7 @@ fn attempt_route_discovery(
     let local_world = std::env::var("COA_OVERRIDE_LOCAL_WORLD_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(coa_control_proto::relay::LOCAL_WORLD_PORT);
+        .unwrap_or_else(|| service.local_world_port());
 
     let desired_auth_port: u16 = std::env::var("COA_DIRECT_AUTH_PORT")
         .ok()

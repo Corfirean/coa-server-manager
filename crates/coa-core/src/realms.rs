@@ -737,6 +737,26 @@ pub fn setup_realmlist(root: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn world_port_for_mode(root: &Path, mode: Mode) -> Result<u16> {
+    let ports = crate::layout::read_ports(root);
+    let s = state(root)?;
+    if s.simultaneous {
+        let second = s
+            .secondary_world_port
+            .ok_or_else(|| Error::Invalid("Second realm port is missing.".into()))?;
+        let port = match (s.active, mode) {
+            (Mode::Coa, Mode::Coa) => ports.world,
+            (Mode::Coa, Mode::Wildcard) => second,
+            (Mode::Wildcard, Mode::Wildcard) => ports.world,
+            (Mode::Wildcard, Mode::Coa) => second,
+            (_, _) => ports.world,
+        };
+        Ok(port)
+    } else {
+        Ok(ports.world)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

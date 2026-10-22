@@ -364,7 +364,6 @@ fn a_realms_key_is_pinned_at_the_first_visit() {
 #[test]
 fn remote_transfer_over_coordinator_channel_e2e() {
     use std::collections::BTreeMap;
-    use sha2::{Digest, Sha256};
     let env = Env::new(true);
     let dir = tempfile::tempdir().unwrap();
     let pc = player(dir.path(), Arc::new(MemoryStore::default()));
@@ -372,8 +371,12 @@ fn remote_transfer_over_coordinator_channel_e2e() {
     pc.ensure_account(&mut ch, &env.realm, Some("Varian")).unwrap();
 
     let cid = Uuid::now_v7();
-    let payload = b"SECRET_PORTABLE_CHARACTER_PAYLOAD_FOR_VARIAN".to_vec();
-    let hash: [u8; 32] = Sha256::digest(&payload).into();
+    let mut model = coa_core::portable::fixtures::geared_level_eighty();
+    model.character_id = coa_core::portable::CharacterId::from_uuid(cid).unwrap();
+    model.ruleset = coa_core::portable::Ruleset::Coa;
+    let enc = coa_core::portable::snapshot::encode(&model).unwrap();
+    let payload = enc.payload;
+    let hash = enc.content_hash;
     let collections = BTreeMap::from([("coa:appearance".to_string(), vec![42, 99])]);
 
     // Perform transfer
@@ -382,7 +385,7 @@ fn remote_transfer_over_coordinator_channel_e2e() {
     assert_ne!(outcome.session_id, Uuid::nil());
 
     // Verify tap saw nothing sensitive
-    assert!(!env.wire_contains("SECRET_PORTABLE_CHARACTER_PAYLOAD"), "payload was encrypted");
+    assert!(!env.wire_contains("Gravewalker"), "character name was encrypted");
     assert!(!env.wire_contains("Varian"), "account name was encrypted");
 
     // Idempotent retry with same payload discovers existing commit
@@ -391,41 +394,55 @@ fn remote_transfer_over_coordinator_channel_e2e() {
     assert_eq!(outcome.session_id, retry_outcome.session_id);
 
     // Update with revision 2 updates working copy without duplicate
-    let payload2 = b"SECRET_PORTABLE_CHARACTER_PAYLOAD_VARIAN_REV2".to_vec();
-    let hash2: [u8; 32] = Sha256::digest(&payload2).into();
+    model.progression.money += 1000;
+    let enc2 = coa_core::portable::snapshot::encode(&model).unwrap();
+    let payload2 = enc2.payload;
+    let hash2 = enc2.content_hash;
     let update_outcome = pc.transfer_character(&mut ch, cid, "coa", 2, &payload2, hash2, collections).unwrap();
     assert_eq!(outcome.local_guid, update_outcome.local_guid);
 
     // Incompatible realm rejects
     let incomp_id = Uuid::now_v7();
     env.fake.incompatible.lock().unwrap().insert(incomp_id);
-    let err = pc.transfer_character(&mut ch, incomp_id, "coa", 1, b"any", [0u8; 32], BTreeMap::new()).unwrap_err();
+    let mut incomp_model = coa_core::portable::fixtures::geared_level_eighty();
+    incomp_model.character_id = coa_core::portable::CharacterId::from_uuid(incomp_id).unwrap();
+    incomp_model.ruleset = coa_core::portable::Ruleset::Coa;
+    let incomp_enc = coa_core::portable::snapshot::encode(&incomp_model).unwrap();
+    let err = pc.transfer_character(&mut ch, incomp_id, "coa", 1, &incomp_enc.payload, incomp_enc.content_hash, BTreeMap::new()).unwrap_err();
     assert_eq!(err.code(), "incompatible");
 }
 
 #[test]
 fn remote_transfer_worst_case_large_payload_near_limit() {
     use std::collections::BTreeMap;
-    use sha2::{Digest, Sha256};
     let env = Env::new(true);
     let dir = tempfile::tempdir().unwrap();
     let pc = player(dir.path(), Arc::new(MemoryStore::default()));
     let mut ch = pc.connect(&env.target()).unwrap();
     pc.ensure_account(&mut ch, &env.realm, Some("ThrallLarge")).unwrap();
 
-    // 1. Build a worst-case payload: 2.5 MiB of character state + 25,000 collection item IDs
-    let mut large_payload = vec![0x42u8; 2_500_000];
-    // Fill with pseudo-random printable bytes to prevent trivial compression artifacts
-    for (i, b) in large_payload.iter_mut().enumerate() {
-        *b = (32 + (i % 95)) as u8;
+    let cid = Uuid::now_v7();
+    let mut model = coa_core::portable::fixtures::geared_level_eighty();
+    model.character_id = coa_core::portable::CharacterId::from_uuid(cid).unwrap();
+    model.ruleset = coa_core::portable::Ruleset::Coa;
+    for ext_idx in 1..=3 {
+        let mut large_bytes = vec![0u8; 800_000];
+        for (i, b) in large_bytes.iter_mut().enumerate() {
+            *b = (32 + ((i + ext_idx) % 95)) as u8;
+        }
+        model.extensions.insert(
+            format!("test:payload{ext_idx}"),
+            coa_core::portable::model::Extension::new("1.0.0", 1, large_bytes),
+        );
     }
-    let large_hash: [u8; 32] = Sha256::digest(&large_payload).into();
+    let enc = coa_core::portable::snapshot::encode(&model).unwrap();
+    let large_payload = enc.payload;
+    let large_hash = enc.content_hash;
 
     let mut massive_collections = BTreeMap::new();
     let ids: Vec<u32> = (1..=25_000).collect();
     massive_collections.insert("coa:appearance".to_string(), ids);
 
-    let cid = Uuid::now_v7();
     let outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &large_payload, large_hash, massive_collections).unwrap();
     assert!(outcome.local_guid > 0);
     assert_ne!(outcome.session_id, Uuid::nil());

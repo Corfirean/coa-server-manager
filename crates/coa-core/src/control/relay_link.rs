@@ -71,6 +71,15 @@ impl RelayProvider for RelayLink {
 
 impl RelayLink {
     pub fn start(url: String, realm_id: RealmId, key: SigningKey) -> Arc<Self> {
+        Self::start_with_ports(url, realm_id, key, None)
+    }
+
+    pub fn start_with_ports(
+        url: String,
+        realm_id: RealmId,
+        key: SigningKey,
+        local_world_port: Option<u16>,
+    ) -> Arc<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(RelayStatus::default()));
         let (alloc_tx, alloc_rx) = channel();
@@ -79,7 +88,7 @@ impl RelayLink {
         let st = status.clone();
         let join = std::thread::Builder::new()
             .name("control-relay-host".into())
-            .spawn(move || run(&url, realm_id, &key, alloc_rx, &s, &st))
+            .spawn(move || run(&url, realm_id, &key, alloc_rx, &s, &st, local_world_port))
             .ok();
 
         Arc::new(RelayLink {
@@ -127,11 +136,12 @@ fn run(
     )>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
+    local_world_port: Option<u16>,
 ) {
     let mut failures = 0u32;
     while !stop.load(Ordering::SeqCst) {
         let began = Instant::now();
-        let result = session(url, realm, key, &alloc_rx, stop, status);
+        let result = session(url, realm, key, &alloc_rx, stop, status, local_world_port);
         set_status(status, |s| {
             s.connected = false;
             s.active_streams = 0;
@@ -176,6 +186,7 @@ fn session(
     )>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
+    local_world_port: Option<u16>,
 ) -> Result<(), LinkError> {
     let mut ws = transport::connect(url, POLL)?;
 
@@ -305,8 +316,13 @@ fn session(
                         TunnelMsg::Connect {
                             stream_id, target, ..
                         } => {
-                            // Strictly predefined local targets: Auth (3724) or World (8085)
-                            let local_port = target.local_port();
+                            // Strictly predefined local targets: Auth (3724) or World (8085 or bound realm world port)
+                            let local_port = match target {
+                                RelayTarget::Auth => target.local_port(),
+                                RelayTarget::World => {
+                                    local_world_port.unwrap_or_else(|| target.local_port())
+                                }
+                            };
                             match TcpStream::connect(("127.0.0.1", local_port)) {
                                 Ok(tcp) => {
                                     let (stream_tx, stream_rx) = channel::<TunnelMsg>();

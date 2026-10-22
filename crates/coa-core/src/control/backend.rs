@@ -86,11 +86,9 @@ impl LocalBackend {
 impl RealmBackend for LocalBackend {
     fn info(&self, local_id: &str) -> Result<RealmInfo> {
         let cfg = settings::load(&self.settings_dir)?.realms.remove(local_id);
-        let ruleset = self
-            .access(local_id)
-            .and_then(|a| a.db())
-            .and_then(|db| realm::ruleset_of(&db).map_err(|e| Error::Invalid(e.to_string())))
-            .unwrap_or(crate::portable::model::Ruleset::Coa);
+        let access = self.access(local_id)?;
+        let db = access.db()?;
+        let ruleset = realm::ruleset_of(&db).map_err(|e| Error::Invalid(e.to_string()))?;
         Ok(RealmInfo {
             automatic: cfg.as_ref().is_none_or(|c| !c.existing_only),
             route: cfg.and_then(|c| c.route),
@@ -217,6 +215,7 @@ impl RealmBackend for LocalBackend {
             .map_err(|e| unavailable("export", e))?;
         Ok(ClaimExport {
             character_id: bundle.character_id.as_uuid(),
+            ruleset: bundle.ruleset,
             payload: bundle.payload,
             sha256: bundle.content_hash,
             collections: bundle.collections,
@@ -248,5 +247,87 @@ impl RealmBackend for LocalBackend {
             .call(move |s| s.import_remote_character(&id, params))
             .map_err(|e| unavailable("portable engine", e))?
             .map_err(|e| unavailable("import remote", e))
+    }
+
+    fn world_port(&self, local_id: &str) -> Result<u16> {
+        if let Ok(override_port) = std::env::var("COA_OVERRIDE_LOCAL_WORLD_PORT") {
+            if let Ok(p) = override_port.parse::<u16>() {
+                return Ok(p);
+            }
+        }
+        let access = self.access(local_id)?;
+        let mode = access.mode.unwrap_or(crate::realms::Mode::Coa);
+        if let Some(ref root) = access.root {
+            crate::realms::world_port_for_mode(root, mode)
+        } else {
+            Ok(8085)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn unreadable_or_unknown_realm_fails_closed_in_info() {
+        let dir = tempdir().unwrap();
+        let settings = dir.path().join("Settings");
+        fs::create_dir_all(&settings).unwrap();
+        fs::write(settings.join("registry.json"), "{}").unwrap();
+
+        let desc_dir = dir.path().join("descriptors");
+        fs::create_dir_all(&desc_dir).unwrap();
+
+        let portable_dir = dir.path().join("portable");
+        let rt = PortableRuntime::start(&portable_dir, Box::new(|| vec![]), None).unwrap();
+        let backend = LocalBackend::new(Arc::new(rt), &settings, &desc_dir, Arc::new(|| vec![]));
+
+        // Unknown realm id must return Err, never Ok(RealmInfo { ruleset: Ruleset::Coa, .. })
+        assert!(backend.info("srv-unknown").is_err());
+        assert!(backend.info("srv-unknown:wildcard").is_err());
+        assert!(backend.info("srv-unknown:reborn").is_err());
+    }
+
+    #[test]
+    fn world_port_for_mode_distinguishes_simultaneous_realms() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("srv");
+        fs::create_dir_all(root.join("Settings")).unwrap();
+        fs::write(
+            root.join("Settings/repack.json"),
+            r#"{"worldPort": 8085}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("Settings/realm-profile.json"),
+            r#"{"active": "coa", "wildcard_created": true, "simultaneous": true, "secondary_world_port": 8086}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            crate::realms::world_port_for_mode(&root, crate::realms::Mode::Coa).unwrap(),
+            8085
+        );
+        assert_eq!(
+            crate::realms::world_port_for_mode(&root, crate::realms::Mode::Wildcard).unwrap(),
+            8086
+        );
+
+        let desc_dir = dir.path().join("descriptors");
+        let portable_dir = dir.path().join("portable");
+        let rt = PortableRuntime::start(&portable_dir, Box::new(|| vec![]), None).unwrap();
+        let root_clone = root.clone();
+        let backend = LocalBackend::new(
+            Arc::new(rt),
+            root.join("Settings"),
+            &desc_dir,
+            Arc::new(move || vec![("test1".to_string(), root_clone.clone())]),
+        );
+
+        assert_eq!(backend.world_port("srv-test1:coa").unwrap(), 8085);
+        assert_eq!(backend.world_port("srv-test1:wildcard").unwrap(), 8086);
     }
 }
