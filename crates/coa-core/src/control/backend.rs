@@ -64,8 +64,31 @@ impl LocalBackend {
     }
 
     fn access(&self, local_id: &str) -> Result<RealmAccess> {
-        find_access(&self.descriptors, &(self.installs)(), local_id)
-            .ok_or_else(|| Error::Invalid("That realm is not known to this Manager.".into()))
+        let access =
+            find_access(&self.descriptors, &(self.installs)(), local_id).ok_or_else(|| {
+                Error::Invalid(format!(
+                    "That realm is not known to this Manager: {local_id}"
+                ))
+            })?;
+        if let Some((_base, rs)) = local_id.split_once(':') {
+            let expected_mode = match rs {
+                "coa" => crate::realms::Mode::Coa,
+                "wildcard" => crate::realms::Mode::Wildcard,
+                "reborn" => crate::realms::Mode::Reborn,
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "Malformed or unknown ruleset suffix in local_id: {rs}"
+                    )))
+                }
+            };
+            if access.mode != Some(expected_mode) {
+                return Err(Error::Invalid(format!(
+                    "Realm access mode {:?} does not match expected ruleset in local_id {local_id}",
+                    access.mode
+                )));
+            }
+        }
+        Ok(access)
     }
 
     fn account(&self, local_id: &str, filter: &str) -> Result<Option<AccountRow>> {
@@ -89,6 +112,32 @@ impl RealmBackend for LocalBackend {
         let access = self.access(local_id)?;
         let db = access.db()?;
         let ruleset = realm::ruleset_of(&db).map_err(|e| Error::Invalid(e.to_string()))?;
+
+        // Explicit local-id -> ruleset invariant:
+        // local_id ruleset == RealmAccess.mode == Db.realm() == RealmInfo.ruleset
+        if let Some((_base, rs)) = local_id.split_once(':') {
+            let expected_ruleset: crate::portable::Ruleset = rs
+                .parse()
+                .map_err(|_| Error::Invalid(format!("Unknown ruleset in local_id: {rs}")))?;
+            if ruleset != expected_ruleset {
+                return Err(Error::Invalid(format!(
+                    "Ruleset of realm DB ({ruleset:?}) does not match local_id {local_id}"
+                )));
+            }
+            if access.mode.map(|m| m.name()) != Some(expected_ruleset.as_str()) {
+                return Err(Error::Invalid(format!(
+                    "RealmAccess mode ({:?}) does not match local_id {local_id}",
+                    access.mode
+                )));
+            }
+            if db.realm().name() != expected_ruleset.as_str() {
+                return Err(Error::Invalid(format!(
+                    "Db realm ({:?}) does not match local_id {local_id}",
+                    db.realm()
+                )));
+            }
+        }
+
         Ok(RealmInfo {
             automatic: cfg.as_ref().is_none_or(|c| !c.existing_only),
             route: cfg.and_then(|c| c.route),
@@ -256,11 +305,22 @@ impl RealmBackend for LocalBackend {
             }
         }
         let access = self.access(local_id)?;
-        let mode = access.mode.unwrap_or(crate::realms::Mode::Coa);
+        let mode = if let Some(m) = access.mode {
+            m
+        } else if let Some((_base, _rs)) = local_id.split_once(':') {
+            return Err(Error::Invalid(format!(
+                "Unresolved mode for ruleset suffix in {local_id}"
+            )));
+        } else {
+            // Legacy unsuffixed CoA realm ONLY
+            crate::realms::Mode::Coa
+        };
         if let Some(ref root) = access.root {
             crate::realms::world_port_for_mode(root, mode)
         } else {
-            Ok(8085)
+            Err(Error::Invalid(format!(
+                "No server installation root for {local_id} to resolve world port"
+            )))
         }
     }
 }
@@ -282,8 +342,8 @@ mod tests {
         fs::create_dir_all(&desc_dir).unwrap();
 
         let portable_dir = dir.path().join("portable");
-        let rt = PortableRuntime::start(&portable_dir, Box::new(|| vec![]), None).unwrap();
-        let backend = LocalBackend::new(Arc::new(rt), &settings, &desc_dir, Arc::new(|| vec![]));
+        let rt = PortableRuntime::start(&portable_dir, Box::new(Vec::new), None).unwrap();
+        let backend = LocalBackend::new(Arc::new(rt), &settings, &desc_dir, Arc::new(Vec::new));
 
         // Unknown realm id must return Err, never Ok(RealmInfo { ruleset: Ruleset::Coa, .. })
         assert!(backend.info("srv-unknown").is_err());
@@ -296,11 +356,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path().join("srv");
         fs::create_dir_all(root.join("Settings")).unwrap();
-        fs::write(
-            root.join("Settings/repack.json"),
-            r#"{"worldPort": 8085}"#,
-        )
-        .unwrap();
+        fs::write(root.join("Settings/repack.json"), r#"{"worldPort": 8085}"#).unwrap();
         fs::write(
             root.join("Settings/realm-profile.json"),
             r#"{"active": "coa", "wildcard_created": true, "simultaneous": true, "secondary_world_port": 8086}"#,
@@ -318,7 +374,7 @@ mod tests {
 
         let desc_dir = dir.path().join("descriptors");
         let portable_dir = dir.path().join("portable");
-        let rt = PortableRuntime::start(&portable_dir, Box::new(|| vec![]), None).unwrap();
+        let rt = PortableRuntime::start(&portable_dir, Box::new(Vec::new), None).unwrap();
         let root_clone = root.clone();
         let backend = LocalBackend::new(
             Arc::new(rt),
@@ -329,5 +385,102 @@ mod tests {
 
         assert_eq!(backend.world_port("srv-test1:coa").unwrap(), 8085);
         assert_eq!(backend.world_port("srv-test1:wildcard").unwrap(), 8086);
+
+        // When simultaneous is false and active is CoA:
+        fs::write(
+            root.join("Settings/realm-profile.json"),
+            r#"{"active": "coa", "wildcard_created": true, "simultaneous": false}"#,
+        )
+        .unwrap();
+
+        // CoA succeeds with 8085
+        assert_eq!(backend.world_port("srv-test1:coa").unwrap(), 8085);
+        // Wildcard must FAIL CLOSED, never return 8085
+        let err_wc_mode =
+            crate::realms::world_port_for_mode(&root, crate::realms::Mode::Wildcard).unwrap_err();
+        assert!(
+            err_wc_mode.to_string().contains("not active"),
+            "Expected not active error, got: {err_wc_mode}"
+        );
+        assert!(backend.world_port("srv-test1:wildcard").is_err());
+
+        // Reborn must FAIL CLOSED
+        let err_reb_mode =
+            crate::realms::world_port_for_mode(&root, crate::realms::Mode::Reborn).unwrap_err();
+        assert!(
+            err_reb_mode.to_string().contains("not active"),
+            "Expected not active error, got: {err_reb_mode}"
+        );
+        assert!(backend.world_port("srv-test1:reborn").is_err());
+
+        // Malformed and unknown suffixes must fail closed
+        assert!(backend.access("srv-test1:unknown").is_err());
+        assert!(backend.access("srv-test1:garbage").is_err());
+        assert!(backend.access("srv-test1:coa:extra").is_err());
+        assert!(backend.world_port("srv-test1:unknown").is_err());
+        assert!(backend.world_port("srv-test1:garbage").is_err());
+    }
+
+    #[test]
+    fn world_port_lookup_failure_causes_direct_and_relay_to_fail_closed() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("srv");
+        fs::create_dir_all(root.join("Settings")).unwrap();
+        fs::write(root.join("Settings/repack.json"), r#"{"worldPort": 8085}"#).unwrap();
+        // Server only has active CoA, simultaneous is off
+        fs::write(
+            root.join("Settings/realm-profile.json"),
+            r#"{"active": "coa", "wildcard_created": false, "simultaneous": false}"#,
+        )
+        .unwrap();
+
+        let desc_dir = dir.path().join("descriptors");
+        let portable_dir = dir.path().join("portable");
+        let rt = PortableRuntime::start(&portable_dir, Box::new(Vec::new), None).unwrap();
+        let root_clone = root.clone();
+        let backend = Arc::new(LocalBackend::new(
+            Arc::new(rt),
+            root.join("Settings"),
+            &desc_dir,
+            Arc::new(move || vec![("test1".to_string(), root_clone.clone())]),
+        ));
+
+        let store = Arc::new(std::sync::Mutex::new(
+            crate::control::store::ControlStore::open_in_memory().unwrap(),
+        ));
+        let service = Arc::new(crate::control::service::HostService::new(
+            "srv-test1:wildcard",
+            coa_registry_proto::sign::RealmId::new(),
+            store,
+            backend,
+        ));
+
+        // 1. HostService::local_world_port fails closed
+        assert!(service.local_world_port().is_err());
+
+        // 2. Direct route manager cannot find a direct route because world port resolution failed
+        let mut direct_mgr =
+            crate::control::direct_route::DirectRouteManager::start(None, service.clone());
+        assert!(!direct_mgr.is_direct_ready());
+        assert!(service.direct_route().is_none());
+        direct_mgr.shutdown();
+
+        // 3. When relay link has no world port resolved, AllocateRelay refuses
+        let mut session = crate::control::service::Session::default();
+        let player = uuid::Uuid::now_v7();
+        let resp = service.handle(
+            &mut session,
+            &player,
+            "KEY",
+            coa_control_proto::app::Request::AllocateRelay { player_id: player },
+        );
+        assert!(matches!(
+            resp,
+            coa_control_proto::app::Response::Error {
+                code: coa_control_proto::app::AppError::NoAccount
+                    | coa_control_proto::app::AppError::RelayUnavailable,
+                ..
+            }
+        ));
     }
 }

@@ -812,7 +812,10 @@ fn wildcard_and_coa_collections_remain_strictly_isolated() {
         set: CompactSet::seal("wildcard:appearance", &wc_update).unwrap(),
     };
     let ack = o.handle_collection(&to_json(&msg_wc).unwrap()).unwrap();
-    assert!(matches!(ack.outcome, CollectionOutcome::Applied | CollectionOutcome::Unchanged));
+    assert!(matches!(
+        ack.outcome,
+        CollectionOutcome::Applied | CollectionOutcome::Unchanged
+    ));
 
     // CoA remains exactly [10, 20, 30]
     let (_, s_coa_after) = o

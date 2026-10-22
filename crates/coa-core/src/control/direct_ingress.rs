@@ -33,7 +33,11 @@ impl DirectIngress {
         local_auth_port: u16,
         local_world_port: u16,
     ) -> Result<Self> {
-        let auth_host = if auth_bind_port == 0 { "127.0.0.1" } else { "0.0.0.0" };
+        let auth_host = if auth_bind_port == 0 {
+            "127.0.0.1"
+        } else {
+            "0.0.0.0"
+        };
         let auth_listener =
             TcpListener::bind(format!("{auth_host}:{auth_bind_port}")).map_err(|e| {
                 Error::Invalid(format!(
@@ -48,7 +52,11 @@ impl DirectIngress {
             .map_err(|e| Error::Invalid(e.to_string()))?
             .port();
 
-        let world_host = if world_bind_port == 0 { "127.0.0.1" } else { "0.0.0.0" };
+        let world_host = if world_bind_port == 0 {
+            "127.0.0.1"
+        } else {
+            "0.0.0.0"
+        };
         let world_listener =
             TcpListener::bind(format!("{world_host}:{world_bind_port}")).map_err(|e| {
                 Error::Invalid(format!(
@@ -116,7 +124,9 @@ impl DirectIngress {
                             std::thread::Builder::new()
                                 .name("direct-world-worker".into())
                                 .spawn(move || {
-                                    if let Err(e) = handle_world_client(client_stream, local_world_port) {
+                                    if let Err(e) =
+                                        handle_world_client(client_stream, local_world_port)
+                                    {
                                         eprintln!("handle_world_client error: {e}");
                                     }
                                 })
@@ -189,7 +199,9 @@ fn handle_auth_client(
         }
     }
     let mut server = server.ok_or_else(|| {
-        Error::Invalid(format!("Cannot connect to local authserver: {local_auth_port}"))
+        Error::Invalid(format!(
+            "Cannot connect to local authserver: {local_auth_port}"
+        ))
     })?;
 
     let _ = client.set_read_timeout(Some(Duration::from_millis(500)));
@@ -287,7 +299,9 @@ fn handle_world_client(mut client: TcpStream, local_world_port: u16) -> Result<(
         }
     }
     let mut server = server.ok_or_else(|| {
-        Error::Invalid(format!("Cannot connect to local worldserver: {local_world_port}"))
+        Error::Invalid(format!(
+            "Cannot connect to local worldserver: {local_world_port}"
+        ))
     })?;
 
     let _ = client.set_nonblocking(false);

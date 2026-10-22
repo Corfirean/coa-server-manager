@@ -319,9 +319,17 @@ fn session(
                             // Strictly predefined local targets: Auth (3724) or World (8085 or bound realm world port)
                             let local_port = match target {
                                 RelayTarget::Auth => target.local_port(),
-                                RelayTarget::World => {
-                                    local_world_port.unwrap_or_else(|| target.local_port())
-                                }
+                                RelayTarget::World => match local_world_port {
+                                    Some(p) => p,
+                                    None => {
+                                        eprintln!("RelayLink cannot connect to World: local_world_port was not provided (fail-closed)");
+                                        let _ = ws_out_tx.send(TunnelMsg::ConnectErr {
+                                            stream_id,
+                                            error: "World port unresolved".into(),
+                                        });
+                                        continue;
+                                    }
+                                },
                             };
                             match TcpStream::connect(("127.0.0.1", local_port)) {
                                 Ok(tcp) => {

@@ -130,12 +130,12 @@ pub fn find_access(
 ) -> Option<RealmAccess> {
     let (base_id, explicit_mode) = if let Some((base, rs)) = local_id.split_once(':') {
         let m = match rs {
-            "coa" => Some(crate::realms::Mode::Coa),
-            "wildcard" => Some(crate::realms::Mode::Wildcard),
-            "reborn" => Some(crate::realms::Mode::Reborn),
-            _ => None,
+            "coa" => crate::realms::Mode::Coa,
+            "wildcard" => crate::realms::Mode::Wildcard,
+            "reborn" => crate::realms::Mode::Reborn,
+            _ => return None,
         };
-        (base, m)
+        (base, Some(m))
     } else {
         (local_id, None)
     };
@@ -145,6 +145,21 @@ pub fn find_access(
     {
         let mut access = RealmAccess::from_install(id, root);
         if let Some(m) = explicit_mode {
+            if let Ok(st) = crate::realms::state(root) {
+                let supported = match m {
+                    crate::realms::Mode::Coa => {
+                        st.active == crate::realms::Mode::Coa || st.simultaneous
+                    }
+                    crate::realms::Mode::Wildcard => {
+                        st.active == crate::realms::Mode::Wildcard
+                            || (st.simultaneous && st.wildcard_created)
+                    }
+                    crate::realms::Mode::Reborn => st.active == crate::realms::Mode::Reborn,
+                };
+                if !supported {
+                    return None;
+                }
+            }
             access.id = format!("srv-{id}:{}", m.name());
             access.name = format!("{} — {}", access.name, m.label());
             access.mode = Some(m);

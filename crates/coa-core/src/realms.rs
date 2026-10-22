@@ -749,11 +749,21 @@ pub fn world_port_for_mode(root: &Path, mode: Mode) -> Result<u16> {
             (Mode::Coa, Mode::Wildcard) => second,
             (Mode::Wildcard, Mode::Wildcard) => ports.world,
             (Mode::Wildcard, Mode::Coa) => second,
-            (_, _) => ports.world,
+            _ => {
+                return Err(Error::Invalid(format!(
+                    "Unsupported mode {mode:?} for simultaneous hosting (active: {:?})",
+                    s.active
+                )))
+            }
         };
         Ok(port)
-    } else {
+    } else if mode == s.active {
         Ok(ports.world)
+    } else {
+        Err(Error::Invalid(format!(
+            "Realm mode {mode:?} is not active (active: {:?}) and simultaneous mode is disabled.",
+            s.active
+        )))
     }
 }
 

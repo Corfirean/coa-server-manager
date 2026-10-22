@@ -467,7 +467,9 @@ impl RealmBridge for FakeRealm {
 impl FakeRealm {
     fn rows(&self, kind: &str) -> Result<&IdSet> {
         match kind {
-            "coa:appearance" | "wildcard:appearance" | "reborn:appearance" => Ok(&self.appearance_rows),
+            "coa:appearance" | "wildcard:appearance" | "reborn:appearance" => {
+                Ok(&self.appearance_rows)
+            }
             "coa:vanity" | "wildcard:vanity" | "reborn:vanity" => Ok(&self.vanity_rows),
             other => Err(PortableError::Invalid(format!("unknown kind {other}"))),
         }
@@ -475,7 +477,9 @@ impl FakeRealm {
 
     fn rows_mut(&mut self, kind: &str) -> Result<&mut IdSet> {
         match kind {
-            "coa:appearance" | "wildcard:appearance" | "reborn:appearance" => Ok(&mut self.appearance_rows),
+            "coa:appearance" | "wildcard:appearance" | "reborn:appearance" => {
+                Ok(&mut self.appearance_rows)
+            }
             "coa:vanity" | "wildcard:vanity" | "reborn:vanity" => Ok(&mut self.vanity_rows),
             other => Err(PortableError::Invalid(format!("unknown kind {other}"))),
         }

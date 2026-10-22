@@ -304,10 +304,25 @@ fn attempt_route_discovery(
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(coa_control_proto::relay::LOCAL_AUTH_PORT);
-    let local_world = std::env::var("COA_OVERRIDE_LOCAL_WORLD_PORT")
+    let local_world = match std::env::var("COA_OVERRIDE_LOCAL_WORLD_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or_else(|| service.local_world_port());
+    {
+        Some(p) => p,
+        None => match service.local_world_port() {
+            Ok(p) => p,
+            Err(e) => {
+                set_status(
+                    status,
+                    RouteStatus::RelayOnly {
+                        reason: format!("Cannot resolve local world port: {e}"),
+                    },
+                );
+                service.set_direct_route(None);
+                return;
+            }
+        },
+    };
 
     let desired_auth_port: u16 = std::env::var("COA_DIRECT_AUTH_PORT")
         .ok()
@@ -316,7 +331,7 @@ fn attempt_route_discovery(
     let desired_world_port: u16 = std::env::var("COA_DIRECT_WORLD_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(8085);
+        .unwrap_or(local_world);
 
     let ingress = match DirectIngress::start(
         desired_auth_port,

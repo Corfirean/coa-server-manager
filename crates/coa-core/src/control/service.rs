@@ -120,10 +120,8 @@ pub trait RealmBackend: Send + Sync {
         local_id: &str,
         params: RemoteImportParams,
     ) -> Result<RemoteImportOutcome>;
-    /// Local world port for this realm.
-    fn world_port(&self, _local_id: &str) -> Result<u16> {
-        Ok(8085)
-    }
+    /// Local world port for this realm. Must fail closed if the realm port cannot be resolved.
+    fn world_port(&self, local_id: &str) -> Result<u16>;
 }
 
 /// State of one channel.
@@ -224,8 +222,8 @@ impl HostService {
         self.realm_id
     }
 
-    pub fn local_world_port(&self) -> u16 {
-        self.backend.world_port(&self.local_id).unwrap_or(8085)
+    pub fn local_world_port(&self) -> Result<u16> {
+        self.backend.world_port(&self.local_id)
     }
 
     /// The player's public key is the one recorded for this player id when there is a record; `None` when the player is new here.
@@ -1172,6 +1170,7 @@ pub mod fake {
         pub seen_passwords: Mutex<Vec<String>>,
         pub imported: Mutex<HashMap<Uuid, (u32, Uuid)>>,
         pub incompatible: Mutex<std::collections::HashSet<Uuid>>,
+        pub world_port: Mutex<Option<Result<u16>>>,
     }
 
     impl FakeRealm {
@@ -1362,6 +1361,16 @@ pub mod fake {
                 projected_level: None,
                 notes: vec![],
             })
+        }
+        fn world_port(&self, _: &str) -> Result<u16> {
+            if let Some(res) = self.world_port.lock().unwrap().as_ref() {
+                match res {
+                    Ok(p) => Ok(*p),
+                    Err(e) => Err(Error::Invalid(e.to_string())),
+                }
+            } else {
+                Ok(8085)
+            }
         }
     }
 }

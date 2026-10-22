@@ -1652,13 +1652,16 @@ impl PortableService {
             if !super::super::session::protocol::carried_kind_for(kind, model.ruleset) {
                 return Err(fail(
                     "incompatible",
-                    format!("Foreign collection kind {kind:?} in {} remote transfer", model.ruleset),
+                    format!(
+                        "Foreign collection kind {kind:?} in {} remote transfer",
+                        model.ruleset
+                    ),
                 ));
             }
             if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
-                let _ =
-                    self.host
-                        .merge_collection(self.host_profile, model.ruleset, kind, &set);
+                let _ = self
+                    .host
+                    .merge_collection(self.host_profile, model.ruleset, kind, &set);
             }
         }
 

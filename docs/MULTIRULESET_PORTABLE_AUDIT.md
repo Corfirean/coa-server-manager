@@ -53,9 +53,41 @@ Status: Updated for MR2 Gate (Wildcard Vertical Slice Completed)
 
 ---
 
-## 2. Inventory of Current Subsystem Locations & Representation
+## 2. Current Implementation Architecture & Historical Baseline Inventory
 
-### 2.1 Realm Profiles & Databases (`crates/coa-core/src/realms.rs`, `db.rs`)
+### 2.1 Current Implementation State (As of MR1, MR1.1, MR2, MR2.1)
+- **Authoritative Ruleset Representation:**
+  - `crates/coa-core/src/portable/model.rs`: `enum Ruleset { Coa, Wildcard, Reborn }` (strict parsing and schema routing without fallbacks).
+  - `crates/coa-registry-proto/src/caps.rs`: `enum Ruleset { Coa, Wildcard, Reborn }`.
+  - `services/coa-registry/src/pg.rs`: `ruleset: match ruleset.as_str() { "coa" => Ruleset::Coa, "wildcard" => Ruleset::Wildcard, "reborn" => Ruleset::Reborn, ... }`.
+  - `src/lib/browse.ts`: `export type Ruleset = "coa" | "wildcard" | "reborn";`.
+  - `crates/coa-core/src/realms.rs`: `enum Mode { Coa, Wildcard, Reborn }`.
+- **Wire Protocols & Ruleset Requirements:**
+  - **Control Protocol 2:** `CONTROL_PROTOCOL_VERSION = 2`. `Request::TransferOffer` requires explicit, non-default `ruleset: String`. `Response::Claimed` returns explicit `ruleset: String`. `HostTransfer` records ruleset.
+  - **Session Protocol 3:** `SESSION_PROTOCOL_VERSION = 3`. `SessionOffer`, `PortableSessionStarted`, `PortableCheckpoint`, and `OwnerAck` require explicit, mandatory `ruleset: Ruleset`.
+  - **Collection Protocol 2:** `COLLECTION_PROTOCOL_VERSION = 2`. `CollectionObserved`, `CollectionState`, and `CollectionAck` require explicit, mandatory `ruleset: Ruleset`.
+- **Database Routing & Fail-Closed Invariants:**
+  - `LocalBackend::info()` and `LocalBackend::access()` strictly enforce:
+    $$\text{local\_id ruleset} == \text{RealmAccess.mode} == \text{Db.realm()} == \text{RealmInfo.ruleset}$$
+    Any mismatch or malformed/unknown ruleset suffix returns an immediate error.
+  - `LocalBackend::world_port()` and `crates/coa-core/src/realms::world_port_for_mode()` return fallible `Result<u16>` without silent fallbacks to 8085. If a realm is not running or not simultaneous, port resolution fails closed and disables Direct and Relay routing for that realm.
+- **Canonical Storage (`portable.db`):**
+  - Transactional SQLite Migration 009 upgraded `character` table constraint to `CHECK (ruleset IN ('coa', 'wildcard', 'reborn'))` while preserving rows byte-for-byte.
+  - `collection` table is partitioned by `(profile_id, ruleset, kind)`.
+  - Mappings (`character_server_mapping`, `item_mapping`, `pet_mapping`, sessions) isolate distinct server IDs (`srv-X:coa`, `srv-X:wildcard`, `srv-X:reborn`).
+
+### 2.2 Historical Baseline Inventory (Pre-Implementation State as of v0.7.0 Master)
+> [!NOTE]
+> The following findings reflect the legacy v0.7.0 baseline discovered before MR1/MR2 implementation and are preserved for historical reference:
+- *Historical:* `Ruleset` enum in `model.rs` and `caps.rs` lacked `Reborn`.
+- *Historical:* `character` table had `CHECK (ruleset IN ('coa', 'wildcard'))`, causing SQLite constraint failures on Reborn.
+- *Historical:* `collection` table was keyed only by `(profile_id, kind)` without `ruleset`.
+- *Historical:* `TransferOffer`, `PortableSessionStarted`, `PortableCheckpoint`, and `CollectionState` lacked explicit protocol-level `ruleset` fields.
+- *Historical:* `LocalBackend::info()` had an unsafe fallback `ruleset_of(db).unwrap_or(Ruleset::Coa)`.
+- *Historical:* `world_port_for_mode()` fell back to `ports.world` (8085) even when Wildcard was inactive.
+- *Historical:* `Ruleset::schema(kind)` had `_ => "acore_characters"`.
+
+### 2.3 Realm Profiles & Databases (`crates/coa-core/src/realms.rs`, `db.rs`)
 | Ruleset / Mode | Realm ID | Character Database | World Database | Auth Database | Configuration Profile |
 |---|---|---|---|---|---|
 | **CoA** | `1` | `acore_characters` | `acore_world` | `acore_auth` | `Settings/realm-profiles/coa.json` |
@@ -70,52 +102,11 @@ Status: Updated for MR2 Gate (Wildcard Vertical Slice Completed)
   - Wildcard detected by byte pattern: `b"Wildcard synergy settings"`.
   - Reborn detected by byte pattern: `b"Warcraft Reborn class spells are unavailable"`.
 
-### 2.2 Ruleset Enumeration & Protocols
-- `crates/coa-core/src/realms.rs`: `enum Mode { Coa, Wildcard, Reborn }`
-- `crates/coa-core/src/portable/model.rs`: `enum Ruleset { Coa, Wildcard }` *(Lacks `Reborn`)*
-- `crates/coa-registry-proto/src/caps.rs`: `enum Ruleset { Coa, Wildcard }` *(Lacks `Reborn`)*
-- `services/coa-registry/src/pg.rs`: `ruleset: match ruleset.as_str() { "coa" => Ruleset::Coa, "wildcard" => Ruleset::Wildcard }` *(Lacks `Reborn`)*
-- `src/lib/browse.ts`: `export type Ruleset = "coa" | "wildcard";` *(Lacks `reborn`)*
-
-### 2.3 Public Registry Model & Publication
+### 2.4 Public Registry Model & Multi-Realm Publication
 - `crates/coa-core/src/realm_registry/settings.rs`: `RegistrySettings.realms` is a `BTreeMap<String, PublishConfig>`.
 - `src/screens/PublishCard.tsx`: Uses `localId = 'srv-' + serverId`.
-- **Host vs Published Realm Identity Issue:**
-  One installation (`InstallMeta.id`) hosting multiple rulesets currently shares `localId = srv-<id>`. If the host switches active realm from CoA to Wildcard, or publishes both under simultaneous mode, `srv-<id>` cannot represent both published realms distinctly.
-  Each published realm must possess its own distinct local realm identity (`srv-<id>-<ruleset>` or `srv-<id>:<ruleset>`), unique `RealmId` (UUIDv7), and independent Ed25519 signing key in `KeyStore`.
-
-### 2.4 Canonical Portable Storage (`crates/coa-core/src/portable/store.rs`)
-- SQLite schema (`%LOCALAPPDATA%\CoAServerManager\portable\portable.db`):
-  - `character`: `ruleset TEXT NOT NULL CHECK (ruleset IN ('coa', 'wildcard'))` -> Must be updated to allow `'reborn'`.
-  - `collection`: `PRIMARY KEY (profile_id, kind)` -> Unpartitioned by ruleset! Must become `(profile_id, ruleset, kind)`.
-  - `character_server_mapping`: `PRIMARY KEY (character_id, server_id), UNIQUE (server_id, local_guid)`.
-  - `item_mapping`: `PRIMARY KEY (character_id, server_id, portable_item_id)`.
-  - `pet_mapping`: `PRIMARY KEY (character_id, server_id, portable_pet_id)`.
-  - `owner_session`: `character_id`, `server_id`, `c0_revision`, `b0_hash`.
-  - `host_session`: `character_id`, `server_id`, `local_guid`.
-
-### 2.5 Remote Transfer & Control Protocol (`crates/coa-control-proto/src/app.rs`)
-- `Request::TransferOffer`:
-  `{ transfer_id, character_id, canonical_revision, content_hash, total_size, collections }`
-  -> **Missing `ruleset`**. An offer must bind `ruleset: Ruleset` so the host can reject before chunk transport or preflight if target realm mismatch occurs.
-- `Request::TransferCommit`:
-  Currently relies on cached transfer metadata.
-- `Response::TransferCommitted`:
-  Returns session parameters.
-
-### 2.6 Runtime Sessions & Checkpoints (`crates/coa-core/src/portable/session/protocol.rs`)
-- `PortableSessionStarted`: `{ protocol_version, session_id, character_id, server_id, base_canonical_revision, baseline_generation, b0, content_hash, progression }`
-  -> **Missing `ruleset`**.
-- `PortableCheckpoint`: `{ protocol_version, session_id, character_id, server_id, base_canonical_revision, sequence, final_checkpoint, realm_snapshot, content_hash, pin }`
-  -> **Missing `ruleset`**.
-- `OwnerAck`: `{ protocol_version, session_id, sequence, outcome, canonical_revision, canonical_hash, owned_items, owned_pets, canonical, next_session, pin }`
-  -> Must verify ruleset match in owner session state before applying 3-way merge.
-
-### 2.7 Direct & Relay Routing
-- **Direct Ingress Proxy (`crates/coa-core/src/control/direct_ingress.rs`):**
-  Listens on direct auth and world ports, intercepts `CMD_REALM_LIST` from the Auth server, and rewrites the realm entry address to the public direct world IP and port. When multiple realms are active (simultaneous CoA + Wildcard), each published realm must target its respective local world port (`ports.world` vs `s.secondary_world_port`).
-- **Relay Hub & Allocations (`services/coa-relay/`, `crates/coa-core/src/control/relay_link.rs`):**
-  Relay allocation requests are authenticated by Ed25519 realm key. Allocations bind a short-lived token to an isolated auth/world stream pair.
+- **Multi-Realm Publication on One Host:**
+  Each published realm possesses its own distinct local realm identity (`srv-<id>:<ruleset>`), unique `RealmId` (UUIDv7), and independent Ed25519 signing key in `KeyStore`. Direct Ingress proxy and Relay links dynamically route to the respective realm's active world port.
 
 ---
 

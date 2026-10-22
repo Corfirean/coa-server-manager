@@ -201,7 +201,10 @@ impl ControlStore {
             .map_err(db)?;
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
         conn.execute_batch(SCHEMA).map_err(db)?;
-        let _ = conn.execute("ALTER TABLE host_transfer ADD COLUMN ruleset TEXT NOT NULL DEFAULT 'coa'", []);
+        let _ = conn.execute(
+            "ALTER TABLE host_transfer ADD COLUMN ruleset TEXT NOT NULL DEFAULT 'coa'",
+            [],
+        );
         Ok(Self { conn })
     }
 

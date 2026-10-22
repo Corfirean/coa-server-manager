@@ -1100,8 +1100,12 @@ fn wildcard_session_offer_carrying_coa_snapshot_is_rejected_with_zero_mutation()
     let host_profile = host.default_profile().unwrap();
 
     let coa_model = geared_level_eighty();
-    let id = owner.create_character(profile, coa_model, "realm-a").unwrap();
-    let mut offer = OwnerService::new(&mut owner).offer(id, "srv-1:wildcard").unwrap();
+    let id = owner
+        .create_character(profile, coa_model, "realm-a")
+        .unwrap();
+    let mut offer = OwnerService::new(&mut owner)
+        .offer(id, "srv-1:wildcard")
+        .unwrap();
     // Tamper offer: claim it is Wildcard while snapshot is CoA
     offer.ruleset = Ruleset::Wildcard;
 
@@ -1199,9 +1203,13 @@ fn wildcard_session_using_coa_server_id_is_rejected() {
 
     let mut model = geared_level_eighty();
     model.ruleset = Ruleset::Wildcard;
-    let id = owner.create_character(profile, model, "wildcard-origin").unwrap();
+    let id = owner
+        .create_character(profile, model, "wildcard-origin")
+        .unwrap();
     // Offer for srv-1:coa
-    let offer = OwnerService::new(&mut owner).offer(id, "srv-1:coa").unwrap();
+    let offer = OwnerService::new(&mut owner)
+        .offer(id, "srv-1:coa")
+        .unwrap();
 
     // Host configured for Wildcard realm
     let mut h = HostService::new(&mut host, "srv-1:wildcard", HostConfig::default());
@@ -1216,7 +1224,9 @@ fn same_character_id_with_foreign_ruleset_is_rejected() {
 
     let mut model = geared_level_eighty();
     model.ruleset = Ruleset::Wildcard;
-    let id = owner.create_character(profile, model.clone(), "srv-1:wildcard").unwrap();
+    let id = owner
+        .create_character(profile, model.clone(), "srv-1:wildcard")
+        .unwrap();
 
     // Tampered snapshot with same ID but Ruleset::Coa
     let mut tampered = model.clone();

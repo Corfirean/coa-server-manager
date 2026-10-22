@@ -2190,36 +2190,75 @@ fn three_space_isolation_fixture_proves_wildcard_activity_leaves_coa_and_reborn_
     let mut model_a = fixtures::geared_level_eighty();
     model_a.identity.name = "Hero".into();
     model_a.ruleset = Ruleset::Coa;
-    let char_a = store.create_character(profile, model_a, "srv-1:coa").unwrap();
+    let char_a = store
+        .create_character(profile, model_a, "srv-1:coa")
+        .unwrap();
 
     // Character B: Wildcard
     let mut model_b = fixtures::geared_level_eighty();
     model_b.identity.name = "Hero".into();
     model_b.ruleset = Ruleset::Wildcard;
-    let char_b = store.create_character(profile, model_b, "srv-1:wildcard").unwrap();
+    let char_b = store
+        .create_character(profile, model_b, "srv-1:wildcard")
+        .unwrap();
 
     // Character C: Reborn
     let mut model_c = fixtures::geared_level_eighty();
     model_c.identity.name = "Hero".into();
     model_c.ruleset = Ruleset::Reborn;
-    let char_c = store.create_character(profile, model_c, "srv-1:reborn").unwrap();
+    let char_c = store
+        .create_character(profile, model_c, "srv-1:reborn")
+        .unwrap();
 
     // Initial identical mappings (local_guid = 100, item_guid = 200)
-    store.bind_server(char_a, "srv-1:coa", 100, 1, MappingState::Active).unwrap();
-    store.bind_server(char_b, "srv-1:wildcard", 100, 1, MappingState::Active).unwrap();
-    store.bind_server(char_c, "srv-1:reborn", 100, 1, MappingState::Active).unwrap();
+    store
+        .bind_server(char_a, "srv-1:coa", 100, 1, MappingState::Active)
+        .unwrap();
+    store
+        .bind_server(char_b, "srv-1:wildcard", 100, 1, MappingState::Active)
+        .unwrap();
+    store
+        .bind_server(char_c, "srv-1:reborn", 100, 1, MappingState::Active)
+        .unwrap();
 
     let item_a = PortableItemId::new();
     let item_b = PortableItemId::new();
     let item_c = PortableItemId::new();
-    store.reconcile_item_mappings(char_a, "srv-1:coa", 1, &[obs(item_a, 200, 10, "e1")]).unwrap();
-    store.reconcile_item_mappings(char_b, "srv-1:wildcard", 1, &[obs(item_b, 200, 10, "e2")]).unwrap();
-    store.reconcile_item_mappings(char_c, "srv-1:reborn", 1, &[obs(item_c, 200, 10, "e3")]).unwrap();
+    store
+        .reconcile_item_mappings(char_a, "srv-1:coa", 1, &[obs(item_a, 200, 10, "e1")])
+        .unwrap();
+    store
+        .reconcile_item_mappings(char_b, "srv-1:wildcard", 1, &[obs(item_b, 200, 10, "e2")])
+        .unwrap();
+    store
+        .reconcile_item_mappings(char_c, "srv-1:reborn", 1, &[obs(item_c, 200, 10, "e3")])
+        .unwrap();
 
     // Initial collections
-    store.merge_collection(profile, Ruleset::Coa, "coa:appearance", &IdSet::from_ids([1, 2, 3]).unwrap()).unwrap();
-    store.merge_collection(profile, Ruleset::Wildcard, "wildcard:appearance", &IdSet::from_ids([1, 2, 4]).unwrap()).unwrap();
-    store.merge_collection(profile, Ruleset::Reborn, "reborn:appearance", &IdSet::from_ids([1, 2, 5]).unwrap()).unwrap();
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Coa,
+            "coa:appearance",
+            &IdSet::from_ids([1, 2, 3]).unwrap(),
+        )
+        .unwrap();
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Wildcard,
+            "wildcard:appearance",
+            &IdSet::from_ids([1, 2, 4]).unwrap(),
+        )
+        .unwrap();
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Reborn,
+            "reborn:appearance",
+            &IdSet::from_ids([1, 2, 5]).unwrap(),
+        )
+        .unwrap();
 
     // Record baseline hashes and revisions
     let hash_a_before = store.load_snapshot(char_a, 1).unwrap();
@@ -2229,26 +2268,60 @@ fn three_space_isolation_fixture_proves_wildcard_activity_leaves_coa_and_reborn_
     let mut model_b_mut = store.load_current(char_b).unwrap();
     model_b_mut.progression.money += 100_000;
     model_b_mut.progression.level = 80;
-    store.commit_snapshot(char_b, 1, model_b_mut, "srv-1:wildcard", Some("wildcard gameplay")).unwrap();
+    store
+        .commit_snapshot(
+            char_b,
+            1,
+            model_b_mut,
+            "srv-1:wildcard",
+            Some("wildcard gameplay"),
+        )
+        .unwrap();
 
-    store.merge_collection(profile, Ruleset::Wildcard, "wildcard:appearance", &IdSet::from_ids([1, 2, 4, 999]).unwrap()).unwrap();
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Wildcard,
+            "wildcard:appearance",
+            &IdSet::from_ids([1, 2, 4, 999]).unwrap(),
+        )
+        .unwrap();
 
     let new_item_b = PortableItemId::new();
-    store.reconcile_item_mappings(char_b, "srv-1:wildcard", 2, &[obs(item_b, 200, 10, "e2"), obs(new_item_b, 201, 10, "e2_new")]).unwrap();
+    store
+        .reconcile_item_mappings(
+            char_b,
+            "srv-1:wildcard",
+            2,
+            &[
+                obs(item_b, 200, 10, "e2"),
+                obs(new_item_b, 201, 10, "e2_new"),
+            ],
+        )
+        .unwrap();
 
     // ---- ASSERT WILDCARD B ADVANCED ----
     let rec_b = store.character(char_b).unwrap();
     assert_eq!(rec_b.revision, 2);
-    let (_, coll_b) = store.collection(profile, Ruleset::Wildcard, "wildcard:appearance").unwrap().unwrap();
+    let (_, coll_b) = store
+        .collection(profile, Ruleset::Wildcard, "wildcard:appearance")
+        .unwrap()
+        .unwrap();
     assert_eq!(coll_b.ids(), &[1, 2, 4, 999]);
-    assert_eq!(store.item_mappings(char_b, "srv-1:wildcard").unwrap().len(), 2);
+    assert_eq!(
+        store.item_mappings(char_b, "srv-1:wildcard").unwrap().len(),
+        2
+    );
 
     // ---- ASSERT COA A IS 100% UNTOUCHED ----
     let rec_a = store.character(char_a).unwrap();
     assert_eq!(rec_a.revision, 1);
     let hash_a_after = store.load_snapshot(char_a, 1).unwrap();
     assert_eq!(hash_a_before, hash_a_after);
-    let (_, coll_a) = store.collection(profile, Ruleset::Coa, "coa:appearance").unwrap().unwrap();
+    let (_, coll_a) = store
+        .collection(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
     assert_eq!(coll_a.ids(), &[1, 2, 3]);
     let items_a = store.item_mappings(char_a, "srv-1:coa").unwrap();
     assert_eq!(items_a.len(), 1);
@@ -2260,7 +2333,10 @@ fn three_space_isolation_fixture_proves_wildcard_activity_leaves_coa_and_reborn_
     assert_eq!(rec_c.revision, 1);
     let hash_c_after = store.load_snapshot(char_c, 1).unwrap();
     assert_eq!(hash_c_before, hash_c_after);
-    let (_, coll_c) = store.collection(profile, Ruleset::Reborn, "reborn:appearance").unwrap().unwrap();
+    let (_, coll_c) = store
+        .collection(profile, Ruleset::Reborn, "reborn:appearance")
+        .unwrap()
+        .unwrap();
     assert_eq!(coll_c.ids(), &[1, 2, 5]);
     let items_c = store.item_mappings(char_c, "srv-1:reborn").unwrap();
     assert_eq!(items_c.len(), 1);
