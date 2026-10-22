@@ -8,7 +8,7 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
-## 0.7.0 (Pre-release) — 2026-10-21
+## 0.7.0 — 2026-10-21
 
 Portable transfers into Warcraft Reborn are not supported yet.
 
