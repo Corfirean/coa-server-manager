@@ -2,6 +2,8 @@ import type en from "./en";
 
 /** Español. Traducción provisional; debe revisarla un hablante nativo antes de publicarse. */
 const es: Partial<Record<keyof typeof en, string>> = {
+  "mod.switching": "Aplicando cambios… Espera un momento.",
+  "portable.experimental": "Función experimental: los personajes portátiles siguen en desarrollo activo. Pueden producirse errores.",
   "remote.clientReady": "Tu cliente está listo. Guarda la dirección del anfitrión y pulsa Jugar.",
   "remote.clientIntro": "Elige un cliente existente o descárgalo aquí. No necesitas un servidor local.",
   "welcome.host.title": "Alojar un servidor",
@@ -730,6 +732,9 @@ const es: Partial<Record<keyof typeof en, string>> = {
   // Realmlist switcher and modules page
   "realm.profileLabel": "Reino",
   "realm.switching": "Cambiando de reino…",
+  "realm.rebornCreate": "Crear reino Warcraft Reborn",
+  "realm.rebornModules": "Las mecánicas de clase de los bots aún no se han validado en Warcraft Reborn. Los demás módulos siguen siendo experimentales.",
+  "realm.rebornUpdate": "Actualiza el servidor a una versión compatible con Warcraft Reborn.",
   "realm.create": "Crear reino Wildcard",
   "realm.restart": "Cambiar y reiniciar",
   "realm.select": "Seleccionar reino",
@@ -738,8 +743,8 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "realm.modules": "Los compañeros de CoA no están disponibles aquí. Content Scaling y los demás módulos siguen siendo experimentales en Wildcard.",
   "realm.update": "Actualiza el servidor a una versión compatible con Wildcard para crear este reino.",
   "realm.recovery": "Se interrumpió un cambio de reino. Selecciona un reino para recuperar la configuración guardada.",
-  "realm.unsupported": "No disponible en Wildcard: las mecánicas de clase aún no se han validado.",
-  "realm.experimental": "Experimental en Wildcard · compatibilidad en juego sin verificar.",
+  "realm.unsupported": "No disponible en Wildcard / Warcraft Reborn: las mecánicas de clase aún no se han validado.",
+  "realm.experimental": "Experimental en Wildcard / Warcraft Reborn · compatibilidad en juego sin verificar.",
   "realm.label": "Reino",
   "realm.other": "Otro",
   "realm.add": "Añadir una realmlist…",

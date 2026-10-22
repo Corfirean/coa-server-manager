@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, BarChart3, Bot, Bug, Gauge, Globe, Loader2, Puzzle, Server, Settings, Terminal, Users, type LucideIcon } from "lucide-react";
+import { Archive, BarChart3, Bot, Bug, Gauge, Globe, Loader2, Puzzle, Server, Settings, Swords, Terminal, Users, type LucideIcon } from "lucide-react";
 import { api, type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
 import logo from "@/assets/logo.png";
@@ -10,10 +10,11 @@ import { SettingsPage } from "@/screens/SettingsPage";
 import { BackupsPage } from "@/screens/BackupsPage";
 import { PlayersPage } from "@/screens/PlayersPage";
 import { SettingsHome } from "@/screens/SettingsHome";
-import { FriendsPage } from "@/screens/FriendsPage";
+import { PlayWithFriends } from "@/screens/PlayWithFriends";
 import { ReportPage } from "@/screens/ReportPage";
 import { ModulesPage } from "@/screens/ModulesPage";
 import { ConsolePage } from "@/screens/ConsolePage";
+import { PortablePage } from "@/screens/PortablePage";
 import { DashboardPage } from "@/screens/DashboardPage";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -21,7 +22,7 @@ import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
 import { startClientPolling } from "@/lib/clientUpdate";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
-type Page = "overview" | "bots" | "dashboard" | "server" | "modules" | "players" | "friends" | "backups" | "console" | "report" | "settings";
+type Page = "overview" | "bots" | "dashboard" | "server" | "modules" | "players" | "characters" | "friends" | "backups" | "console" | "report" | "settings";
 
 const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "overview", label: "nav.overview", icon: Gauge, question: "q.overview" },
@@ -30,6 +31,7 @@ const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "server", label: "nav.server", icon: Server, question: "q.server" },
   { id: "modules", label: "nav.modules", icon: Puzzle, question: "q.modules" },
   { id: "players", label: "nav.players", icon: Users, question: "q.players" },
+  { id: "characters", label: "nav.characters", icon: Swords, question: "q.characters" },
   { id: "friends", label: "nav.friends", icon: Globe, question: "q.friends" },
   { id: "backups", label: "nav.backups", icon: Archive, question: "q.backups" },
   { id: "console", label: "nav.console", icon: Terminal, question: "q.console" },
@@ -159,9 +161,11 @@ export function Shell(props: {
         ) : page === "report" ? (
           <ReportPage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (
-          <FriendsPage key={server.id} serverId={server.id} />
+          <PlayWithFriends key={server.id} serverId={server.id} path={server.path} />
         ) : page === "settings" ? (
-          <SettingsHome key={server.id} serverId={server.id} path={server.path} onForget={() => props.onForget(server.id)} />
+          <SettingsHome key={server.id} serverId={server.id} serverName={server.name} path={server.path} onForget={() => props.onForget(server.id)} />
+        ) : page === "characters" ? (
+          <PortablePage key="characters" />
         ) : page === "players" ? (
           <PlayersPage key={server.id} serverId={server.id} />
         ) : page === "backups" ? (

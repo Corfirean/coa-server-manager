@@ -13,9 +13,22 @@ pub struct MergePlan {
 }
 
 pub fn plan(conf: &ConfFile, dist: &ConfFile) -> MergePlan {
-    let added = dist.entries().map(|(k, _)| k).filter(|k| !conf.contains(k)).map(str::to_string).collect::<Vec<_>>();
-    let not_in_dist = conf.entries().map(|(k, _)| k).filter(|k| !dist.contains(k)).map(str::to_string).collect();
-    MergePlan { added: dedup(added), not_in_dist: dedup(not_in_dist) }
+    let added = dist
+        .entries()
+        .map(|(k, _)| k)
+        .filter(|k| !conf.contains(k))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let not_in_dist = conf
+        .entries()
+        .map(|(k, _)| k)
+        .filter(|k| !dist.contains(k))
+        .map(str::to_string)
+        .collect();
+    MergePlan {
+        added: dedup(added),
+        not_in_dist: dedup(not_in_dist),
+    }
 }
 
 fn dedup(mut v: Vec<String>) -> Vec<String> {
@@ -44,7 +57,9 @@ mod tests {
     #[test]
     fn adds_new_keys_with_docs_and_preserves_user_values_and_unknowns() {
         let mut conf = ConfFile::parse("[worldserver]\nA = 42\n# mine\nCustom.Key = 1\n");
-        let dist = ConfFile::parse("[worldserver]\n# About A\nA = 1\n# About B\n# second line\nB = \"x\"\n");
+        let dist = ConfFile::parse(
+            "[worldserver]\n# About A\nA = 1\n# About B\n# second line\nB = \"x\"\n",
+        );
         let before = conf.to_text();
         let p = apply(&mut conf, &dist);
         assert_eq!(p.added, ["B"]);

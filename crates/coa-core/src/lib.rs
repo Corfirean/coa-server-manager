@@ -1,14 +1,25 @@
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::doc_overindented_list_items,
+    clippy::unnecessary_sort_by,
+    clippy::explicit_counter_loop,
+    clippy::large_enum_variant
+)]
+
 pub mod accounts;
+pub mod allsettings;
 pub mod backup;
+pub mod channels;
 pub mod cleanbase;
-pub mod companions;
-pub mod custom_races;
 pub mod client;
-pub mod remote_client;
 pub mod clientdl;
+pub mod companions;
 pub mod config;
 pub mod console;
+pub mod control;
 pub mod crashes;
+pub mod custom_races;
 pub mod dashboard;
 pub mod db;
 pub mod diag;
@@ -19,42 +30,43 @@ pub mod error;
 pub mod firewall;
 pub mod friends;
 pub mod fsx;
+pub mod glue_config;
 pub mod health;
 pub mod install;
 pub mod layout;
 pub mod logging;
-pub mod pkgsource;
-pub mod population;
-pub mod process;
 pub mod manifest;
 pub mod migrations;
+pub mod modules;
 pub mod multiworld;
-pub mod repair;
-pub mod schema_check;
+mod mysql_snapshot;
 pub mod net;
 pub mod package;
+pub mod pkgsource;
 pub mod platform;
+pub mod population;
+pub mod portable;
+pub mod process;
 pub mod ra;
-pub mod allsettings;
-pub mod modules;
+pub mod realm_registry;
 pub mod realmlist;
 pub mod realms;
 pub mod registry;
 pub mod release;
-pub mod report;
 pub mod release_schema;
-pub mod update;
-pub mod update_route;
-mod update_isolation;
-mod mysql_snapshot;
-pub mod wine;
-pub mod upnp;
+pub mod remote_client;
+pub mod repair;
+pub mod report;
+pub mod schema_check;
 pub mod signing;
-pub mod channels;
+pub mod squid;
 pub mod srp6;
+pub mod update;
+mod update_isolation;
+pub mod update_route;
+pub mod upnp;
+pub mod wine;
 
 pub use error::{Error, ErrorCode, Result};
 
 pub const MANAGER_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-pub mod squid;

@@ -30,13 +30,17 @@ fn hidden(cmd: &mut Command) {
 /// `netsh ... show rule name=X` exits with 0 when at least one rule has exactly that name (locale independent).
 pub fn rule_exists(name: &str) -> bool {
     let mut c = Command::new("netsh");
-    c.args(["advfirewall", "firewall", "show", "rule"]).arg(format!("name={name}"));
+    c.args(["advfirewall", "firewall", "show", "rule"])
+        .arg(format!("name={name}"));
     hidden(&mut c);
     c.output().map(|o| o.status.success()).unwrap_or(false)
 }
 
 pub fn status() -> Status {
-    Status { auth: rule_exists(RULE_AUTH), world: rule_exists(RULE_WORLD) }
+    Status {
+        auth: rule_exists(RULE_AUTH),
+        world: rule_exists(RULE_WORLD),
+    }
 }
 
 fn add_cmd(name: &str, port: u16) -> String {
@@ -62,7 +66,10 @@ pub fn plan(ports: &Ports, have: &Status) -> Vec<String> {
 /// Run `commands` with administrator rights (one UAC prompt). Fails cleanly if the user declines.
 fn run_elevated(commands: &[String]) -> Result<()> {
     let script = std::env::temp_dir().join(format!("coa-firewall-{}.cmd", std::process::id()));
-    std::fs::write(&script, format!("@echo off\r\n{}\r\n", commands.join("\r\n")))?;
+    std::fs::write(
+        &script,
+        format!("@echo off\r\n{}\r\n", commands.join("\r\n")),
+    )?;
     let ps = format!("try {{ $p = Start-Process -FilePath cmd.exe -ArgumentList '/c','\"{}\"' -Verb RunAs -Wait -PassThru -WindowStyle Hidden; exit $p.ExitCode }} catch {{ exit 1223 }}", script.display());
     let mut c = Command::new("powershell");
     c.args(["-NoProfile", "-NonInteractive", "-Command", &ps]);
@@ -71,7 +78,10 @@ fn run_elevated(commands: &[String]) -> Result<()> {
     let _ = std::fs::remove_file(&script);
     match out {
         Ok(o) if o.status.success() => Ok(()),
-        Ok(o) if o.status.code() == Some(1223) => Err(Error::Invalid("Windows asked for permission and it was not given, so the firewall was not changed.".into())),
+        Ok(o) if o.status.code() == Some(1223) => Err(Error::Invalid(
+            "Windows asked for permission and it was not given, so the firewall was not changed."
+                .into(),
+        )),
         _ => Err(Error::Invalid("The firewall could not be changed.".into())),
     }
 }
@@ -86,7 +96,9 @@ pub fn ensure_rules_with_secondary(ports: &Ports, secondary: Option<u16>) -> Res
     let mut cmds = plan(ports, &have);
     let second_name = secondary.map(|port| format!("CoA Server Manager - Second World {port}"));
     if let (Some(port), Some(name)) = (secondary, &second_name) {
-        if !rule_exists(name) { cmds.push(add_cmd(name, port)); }
+        if !rule_exists(name) {
+            cmds.push(add_cmd(name, port));
+        }
     }
     if !cmds.is_empty() {
         run_elevated(&cmds)?;
@@ -95,7 +107,9 @@ pub fn ensure_rules_with_secondary(ports: &Ports, secondary: Option<u16>) -> Res
     if now.auth && now.world && second_name.as_ref().is_none_or(|name| rule_exists(name)) {
         Ok(now)
     } else {
-        Err(Error::Invalid("The firewall rules could not be confirmed after the change.".into()))
+        Err(Error::Invalid(
+            "The firewall rules could not be confirmed after the change.".into(),
+        ))
     }
 }
 
@@ -115,25 +129,63 @@ pub fn remove_rules() -> Result<()> {
     run_elevated(&cmds)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn ports() -> Ports {
-        Ports { mysql: 3307, auth: 3724, world: 8085, ra: 3443 }
+        Ports {
+            mysql: 3307,
+            auth: 3724,
+            world: 8085,
+            ra: 3443,
+        }
     }
 
     #[test]
     fn only_missing_rules_are_planned_and_only_game_ports_are_opened() {
-        let all = plan(&ports(), &Status { auth: false, world: false });
+        let all = plan(
+            &ports(),
+            &Status {
+                auth: false,
+                world: false,
+            },
+        );
         assert_eq!(all.len(), 2);
         assert!(all[0].contains("localport=3724") && all[1].contains("localport=8085"));
-        assert!(!all.iter().any(|c| c.contains("3307") || c.contains("3443")), "database and console ports are never opened");
-        assert!(all.iter().all(|c| c.contains("profile=private,domain") && c.contains("action=allow") && c.contains("dir=in")));
-        assert_eq!(plan(&ports(), &Status { auth: true, world: false }).len(), 1);
-        assert!(plan(&ports(), &Status { auth: true, world: true }).is_empty(), "no duplicates");
-        assert_eq!(delete_cmd(RULE_AUTH), "netsh advfirewall firewall delete rule name=\"CoA Server Manager - Auth\"");
+        assert!(
+            !all.iter().any(|c| c.contains("3307") || c.contains("3443")),
+            "database and console ports are never opened"
+        );
+        assert!(all.iter().all(|c| c.contains("profile=private,domain")
+            && c.contains("action=allow")
+            && c.contains("dir=in")));
+        assert_eq!(
+            plan(
+                &ports(),
+                &Status {
+                    auth: true,
+                    world: false
+                }
+            )
+            .len(),
+            1
+        );
+        assert!(
+            plan(
+                &ports(),
+                &Status {
+                    auth: true,
+                    world: true
+                }
+            )
+            .is_empty(),
+            "no duplicates"
+        );
+        assert_eq!(
+            delete_cmd(RULE_AUTH),
+            "netsh advfirewall firewall delete rule name=\"CoA Server Manager - Auth\""
+        );
     }
 
     #[test]

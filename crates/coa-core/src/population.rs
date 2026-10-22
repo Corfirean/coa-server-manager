@@ -22,24 +22,47 @@ pub fn bot_account_prefix(root: &Path) -> String {
     std::fs::read(root.join("Core/configs/modules/mod_coa_playerbots.conf"))
         .ok()
         .and_then(|b| ConfFile::parse_bytes(&b).ok())
-        .and_then(|c| c.get("CoaBots.RandomSpawn.AccountPrefix").map(|v| unquote(v).to_string()))
+        .and_then(|c| {
+            c.get("CoaBots.RandomSpawn.AccountPrefix")
+                .map(|v| unquote(v).to_string())
+        })
         .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or_else(|| "CoaBotHost".into())
 }
 
 fn parse_counts(out: &str) -> Result<Population> {
-    let f: Vec<u32> = out.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    let f: Vec<u32> = out
+        .split_whitespace()
+        .filter_map(|x| x.parse().ok())
+        .collect();
     if f.len() != 3 {
-        return Err(Error::Invalid(format!("unexpected population reply: {out:?}")));
+        return Err(Error::Invalid(format!(
+            "unexpected population reply: {out:?}"
+        )));
     }
     let (online_total, bots_online, bots_total) = (f[0], f[1], f[2]);
-    Ok(Population { online_total, bots_online, players_online: online_total.saturating_sub(bots_online), bots_total })
+    Ok(Population {
+        online_total,
+        bots_online,
+        players_online: online_total.saturating_sub(bots_online),
+        bots_total,
+    })
 }
 
 /// Read-only query with the game's own database account. Requires the database to be running.
 pub fn query(root: &Path) -> Result<Population> {
     let prefix = bot_account_prefix(root).to_uppercase();
     let db = Db::from_repack(root, Account::App)?;
+    query_with(&db, &prefix)
+}
+
+/// The same counts through any database handle (a realm known by its descriptor); `prefix` is the bot accounts' name prefix, upper case.
+pub fn query_with(db: &Db, prefix: &str) -> Result<Population> {
+    if prefix.is_empty() || !prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(Error::Invalid(
+            "the bot account prefix is not a plain name".into(),
+        ));
+    }
     let sql = format!(
         "SELECT (SELECT COUNT(*) FROM acore_characters.characters WHERE online=1), \
                 (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%'), \
@@ -63,7 +86,9 @@ pub fn hardware() -> Hardware {
     let ok = unsafe { GlobalMemoryStatusEx(&mut st) } != 0;
     let gb = |b: u64| b as f64 / (1u64 << 30) as f64;
     Hardware {
-        cores: std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(2),
+        cores: std::thread::available_parallelism()
+            .map(|n| n.get() as u32)
+            .unwrap_or(2),
         ram_gb: if ok { gb(st.ullTotalPhys) } else { 8.0 },
         free_ram_gb: if ok { gb(st.ullAvailPhys) } else { 4.0 },
     }
@@ -71,15 +96,36 @@ pub fn hardware() -> Hardware {
 
 #[cfg(not(windows))]
 pub fn hardware() -> Hardware {
-    let (total, free) = std::fs::read_to_string("/proc/meminfo").ok().and_then(|t| parse_meminfo(&t)).unwrap_or((8.0, 4.0));
-    Hardware { cores: std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(2), ram_gb: total, free_ram_gb: free }
+    let (total, free) = std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|t| parse_meminfo(&t))
+        .unwrap_or((8.0, 4.0));
+    Hardware {
+        cores: std::thread::available_parallelism()
+            .map(|n| n.get() as u32)
+            .unwrap_or(2),
+        ram_gb: total,
+        free_ram_gb: free,
+    }
 }
 
 /// (total, available) memory in GB from the text of `/proc/meminfo`.
 #[cfg(not(windows))]
 fn parse_meminfo(text: &str) -> Option<(f64, f64)> {
-    let kb = |key: &str| -> Option<f64> { text.lines().find_map(|l| l.strip_prefix(key)?.trim().strip_suffix("kB")?.trim().parse::<f64>().ok()) };
-    Some((kb("MemTotal:")? / (1u64 << 20) as f64, kb("MemAvailable:")? / (1u64 << 20) as f64))
+    let kb = |key: &str| -> Option<f64> {
+        text.lines().find_map(|l| {
+            l.strip_prefix(key)?
+                .trim()
+                .strip_suffix("kB")?
+                .trim()
+                .parse::<f64>()
+                .ok()
+        })
+    };
+    Some((
+        kb("MemTotal:")? / (1u64 << 20) as f64,
+        kb("MemAvailable:")? / (1u64 << 20) as f64,
+    ))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,9 +149,24 @@ pub fn sizes(h: &Hardware) -> Vec<SizeOption> {
         }
     };
     vec![
-        SizeOption { id: "small", title: "Small", bots: 50, warning: None },
-        SizeOption { id: "medium", title: "Medium", bots: 250, warning: need(250, 4, 8.0) },
-        SizeOption { id: "large", title: "Large", bots: 500, warning: need(500, 8, 16.0) },
+        SizeOption {
+            id: "small",
+            title: "Small",
+            bots: 50,
+            warning: None,
+        },
+        SizeOption {
+            id: "medium",
+            title: "Medium",
+            bots: 250,
+            warning: need(250, 4, 8.0),
+        },
+        SizeOption {
+            id: "large",
+            title: "Large",
+            bots: 500,
+            warning: need(500, 8, 16.0),
+        },
     ]
 }
 
@@ -118,7 +179,10 @@ mod tests {
     fn memory_is_read_from_proc_meminfo() {
         let t = "MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable:   16777216 kB\nBuffers: 1 kB\n";
         let (total, free) = parse_meminfo(t).unwrap();
-        assert!((total - 62.5).abs() < 0.01 && (free - 16.0).abs() < 0.01, "{total} {free}");
+        assert!(
+            (total - 62.5).abs() < 0.01 && (free - 16.0).abs() < 0.01,
+            "{total} {free}"
+        );
         assert!(parse_meminfo("nothing useful").is_none());
         assert!(hardware().ram_gb > 0.0);
     }
@@ -126,7 +190,15 @@ mod tests {
     #[test]
     fn parses_counts_and_never_goes_negative() {
         let p = parse_counts("12\t9\t400").unwrap();
-        assert_eq!((p.online_total, p.bots_online, p.players_online, p.bots_total), (12, 9, 3, 400));
+        assert_eq!(
+            (
+                p.online_total,
+                p.bots_online,
+                p.players_online,
+                p.bots_total
+            ),
+            (12, 9, 3, 400)
+        );
         assert_eq!(parse_counts("5\t7\t7").unwrap().players_online, 0);
         assert!(parse_counts("garbage").is_err());
     }
@@ -137,19 +209,45 @@ mod tests {
         assert_eq!(bot_account_prefix(d.path()), "CoaBotHost");
         let f = d.path().join("Core/configs/modules");
         std::fs::create_dir_all(&f).unwrap();
-        std::fs::write(f.join("mod_coa_playerbots.conf"), "CoaBots.RandomSpawn.AccountPrefix = \"MyBots\"\n").unwrap();
+        std::fs::write(
+            f.join("mod_coa_playerbots.conf"),
+            "CoaBots.RandomSpawn.AccountPrefix = \"MyBots\"\n",
+        )
+        .unwrap();
         assert_eq!(bot_account_prefix(d.path()), "MyBots");
-        std::fs::write(f.join("mod_coa_playerbots.conf"), "CoaBots.RandomSpawn.AccountPrefix = \"x' OR 1=1 --\"\n").unwrap();
-        assert_eq!(bot_account_prefix(d.path()), "CoaBotHost", "anything that is not letters/digits is ignored (SQL safety)");
+        std::fs::write(
+            f.join("mod_coa_playerbots.conf"),
+            "CoaBots.RandomSpawn.AccountPrefix = \"x' OR 1=1 --\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            bot_account_prefix(d.path()),
+            "CoaBotHost",
+            "anything that is not letters/digits is ignored (SQL safety)"
+        );
     }
 
     #[test]
     fn sizes_warn_on_weak_hardware_only() {
-        let weak = sizes(&Hardware { cores: 2, ram_gb: 4.0, free_ram_gb: 2.0 });
-        assert!(weak[0].warning.is_none() && weak[1].warning.is_some() && weak[2].warning.is_some());
-        let strong = sizes(&Hardware { cores: 16, ram_gb: 32.0, free_ram_gb: 20.0 });
+        let weak = sizes(&Hardware {
+            cores: 2,
+            ram_gb: 4.0,
+            free_ram_gb: 2.0,
+        });
+        assert!(
+            weak[0].warning.is_none() && weak[1].warning.is_some() && weak[2].warning.is_some()
+        );
+        let strong = sizes(&Hardware {
+            cores: 16,
+            ram_gb: 32.0,
+            free_ram_gb: 20.0,
+        });
         assert!(strong.iter().all(|s| s.warning.is_none()));
-        let busy = sizes(&Hardware { cores: 16, ram_gb: 32.0, free_ram_gb: 2.0 });
+        let busy = sizes(&Hardware {
+            cores: 16,
+            ram_gb: 32.0,
+            free_ram_gb: 2.0,
+        });
         assert!(busy[2].warning.as_deref().unwrap().contains("memory"));
     }
 }

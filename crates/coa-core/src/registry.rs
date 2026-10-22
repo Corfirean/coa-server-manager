@@ -15,7 +15,14 @@ use crate::fsx;
 pub const META_SCHEMA: u32 = 1;
 pub const LAYOUT_REPACK_V1: &str = "repack-v1";
 pub const LAYOUT_DOCKER_V1: &str = "docker-v1";
-const META_SUBDIRS: [&str; 6] = ["manifests", "backups", "migrations", "logs", "cache", "staging"];
+const META_SUBDIRS: [&str; 6] = [
+    "manifests",
+    "backups",
+    "migrations",
+    "logs",
+    "cache",
+    "staging",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -109,12 +116,17 @@ impl MetaDir {
     /// Create the metadata directory for `server` (which must already exist) and write `install.json`.
     pub fn create(server: &Path, meta: &InstallMeta) -> Result<MetaDir> {
         if !server.is_dir() {
-            return Err(Error::Invalid(format!("{} is not a folder", server.display())));
+            return Err(Error::Invalid(format!(
+                "{} is not a folder",
+                server.display()
+            )));
         }
         let server_abs = fsx::canonicalize_lenient(server)?;
         let root = metadata_dir_for(&server_abs)?;
         if fsx::starts_with_ci(&root, &server_abs) {
-            return Err(Error::PathRejected("metadata folder would be inside the server folder".into()));
+            return Err(Error::PathRejected(
+                "metadata folder would be inside the server folder".into(),
+            ));
         }
         fs::create_dir_all(&root)?;
         for sub in META_SUBDIRS {
@@ -127,7 +139,12 @@ impl MetaDir {
 
     pub fn open(root: &Path) -> Result<(MetaDir, InstallMeta)> {
         let meta: InstallMeta = fsx::read_json(&root.join("install.json"))?;
-        Ok((MetaDir { root: root.to_path_buf() }, meta))
+        Ok((
+            MetaDir {
+                root: root.to_path_buf(),
+            },
+            meta,
+        ))
     }
 }
 
@@ -154,13 +171,21 @@ impl Registry {
     }
 
     pub fn list(&self) -> Result<Vec<(String, PathBuf)>> {
-        Ok(self.load()?.installs.into_iter().map(|(id, p)| (id, PathBuf::from(p))).collect())
+        Ok(self
+            .load()?
+            .installs
+            .into_iter()
+            .map(|(id, p)| (id, PathBuf::from(p)))
+            .collect())
     }
 
     pub fn find_by_path(&self, server: &Path) -> Result<Option<String>> {
         let target = fsx::canonicalize_lenient(server)?;
         for (id, p) in self.list()? {
-            if fsx::canonicalize_lenient(&p).map(|c| fsx::starts_with_ci(&c, &target) && fsx::starts_with_ci(&target, &c)).unwrap_or(false) {
+            if fsx::canonicalize_lenient(&p)
+                .map(|c| fsx::starts_with_ci(&c, &target) && fsx::starts_with_ci(&target, &c))
+                .unwrap_or(false)
+            {
                 return Ok(Some(id));
             }
         }
@@ -172,7 +197,8 @@ impl Registry {
         let target = fsx::canonicalize_lenient(server)?;
         let mut file = self.load()?;
         for (other_id, other) in &file.installs {
-            let other = fsx::canonicalize_lenient(Path::new(other)).unwrap_or_else(|_| PathBuf::from(other));
+            let other = fsx::canonicalize_lenient(Path::new(other))
+                .unwrap_or_else(|_| PathBuf::from(other));
             if other_id == id {
                 continue;
             }
@@ -184,7 +210,8 @@ impl Registry {
                 )));
             }
         }
-        file.installs.insert(id.to_string(), target.to_string_lossy().into_owned());
+        file.installs
+            .insert(id.to_string(), target.to_string_lossy().into_owned());
         fsx::atomic_write_json(&self.file, &file)
     }
 
@@ -216,7 +243,11 @@ mod tests {
         for sub in META_SUBDIRS {
             assert!(md.root.join(sub).is_dir());
         }
-        assert_eq!(before, snapshot(&server), "import must not modify the server folder");
+        assert_eq!(
+            before,
+            snapshot(&server),
+            "import must not modify the server folder"
+        );
 
         let (_, loaded) = MetaDir::open(&md.root).unwrap();
         assert_eq!(loaded.id, meta.id);
@@ -229,7 +260,12 @@ mod tests {
             for e in fs::read_dir(dir).unwrap() {
                 let e = e.unwrap();
                 let md = e.metadata().unwrap();
-                let rel = e.path().strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                let rel = e
+                    .path()
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
                 out.push((rel, if md.is_dir() { 0 } else { md.len() }));
                 if md.is_dir() {
                     walk(&e.path(), root, out);
@@ -261,7 +297,10 @@ mod tests {
         assert_eq!(reg.find_by_path(&a).unwrap().as_deref(), Some("1"));
         reg.unregister("1").unwrap();
         assert!(a.exists(), "unregister never deletes files");
-        assert!(matches!(reg.unregister("1"), Err(Error::UnknownInstallation(_))));
+        assert!(matches!(
+            reg.unregister("1"),
+            Err(Error::UnknownInstallation(_))
+        ));
     }
 
     #[test]

@@ -22,7 +22,8 @@ pub fn verify(manifest_bytes: &[u8], sig_b64: &str, public_key_b64: &str) -> Res
         .map_err(|_| bad("not base64"))?
         .try_into()
         .map_err(|_| bad("wrong length"))?;
-    key.verify(manifest_bytes, &Signature::from_bytes(&sig)).map_err(|_| bad("does not match the manifest"))
+    key.verify(manifest_bytes, &Signature::from_bytes(&sig))
+        .map_err(|_| bad("does not match the manifest"))
 }
 
 pub fn verify_embedded(manifest_bytes: &[u8], sig_b64: &str) -> Result<()> {
@@ -46,7 +47,10 @@ mod tests {
         let msg = br#"{"schema":1}"#;
         let sig = STANDARD.encode(sk.sign(msg).to_bytes());
         verify(msg, &sig, &pk).unwrap();
-        assert!(verify(br#"{"schema":2}"#, &sig, &pk).is_err(), "tampered manifest");
+        assert!(
+            verify(br#"{"schema":2}"#, &sig, &pk).is_err(),
+            "tampered manifest"
+        );
         let (_, other_pk) = pair();
         assert!(verify(msg, &sig, &other_pk).is_err(), "different key");
         assert!(verify(msg, "not-base64!!", &pk).is_err());

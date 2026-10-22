@@ -53,8 +53,8 @@ export interface StatusView {
   path_exists: boolean;
 }
 
-export type RealmMode = "coa" | "wildcard";
-export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean }
+export type RealmMode = "coa" | "wildcard" | "reborn";
+export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean }
 export interface DatabaseCheck {
   realm: RealmMode;
   migrations: { id: string; db: string; status: "applied" | "pending" | "failed"; error: string | null }[];

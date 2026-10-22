@@ -21,7 +21,13 @@ impl RotatingWriter {
         }
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
         let written = file.metadata()?.len();
-        Ok(Self { path, max_bytes, keep, file: Some(file), written })
+        Ok(Self {
+            path,
+            max_bytes,
+            keep,
+            file: Some(file),
+            written,
+        })
     }
 
     fn numbered(&self, n: usize) -> PathBuf {
@@ -44,7 +50,12 @@ impl RotatingWriter {
         } else {
             let _ = fs::remove_file(&self.path);
         }
-        self.file = Some(OpenOptions::new().create(true).append(true).open(&self.path)?);
+        self.file = Some(
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.path)?,
+        );
         self.written = 0;
         Ok(())
     }
@@ -55,7 +66,10 @@ impl Write for RotatingWriter {
         if self.written > 0 && self.written + buf.len() as u64 > self.max_bytes {
             self.rotate()?;
         }
-        let file = self.file.as_mut().ok_or_else(|| io::Error::other("log closed"))?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| io::Error::other("log closed"))?;
         let n = file.write(buf)?;
         self.written += n as u64;
         Ok(n)
@@ -80,11 +94,17 @@ impl SharedWriter {
 
 impl Write for SharedWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.lock().map_err(|_| io::Error::other("log poisoned"))?.write(buf)
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("log poisoned"))?
+            .write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.0.lock().map_err(|_| io::Error::other("log poisoned"))?.flush()
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("log poisoned"))?
+            .flush()
     }
 }
 
@@ -99,7 +119,11 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SharedWriter {
 /// Install the global tracing subscriber writing to a rotated file (2 MiB x 5).
 pub fn init(log_path: &Path) -> io::Result<()> {
     let writer = SharedWriter::new(RotatingWriter::open(log_path, 2 * 1024 * 1024, 5)?);
-    let _ = tracing_subscriber::fmt().with_writer(writer).with_ansi(false).with_max_level(tracing::Level::INFO).try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_writer(writer)
+        .with_ansi(false)
+        .with_max_level(tracing::Level::INFO)
+        .try_init();
     Ok(())
 }
 
@@ -116,11 +140,16 @@ mod tests {
             w.write_all(&[b'x'; 30]).unwrap();
         }
         w.flush().unwrap();
-        let mut names: Vec<_> =
-            fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        let mut names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
         names.sort();
         assert_eq!(names, ["m.log", "m.log.1", "m.log.2"]);
-        let total: u64 = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().metadata().unwrap().len()).sum();
+        let total: u64 = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum();
         assert!(total <= 3 * 100);
     }
 }
