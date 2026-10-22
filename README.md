@@ -29,7 +29,7 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
   the change is applied on the next launch through the Manager.
   Bots are unavailable on Wildcard and Warcraft Reborn; other optional modules are experimental. Backups and
   database updates include every created realm. Simultaneous startup supports CoA + Wildcard only.
-  See [realm profiles and validation](docs/WILDCARD.md) and [Warcraft Reborn](docs/WARCRAFT-REBORN.md).
+  See [Wildcard guide](docs/WILDCARD.md) and [Warcraft Reborn](docs/WARCRAFT-REBORN.md).
 * **Companions (bots).** Fill the world with level-appropriate bots, see progress, stop spawning, take them offline,
   despawn N to relieve the server, and choose how many log in at server start.
 * **Realmlist switcher.** Keep named realmlists (for example *Solo* and *PTR*) and switch the game client between them from a
@@ -58,7 +58,7 @@ no console, no config files, no database tools. Tauri 2 + Rust + React.
 The full gallery also covers setup, modules, game clients, playing with friends and making an existing character portable.
 
 
-[Browse the screenshot gallery](docs/SCREENSHOTS.md).
+[Browse the screenshot gallery](docs/SCREENSHOTS.md) · [Player and server owner guides](docs/README.md).
 
 ## Install
 
