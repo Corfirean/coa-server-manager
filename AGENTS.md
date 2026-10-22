@@ -31,6 +31,10 @@ Optional: one short paragraph in plain English for the reader (at most 300 chara
 
 ## Shared build and release workflow
 
+Every published Manager version, including a clearly marked Pre-release, belongs in this repository's
+CHANGELOG.md and changelog/history.json. Its GitHub release notes use the same reviewed record.
+Promotion updates that entry without duplicating it; Manager and server histories remain separate.
+
 Before preparing or publishing a Manager/server release, read the maintained
 [release runbook](https://github.com/Corfirean/coa-server-build/blob/main/docs/server-release.md)
 and [build agent instructions](https://github.com/Corfirean/coa-server-build/blob/main/AGENTS.md).

@@ -28,15 +28,67 @@ class ComponentHistoryTests(unittest.TestCase):
         history['releases'][0]['tag'] = 'server-0.6.22'
         with self.assertRaises(ValueError): sync.validate_history(history)
 
-    def test_unpublished_and_prerelease_tags_never_enter_history(self):
+    def test_published_previews_are_included_but_drafts_and_other_components_are_not(self):
         release = {'tag_name': 'v0.7.0', 'draft': True, 'prerelease': False}
         self.assertFalse(sync.eligible(release, 'manager'))
         release.update(draft=False, prerelease=True)
-        self.assertFalse(sync.eligible(release, 'manager'))
+        self.assertTrue(sync.eligible(release, 'manager'))
         release.update(prerelease=False)
         self.assertTrue(sync.eligible(release, 'manager'))
         self.assertFalse(sync.eligible(release, 'server'))
         self.assertFalse(sync.eligible(dict(release, tag_name='stable'), 'server'))
+
+    def release(self, version='0.7.0', preview=True):
+        return {'tag_name': 'v' + version, 'prerelease': preview, 'draft': False,
+                'published_at': '2026-10-22T12:00:00Z', 'html_url': 'https://example.test/v' + version}
+
+    def test_preview_does_not_consume_stable_changes_and_repeated_sync_is_idempotent(self):
+        history = self.history()
+        with patch.object(sync, 'collect_manager', return_value=(['Portable Characters are experimental'], ['own:portable'], {'commit': 'a' * 40})) as collect:
+            sync.reconcile(history, [self.release()], Path('.'))
+            sync.reconcile(history, [self.release()], Path('.'))
+        self.assertEqual(collect.call_count, 1)
+        self.assertEqual(history['consumedFragments'], [])
+        self.assertEqual(len(history['releases']), 2)
+        self.assertTrue(history['releases'][-1]['prerelease'])
+        self.assertIn('## 0.7.0 (Pre-release)', sync.render(history))
+
+    def test_promotion_updates_the_same_reviewed_record_without_collecting_or_duplicating(self):
+        history = self.history()
+        with patch.object(sync, 'collect_manager', return_value=(['Portable Characters are experimental'], ['own:portable'], {'commit': 'a' * 40})):
+            sync.reconcile(history, [self.release()], Path('.'))
+        history['releases'][-1]['notes'] = ['Reviewed player-facing text']
+        with patch.object(sync, 'collect_manager', side_effect=AssertionError('Frozen notes already recorded')):
+            sync.reconcile(history, [self.release(preview=False)], Path('.'))
+            sync.reconcile(history, [self.release(preview=False)], Path('.'))
+        self.assertEqual(len(history['releases']), 2)
+        self.assertNotIn('prerelease', history['releases'][-1])
+        self.assertEqual(history['consumedFragments'], ['own:portable'])
+        self.assertEqual(history['releases'][-1]['notes'], ['Reviewed player-facing text'])
+
+    def test_stable_hotfix_after_higher_preview_keeps_its_own_notes(self):
+        history = self.history()
+        with patch.object(sync, 'collect_manager', return_value=(['Shared improvement'], ['own:shared'], {'commit': 'a' * 40})):
+            sync.reconcile(history, [self.release()], Path('.'))
+        with patch.object(sync, 'collect_manager', return_value=(['Shared improvement'], ['own:shared'], {'commit': 'b' * 40})) as collect:
+            sync.reconcile(history, [self.release('0.6.23', preview=False), self.release()], Path('.'))
+        self.assertEqual(collect.call_args.args[2], set())
+        hotfix = next(r for r in history['releases'] if r['version'] == '0.6.23')
+        self.assertEqual(hotfix['notes'], ['Shared improvement'])
+        self.assertEqual(history['consumedFragments'], ['own:shared'])
+
+    def test_server_preview_uses_only_server_locked_sources_and_keeps_notice(self):
+        history = {'schema': 1, 'component': 'server', 'repository': 'Corfirean/coa-server-build',
+                   'consumedFragments': [], 'releases': []}
+        release = dict(self.release(), tag_name='server-0.261022.75')
+        with patch.object(sync, 'collect_server', return_value=(['Experimental Portable Characters support'], ['core:portable'], {'snapshot': 'a' * 64})), \
+             patch.object(sync, 'collect_manager', side_effect=AssertionError('Wrong component')):
+            sync.reconcile(history, [release], Path('.'))
+        history['releases'][0]['notice'] = 'Portable Characters are experimental.'
+        text = sync.render(history)
+        self.assertIn('## 0.261022.75 (Pre-release)', text)
+        self.assertIn('Portable Characters are experimental.', text)
+        self.assertEqual(history['consumedFragments'], [])
 
     def test_fragment_classification_preserves_source_boundaries(self):
         text = '---\narea: manager\ntitle: Updates recover safely\n---\nYour files are preserved.'
@@ -86,6 +138,19 @@ class ComponentHistoryTests(unittest.TestCase):
         self.assertEqual(calls.call_count, 2)
         self.assertTrue(calls.call_args.args[0].endswith('/git/blobs/own'))
 
+    def test_reviewed_legacy_fragment_override_is_bound_to_exact_blob(self):
+        import base64
+        listing = [{'name': '20261006-legacy.md', 'sha': 'legacy-blob'}]
+        with patch.object(sync, 'api', return_value=listing) as calls:
+            notes, _ = sync.remote_fragments('owner/core', 'a' * 40, set(), sync.SERVER_AREAS,
+                                             overrides={'owner/core:legacy-blob': 'Bots retain their combat form'})
+        self.assertEqual(notes, ['Bots retain their combat form'])
+        self.assertEqual(calls.call_count, 1)
+        with patch.object(sync, 'api', side_effect=[listing, {'content': base64.b64encode(b'Malformed new note').decode()}]):
+            with self.assertRaisesRegex(ValueError, 'owner/core:20261006-legacy.md'):
+                sync.remote_fragments('owner/core', 'a' * 40, set(), sync.SERVER_AREAS,
+                                      overrides={'owner/core:different-blob': 'Must not hide malformed notes'})
+
     def test_upstream_exclusions_use_the_frozen_source_tree(self):
         lock = {'components': {'upstream': {'repository': 'upstream/core', 'sha': 'frozen'}}}
         with patch.object(sync, 'api', side_effect=[{'tree': [{'path': 'changelog.d', 'type': 'tree', 'sha': 'notes-tree'}]}, {'tree': [{'path': '20261021-imported.md', 'type': 'blob', 'sha': 'imported'}, {'path': 'README.md', 'type': 'blob', 'sha': 'readme'}]}]) as calls:
@@ -99,6 +164,13 @@ class ComponentHistoryTests(unittest.TestCase):
         self.assertEqual(text.count('## 0.6.22'), 1)
         self.assertNotIn('## 0.7.0', text)
         self.assertEqual(text, sync.render(self.history()))
+
+    def test_reviewed_windows_release_text_renders_without_carriage_returns(self):
+        record = self.history()['releases'][0]
+        record.update(notes=['Existing files are preserved\r'], links=['[Guide](https://example.test/guide)\r'])
+        text = sync.notes_md(record)
+        self.assertIn('- Existing files are preserved.\n', text)
+        self.assertNotIn('\r', text)
 
     def test_render_only_does_not_contact_github_or_change_published_history(self):
         with tempfile.TemporaryDirectory() as folder:
