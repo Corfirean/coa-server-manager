@@ -61,7 +61,7 @@ index='<!doctype html><html lang="ru"><meta charset="utf-8"><title>CoA — пе�
 for lang,label in labels.items():
  index+=f'<h2 id="{lang}">{label}</h2><section>'
  for item in [m for m in manifest if m['locale']==lang]:
-  index+=f'<article><a href="{item["page"]}"><h3>{html.escape(item["title"])}</h3><img loading="lazy" src="../exports/{lang}/{item["slug"]}.jpg"></a></article>'
+  index+=f'<article><a href="{item["page"]}"><img alt="{html.escape(item["title"],quote=True)}" loading="lazy" src="../exports/{lang}/{item["slug"]}.jpg"></a></article>'
  index+='</section>'
 (root/'gallery/index.html').write_text(index,encoding='utf8')
 print('Generated',len(manifest),'localized gallery cards')
