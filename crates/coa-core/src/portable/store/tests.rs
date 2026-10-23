@@ -7,6 +7,101 @@ fn fresh() -> (Store, ProfileId) {
     (store, profile)
 }
 
+#[test]
+fn schema_nine_upgrade_preserves_characters_and_isolates_collections() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Connection::open(Store::path_of(dir.path())).unwrap();
+    for sql in &MIGRATIONS[..8] {
+        conn.execute_batch(sql).unwrap();
+    }
+    conn.pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    conn.pragma_update(None, "user_version", 8).unwrap();
+    let mut old = Store { conn };
+    let profile = old.default_profile().unwrap();
+    let id = created(&mut old, profile);
+    old.bind_server(id, "realm-a", 42, 1, MappingState::Synced)
+        .unwrap();
+    let before = old.load_current(id).unwrap();
+    let set = IdSet::from_ids([10, 20]).unwrap();
+    let kind = "coa:wardrobe";
+    old.conn
+        .execute(
+            "INSERT INTO collection VALUES (?1, ?2, 7, ?3, ?4, 2, 'before', ?5)",
+            params![
+                profile.to_string(),
+                kind,
+                set.hash(kind).as_slice(),
+                PORTABLE_COLLECTION_FORMAT_VERSION,
+                set.encode()
+            ],
+        )
+        .unwrap();
+    drop(old);
+
+    let mut store = Store::open(dir.path()).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 9);
+    assert_eq!(store.load_current(id).unwrap(), before);
+    assert_eq!(store.server_mappings(id).unwrap()[0].local_guid, 42);
+    assert_eq!(store.collection(profile, kind).unwrap().unwrap().1, set);
+    assert_eq!(
+        store
+            .collection_info(profile, kind)
+            .unwrap()
+            .unwrap()
+            .revision,
+        7
+    );
+    // An experimental Manager may already have populated another partition.
+    store.conn.execute(
+        "INSERT INTO collection SELECT profile_id, 'reborn', kind, collection_revision, collection_hash, format_version, item_count, updated_at, payload FROM collection WHERE ruleset = 'coa'",
+        [],
+    ).unwrap();
+    store
+        .merge_collection(profile, kind, &IdSet::from_ids([30]).unwrap())
+        .unwrap();
+    assert_eq!(
+        store.collection(profile, kind).unwrap().unwrap().1,
+        IdSet::from_ids([10, 20, 30]).unwrap()
+    );
+    let foreign: (i64, Vec<u8>) = store
+        .conn
+        .query_row(
+            "SELECT collection_revision, payload FROM collection WHERE ruleset = 'reborn'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(foreign, (7, set.encode()));
+    drop(store);
+    assert_eq!(
+        Store::open(dir.path()).unwrap().load_current(id).unwrap(),
+        before
+    );
+}
+
+#[test]
+#[ignore = "Requires a disposable SQLite backup in COA_PORTABLE_SCHEMA9_FIXTURE"]
+fn schema_nine_existing_store_and_runtime_smoke() {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("COA_PORTABLE_SCHEMA9_FIXTURE").expect("fixture path"),
+    );
+    for role in ["owner", "host"] {
+        let store = Store::open(&root.join(role)).unwrap();
+        assert_eq!(store.schema_version().unwrap(), 9);
+        let records = store.list_characters_all().unwrap();
+        assert!(!records.is_empty());
+        for record in records {
+            store.load_current(record.character_id).unwrap();
+            store.list_revisions(record.character_id).unwrap();
+        }
+    }
+    let runtime =
+        crate::portable::service::PortableRuntime::start(&root, Box::new(Vec::new), None).unwrap();
+    runtime.call(|_| ()).unwrap();
+    runtime.shutdown();
+}
+
 fn created(store: &mut Store, profile: ProfileId) -> CharacterId {
     store
         .create_character(profile, fixtures::geared_level_eighty(), "realm-a")

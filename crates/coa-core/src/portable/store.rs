@@ -27,6 +27,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/006_collections.sql"),
     include_str!("migrations/007_capabilities.sql"),
     include_str!("migrations/008_projection.sql"),
+    include_str!("migrations/009_multiruleset.sql"),
 ];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
@@ -657,6 +658,7 @@ impl Store {
     }
 
     // ---- collections ----------------------------------------------------------------------------------------
+    // These APIs exchange CoA collections only. Preserve other schema-9 partitions without reading or modifying them.
 
     /// `stored = stored U incoming`. Nothing is ever removed. When the union equals what is stored, no revision is
     /// created and the hash stays the same.
@@ -701,9 +703,9 @@ impl Store {
         let payload = merged.encode();
         let at = now();
         tx.execute(
-            "INSERT INTO collection(profile_id, kind, collection_revision, collection_hash, format_version, item_count, updated_at, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(profile_id, kind) DO UPDATE SET collection_revision = excluded.collection_revision, collection_hash = excluded.collection_hash,
+            "INSERT INTO collection(profile_id, ruleset, kind, collection_revision, collection_hash, format_version, item_count, updated_at, payload)
+             VALUES (?1, 'coa', ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(profile_id, ruleset, kind) DO UPDATE SET collection_revision = excluded.collection_revision, collection_hash = excluded.collection_hash,
                 format_version = excluded.format_version, item_count = excluded.item_count, updated_at = excluded.updated_at, payload = excluded.payload",
             params![profile.to_string(), kind, (revision + 1) as i64, hash.as_slice(), PORTABLE_COLLECTION_FORMAT_VERSION, merged.len() as i64, at, payload],
         )?;
@@ -730,7 +732,7 @@ impl Store {
         let row = self
             .conn
             .query_row(
-                "SELECT collection_revision, collection_hash, item_count, updated_at FROM collection WHERE profile_id = ?1 AND kind = ?2",
+                "SELECT collection_revision, collection_hash, item_count, updated_at FROM collection WHERE profile_id = ?1 AND ruleset = 'coa' AND kind = ?2",
                 params![profile.to_string(), kind],
                 |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?)),
             )
@@ -780,7 +782,7 @@ fn read_collection(
 ) -> Result<Option<(CollectionInfo, IdSet)>> {
     let row = conn
         .query_row(
-            "SELECT collection_revision, collection_hash, item_count, updated_at, payload FROM collection WHERE profile_id = ?1 AND kind = ?2",
+            "SELECT collection_revision, collection_hash, item_count, updated_at, payload FROM collection WHERE profile_id = ?1 AND ruleset = 'coa' AND kind = ?2",
             params![profile.to_string(), kind],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?, r.get::<_, Vec<u8>>(4)?)),
         )
