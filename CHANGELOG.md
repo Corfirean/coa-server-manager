@@ -8,6 +8,19 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.7.2 (Pre-release) — 2026-10-23
+
+- Advanced settings cover creature melee damage, spell damage and health by rank.
+- Internet sharing accepts existing port forwards to the same server.
+- The Auction House Bot card has a single switch.
+- More character and server browser controls now use your selected language.
+- Online player counts correctly separate random bots from players.
+- Custom races work with shared addon folders on another drive.
+- Configure the day and night cycle from the module settings.
+- A stalled database inspection no longer blocks server maintenance indefinitely.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.7.1...v0.7.2)
+
 ## 0.7.1 — 2026-10-22
 
 Close the game, then open Modules → Custom Races → Repair Client Patch to update existing patches, or Install Client Patch for a new installation. Updating the Manager does not automatically replace game files or update your server.
