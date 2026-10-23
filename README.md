@@ -1,5 +1,7 @@
 # CoA Server Manager
 
+**English** · [Русский](README.ru.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
+
 **Portable characters are experimental.** This feature is in active development and may contain bugs.
 
 A Windows app that installs and runs your own **Conquest of Azeroth** server (AzerothCore) with a few clicks:
