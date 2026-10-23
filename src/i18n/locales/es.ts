@@ -768,7 +768,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "mod.noSettings": "No hay ajustes adicionales. Usa el interruptor del módulo de arriba.",
   "err.bot_modules_conflict.title": "Hay dos módulos de bots activos",
   "err.bot_modules_conflict.message": "Desactiva CoA Companions o SQUID Playerbots en Módulos antes de iniciar el servidor.",
-  "mod.ahbot.setup": "Activa el módulo y el vendedor. El servidor crea por sí mismo un personaje de subastas (cuenta AHBOT) en el primer arranque, no hace falta GUID. Un solo personaje publica en las casas de subastas de ambas facciones. El filtro CoA usa botín, vendedores y profesiones; los límites de nivel se aplican además. Requiere un servidor con filtro de subastas CoA y personaje de subastas automático.",
+  "mod.ahbot.setup": "Activa el módulo. El servidor crea por sí mismo un personaje de subastas (cuenta AHBOT) en el primer arranque, no hace falta GUID. Un solo personaje publica en las casas de subastas de ambas facciones. El filtro CoA usa botín, vendedores y profesiones; los límites de nivel se aplican además. Requiere un servidor con filtro de subastas CoA y personaje de subastas automático.",
   "mod.enchanter.add": "Colocar al encantador: ponte donde quieras y escribe .npc add 601015",
   "mod.enchanter.remove": "Quitar al encantador: selecciona al PNJ y escribe .npc delete",
   "mod.ahbot.allSettings": "Todos los ajustes de subastas",
