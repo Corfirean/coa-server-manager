@@ -225,6 +225,7 @@ impl Inner {
         };
         // configuration-derived values do not need the realm to be running
         let mut prefix = "COABOTHOST".to_string();
+        let mut squid_prefix = "RNDBOT".to_string();
         if let Some(root) = access
             .root
             .as_deref()
@@ -234,12 +235,13 @@ impl Inner {
             advert.modules = modules_of(root);
             advert.population.capacity = capacity_of(root);
             prefix = crate::population::bot_account_prefix(root).to_uppercase();
+            squid_prefix = crate::accounts::squid_bot_prefix(root).to_uppercase();
         }
         let mut caps_at = previous.as_ref().and_then(|(_, t)| *t);
         if access.db_reachable() {
             if let (Ok(db), Ok(mut ra)) = (access.db(), access.ra()) {
                 advert.running = true;
-                if let Ok(p) = crate::population::query_with(&db, &prefix) {
+                if let Ok(p) = crate::population::query_with(&db, &prefix, &squid_prefix) {
                     advert.population.players = p.players_online;
                     advert.population.bots = p.bots_online;
                 }
