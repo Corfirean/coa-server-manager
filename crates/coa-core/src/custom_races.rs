@@ -331,6 +331,26 @@ struct PatchTransaction<'a> {
     entries: Vec<SavedFile>,
     finished: bool,
 }
+
+// A shared AddOns directory can resolve onto another volume. Publish a complete,
+// synced copy beside the destination before deleting the source, so the journal
+// always retains recoverable bytes even if copying or publishing fails.
+fn move_patch_file(source: &Path, target: &Path) -> io::Result<()> {
+    match fs::rename(source, target) {
+        Ok(()) => return Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {}
+        Err(error) => return Err(error),
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| io::Error::other("Patch target has no parent"))?;
+    let temporary = tempfile::NamedTempFile::new_in(parent)?;
+    fs::copy(source, temporary.path())?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(target).map_err(|error| error.error)?;
+    fs::remove_file(source)
+}
+
 impl<'a> PatchTransaction<'a> {
     fn new(root: &'a Path) -> Result<Self> {
         recover_patch_transaction(root)?;
@@ -362,9 +382,10 @@ impl<'a> PatchTransaction<'a> {
             &self.entries,
         )?;
         if path.is_file() {
-            fs::rename(
+            move_patch_file(
                 path,
-                self.root
+                &self
+                    .root
                     .join(".coa-races-transaction")
                     .join(index.to_string()),
             )?;
@@ -401,8 +422,9 @@ impl<'a> PatchTransaction<'a> {
             &self.entries,
         )?;
         fs::create_dir_all(target.parent().unwrap())?;
-        fs::rename(
-            self.root
+        move_patch_file(
+            &self
+                .root
                 .join(".coa-races-transaction")
                 .join(index.to_string()),
             target,
@@ -442,7 +464,7 @@ fn recover_patch_transaction(root: &Path) -> Result<()> {
             if let Some(target) = &entry.moved_to {
                 let target = fsx::safe_join(root, target)?;
                 if !saved.is_file() && target.is_file() {
-                    fs::rename(target, &saved)?;
+                    move_patch_file(&target, &saved)?;
                 }
                 // Persist recovery progress before restoring the source, making retries safe.
                 entries[index].moved_to = None;
@@ -453,7 +475,7 @@ fn recover_patch_transaction(root: &Path) -> Result<()> {
                 if path.is_file() {
                     fs::remove_file(&path)?;
                 }
-                fs::rename(saved, path)?;
+                move_patch_file(&saved, &path)?;
             } else if !entry.existed && path.is_file() {
                 fs::remove_file(path)?;
             }
@@ -971,12 +993,87 @@ pub fn install_client_patches(
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    fn exercise_linked_addons(shared: &Path) {
+        let client = tempfile::tempdir().unwrap();
+        let root = client.path();
+        fs::create_dir(root.join("Interface")).unwrap();
+        let link = root.join("Interface/AddOns");
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link.to_string_lossy().replace('/', "\\"))
+            .arg(shared.to_string_lossy().replace('/', "\\"))
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let name = "Interface/AddOns/CoAHideArmor/CoAHideArmor.lua";
+        let active = root.join(name);
+        fs::create_dir_all(active.parent().unwrap()).unwrap();
+        fs::write(shared.join("unrelated.lua"), b"user addon").unwrap();
+        let staged = root.join("staged.lua");
+        fs::write(&staged, b"custom").unwrap();
+        let mut tx = PatchTransaction::new(root).unwrap();
+        tx.copy(&staged, &active).unwrap();
+        tx.finish().unwrap();
+        record_files(root, &[name]);
+        set_client_patch_enabled(root, false).unwrap();
+        assert!(!active.exists());
+        assert_eq!(fs::read(suffix(&active, "disabled")).unwrap(), b"custom");
+        set_client_patch_enabled(root, true).unwrap();
+        assert_eq!(fs::read(&active).unwrap(), b"custom");
+        // Simulate process termination after a move, then recover twice.
+        let mut tx = PatchTransaction::new(root).unwrap();
+        tx.move_file(&active, &suffix(&active, "disabled")).unwrap();
+        std::mem::forget(tx);
+        recover_patch_transaction(root).unwrap();
+        recover_patch_transaction(root).unwrap();
+        assert_eq!(fs::read(&active).unwrap(), b"custom");
+        assert!(!suffix(&active, "disabled").exists());
+        // Replacement installation must preserve the old bytes on failure.
+        {
+            let mut tx = PatchTransaction::new(root).unwrap();
+            fs::write(&staged, b"replacement").unwrap();
+            tx.copy(&staged, &active).unwrap();
+        }
+        assert_eq!(fs::read(&active).unwrap(), b"custom");
+        uninstall_client_patches(root).unwrap();
+        assert!(!active.exists());
+        assert_eq!(
+            fs::read(shared.join("unrelated.lua")).unwrap(),
+            b"user addon"
+        );
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        fs::remove_dir(link).unwrap();
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn shared_addons_junction_supports_install_switch_and_rollback() {
+        let shared = tempfile::tempdir().unwrap();
+        exercise_linked_addons(shared.path());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    #[ignore = "Set COA_TEST_OTHER_VOLUME to a writable directory on another volume"]
+    fn shared_addons_on_another_volume_supports_install_switch_and_rollback() {
+        let base = std::env::var_os("COA_TEST_OTHER_VOLUME").expect("COA_TEST_OTHER_VOLUME");
+        let shared = tempfile::tempdir_in(base).unwrap();
+        exercise_linked_addons(shared.path());
+    }
+
     fn record_files(root: &Path, names: &[&str]) {
         let mut manifest = format!("# CoA Custom {CLIENT_VERSION}\n");
         for name in names {
-            let (kind, base) = name
-                .strip_prefix("Data/")
-                .map_or(("ROOT", *name), |base| ("MPQ", base));
+            let (kind, base) = if let Some(base) = name.strip_prefix("Interface/AddOns/") {
+                ("ADDON", base)
+            } else {
+                name.strip_prefix("Data/")
+                    .map_or(("ROOT", *name), |base| ("MPQ", base))
+            };
             manifest.push_str(&format!(
                 "{kind}:{base}\nSHA256:{}:{name}\n",
                 fsx::sha256_file(&root.join(name)).unwrap()
