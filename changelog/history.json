@@ -128,7 +128,8 @@
     "Corfirean/coa-server-manager:20261023-online-players-exclude-squid-bots.md",
     "Corfirean/coa-server-manager:20261023-shared-addons-links.md",
     "Corfirean/coa-server-manager:20261023-time-is-time-settings.md",
-    "Corfirean/coa-server-manager:20261023-update-check-database-timeout.md"
+    "Corfirean/coa-server-manager:20261023-update-check-database-timeout.md",
+    "Corfirean/coa-server-manager:20261024-portable-schema-nine.md"
   ],
   "releases": [
     {
@@ -649,6 +650,20 @@
       ],
       "commit": "4d59ce8cb1d4abd7f4992370e9a7ba4dc6bd02f7",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.1...v0.7.2"
+    },
+    {
+      "tag": "v0.7.3",
+      "version": "0.7.3",
+      "date": "2026-10-23",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.3",
+      "notes": [
+        "Portable characters open again after using an experimental Manager"
+      ],
+      "commit": "2715170622665f62c396fe1a79f7ef6504713ef1",
+      "experimentalFeatures": [
+        "portable-characters"
+      ],
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.2...v0.7.3"
     }
   ]
 }

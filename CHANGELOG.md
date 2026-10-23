@@ -8,6 +8,14 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.7.3 — 2026-10-23
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Portable characters open again after using an experimental Manager.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.3) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.7.2...v0.7.3)
+
 ## 0.7.2 — 2026-10-23
 
 - Advanced settings cover creature melee damage, spell damage and health by rank.
