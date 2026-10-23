@@ -8,7 +8,7 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
-## 0.7.2 (Pre-release) — 2026-10-23
+## 0.7.2 — 2026-10-23
 
 - Advanced settings cover creature melee damage, spell damage and health by rank.
 - Internet sharing accepts existing port forwards to the same server.
