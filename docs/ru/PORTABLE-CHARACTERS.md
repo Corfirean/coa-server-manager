@@ -24,11 +24,11 @@
 5. Выберите нужного персонажа и нажмите **«Сделать переносимым» (Make portable)**.
 6. Дождитесь подтверждения и отметки **Portable**.
 
-![Привязка аккаунта реалма](../screenshots/09-link-realm-account.jpg)
+![Привязка аккаунта реалма](../screenshots/ru/09-link-realm-account.jpg)
 
-![Выбор персонажа](../screenshots/10-remote-portable-candidates.jpg)
+![Выбор персонажа](../screenshots/ru/10-remote-portable-candidates.jpg)
 
-![Персонаж сохранён](../screenshots/11-remote-portable-saved.jpg)
+![Персонаж сохранён](../screenshots/ru/11-remote-portable-saved.jpg)
 
 ## Как играть
 

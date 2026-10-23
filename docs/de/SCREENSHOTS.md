@@ -2,46 +2,46 @@
 
 [English](../SCREENSHOTS.md) · [Русский](../ru/SCREENSHOTS.md) · **Deutsch** · [Français](../fr/SCREENSHOTS.md) · [Español](../es/SCREENSHOTS.md) · [简体中文](../zh-CN/SCREENSHOTS.md)
 
-Die Screenshots zeigen die englische Oberfläche von Version 0.7.0.
+Die Screenshots zeigen die deutsche Oberfläche.
 
 ### Dein eigener Server in wenigen Schritten
 
-![Server einrichten](../screenshots/setup.png)
+![Server einrichten](../screenshots/de/setup.jpg)
 
 ### Deinen Server im Blick behalten
 
-![Serverübersicht](../screenshots/overview.png)
+![Serverübersicht](../screenshots/de/overview.jpg)
 
 ### Deine eigene Abenteurergruppe zusammenstellen
 
-![Begleiter verwalten](../screenshots/bots.png)
+![Begleiter verwalten](../screenshots/de/bots.jpg)
 
 ### Module auswählen und einstellen
 
-![Servermodule](../screenshots/modules.png)
+![Servermodule](../screenshots/de/modules.jpg)
 
 ### Den Client spielbereit machen
 
-![Spielclient](../screenshots/client.png)
+![Spielclient](../screenshots/de/client.jpg)
 
 ### Deinen Fortschritt sichern
 
-![Sicherungen](../screenshots/backups.png)
+![Sicherungen](../screenshots/de/backups.jpg)
 
 ### Freunde einladen
 
-![Mit Freunden spielen](../screenshots/friends.png)
+![Mit Freunden spielen](../screenshots/de/friends.jpg)
 
 ### Einen passenden Realm finden
 
-![Realm-Browser](../screenshots/realms.png)
+![Realm-Browser](../screenshots/de/realms.jpg)
 
 ### Portable Characters — experimentell
 
-![Portable Characters — experimentelle Funktion](../screenshots/portable.png)
+![Portable Characters — experimentelle Funktion](../screenshots/de/portable.jpg)
 
 ### Einen vorhandenen Charakter übernehmen — experimentell
 
-![Einen Charakter portabel machen](../screenshots/remote-character.png)
+![Einen Charakter portabel machen](../screenshots/de/remote-character.jpg)
 
 [Alle Anleitungen](README.md)

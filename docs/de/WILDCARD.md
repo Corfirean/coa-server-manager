@@ -10,8 +10,8 @@ Profile liegen unter `Settings/realm-profiles`. Bei einer Unterbrechung lässt s
 
 Schnell- und Datenbanksicherungen umfassen beide Charakterdatenbanken und die gemeinsamen Konten. Vollständige Sicherungen enthalten auch beide Welten. Wähle vor dem Wiederherstellen den im Wiederherstellungspunkt angegebenen Realm. Serverupdates bearbeiten beide Realms und die gemeinsame Kontendatenbank einmal. Wird der Serverlauncher ersetzt, richtet der Manager den Realm-Adapter vor dem nächsten Start erneut ein.
 
-![Wildcard-Übersicht](../screenshots/wildcard-demo/overview.jpg)
+![Wildcard-Übersicht](../screenshots/de/wildcard-overview.jpg)
 
-![Modulkompatibilität](../screenshots/wildcard-demo/modules.jpg)
+![Modulkompatibilität](../screenshots/de/wildcard-modules.jpg)
 
 [Alle Anleitungen](README.md) · [Beide Realms gemeinsam starten](REPAIR_AND_REALMS.md)

@@ -6,7 +6,7 @@
 
 Eine Windows-Anwendung, mit der du deinen eigenen **Conquest of Azeroth**-Server auf Basis von AzerothCore mit wenigen Schritten einrichtest und betreibst. Konsole, manuelle Konfigurationsdateien und separate Datenbankprogramme sind dafür nicht nötig. Entwickelt mit Tauri 2, Rust und React.
 
-![Dein Server im Überblick](docs/screenshots/overview.png)
+![Dein Server im Überblick](docs/screenshots/de/overview.jpg)
 
 ## Funktionen
 
@@ -31,11 +31,11 @@ Eine Windows-Anwendung, mit der du deinen eigenen **Conquest of Azeroth**-Server
 
 | Portable Characters — experimentell | Öffentliche Realms |
 |---|---|
-| ![Portable Characters](docs/screenshots/portable.png) | ![Öffentliche Realms](docs/screenshots/realms.png) |
+| ![Portable Characters](docs/screenshots/de/portable.jpg) | ![Öffentliche Realms](docs/screenshots/de/realms.jpg) |
 
 | Begleiter | Sicherungen |
 |---|---|
-| ![Begleiter](docs/screenshots/bots.png) | ![Sicherungen](docs/screenshots/backups.png) |
+| ![Begleiter](docs/screenshots/de/bots.jpg) | ![Sicherungen](docs/screenshots/de/backups.jpg) |
 
 [Zur Galerie](docs/de/SCREENSHOTS.md) · [Alle Anleitungen](docs/de/README.md). Die Galerie zeigt auch Einrichtung, Module, Spielclient, Verbindungen mit Freunden und die Übernahme eines vorhandenen Charakters.
 

@@ -10,8 +10,8 @@ Los perfiles se guardan en `Settings/realm-profiles`. Si un cambio se interrumpe
 
 Las copias rápidas y de bases incluyen las dos bases de personajes y las cuentas comunes; las completas añaden ambos mundos. Elige el reino indicado en el punto de restauración antes de restaurar. Las actualizaciones se aplican a ambos reinos y una sola vez a las cuentas compartidas. Si se sustituye el lanzador del servidor, el Manager vuelve a instalar el adaptador de reinos antes del siguiente inicio.
 
-![Resumen de Wildcard](../screenshots/wildcard-demo/overview.jpg)
+![Resumen de Wildcard](../screenshots/es/wildcard-overview.jpg)
 
-![Compatibilidad de módulos](../screenshots/wildcard-demo/modules.jpg)
+![Compatibilidad de módulos](../screenshots/es/wildcard-modules.jpg)
 
 [Todas las guías](README.md) · [Iniciar ambos reinos](REPAIR_AND_REALMS.md)

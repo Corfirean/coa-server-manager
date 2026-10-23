@@ -6,7 +6,7 @@
 
 Приложение для Windows, с которым можно установить и запустить свой сервер **Conquest of Azeroth** на базе AzerothCore за несколько шагов. Управляйте сервером через интерфейс, без консоли, ручного редактирования конфигов и отдельных программ для базы данных. Менеджер написан на Tauri 2, Rust и React.
 
-![Главное окно менеджера](docs/screenshots/overview.png)
+![Главное окно менеджера](docs/screenshots/ru/overview.jpg)
 
 ## Возможности
 
@@ -31,11 +31,11 @@
 
 | Переносимые персонажи — экспериментально | Публичные реалмы |
 |---|---|
-| ![Переносимые персонажи](docs/screenshots/portable.png) | ![Публичные реалмы](docs/screenshots/realms.png) |
+| ![Переносимые персонажи](docs/screenshots/ru/portable.jpg) | ![Публичные реалмы](docs/screenshots/ru/realms.jpg) |
 
 | Компаньоны | Резервные копии |
 |---|---|
-| ![Компаньоны](docs/screenshots/bots.png) | ![Резервные копии](docs/screenshots/backups.png) |
+| ![Компаньоны](docs/screenshots/ru/bots.jpg) | ![Резервные копии](docs/screenshots/ru/backups.jpg) |
 
 [Все скриншоты](docs/ru/SCREENSHOTS.md) · [Гайды для игроков и владельцев серверов](docs/ru/README.md). В галерее также показаны установка, модули, клиент, подключение друзей и создание переносимого персонажа.
 

@@ -9,7 +9,7 @@
 - [Warcraft Reborn](WARCRAFT-REBORN.md) — crea y selecciona un reino.
 - [Actualizaciones, copias y reparación](REPAIR_AND_REALMS.md) — cuida el servidor y resuelve problemas.
 
-Los nombres ingleses entre paréntesis te ayudan a identificar los botones en las capturas, que muestran la interfaz en inglés.
+Las capturas muestran la interfaz en español. Los nombres ingleses entre paréntesis sirven de referencia si usas la aplicación en otro idioma.
 
 **Los personajes portátiles son experimentales.** El Manager está en desarrollo activo y aún puede tener errores. Si encuentras alguno, [abre una incidencia](https://github.com/Corfirean/coa-server-manager/issues/new/choose).
 

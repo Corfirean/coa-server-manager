@@ -9,26 +9,26 @@ Le Manager conserve une copie sauvegardée de votre personnage, utilisable sur l
 ## Créer son premier personnage portable
 
 1. Déconnectez le personnage dans le jeu. Laissez le Manager ouvert.
-2. Ouvrez **Personnages (Characters)** et choisissez **Make an existing character portable**.
+2. Ouvrez **Personnages (Characters)** et choisissez **Rendre un personnage existant portable (Make an existing character portable)**.
 3. Sélectionnez un royaume auquel vous avez accès, puis votre personnage.
-4. Cliquez sur **Make portable**. Le personnage apparaît dans **Your characters**.
+4. Cliquez sur **Rendre portable (Make portable)**. Le personnage apparaît dans **Vos personnages (Your characters)**.
 
 Si un personnage n'est pas sélectionnable, consultez la raison affichée à côté. Les bots, les défis en cours et certaines récompenses en attente peuvent empêcher l'opération. La copie portable ne supprime pas le personnage d'origine sur son royaume.
 
 ## Récupérer un personnage d'un autre royaume
 
 1. Dans **Serveurs (Servers)**, sélectionnez le royaume du personnage.
-2. Choisissez **Link an existing account** et indiquez le compte que vous utilisez sur ce royaume.
+2. Choisissez **Associer un compte existant (Link an existing account)** et indiquez le compte que vous utilisez sur ce royaume.
 3. Connectez-vous au royaume dans le jeu et restez sur l'écran de sélection des personnages.
-4. Revenez au Manager avec **Alt+Tab** et cliquez sur **Show my characters**.
-5. Trouvez votre personnage et cliquez sur **Make portable**.
+4. Revenez au Manager avec **Alt+Tab** et cliquez sur **Afficher mes personnages (Show my characters)**.
+5. Trouvez votre personnage et cliquez sur **Rendre portable (Make portable)**.
 6. Attendez la confirmation et l'indication **Portable**.
 
-![Associer le compte du royaume](../screenshots/09-link-realm-account.jpg)
+![Associer le compte du royaume](../screenshots/fr/09-link-realm-account.jpg)
 
-![Choisir un personnage](../screenshots/10-remote-portable-candidates.jpg)
+![Choisir un personnage](../screenshots/fr/10-remote-portable-candidates.jpg)
 
-![Personnage enregistré](../screenshots/11-remote-portable-saved.jpg)
+![Personnage enregistré](../screenshots/fr/11-remote-portable-saved.jpg)
 
 ## Jouer avec le personnage portable
 
@@ -42,6 +42,6 @@ Sur un royaume dont le niveau maximal est inférieur, votre personnage peut temp
 
 ## Versions sauvegardées et conflits
 
-**Saved versions** permet de voir quand le progrès a été enregistré. Si un conflit apparaît, lisez l'explication avant de continuer. Évitez de jouer avec deux copies simultanément et conservez aussi des sauvegardes classiques du serveur.
+**Versions sauvegardées (Saved versions)** permet de voir quand le progrès a été enregistré. Si un conflit apparaît, lisez l'explication avant de continuer. Évitez de jouer avec deux copies simultanément et conservez aussi des sauvegardes classiques du serveur.
 
 [Tous les guides](README.md)

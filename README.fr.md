@@ -6,7 +6,7 @@
 
 Une application Windows pour installer et gérer votre propre serveur **Conquest of Azeroth**, basé sur AzerothCore, en quelques étapes. Pas besoin de console, de modifier les fichiers de configuration à la main ou d'utiliser un outil de base de données. L'application utilise Tauri 2, Rust et React.
 
-![Votre serveur en un coup d'œil](docs/screenshots/overview.png)
+![Votre serveur en un coup d'œil](docs/screenshots/fr/overview.jpg)
 
 ## Fonctionnalités
 
@@ -31,11 +31,11 @@ Une application Windows pour installer et gérer votre propre serveur **Conquest
 
 | Personnages portables — expérimental | Royaumes publics |
 |---|---|
-| ![Personnages portables](docs/screenshots/portable.png) | ![Royaumes publics](docs/screenshots/realms.png) |
+| ![Personnages portables](docs/screenshots/fr/portable.jpg) | ![Royaumes publics](docs/screenshots/fr/realms.jpg) |
 
 | Compagnons | Sauvegardes |
 |---|---|
-| ![Compagnons](docs/screenshots/bots.png) | ![Sauvegardes](docs/screenshots/backups.png) |
+| ![Compagnons](docs/screenshots/fr/bots.jpg) | ![Sauvegardes](docs/screenshots/fr/backups.jpg) |
 
 [Galerie complète](docs/fr/SCREENSHOTS.md) · [Tous les guides](docs/fr/README.md). La galerie présente aussi l'installation, les modules, le client, les connexions entre amis et la création d'un personnage portable.
 
