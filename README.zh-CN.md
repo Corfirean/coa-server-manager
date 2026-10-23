@@ -6,7 +6,7 @@
 
 这是一款 Windows 应用，帮助你用几个简单步骤搭建和管理自己的 **Conquest of Azeroth** 服务器，服务端基于 AzerothCore。日常操作不需要使用控制台、手动修改配置文件或单独操作数据库。应用采用 Tauri 2、Rust 和 React 开发。
 
-![服务器概览](docs/screenshots/overview.png)
+![服务器概览](docs/screenshots/zh-CN/overview.jpg)
 
 ## 主要功能
 
@@ -31,11 +31,11 @@
 
 | 便携角色（实验性） | 公开服务器 |
 |---|---|
-| ![便携角色](docs/screenshots/portable.png) | ![公开服务器](docs/screenshots/realms.png) |
+| ![便携角色](docs/screenshots/zh-CN/portable.jpg) | ![公开服务器](docs/screenshots/zh-CN/realms.jpg) |
 
 | 伙伴机器人 | 备份 |
 |---|---|
-| ![伙伴机器人](docs/screenshots/bots.png) | ![备份](docs/screenshots/backups.png) |
+| ![伙伴机器人](docs/screenshots/zh-CN/bots.jpg) | ![备份](docs/screenshots/zh-CN/backups.jpg) |
 
 [查看完整截图](docs/zh-CN/SCREENSHOTS.md) · [玩家与服主指南](docs/zh-CN/README.md)。图库还展示了初始设置、模块、客户端、朋友联机，以及将现有角色转换为便携角色的流程。
 

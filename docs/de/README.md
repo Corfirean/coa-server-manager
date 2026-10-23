@@ -9,7 +9,7 @@
 - [Warcraft Reborn](WARCRAFT-REBORN.md) — einen Realm anlegen und auswählen.
 - [Updates, Sicherungen und Reparatur](REPAIR_AND_REALMS.md) — den Server pflegen und Probleme beheben.
 
-Englische Schaltflächennamen stehen in Klammern, damit du sie auch auf den Screenshots wiederfindest. Die Screenshots zeigen die englische Oberfläche.
+Die Screenshots zeigen die deutsche Oberfläche. Englische Bezeichnungen in Klammern helfen beim Vergleich mit anderen App-Sprachen.
 
 **Portable Characters sind experimentell.** Der Manager wird aktiv entwickelt und kann noch Fehler enthalten. Bitte melde Probleme [als Issue](https://github.com/Corfirean/coa-server-manager/issues/new/choose).
 

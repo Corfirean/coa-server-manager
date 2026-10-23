@@ -10,8 +10,8 @@ Les réglages sont enregistrés dans `Settings/realm-profiles`. Si le changement
 
 Les sauvegardes rapides et de bases incluent les deux bases de personnages et les comptes communs ; les complètes ajoutent les deux mondes. Sélectionnez le royaume indiqué sur le point de restauration avant de restaurer. Les mises à jour s'appliquent aux deux royaumes, et une seule fois aux comptes communs. Si le lanceur serveur est remplacé, le Manager réinstalle son adaptateur de royaumes avant le prochain démarrage.
 
-![Vue d'ensemble de Wildcard](../screenshots/wildcard-demo/overview.jpg)
+![Vue d'ensemble de Wildcard](../screenshots/fr/wildcard-overview.jpg)
 
-![Compatibilité des modules](../screenshots/wildcard-demo/modules.jpg)
+![Compatibilité des modules](../screenshots/fr/wildcard-modules.jpg)
 
 [Tous les guides](README.md) · [Lancer les deux royaumes ensemble](REPAIR_AND_REALMS.md)

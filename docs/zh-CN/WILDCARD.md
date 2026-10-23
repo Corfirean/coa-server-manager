@@ -10,8 +10,8 @@
 
 快速备份和数据库备份包括两个角色数据库及共用账号；完整备份还包括两个世界。恢复前，请先选择恢复点所记录的模式。服务器更新会处理两个模式，共用账号数据库只更新一次。如果更新替换了服务器启动器，管理器会在下次启动前重新应用模式适配。
 
-![Wildcard 概览](../screenshots/wildcard-demo/overview.jpg)
+![Wildcard 概览](../screenshots/zh-CN/wildcard-overview.jpg)
 
-![模块兼容性](../screenshots/wildcard-demo/modules.jpg)
+![模块兼容性](../screenshots/zh-CN/wildcard-modules.jpg)
 
 [全部指南](README.md) · [同时运行两个模式](REPAIR_AND_REALMS.md)

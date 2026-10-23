@@ -9,26 +9,26 @@
 ## 创建第一个便携角色
 
 1. 在游戏中让该角色退出世界，保持管理器开启。
-2. 打开**角色（Characters）**，选择 **Make an existing character portable**。
+2. 打开**角色（Characters）**，选择 **将现有角色保存为便携角色 (Make an existing character portable)**。
 3. 选择有权访问的服务器，再选择角色。
-4. 点击 **Make portable**。完成后，角色会出现在 **Your characters** 中。
+4. 点击 **保存为便携角色 (Make portable)**。完成后，角色会出现在 **你的角色 (Your characters)** 中。
 
 如果无法选择某个角色，请查看旁边的原因。机器人角色、进行中的挑战，以及部分尚未领取的奖励都可能阻止转换。创建便携副本不会删除原服务器上的角色。
 
 ## 从其他服务器保存角色
 
 1. 在**服务器（Servers）**页面中选择角色所在的服务器。
-2. 点击 **Link an existing account**，填写你在该服务器使用的现有账号。
+2. 点击 **关联现有账号 (Link an existing account)**，填写你在该服务器使用的现有账号。
 3. 在游戏中登录该服务器，并停留在角色选择界面。
-4. 用 **Alt+Tab** 返回管理器，点击 **Show my characters**。
-5. 找到目标角色，点击 **Make portable**。
+4. 用 **Alt+Tab** 返回管理器，点击 **显示我的角色 (Show my characters)**。
+5. 找到目标角色，点击 **保存为便携角色 (Make portable)**。
 6. 等待成功提示，以及 **Portable** 标记出现。
 
-![关联服务器账号](../screenshots/09-link-realm-account.jpg)
+![关联服务器账号](../screenshots/zh-CN/09-link-realm-account.jpg)
 
-![选择要保存的角色](../screenshots/10-remote-portable-candidates.jpg)
+![选择要保存的角色](../screenshots/zh-CN/10-remote-portable-candidates.jpg)
 
-![角色已保存](../screenshots/11-remote-portable-saved.jpg)
+![角色已保存](../screenshots/zh-CN/11-remote-portable-saved.jpg)
 
 ## 使用便携角色游玩
 
@@ -42,6 +42,6 @@
 
 ## 历史存档与冲突
 
-在 **Saved versions** 中查看进度保存时间。如果出现冲突，先阅读管理器的说明再继续。不要同时游玩同一角色的两个副本，也请保留常规服务器备份。
+在 **历史存档 (Saved versions)** 中查看进度保存时间。如果出现冲突，先阅读管理器的说明再继续。不要同时游玩同一角色的两个副本，也请保留常规服务器备份。
 
 [全部指南](README.md)

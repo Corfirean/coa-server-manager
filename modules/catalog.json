@@ -9,7 +9,8 @@
         "ru": "Боты-компаньоны для групп, подземелий и гильдии.",
         "de": "Begleiter-Bots für Gruppen, Dungeons und deine Gilde.",
         "fr": "Des bots compagnons pour les groupes, les donjons et votre guilde.",
-        "es": "Bots acompañantes para grupos, mazmorras y tu hermandad."
+        "es": "Bots acompañantes para grupos, mazmorras y tu hermandad.",
+        "zh": "用于组队、地下城和公会的伙伴机器人。"
       },
       "repo": "https://github.com/Corfirean/mod-coa-playerbots",
       "conf": "mod_coa_playerbots.conf",
@@ -26,7 +27,8 @@
         "ru": "Подстраивает подземелья и рейды под вашу группу, есть соло-режимы.",
         "de": "Passt Dungeons und Schlachtzüge an deine Gruppe an, mit Solo-Modi.",
         "fr": "Adapte donjons et raids à votre groupe, avec des modes solo.",
-        "es": "Adapta mazmorras y bandas a tu grupo, con modos en solitario."
+        "es": "Adapta mazmorras y bandas a tu grupo, con modos en solitario.",
+        "zh": "按队伍规模调整地下城和团队副本，支持单人模式。"
       },
       "repo": "https://github.com/Corfirean/mod-coa-content-scaling",
       "conf": "mod-coa-content-scaling.conf",
@@ -42,7 +44,8 @@
         "ru": "Подземелья и рейды Запределья, подогнанные под ваши уровни.",
         "de": "Dungeons und Schlachtzüge der Scherbenwelt, an deine Stufen angepasst.",
         "fr": "Donjons et raids de l'Outreterre, adaptés à vos niveaux.",
-        "es": "Mazmorras y bandas de Terrallende, adaptadas a tus niveles."
+        "es": "Mazmorras y bandas de Terrallende, adaptadas a tus niveles.",
+        "zh": "根据等级范围调整外域地下城和团队副本。"
       },
       "repo": "https://github.com/Corfirean/mod-coa-content-scaling/tree/main/content-packs/mod-coa-tbc-content",
       "conf": "mod-coa-tbc-content.conf",
@@ -58,7 +61,8 @@
         "ru": "Подземелья и рейды Нордскола, подогнанные под ваши уровни.",
         "de": "Dungeons und Schlachtzüge Nordends, an deine Stufen angepasst.",
         "fr": "Donjons et raids du Norfendre, adaptés à vos niveaux.",
-        "es": "Mazmorras y bandas de Rasganorte, adaptadas a tus niveles."
+        "es": "Mazmorras y bandas de Rasganorte, adaptadas a tus niveles.",
+        "zh": "根据等级范围调整诺森德地下城和团队副本。"
       },
       "repo": "https://github.com/Corfirean/mod-coa-content-scaling/tree/main/content-packs/mod-coa-wotlk-content",
       "conf": "mod-coa-wotlk-content.conf",
@@ -74,7 +78,8 @@
         "ru": "Наполняет аукцион реалистичными настраиваемыми лотами.",
         "de": "Füllt das Auktionshaus mit realistischen, einstellbaren Angeboten.",
         "fr": "Remplit l'hôtel des ventes d'annonces réalistes et réglables.",
-        "es": "Llena la casa de subastas con ofertas realistas y ajustables."
+        "es": "Llena la casa de subastas con ofertas realistas y ajustables.",
+        "zh": "为拍卖行生成合理的商品，可调整上架规则。"
       },
       "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-ah-bot-plus",
       "conf": "mod_ahbot.conf",
@@ -92,7 +97,8 @@
         "ru": "НПС, который зачаровывает ваше снаряжение.",
         "de": "Ein NPC, der deine Ausrüstung für dich verzaubert.",
         "fr": "Un PNJ qui enchante votre équipement pour vous.",
-        "es": "Un PNJ que encanta tu equipo por ti."
+        "es": "Un PNJ que encanta tu equipo por ti.",
+        "zh": "提供装备附魔服务的 NPC。"
       },
       "repo": "https://github.com/azerothcore/mod-npc-enchanter",
       "conf": "npc_enchanter.conf",
@@ -110,7 +116,8 @@
         "ru": "Альтернативная система ботов со случайными ботами и полным ИИ.",
         "de": "Ein alternatives Bot-System mit Zufalls-Bots und voller KI.",
         "fr": "Un système de bots alternatif avec bots aléatoires et IA complète.",
-        "es": "Un sistema de bots alternativo con bots aleatorios e IA completa."
+        "es": "Un sistema de bots alternativo con bots aleatorios e IA completa.",
+        "zh": "另一套机器人系统，支持随机机器人和完整 AI。"
       },
       "repo": "https://github.com/Zyth45/mod-playerbots",
       "conf": "playerbots.conf",
@@ -129,7 +136,8 @@
         "ru": "Пользовательские расы (Esteria и дополнительные расы) с расширенной внешностью.",
         "de": "Spielbare benutzerdefinierte Völker (Esteria und weitere Völker) mit erweitertem Aussehen.",
         "fr": "Races personnalisées jouables (Esteria et autres) avec apparences étendues.",
-        "es": "Razas personalizadas jugables (Esteria y razas adicionales) con apariencias ampliadas."
+        "es": "Razas personalizadas jugables (Esteria y razas adicionales) con apariencias ampliadas.",
+        "zh": "添加可选种族及其种族技能，需要配套客户端补丁。"
       },
       "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
       "conf": "coa_custom_races.conf",
@@ -165,7 +173,8 @@
         "ru": "Связь клиента с сервером и разблокировка внешних видов.",
         "de": "Verbindung Client–Server und Aussehen-Freischaltungen.",
         "fr": "Lien client-serveur et déblocage des apparences.",
-        "es": "Enlace cliente-servidor y desbloqueo de apariencias."
+        "es": "Enlace cliente-servidor y desbloqueo de apariencias.",
+        "zh": "客户端与服务器连接，以及外观解锁。"
       },
       "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
       "conf": "coa.conf",

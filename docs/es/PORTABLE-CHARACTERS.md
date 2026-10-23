@@ -9,26 +9,26 @@ El Manager guarda una copia de tu personaje para jugar con él en reinos CoA com
 ## Crea tu primer personaje portátil
 
 1. Desconecta al personaje en el juego y deja el Manager abierto.
-2. Abre **Personajes (Characters)** y elige **Make an existing character portable**.
+2. Abre **Personajes (Characters)** y elige **Convertir un personaje existente en portátil (Make an existing character portable)**.
 3. Selecciona un reino al que tengas acceso y después tu personaje.
-4. Pulsa **Make portable**. Aparecerá en **Your characters**.
+4. Pulsa **Hacer portátil (Make portable)**. Aparecerá en **Tus personajes (Your characters)**.
 
 Si no puedes seleccionar un personaje, lee el motivo que aparece junto a él. Los bots, los desafíos activos y algunas recompensas pendientes pueden impedir la operación. Crear la copia portátil no elimina el personaje original del reino.
 
 ## Usa un personaje de otro reino
 
 1. En **Servidores (Servers)**, selecciona el reino donde está el personaje.
-2. Elige **Link an existing account** e indica la cuenta que ya utilizas allí.
+2. Elige **Vincular una cuenta existente (Link an existing account)** e indica la cuenta que ya utilizas allí.
 3. Entra en ese reino desde el juego y quédate en la selección de personajes.
-4. Vuelve al Manager con **Alt+Tab** y pulsa **Show my characters**.
-5. Busca tu personaje y pulsa **Make portable**.
+4. Vuelve al Manager con **Alt+Tab** y pulsa **Mostrar mis personajes (Show my characters)**.
+5. Busca tu personaje y pulsa **Hacer portátil (Make portable)**.
 6. Espera la confirmación y la etiqueta **Portable**.
 
-![Vincular la cuenta del reino](../screenshots/09-link-realm-account.jpg)
+![Vincular la cuenta del reino](../screenshots/es/09-link-realm-account.jpg)
 
-![Elegir el personaje](../screenshots/10-remote-portable-candidates.jpg)
+![Elegir el personaje](../screenshots/es/10-remote-portable-candidates.jpg)
 
-![Personaje guardado](../screenshots/11-remote-portable-saved.jpg)
+![Personaje guardado](../screenshots/es/11-remote-portable-saved.jpg)
 
 ## Juega con tu personaje portátil
 
@@ -42,6 +42,6 @@ Si el reino tiene un nivel máximo menor, tu personaje puede jugar temporalmente
 
 ## Versiones guardadas y conflictos
 
-En **Saved versions** puedes ver cuándo se guardó el progreso. Si aparece un conflicto, lee la explicación antes de continuar. Evita jugar con dos copias a la vez y conserva también las copias normales del servidor.
+En **Versiones guardadas (Saved versions)** puedes ver cuándo se guardó el progreso. Si aparece un conflicto, lee la explicación antes de continuar. Evita jugar con dos copias a la vez y conserva también las copias normales del servidor.
 
 [Todas las guías](README.md)

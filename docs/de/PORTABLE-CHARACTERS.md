@@ -9,26 +9,26 @@ Der Manager kann einen Charakter speichern, mit dem du anschließend auf kompati
 ## Den ersten Charakter übernehmen
 
 1. Logge den Charakter im Spiel aus. Lass den Manager geöffnet.
-2. Öffne **Charaktere (Characters)** und wähle **Make an existing character portable**.
+2. Öffne **Charaktere (Characters)** und wähle **Vorhandenen Charakter portabel machen (Make an existing character portable)**.
 3. Wähle einen Realm, auf den du Zugriff hast, und den gewünschten Charakter.
-4. Klicke auf **Make portable**. Der Charakter erscheint unter **Your characters**.
+4. Klicke auf **Portabel machen (Make portable)**. Der Charakter erscheint unter **Deine Charaktere (Your characters)**.
 
 Lässt sich ein Charakter nicht auswählen, steht der Grund daneben. Bot-Charaktere, laufende Herausforderungen und bestimmte ausstehende Belohnungen können die Übernahme verhindern. Die portable Kopie löscht den ursprünglichen Realm-Charakter nicht.
 
 ## Einen Charakter von einem anderen Realm übernehmen
 
 1. Öffne **Server (Servers)** und wähle den Realm des Charakters.
-2. Wähle **Link an existing account** und gib dein vorhandenes Konto dieses Realms an.
+2. Wähle **Vorhandenes Konto verknüpfen (Link an existing account)** und gib dein vorhandenes Konto dieses Realms an.
 3. Melde dich im Spiel auf dem Realm an und bleibe in der Charakterauswahl.
-4. Wechsle mit **Alt+Tab** zurück zum Manager und wähle **Show my characters**.
-5. Suche deinen Charakter und klicke auf **Make portable**.
+4. Wechsle mit **Alt+Tab** zurück zum Manager und wähle **Meine Charaktere anzeigen (Show my characters)**.
+5. Suche deinen Charakter und klicke auf **Portabel machen (Make portable)**.
 6. Warte auf die Bestätigung und die Kennzeichnung **Portable**.
 
-![Ein Realm-Konto verknüpfen](../screenshots/09-link-realm-account.jpg)
+![Ein Realm-Konto verknüpfen](../screenshots/de/09-link-realm-account.jpg)
 
-![Den Charakter auswählen](../screenshots/10-remote-portable-candidates.jpg)
+![Den Charakter auswählen](../screenshots/de/10-remote-portable-candidates.jpg)
 
-![Der Charakter wurde gespeichert](../screenshots/11-remote-portable-saved.jpg)
+![Der Charakter wurde gespeichert](../screenshots/de/11-remote-portable-saved.jpg)
 
 ## Mit dem gespeicherten Charakter spielen
 
@@ -42,6 +42,6 @@ Auf Realms mit einer niedrigeren Höchststufe kann dein Charakter vorübergehend
 
 ## Gespeicherte Versionen und Konflikte
 
-Unter **Saved versions** siehst du, wann dein Fortschritt gespeichert wurde. Bei einem Konflikt lies zuerst die Erklärung des Managers. Spiele nicht mit zwei Kopien gleichzeitig und behalte zusätzlich normale Serversicherungen.
+Unter **Gespeicherte Versionen (Saved versions)** siehst du, wann dein Fortschritt gespeichert wurde. Bei einem Konflikt lies zuerst die Erklärung des Managers. Spiele nicht mit zwei Kopien gleichzeitig und behalte zusätzlich normale Serversicherungen.
 
 [Alle Anleitungen](README.md)

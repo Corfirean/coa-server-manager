@@ -2,46 +2,46 @@
 
 [English](../SCREENSHOTS.md) · [Русский](../ru/SCREENSHOTS.md) · [Deutsch](../de/SCREENSHOTS.md) · **Français** · [Español](../es/SCREENSHOTS.md) · [简体中文](../zh-CN/SCREENSHOTS.md)
 
-Les captures présentent l'interface anglaise de la version 0.7.0.
+Les captures présentent l’interface en français.
 
 ### Votre serveur en quelques étapes
 
-![Installer son serveur](../screenshots/setup.png)
+![Installer son serveur](../screenshots/fr/setup.jpg)
 
 ### Garder une vue d'ensemble
 
-![État du serveur](../screenshots/overview.png)
+![État du serveur](../screenshots/fr/overview.jpg)
 
 ### Former votre propre groupe d'aventuriers
 
-![Gestion des compagnons](../screenshots/bots.png)
+![Gestion des compagnons](../screenshots/fr/bots.jpg)
 
 ### Choisir et régler les modules
 
-![Modules du serveur](../screenshots/modules.png)
+![Modules du serveur](../screenshots/fr/modules.jpg)
 
 ### Un client prêt à jouer
 
-![Client de jeu](../screenshots/client.png)
+![Client de jeu](../screenshots/fr/client.jpg)
 
 ### Protéger votre progression
 
-![Sauvegardes](../screenshots/backups.png)
+![Sauvegardes](../screenshots/fr/backups.jpg)
 
 ### Inviter vos amis
 
-![Jouer avec des amis](../screenshots/friends.png)
+![Jouer avec des amis](../screenshots/fr/friends.jpg)
 
 ### Trouver votre prochain royaume
 
-![Catalogue des royaumes](../screenshots/realms.png)
+![Catalogue des royaumes](../screenshots/fr/realms.jpg)
 
 ### Personnages portables — expérimental
 
-![Personnages portables — fonctionnalité expérimentale](../screenshots/portable.png)
+![Personnages portables — fonctionnalité expérimentale](../screenshots/fr/portable.jpg)
 
 ### Rendre un personnage existant portable — expérimental
 
-![Créer une copie portable](../screenshots/remote-character.png)
+![Créer une copie portable](../screenshots/fr/remote-character.jpg)
 
 [Tous les guides](README.md)

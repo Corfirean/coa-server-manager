@@ -61,6 +61,6 @@ and the player-facing `docs/*.md`; translated READMEs use `README.<locale>.md`, 
 When changing a public guide, update its counterparts in the same change. Write naturally for
 players in each language rather than translating word for word. Keep steps, feature limits and
 experimental Portable Characters warnings equivalent. Use actual UI labels; retain English labels
-where the released UI falls back to English. Screenshots are shared from `docs/screenshots/`.
+where the released UI falls back to English. English screenshots stay in `docs/screenshots/`; localized images use its `ru`, `de`, `fr`, `es` and `zh-CN` subfolders. Keep the interface and annotation language consistent with each guide.
 The public guide index is `docs/README.md`; internal protocol specifications and audits are not
 player guides. Keep canonical release histories in English and link to them instead of making copies.

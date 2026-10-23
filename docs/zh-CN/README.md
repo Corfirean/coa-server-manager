@@ -9,7 +9,7 @@
 - [Warcraft Reborn](WARCRAFT-REBORN.md) — 创建和选择该模式。
 - [更新、备份与修复](REPAIR_AND_REALMS.md) — 日常维护及故障处理。
 
-截图使用英文界面。指南在相应位置保留英文按钮名称，方便对照操作。
+截图使用简体中文界面。括号中的英文名称便于对照其他语言的界面。
 
 **便携角色是一项实验性功能。** 管理器仍在积极开发中，可能存在问题。遇到故障时请[提交 issue](https://github.com/Corfirean/coa-server-manager/issues/new/choose)。
 
