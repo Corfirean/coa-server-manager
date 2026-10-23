@@ -160,8 +160,11 @@ pub fn external_ip(gw: &Gateway) -> Result<Ipv4Addr> {
 }
 
 pub fn add_mapping(gw: &Gateway, port: u16, lan: Ipv4Addr, what: &str) -> Result<()> {
-    soap(
-        gw,
+    add_mapping_with(port, lan, what, |action, args| soap(gw, action, args))
+}
+
+fn add_mapping_with(port: u16, lan: Ipv4Addr, what: &str, mut request: impl FnMut(&str, &[(&str, String)]) -> Result<String>) -> Result<()> {
+    let result = request(
         "AddPortMapping",
         &[
             ("NewRemoteHost", String::new()),
@@ -176,8 +179,28 @@ pub fn add_mapping(gw: &Gateway, port: u16, lan: Ipv4Addr, what: &str) -> Result
             ),
             ("NewLeaseDuration", "0".into()),
         ],
-    )
-    .map(|_| ())
+    );
+    match result {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            // Some routers reject a mapping that already points to us. Read it back;
+            // never delete or replace another host's mapping.
+            let existing = request("GetSpecificPortMappingEntry", &[
+                ("NewRemoteHost", String::new()),
+                ("NewExternalPort", port.to_string()),
+                ("NewProtocol", "TCP".into()),
+            ]);
+            if let Ok(xml) = existing {
+                let client = between(&xml, "<NewInternalClient>", "</NewInternalClient>").and_then(|v| v.parse::<Ipv4Addr>().ok());
+                let internal_port = between(&xml, "<NewInternalPort>", "</NewInternalPort>").and_then(|v| v.parse::<u16>().ok());
+                let enabled = between(&xml, "<NewEnabled>", "</NewEnabled>");
+                if client == Some(lan) && internal_port == Some(port) && matches!(enabled, Some("1" | "true")) {
+                    return Ok(());
+                }
+            }
+            Err(Error::Invalid(format!("Could not forward TCP port {port}: {error}. Check the router's existing port forwarding rules for this port.")))
+        }
+    }
 }
 
 pub fn remove_mapping(gw: &Gateway, port: u16) -> Result<()> {
@@ -201,6 +224,53 @@ mod tests {
         <service><serviceType>urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1</serviceType><controlURL>/ctl/common</controlURL></service>\
         <service><serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType><controlURL>/ctl/IPConn</controlURL></service>\
         </serviceList></device></deviceList></device></deviceList></device></root>";
+
+    #[test]
+    fn existing_mapping_is_accepted_only_for_the_requested_destination() {
+        let lan = "192.168.1.5".parse().unwrap();
+        for (client, port, enabled, accepted) in [
+            ("192.168.1.5", "3724", "1", true),
+            ("192.168.1.5", "3724", "true", true),
+            ("192.168.1.6", "3724", "1", false),
+            ("192.168.1.5", "8085", "1", false),
+            ("192.168.1.5", "3724", "0", false),
+            ("", "", "", false),
+        ] {
+            let mut actions = Vec::new();
+            let result = add_mapping_with(3724, lan, "Login", |action, args| {
+                actions.push(action.to_string());
+                assert!(args.contains(&("NewExternalPort", "3724".into())));
+                assert!(args.contains(&("NewProtocol", "TCP".into())));
+                match action {
+                    "AddPortMapping" => Err(Error::Invalid("ConflictInMappingEntry".into())),
+                    "GetSpecificPortMappingEntry" => Ok(format!("<NewInternalClient>{client}</NewInternalClient><NewInternalPort>{port}</NewInternalPort><NewEnabled>{enabled}</NewEnabled>")),
+                    _ => panic!("must not delete or modify an existing mapping"),
+                }
+            });
+            assert_eq!(result.is_ok(), accepted);
+            assert_eq!(actions, ["AddPortMapping", "GetSpecificPortMappingEntry"]);
+            if let Err(error) = result {
+                assert!(error.to_string().contains("TCP port 3724"));
+                assert!(error.to_string().contains("ConflictInMappingEntry"));
+            }
+        }
+    }
+
+    #[test]
+    fn successful_add_does_not_require_router_readback_support() {
+        add_mapping_with(8085, "192.168.1.5".parse().unwrap(), "World", |action, _| {
+            assert_eq!(action, "AddPortMapping");
+            Ok(String::new())
+        }).unwrap();
+    }
+
+    #[test]
+    fn failed_readback_keeps_the_original_error() {
+        let error = add_mapping_with(8085, "192.168.1.5".parse().unwrap(), "World", |action, _| {
+            Err(Error::Invalid(if action == "AddPortMapping" { "ConflictInMappingEntry" } else { "Unsupported action" }.into()))
+        }).unwrap_err().to_string();
+        assert!(error.contains("ConflictInMappingEntry") && error.contains("8085"));
+    }
 
     #[test]
     fn parses_ssdp_location_and_description() {

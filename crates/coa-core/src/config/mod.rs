@@ -1034,6 +1034,28 @@ Spellbook.New = 5
     }
 
     #[test]
+    fn creature_rates_save_independently_in_template_and_active_config() {
+        let (_d, root, meta) = fixture();
+        let mut changes = BTreeMap::new();
+        for (i, group) in ["Normal", "Elite.Elite", "Elite.RARE", "Elite.RAREELITE", "Elite.WORLDBOSS"].iter().enumerate() {
+            for (j, stat) in ["Damage", "SpellDamage", "HP"].iter().enumerate() {
+                changes.insert(format!("Rate.Creature.{group}.{stat}"), json!(0.25 + (i * 3 + j) as f64 * 0.25));
+            }
+        }
+        let report = save(&root, &meta, Scope::Server, &changes).unwrap();
+        assert_eq!(report.changed.len(), 15);
+        assert_eq!(report.restart, Some(Restart::World));
+        for path in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+            let conf = load_conf(&root.join(path)).unwrap();
+            for (key, value) in &changes {
+                assert_eq!(conf.get(key).unwrap().parse::<f64>().unwrap(), value.as_f64().unwrap(), "{path}: {key}");
+            }
+            assert_eq!(conf.get("Unknown.Custom"), Some("\"keep me\""));
+        }
+        assert!(save(&root, &meta, Scope::Server, &changes).unwrap().changed.is_empty());
+    }
+
+    #[test]
     fn save_changes_only_that_key_in_template_and_generated_conf() {
         let (_d, root, meta) = fixture();
         let tpl_before =

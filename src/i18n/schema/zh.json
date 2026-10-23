@@ -352,12 +352,12 @@
    "d": "在线处于休息区域时，休息经验的积累速度。"
   },
   "Rate.Creature.Normal.Damage": {
-   "t": "普通怪物伤害倍率",
-   "d": "普通怪物造成的伤害乘数。大幅改变游戏战斗难度。"
+   "t": "普通生物 — 近战伤害",
+   "d": "普通生物近战伤害倍率。1 为正常值，需要重启世界服务器。"
   },
   "Rate.Creature.Normal.HP": {
-   "t": "普通怪物生命值倍率",
-   "d": "普通怪物的生命值上限乘数。大幅改变游戏战斗难度。"
+   "t": "普通生物 — 生命值",
+   "d": "普通生物生命值倍率。1 为正常值，需要重启世界服务器。"
   },
   "PlayerLimit": {
    "t": "最大同时在线玩家数",
@@ -550,6 +550,58 @@
   "Achievement.RealmFirstBlockBots": {
    "t": "禁止机器人获取“服务器第一”成就",
    "d": "随从（机器人）无法获得“服务器第一！”成就，绝不抢占真实玩家的第一名荣誉。需要 2026-10-02 或更新的服务器核心版本。"
+  },
+  "Rate.Creature.Normal.SpellDamage": {
+   "t": "普通生物 — 法术伤害",
+   "d": "普通生物法术伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.Elite.Damage": {
+   "t": "精英生物 — 近战伤害",
+   "d": "精英生物近战伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.Elite.SpellDamage": {
+   "t": "精英生物 — 法术伤害",
+   "d": "精英生物法术伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.Elite.HP": {
+   "t": "精英生物 — 生命值",
+   "d": "精英生物生命值倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.RARE.Damage": {
+   "t": "稀有生物 — 近战伤害",
+   "d": "稀有生物近战伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.RARE.SpellDamage": {
+   "t": "稀有生物 — 法术伤害",
+   "d": "稀有生物法术伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.RARE.HP": {
+   "t": "稀有生物 — 生命值",
+   "d": "稀有生物生命值倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.RAREELITE.Damage": {
+   "t": "稀有精英生物 — 近战伤害",
+   "d": "稀有精英生物近战伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.RAREELITE.SpellDamage": {
+   "t": "稀有精英生物 — 法术伤害",
+   "d": "稀有精英生物法术伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.RAREELITE.HP": {
+   "t": "稀有精英生物 — 生命值",
+   "d": "稀有精英生物生命值倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.WORLDBOSS.Damage": {
+   "t": "世界首领 — 近战伤害",
+   "d": "世界首领近战伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.WORLDBOSS.SpellDamage": {
+   "t": "世界首领 — 法术伤害",
+   "d": "世界首领法术伤害倍率。1 为正常值，需要重启世界服务器。"
+  },
+  "Rate.Creature.Elite.WORLDBOSS.HP": {
+   "t": "世界首领 — 生命值",
+   "d": "世界首领生命值倍率。1 为正常值，需要重启世界服务器。"
   }
  },
  "options": {

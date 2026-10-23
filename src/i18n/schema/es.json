@@ -352,12 +352,12 @@
    "d": "Velocidad de acumulación de experiencia de descanso mientras estás conectado en una zona de descanso."
   },
   "Rate.Creature.Normal.Damage": {
-   "t": "Daño de los monstruos",
-   "d": "Multiplicador del daño de los monstruos normales. Cambia mucho la dificultad."
+   "t": "Criaturas normales — daño cuerpo a cuerpo",
+   "d": "Multiplicador: Criaturas normales — daño cuerpo a cuerpo. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
   },
   "Rate.Creature.Normal.HP": {
-   "t": "Salud de los monstruos",
-   "d": "Multiplicador de la salud de los monstruos normales. Cambia mucho la dificultad."
+   "t": "Criaturas normales — salud",
+   "d": "Multiplicador: Criaturas normales — salud. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
   },
   "PlayerLimit": {
    "t": "Máximo de jugadores",
@@ -550,6 +550,58 @@
   "Achievement.RealmFirstBlockBots": {
    "t": "Los bots no logran «Primero del reino»",
    "d": "Los acompañantes (bots) no pueden conseguir los logros «Primero del reino», así que nunca se los quitan a los jugadores reales. Requiere una versión del servidor del 2 de octubre de 2026 o posterior."
+  },
+  "Rate.Creature.Normal.SpellDamage": {
+   "t": "Criaturas normales — daño de hechizos",
+   "d": "Multiplicador: Criaturas normales — daño de hechizos. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.Elite.Damage": {
+   "t": "Criaturas élite — daño cuerpo a cuerpo",
+   "d": "Multiplicador: Criaturas élite — daño cuerpo a cuerpo. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.Elite.SpellDamage": {
+   "t": "Criaturas élite — daño de hechizos",
+   "d": "Multiplicador: Criaturas élite — daño de hechizos. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.Elite.HP": {
+   "t": "Criaturas élite — salud",
+   "d": "Multiplicador: Criaturas élite — salud. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.RARE.Damage": {
+   "t": "Criaturas raras — daño cuerpo a cuerpo",
+   "d": "Multiplicador: Criaturas raras — daño cuerpo a cuerpo. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.RARE.SpellDamage": {
+   "t": "Criaturas raras — daño de hechizos",
+   "d": "Multiplicador: Criaturas raras — daño de hechizos. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.RARE.HP": {
+   "t": "Criaturas raras — salud",
+   "d": "Multiplicador: Criaturas raras — salud. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.RAREELITE.Damage": {
+   "t": "Criaturas raras élite — daño cuerpo a cuerpo",
+   "d": "Multiplicador: Criaturas raras élite — daño cuerpo a cuerpo. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.RAREELITE.SpellDamage": {
+   "t": "Criaturas raras élite — daño de hechizos",
+   "d": "Multiplicador: Criaturas raras élite — daño de hechizos. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.RAREELITE.HP": {
+   "t": "Criaturas raras élite — salud",
+   "d": "Multiplicador: Criaturas raras élite — salud. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.Damage": {
+   "t": "Jefes de mundo — daño cuerpo a cuerpo",
+   "d": "Multiplicador: Jefes de mundo — daño cuerpo a cuerpo. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.SpellDamage": {
+   "t": "Jefes de mundo — daño de hechizos",
+   "d": "Multiplicador: Jefes de mundo — daño de hechizos. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.HP": {
+   "t": "Jefes de mundo — salud",
+   "d": "Multiplicador: Jefes de mundo — salud. 1 es el valor normal. Requiere reiniciar el servidor de mundo."
   }
  },
  "options": {
