@@ -352,12 +352,12 @@
    "d": "Vitesse d’accumulation du bonus de repos en ligne dans une zone de repos."
   },
   "Rate.Creature.Normal.Damage": {
-   "t": "Dégâts des monstres",
-   "d": "Multiplicateur des dégâts des monstres normaux. Change beaucoup la difficulté."
+   "t": "Créatures normales — dégâts de mêlée",
+   "d": "Multiplicateur : Créatures normales — dégâts de mêlée. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
   },
   "Rate.Creature.Normal.HP": {
-   "t": "Vie des monstres",
-   "d": "Multiplicateur de la vie des monstres normaux. Change beaucoup la difficulté."
+   "t": "Créatures normales — points de vie",
+   "d": "Multiplicateur : Créatures normales — points de vie. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
   },
   "PlayerLimit": {
    "t": "Nombre maximal de joueurs",
@@ -550,6 +550,58 @@
   "Achievement.RealmFirstBlockBots": {
    "t": "Les bots n'obtiennent pas les « Premier du royaume »",
    "d": "Les compagnons (bots) ne peuvent pas obtenir les hauts faits « Premier du royaume » et ne les prennent donc jamais aux vrais joueurs. Nécessite une version du serveur du 2 octobre 2026 ou plus récente."
+  },
+  "Rate.Creature.Normal.SpellDamage": {
+   "t": "Créatures normales — dégâts des sorts",
+   "d": "Multiplicateur : Créatures normales — dégâts des sorts. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.Elite.Damage": {
+   "t": "Créatures élites — dégâts de mêlée",
+   "d": "Multiplicateur : Créatures élites — dégâts de mêlée. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.Elite.SpellDamage": {
+   "t": "Créatures élites — dégâts des sorts",
+   "d": "Multiplicateur : Créatures élites — dégâts des sorts. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.Elite.HP": {
+   "t": "Créatures élites — points de vie",
+   "d": "Multiplicateur : Créatures élites — points de vie. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.RARE.Damage": {
+   "t": "Créatures rares — dégâts de mêlée",
+   "d": "Multiplicateur : Créatures rares — dégâts de mêlée. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.RARE.SpellDamage": {
+   "t": "Créatures rares — dégâts des sorts",
+   "d": "Multiplicateur : Créatures rares — dégâts des sorts. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.RARE.HP": {
+   "t": "Créatures rares — points de vie",
+   "d": "Multiplicateur : Créatures rares — points de vie. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.RAREELITE.Damage": {
+   "t": "Créatures rares élites — dégâts de mêlée",
+   "d": "Multiplicateur : Créatures rares élites — dégâts de mêlée. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.RAREELITE.SpellDamage": {
+   "t": "Créatures rares élites — dégâts des sorts",
+   "d": "Multiplicateur : Créatures rares élites — dégâts des sorts. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.RAREELITE.HP": {
+   "t": "Créatures rares élites — points de vie",
+   "d": "Multiplicateur : Créatures rares élites — points de vie. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.Damage": {
+   "t": "Boss mondiaux — dégâts de mêlée",
+   "d": "Multiplicateur : Boss mondiaux — dégâts de mêlée. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.SpellDamage": {
+   "t": "Boss mondiaux — dégâts des sorts",
+   "d": "Multiplicateur : Boss mondiaux — dégâts des sorts. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
+  },
+  "Rate.Creature.Elite.WORLDBOSS.HP": {
+   "t": "Boss mondiaux — points de vie",
+   "d": "Multiplicateur : Boss mondiaux — points de vie. 1 correspond à la valeur normale. Redémarrage du serveur de monde requis."
   }
  },
  "options": {

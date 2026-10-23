@@ -1527,6 +1527,9 @@ impl RepackEnv<'_> {
             return Ok(Some(0));
         }
         let count = |db: &crate::db::Db| -> Result<usize> {
+            let db = db.clone().with_read_deadline(
+                std::time::Instant::now() + std::time::Duration::from_secs(15),
+            );
             let realms = crate::realms::state(self.root)?;
             let modes = realms.modes();
             let mut count = 0;

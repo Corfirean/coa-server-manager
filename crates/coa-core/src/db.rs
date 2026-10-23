@@ -5,9 +5,10 @@
 
 use std::fmt;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
@@ -48,6 +49,7 @@ pub struct Db {
     realm: crate::realms::Mode,
     /// Name of the database container of a Docker installation; the client tools then run inside it.
     container: Option<String>,
+    read_deadline: Option<Instant>,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +67,42 @@ fn no_window(cmd: &mut Command) {
     }
     #[cfg(not(windows))]
     let _ = cmd;
+}
+
+fn bounded_client_output(command: &mut Command, input: &[u8], deadline: Instant) -> Result<std::process::Output> {
+    let timeout = || Error::Invalid("The database inspection timed out. The Manager stopped its client process; the database server was not stopped. Retry the operation or export diagnostics if this continues.".into());
+    if Instant::now() >= deadline {
+        return Err(timeout());
+    }
+    let mut stdin = tempfile::tempfile()?;
+    stdin.write_all(input)?;
+    stdin.seek(SeekFrom::Start(0))?;
+    let mut stdout = tempfile::tempfile()?;
+    let mut stderr = tempfile::tempfile()?;
+    command.stdin(stdin).stdout(stdout.try_clone()?).stderr(stderr.try_clone()?);
+    let mut child = command.spawn()?;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(25)),
+            result => {
+                child.kill().map_err(|error| Error::Invalid(format!(
+                    "The database inspection timed out, but its client could not be stopped: {error}"
+                )))?;
+                let _ = child.wait();
+                return match result {
+                    Err(error) => Err(error.into()),
+                    _ => Err(timeout()),
+                };
+            }
+        }
+    };
+    stdout.seek(SeekFrom::Start(0))?;
+    stderr.seek(SeekFrom::Start(0))?;
+    let mut output = std::process::Output { status, stdout: Vec::new(), stderr: Vec::new() };
+    stdout.read_to_end(&mut output.stdout)?;
+    stderr.read_to_end(&mut output.stderr)?;
+    Ok(output)
 }
 
 /// Schema names of the three game databases.
@@ -123,6 +161,7 @@ impl Db {
             password: Secret(password),
             realm: crate::realms::state(root)?.active,
             container: None,
+            read_deadline: None,
         })
     }
 
@@ -143,6 +182,7 @@ impl Db {
             password: Secret(password),
             realm: crate::realms::state(root)?.active,
             container: Some(container),
+            read_deadline: None,
         })
     }
 
@@ -162,6 +202,7 @@ impl Db {
             password: Secret(password.to_string()),
             realm,
             container: None,
+            read_deadline: None,
         }
     }
 
@@ -280,7 +321,13 @@ impl Db {
     pub fn ping(&self) -> bool {
         let mut c = self.command("mysqladmin.exe");
         c.arg("ping").arg("--connect-timeout=3");
-        c.output().map(|o| o.status.success()).unwrap_or(false)
+        bounded_client_output(&mut c, b"", Instant::now() + Duration::from_secs(5))
+            .map(|o| o.status.success()).unwrap_or(false)
+    }
+
+    pub(crate) fn with_read_deadline(mut self, deadline: Instant) -> Self {
+        self.read_deadline = Some(deadline);
+        self
     }
 
     /// Run SQL text (statement(s) supplied on stdin) and return the raw output.
@@ -291,6 +338,13 @@ impl Db {
             "--default-character-set=utf8mb4",
             "--max-allowed-packet=128M",
         ]);
+        if let Some(deadline) = self.read_deadline {
+            let out = bounded_client_output(&mut c, route_sql(sql, self.realm).as_bytes(), deadline)?;
+            if !out.status.success() {
+                return Err(self.fail(&out.stderr));
+            }
+            return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+        }
         c.stdin(Stdio::piped());
         let mut child = c.spawn()?;
         child
@@ -582,6 +636,103 @@ mod realm_tests {
 
 #[cfg(test)]
 mod tests {
+    fn client_fixture(mode: &str) -> std::process::Command {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", "db::tests::bounded_client_fixture", "--nocapture"])
+            .env("COA_DATABASE_CLIENT_TEST", mode);
+        super::no_window(&mut command);
+        command
+    }
+
+    #[test]
+    fn bounded_client_fixture() {
+        match std::env::var("COA_DATABASE_CLIENT_TEST").as_deref() {
+            Ok("hang") => std::thread::sleep(std::time::Duration::from_secs(60)),
+            Ok("output") => {
+                use std::io::{Read, Write};
+                let mut input = Vec::new();
+                std::io::stdin().read_to_end(&mut input).unwrap();
+                std::io::stdout().write_all(&input).unwrap();
+                std::io::stderr().write_all(&vec![b'e'; 256 * 1024]).unwrap();
+            }
+            Ok("fail") => std::process::exit(17),
+            _ => (),
+        }
+    }
+
+    #[test]
+    fn bounded_client_captures_large_output_without_pipe_deadlock() {
+        let data = vec![b'x'; 256 * 1024];
+        let out = super::bounded_client_output(&mut client_fixture("output"), &data,
+            std::time::Instant::now() + std::time::Duration::from_secs(10)).unwrap();
+        assert!(out.status.success());
+        assert!(out.stdout.windows(data.len()).any(|part| part == data));
+        assert_eq!(out.stderr, vec![b'e'; 256 * 1024]);
+        let out = super::bounded_client_output(&mut client_fixture("fail"), b"",
+            std::time::Instant::now() + std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(out.status.code(), Some(17));
+    }
+
+    #[test]
+    fn bounded_client_timeout_releases_the_update_operation_lock() {
+        let folder = tempfile::tempdir().unwrap();
+        let start = std::time::Instant::now();
+        let result = (|| {
+            let _lock = crate::update::operation_lock_for(folder.path(), "checking updates", false)?;
+            super::bounded_client_output(&mut client_fixture("hang"), b"",
+                start + std::time::Duration::from_millis(250))
+        })();
+        assert!(result.unwrap_err().to_string().contains("inspection timed out"));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        crate::update::operation_lock(folder.path()).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires COA_MYSQL_TEST_BIN; starts a disposable MySQL server"]
+    fn real_mysql_inspection_timeout_preserves_server_and_releases_lock() {
+        use std::os::windows::process::CommandExt;
+        struct Server(std::process::Child);
+        impl Drop for Server {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let bin = std::path::PathBuf::from(std::env::var("COA_MYSQL_TEST_BIN").unwrap());
+        let folder = tempfile::tempdir().unwrap();
+        let data = folder.path().join("data");
+        let initialized = std::process::Command::new(bin.join("mysqld.exe"))
+            .args(["--no-defaults", "--initialize-insecure"])
+            .arg(format!("--datadir={}", data.display()))
+            .creation_flags(0x0800_0000).output().unwrap();
+        assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        drop(socket);
+        let mut server = Server(std::process::Command::new(bin.join("mysqld.exe"))
+            .args(["--no-defaults", "--bind-address=127.0.0.1", "--mysqlx=0", "--skip-log-bin"])
+            .arg(format!("--datadir={}", data.display())).arg(format!("--port={port}"))
+            .arg(format!("--log-error={}", folder.path().join("mysql.log").display()))
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .creation_flags(0x0800_0000).spawn().unwrap());
+        let db = super::Db::with_tools(bin, port, "root", "", crate::realms::Mode::Coa);
+        let ready = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !db.ping() {
+            assert!(std::time::Instant::now() < ready);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let result = (|| {
+            let _lock = crate::update::operation_lock_for(folder.path(), "checking updates", false)?;
+            db.clone().with_read_deadline(std::time::Instant::now() + std::time::Duration::from_millis(500))
+                .query("SELECT SLEEP(60);")
+        })();
+        assert!(result.unwrap_err().to_string().contains("inspection timed out"));
+        assert!(server.0.try_wait().unwrap().is_none());
+        assert_eq!(db.query("SELECT 42;").unwrap(), "42");
+        crate::update::operation_lock(folder.path()).unwrap();
+    }
+
     #[test]
     fn reborn_sql_routes_only_database_identifiers() {
         use crate::realms::Mode;
