@@ -13,30 +13,69 @@ fn main() -> Result<()> {
     let action = args.get(1).map(String::as_str).unwrap_or("view");
     match action {
         "select" => {
-            let mode = if args.get(2).map(String::as_str) == Some("wildcard") { Mode::Wildcard } else { Mode::Coa };
+            let mode = if args.get(2).map(String::as_str) == Some("wildcard") {
+                Mode::Wildcard
+            } else {
+                Mode::Coa
+            };
             println!("{}", serde_json::to_string(&realms::select(root, mode)?)?);
         }
         "start" | "stop" => {
-            let out = driver::run(root, if action == "start" { Verb::StartAll } else { Verb::StopAll })?;
+            let out = driver::run(
+                root,
+                if action == "start" {
+                    Verb::StartAll
+                } else {
+                    Verb::StopAll
+                },
+            )?;
             println!("{}", serde_json::to_string(&out)?);
-            if !out.ok { return Err(Error::Invalid("Fixture operation failed".into())); }
+            if !out.ok {
+                return Err(Error::Invalid("Fixture operation failed".into()));
+            }
         }
         "probe" => {
             let db = Db::from_repack(root, Account::Admin)?;
             let s = realms::state(root)?;
-            println!("{}", db.query("SELECT * FROM acore_characters.manager_profile_probe;")?);
-            println!("active={} chars={} world={}", s.active.name(), s.active.schema("characters")?, s.active.schema("world")?);
+            println!(
+                "{}",
+                db.query("SELECT * FROM acore_characters.manager_profile_probe;")?
+            );
+            println!(
+                "active={} chars={} world={}",
+                s.active.name(),
+                s.active.schema("characters")?,
+                s.active.schema("world")?
+            );
         }
         "mark" => {
-            Db::from_repack(root, Account::Admin)?.query("INSERT INTO acore_characters.manager_profile_probe VALUES (22);")?;
+            Db::from_repack(root, Account::Admin)?
+                .query("INSERT INTO acore_characters.manager_profile_probe VALUES (22);")?;
         }
         "backup" => {
             use coa_core::backup::{self, Kind, Trigger};
             let meta = root.join("fixture-manager");
-            let point = backup::create(root, &meta, Kind::Full, Trigger::Manual, Some("realm isolation check".into()), &|step| println!("{step}"))?;
+            let point = backup::create(
+                root,
+                &meta,
+                Kind::Full,
+                Trigger::Manual,
+                Some("realm isolation check".into()),
+                &|step| println!("{step}"),
+            )?;
             assert_eq!(point.realm, Mode::Wildcard);
-            for name in ["characters", "world", "auth", "coa-characters", "coa-world", "configs"] {
-                assert!(point.components.iter().any(|c| c.name == name), "Missing {name}");
+            for name in [
+                "characters",
+                "world",
+                "auth",
+                "coa-characters",
+                "coa-world",
+                "configs",
+            ] {
+                assert!(
+                    point.components.iter().any(|c| c.name == name),
+                    "Missing {name}"
+                );
             }
             assert!(backup::verify(&meta, &point.id)?.ok);
             println!("Verified both realm backups: {}", point.id);
@@ -46,7 +85,10 @@ fn main() -> Result<()> {
             use coa_core::manifest::{Manifest, Migration};
             use coa_core::update::{Env, RepackEnv};
             let meta = root.join("fixture-manager");
-            let env = RepackEnv { root, meta_dir: &meta };
+            let env = RepackEnv {
+                root,
+                meta_dir: &meta,
+            };
             env.ensure_stopped()?;
             let staged = root.join("fixture-migrations");
             let mut manifest: Manifest = serde_json::from_value(serde_json::json!({
@@ -58,7 +100,13 @@ fn main() -> Result<()> {
                 let path = staged.join(format!("{kind}/manager_realm_fixture.sql"));
                 std::fs::create_dir_all(path.parent().unwrap())?;
                 std::fs::write(&path, sql)?;
-                manifest.migrations.push(Migration { compatible_sha256: vec![], id: "manager_realm_fixture".into(), db: kind.into(), sha256: coa_core::fsx::sha256_file(&path)?, destructive: false });
+                manifest.migrations.push(Migration {
+                    compatible_sha256: vec![],
+                    id: "manager_realm_fixture".into(),
+                    db: kind.into(),
+                    sha256: coa_core::fsx::sha256_file(&path)?,
+                    destructive: false,
+                });
             }
             let result = env.migrate(&manifest, &staged)?;
             assert!(result.failed.is_none());
@@ -66,7 +114,12 @@ fn main() -> Result<()> {
                 for mode in [Mode::Coa, Mode::Wildcard] {
                     let realm = db.clone().for_realm(mode);
                     for kind in ["characters", "world", "auth"] {
-                        assert_eq!(realm.query(&format!("SELECT COUNT(*) FROM acore_{kind}.manager_migration_probe;"))?, "1");
+                        assert_eq!(
+                            realm.query(&format!(
+                                "SELECT COUNT(*) FROM acore_{kind}.manager_migration_probe;"
+                            ))?,
+                            "1"
+                        );
                     }
                 }
                 Ok(())
@@ -79,8 +132,16 @@ fn main() -> Result<()> {
             })?;
             backup::restore_database(root, &meta, &point.id, "characters")?;
             backup::with_database(root, |db| {
-                assert_eq!(db.query("SELECT COUNT(*) FROM acore_characters.manager_profile_probe;")?, "0");
-                assert_eq!(db.clone().for_realm(Mode::Coa).query("SELECT value FROM acore_characters.manager_profile_probe;")?, "11");
+                assert_eq!(
+                    db.query("SELECT COUNT(*) FROM acore_characters.manager_profile_probe;")?,
+                    "0"
+                );
+                assert_eq!(
+                    db.clone()
+                        .for_realm(Mode::Coa)
+                        .query("SELECT value FROM acore_characters.manager_profile_probe;")?,
+                    "11"
+                );
                 Ok(())
             })?;
             println!("Both realms migrated once; shared auth migrated once; Wildcard restore left CoA intact.");

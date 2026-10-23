@@ -36,7 +36,9 @@ fn classify(text: &str) -> Kind {
     if t.is_empty() || t.starts_with('#') || t.starts_with(';') || t.starts_with('[') {
         return Kind::Other;
     }
-    let Some(eq) = text.find('=') else { return Kind::Other };
+    let Some(eq) = text.find('=') else {
+        return Kind::Other;
+    };
     let key = text[..eq].trim();
     if key.is_empty() || !key.chars().all(is_key_char) {
         return Kind::Other;
@@ -44,7 +46,10 @@ fn classify(text: &str) -> Kind {
     // prefix = everything up to and including '=' and the spaces after it
     let after = &text[eq + 1..];
     let spaces = after.len() - after.trim_start_matches([' ', '\t']).len();
-    Kind::Entry { key: key.to_string(), prefix_len: eq + 1 + spaces }
+    Kind::Entry {
+        key: key.to_string(),
+        prefix_len: eq + 1 + spaces,
+    }
 }
 
 impl ConfFile {
@@ -58,7 +63,9 @@ impl ConfFile {
         let mut rest = body;
         while !rest.is_empty() {
             let (raw, eol, next) = match rest.find('\n') {
-                Some(i) if i > 0 && rest.as_bytes()[i - 1] == b'\r' => (&rest[..i - 1], "\r\n", &rest[i + 1..]),
+                Some(i) if i > 0 && rest.as_bytes()[i - 1] == b'\r' => {
+                    (&rest[..i - 1], "\r\n", &rest[i + 1..])
+                }
                 Some(i) => (&rest[..i], "\n", &rest[i + 1..]),
                 None => (rest, "", ""),
             };
@@ -67,14 +74,23 @@ impl ConfFile {
                 "\n" => lf += 1,
                 _ => {}
             }
-            lines.push(Line { text: raw.to_string(), eol: eol.to_string(), kind: classify(raw) });
+            lines.push(Line {
+                text: raw.to_string(),
+                eol: eol.to_string(),
+                kind: classify(raw),
+            });
             rest = next;
         }
-        ConfFile { lines, bom, default_eol: if crlf > lf { "\r\n" } else { "\n" } }
+        ConfFile {
+            lines,
+            bom,
+            default_eol: if crlf > lf { "\r\n" } else { "\n" },
+        }
     }
 
     pub fn parse_bytes(bytes: &[u8]) -> Result<ConfFile> {
-        let text = std::str::from_utf8(bytes).map_err(|_| Error::Invalid("configuration file is not valid UTF-8".into()))?;
+        let text = std::str::from_utf8(bytes)
+            .map_err(|_| Error::Invalid("configuration file is not valid UTF-8".into()))?;
         Ok(Self::parse(text))
     }
 
@@ -93,14 +109,19 @@ impl ConfFile {
     /// Active (uncommented) entries in file order.
     pub fn entries(&self) -> impl Iterator<Item = (&str, &str)> {
         self.lines.iter().filter_map(|l| match &l.kind {
-            Kind::Entry { key, prefix_len } => Some((key.as_str(), l.text[*prefix_len..].trim_end())),
+            Kind::Entry { key, prefix_len } => {
+                Some((key.as_str(), l.text[*prefix_len..].trim_end()))
+            }
             Kind::Other => None,
         })
     }
 
     /// Raw value (quotes included) of the last active occurrence of `key` (the one the server ends up using).
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.entries().filter(|(k, _)| *k == key).map(|(_, v)| v).last()
+        self.entries()
+            .filter(|(k, _)| *k == key)
+            .map(|(_, v)| v)
+            .last()
     }
 
     pub fn contains(&self, key: &str) -> bool {
@@ -110,7 +131,12 @@ impl ConfFile {
     /// Set `raw` (already formatted, quotes included) as the value of `key`. Returns true if the key was appended.
     /// `doc` lines (without `#`) are written above a newly appended key.
     pub fn set(&mut self, key: &str, raw: &str, doc: &[&str]) -> bool {
-        if let Some(l) = self.lines.iter_mut().rev().find(|l| matches!(&l.kind, Kind::Entry { key: k, .. } if k == key)) {
+        if let Some(l) = self
+            .lines
+            .iter_mut()
+            .rev()
+            .find(|l| matches!(&l.kind, Kind::Entry { key: k, .. } if k == key))
+        {
             if let Kind::Entry { prefix_len, .. } = l.kind {
                 let prefix = l.text[..prefix_len].to_string();
                 l.text = format!("{prefix}{raw}");
@@ -125,16 +151,28 @@ impl ConfFile {
             }
         }
         for d in doc {
-            self.lines.push(Line { text: format!("# {d}"), eol: eol.to_string(), kind: Kind::Other });
+            self.lines.push(Line {
+                text: format!("# {d}"),
+                eol: eol.to_string(),
+                kind: Kind::Other,
+            });
         }
         let text = format!("{key} = {raw}");
-        self.lines.push(Line { kind: classify(&text), text, eol: eol.to_string() });
+        self.lines.push(Line {
+            kind: classify(&text),
+            text,
+            eol: eol.to_string(),
+        });
         true
     }
 
     /// The comment block directly above the last active occurrence of `key` (without the leading `#`).
     pub fn doc_for(&self, key: &str) -> Vec<String> {
-        let Some(idx) = self.lines.iter().rposition(|l| matches!(&l.kind, Kind::Entry { key: k, .. } if k == key)) else {
+        let Some(idx) = self
+            .lines
+            .iter()
+            .rposition(|l| matches!(&l.kind, Kind::Entry { key: k, .. } if k == key))
+        else {
             return Vec::new();
         };
         let mut doc = Vec::new();
@@ -157,7 +195,11 @@ impl ConfFile {
             }
         }
         for d in doc {
-            self.lines.push(Line { text: d.to_string(), eol: eol.to_string(), kind: Kind::Other });
+            self.lines.push(Line {
+                text: d.to_string(),
+                eol: eol.to_string(),
+                kind: Kind::Other,
+            });
         }
     }
 }
@@ -165,7 +207,9 @@ impl ConfFile {
 /// Strip one pair of surrounding double quotes.
 pub fn unquote(raw: &str) -> &str {
     let t = raw.trim();
-    t.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(t)
+    t.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(t)
 }
 
 #[cfg(test)]
@@ -176,7 +220,16 @@ mod tests {
 
     #[test]
     fn roundtrip_is_byte_identical_including_odd_input() {
-        for s in [SAMPLE, "", "\n", "no newline", "a=1\n\n\nb = 2\n", "\u{feff}k = v\r\n", "mixed=1\nendings=2\r\nhere=3\n", "=novalue\nweird key = 1\n"] {
+        for s in [
+            SAMPLE,
+            "",
+            "\n",
+            "no newline",
+            "a=1\n\n\nb = 2\n",
+            "\u{feff}k = v\r\n",
+            "mixed=1\nendings=2\r\nhere=3\n",
+            "=novalue\nweird key = 1\n",
+        ] {
             assert_eq!(ConfFile::parse(s).to_text(), s, "input: {s:?}");
         }
     }
@@ -201,14 +254,21 @@ mod tests {
         // last duplicate changed, first untouched
         assert!(out.contains("A.Key = 5\r\n") && out.contains("A.Key = 10\r\n"));
         // everything else byte-identical
-        assert_eq!(out.replace("C   =   9", "C   =   7").replace("A.Key = 10", "A.Key = 6"), SAMPLE);
+        assert_eq!(
+            out.replace("C   =   9", "C   =   7")
+                .replace("A.Key = 10", "A.Key = 6"),
+            SAMPLE
+        );
     }
 
     #[test]
     fn set_appends_missing_key_with_doc_using_file_eol() {
         let mut f = ConfFile::parse("[worldserver]\r\nA = 1");
         assert!(f.set("New.Key", "\"x\"", &["Added by CoA Server Manager"]));
-        assert_eq!(f.to_text(), "[worldserver]\r\nA = 1\r\n# Added by CoA Server Manager\r\nNew.Key = \"x\"\r\n");
+        assert_eq!(
+            f.to_text(),
+            "[worldserver]\r\nA = 1\r\n# Added by CoA Server Manager\r\nNew.Key = \"x\"\r\n"
+        );
         assert_eq!(f.get("New.Key"), Some("\"x\""));
     }
 

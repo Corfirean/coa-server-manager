@@ -87,6 +87,8 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
   const [modules, setModules] = useState<ModuleView[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
+  const toggleLock = useRef(false);
+  const [toggling, setToggling] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
   const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
   const [racesInstalling, setRacesInstalling] = useState(false);
@@ -156,6 +158,9 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
   }
 
   async function toggle(m: ModuleView) {
+    if (toggleLock.current || racesInstalling) return;
+    toggleLock.current = true;
+    setToggling(m.id);
     setError(null);
     try {
       await api.moduleSetEnabled(serverId, m.id, !m.enabled);
@@ -167,6 +172,10 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
       onChanged?.();
     } catch (e) {
       setError(asUiError(e));
+      await load();
+    } finally {
+      toggleLock.current = false;
+      setToggling(null);
     }
   }
 
@@ -205,7 +214,8 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                   role="switch"
                   aria-checked={m.enabled}
                   aria-label={t("mod.switch", { name: m.name })}
-                  disabled={m.id === "custom-races" && racesInstalling}
+                  aria-busy={toggling === m.id}
+                  disabled={toggling !== null || (m.id === "custom-races" && racesInstalling)}
                   onClick={() => void toggle(m)}
                   className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", m.enabled ? "bg-gold" : "bg-white/15", (m.id === "custom-races" && racesInstalling) && "opacity-50 cursor-not-allowed")}
                 >
@@ -215,6 +225,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
               {m.installed && !m.switchable && m.status !== "soon" && m.compatibility !== "unsupported" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
               {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
+            {toggling === m.id && <p role="status" className="flex items-center gap-2 text-sm text-gold"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />{t("mod.switching")}</p>}
             {m.id === "custom-races" && (
 
               <div className="w-full">
@@ -271,14 +282,14 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                         size="sm"
                         variant="secondary"
                         className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
-                        disabled={racesInstalling || !racesPatchStatus?.clientPath}
+                        disabled={toggling !== null || racesInstalling || !racesPatchStatus?.clientPath}
                         onClick={() => void installClientPatch()}
                       >
                         {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                         {racesPatchStatus?.state === "not-installed" ? (locale === "ru" ? "Установить патч клиента" : "Install Client Patch") : (locale === "ru" ? "Восстановить патч клиента" : "Repair Client Patch")}
                       </Button>
                     )}
-                    {racesPatchStatus && racesPatchStatus.state !== "not-installed" && <Button size="sm" variant="ghost" disabled={racesInstalling} onClick={() => void uninstallClientPatch()}>{locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}</Button>}
+                    {racesPatchStatus && racesPatchStatus.state !== "not-installed" && <Button size="sm" variant="ghost" disabled={toggling !== null || racesInstalling} onClick={() => void uninstallClientPatch()}>{locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}</Button>}
                     <p className="text-xs text-muted">{locale === "ru" ? (m.enabled ? "После установки патч будет включён." : "После установки патч останется отключённым: модуль сервера выключен или отсутствует.") : (m.enabled ? "The patch will be enabled after installation." : "The patch will stay disabled after installation: the server module is off or missing.")}</p>
                   </div>
                 )}

@@ -21,11 +21,16 @@ pub fn prepare(root: &Path) -> Result<()> {
 pub(crate) fn prepare_with(d: &dyn Docker, root: &Path) -> Result<()> {
     let boot = root.join(package::BOOTSTRAP_CREDENTIALS);
     if !boot.is_file() {
-        return Err(Error::Invalid("The package has no database bootstrap information.".into()));
+        return Err(Error::Invalid(
+            "The package has no database bootstrap information.".into(),
+        ));
     }
     let secrets: serde_json::Value = fsx::read_json(&boot)?;
-    let root_pw = secrets["rootPassword"].as_str().filter(|p| p.chars().all(|c| c.is_ascii_hexdigit()) && !p.is_empty())
-        .ok_or_else(|| Error::Invalid("The database bootstrap information is not usable.".into()))?.to_string();
+    let root_pw = secrets["rootPassword"]
+        .as_str()
+        .filter(|p| p.chars().all(|c| c.is_ascii_hexdigit()) && !p.is_empty())
+        .ok_or_else(|| Error::Invalid("The database bootstrap information is not usable.".into()))?
+        .to_string();
     fs::copy(&boot, root.join("Settings/database.json"))?;
     let data = fs::canonicalize(root.join("mysql/data"))
         .map_err(|_| Error::Invalid("The package has no database data directory.".into()))?;
@@ -40,17 +45,36 @@ pub(crate) fn prepare_with(d: &dyn Docker, root: &Path) -> Result<()> {
 
     let started = driver::run(root, Verb::StartMysql)?;
     if !started.ok {
-        return Err(Error::Invalid(started.human.map(|h| h.message.to_string()).unwrap_or_else(|| "The database could not be started.".into())));
+        return Err(Error::Invalid(
+            started
+                .human
+                .map(|h| h.message.to_string())
+                .unwrap_or_else(|| "The database could not be started.".into()),
+        ));
     }
     // The repack's administrator account only exists for connections from the server itself (the socket); the Manager
     // connects over TCP. The fixture is thrown away, so the account is simply added.
     let sql = format!("CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '{root_pw}'; GRANT ALL ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;");
-    let mut call = super::Call::new(&["exec", "-i", "-e", "MYSQL_PWD", &cfg.names().db, "mysql", "--user=root"], std::time::Duration::from_secs(60));
+    let mut call = super::Call::new(
+        &[
+            "exec",
+            "-i",
+            "-e",
+            "MYSQL_PWD",
+            &cfg.names().db,
+            "mysql",
+            "--user=root",
+        ],
+        std::time::Duration::from_secs(60),
+    );
     call.env = vec![("MYSQL_PWD".into(), root_pw)];
     call.stdin = Some(sql.as_bytes());
     let o = d.run(&call)?;
     if !o.ok() {
-        return Err(Error::Invalid(format!("The fixture database could not be opened to the Manager: {}", o.text())));
+        return Err(Error::Invalid(format!(
+            "The fixture database could not be opened to the Manager: {}",
+            o.text()
+        )));
     }
     Ok(())
 }

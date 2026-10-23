@@ -19,7 +19,8 @@ use crate::download::{self, Cancel, HttpTransport, Job, Transport};
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const MANIFEST_URL: &str = "https://launcher-api.coa-development.org/downloads/client/latest.json";
+pub const MANIFEST_URL: &str =
+    "https://launcher-api.coa-development.org/downloads/client/latest.json";
 pub const OBJECTS_URL: &str = "https://launcher-api.coa-development.org/downloads/client/objects";
 const STATE_DIR: &str = ".coa-manager";
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
@@ -72,14 +73,23 @@ fn is_excluded(path: &str) -> bool {
 /// file it is left exactly as it is, whatever the "keep my files" choice; it is only created when missing.
 fn is_player_owned(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
-    matches!(name.as_str(), "d3d8.dll" | "d3d9.dll" | "d3d10core.dll" | "d3d11.dll" | "dxgi.dll" | "dxvk.conf")
-        || matches!(name.rsplit('.').next(), Some("ini" | "conf" | "cfg" | "wtf"))
+    matches!(
+        name.as_str(),
+        "d3d8.dll" | "d3d9.dll" | "d3d10core.dll" | "d3d11.dll" | "dxgi.dll" | "dxvk.conf"
+    ) || matches!(
+        name.rsplit('.').next(),
+        Some("ini" | "conf" | "cfg" | "wtf")
+    )
 }
 
 pub fn parse_manifest(text: &str) -> Result<Manifest> {
-    let raw: RawManifest = serde_json::from_str(text).map_err(|e| Error::Invalid(format!("The client list could not be read: {e}")))?;
+    let raw: RawManifest = serde_json::from_str(text)
+        .map_err(|e| Error::Invalid(format!("The client list could not be read: {e}")))?;
     if raw.schema != 1 {
-        return Err(Error::Invalid(format!("The client list uses a newer format ({}); update the Manager.", raw.schema)));
+        return Err(Error::Invalid(format!(
+            "The client list uses a newer format ({}); update the Manager.",
+            raw.schema
+        )));
     }
     if raw.version.trim().is_empty() || raw.version.len() > 64 {
         return Err(Error::Invalid("The client list has no version.".into()));
@@ -90,26 +100,47 @@ pub fn parse_manifest(text: &str) -> Result<Manifest> {
         fsx::safe_join(root, &f.path)?;
         let hash_ok = f.sha256.len() == 64 && f.sha256.bytes().all(|b| b.is_ascii_hexdigit());
         if !hash_ok || f.size > MAX_FILE_BYTES {
-            return Err(Error::Invalid(format!("The client list has a bad entry for {}.", f.path)));
+            return Err(Error::Invalid(format!(
+                "The client list has a bad entry for {}.",
+                f.path
+            )));
         }
         if is_excluded(&f.path) {
             continue;
         }
-        files.push(ManifestFile { path: f.path.replace('\\', "/"), size: f.size, sha256: f.sha256.to_ascii_lowercase() });
+        files.push(ManifestFile {
+            path: f.path.replace('\\', "/"),
+            size: f.size,
+            sha256: f.sha256.to_ascii_lowercase(),
+        });
     }
     if files.is_empty() {
         return Err(Error::Invalid("The client list is empty.".into()));
     }
-    Ok(Manifest { version: raw.version, published_at: raw.published_at, files })
+    Ok(Manifest {
+        version: raw.version,
+        published_at: raw.published_at,
+        files,
+    })
 }
 
 pub fn fetch_manifest(transport: &dyn Transport, url: &str) -> Result<Manifest> {
-    let mut reply = transport.get(url, 0).map_err(|e| Error::Invalid(format!("Could not reach the client download server: {e}")))?;
+    let mut reply = transport
+        .get(url, 0)
+        .map_err(|e| Error::Invalid(format!("Could not reach the client download server: {e}")))?;
     if reply.status != 200 {
-        return Err(Error::Invalid(format!("The client download server answered {}.", reply.status)));
+        return Err(Error::Invalid(format!(
+            "The client download server answered {}.",
+            reply.status
+        )));
     }
     let mut text = String::new();
-    reply.body.by_ref().take(MAX_MANIFEST_BYTES).read_to_string(&mut text).map_err(|e| Error::Invalid(format!("Could not read the client list: {e}")))?;
+    reply
+        .body
+        .by_ref()
+        .take(MAX_MANIFEST_BYTES)
+        .read_to_string(&mut text)
+        .map_err(|e| Error::Invalid(format!("Could not read the client list: {e}")))?;
     parse_manifest(&text)
 }
 
@@ -157,7 +188,10 @@ pub struct Local {
 
 pub fn local(client: &Path) -> Local {
     let s = load_state(client);
-    Local { managed: s.is_some(), version: s.and_then(|s| s.version) }
+    Local {
+        managed: s.is_some(),
+        version: s.and_then(|s| s.version),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -194,7 +228,10 @@ pub struct Plan {
 
 impl Plan {
     pub fn modified(&self) -> Vec<&Item> {
-        self.items.iter().filter(|i| i.kind == Kind::Modified).collect()
+        self.items
+            .iter()
+            .filter(|i| i.kind == Kind::Modified)
+            .collect()
     }
 }
 
@@ -213,7 +250,11 @@ fn cancelled() -> Error {
 }
 
 fn mtime_secs(m: &fs::Metadata) -> u64 {
-    m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0)
+    m.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn hash_file(path: &Path, cancel: &Cancel, on_bytes: &mut dyn FnMut(u64)) -> Result<String> {
@@ -235,7 +276,13 @@ fn hash_file(path: &Path, cancel: &Cancel, on_bytes: &mut dyn FnMut(u64)) -> Res
 
 /// Compare the folder with the manifest. Files are hashed only when their size or modification time no longer
 /// matches what the state file recorded, so a routine check of a managed folder is quick.
-pub fn plan(client: &Path, m: &Manifest, state: &State, cancel: &Cancel, on_step: &dyn Fn(Step)) -> Result<Plan> {
+pub fn plan(
+    client: &Path,
+    m: &Manifest,
+    state: &State,
+    cancel: &Cancel,
+    on_step: &dyn Fn(Step),
+) -> Result<Plan> {
     let total = m.total_bytes();
     let mut done = 0u64;
     let mut items = Vec::new();
@@ -245,12 +292,23 @@ pub fn plan(client: &Path, m: &Manifest, state: &State, cancel: &Cancel, on_step
         if cancel.is_set() {
             return Err(cancelled());
         }
-        on_step(Step { phase: "scan", done, total, bytes_per_sec: 0, file: Some(f.path.clone()) });
+        on_step(Step {
+            phase: "scan",
+            done,
+            total,
+            bytes_per_sec: 0,
+            file: Some(f.path.clone()),
+        });
         let path = fsx::safe_join(client, &f.path)?;
         let meta = match fs::metadata(&path) {
             Ok(meta) if meta.is_file() => meta,
             _ => {
-                items.push(Item { path: f.path.clone(), size: f.size, kind: Kind::Missing, sha256: f.sha256.clone() });
+                items.push(Item {
+                    path: f.path.clone(),
+                    size: f.size,
+                    kind: Kind::Missing,
+                    sha256: f.sha256.clone(),
+                });
                 done += f.size;
                 continue;
             }
@@ -265,7 +323,13 @@ pub fn plan(client: &Path, m: &Manifest, state: &State, cancel: &Cancel, on_step
             let mut seen = 0u64;
             let h = hash_file(&path, cancel, &mut |n| {
                 seen += n;
-                on_step(Step { phase: "scan", done: base + seen.min(f.size), total, bytes_per_sec: 0, file: Some(f.path.clone()) });
+                on_step(Step {
+                    phase: "scan",
+                    done: base + seen.min(f.size),
+                    total,
+                    bytes_per_sec: 0,
+                    file: Some(f.path.clone()),
+                });
             })?;
             Some(h)
         } else {
@@ -278,29 +342,77 @@ pub fn plan(client: &Path, m: &Manifest, state: &State, cancel: &Cancel, on_step
                 None => hash_file(&path, cancel, &mut |_| {})?,
             };
             kept += 1;
-            confirmed.insert(f.path.clone(), Entry { size, mtime, sha256: sha, kept_against: Some(f.sha256.clone()) });
+            confirmed.insert(
+                f.path.clone(),
+                Entry {
+                    size,
+                    mtime,
+                    sha256: sha,
+                    kept_against: Some(f.sha256.clone()),
+                },
+            );
             continue;
         }
         if local.as_deref() == Some(f.sha256.as_str()) {
             up_to_date += 1;
-            confirmed.insert(f.path.clone(), Entry { size, mtime, sha256: f.sha256.clone(), kept_against: None });
+            confirmed.insert(
+                f.path.clone(),
+                Entry {
+                    size,
+                    mtime,
+                    sha256: f.sha256.clone(),
+                    kept_against: None,
+                },
+            );
             continue;
         }
         let as_left = entry.filter(|e| local.as_deref() == Some(e.sha256.as_str()));
         match as_left {
             Some(e) if e.kept_against.as_deref() == Some(f.sha256.as_str()) => {
                 kept += 1;
-                confirmed.insert(f.path.clone(), Entry { size, mtime, sha256: e.sha256.clone(), kept_against: e.kept_against.clone() });
+                confirmed.insert(
+                    f.path.clone(),
+                    Entry {
+                        size,
+                        mtime,
+                        sha256: e.sha256.clone(),
+                        kept_against: e.kept_against.clone(),
+                    },
+                );
             }
             Some(e) if e.kept_against.is_none() => {
-                items.push(Item { path: f.path.clone(), size: f.size, kind: Kind::Changed, sha256: f.sha256.clone() });
+                items.push(Item {
+                    path: f.path.clone(),
+                    size: f.size,
+                    kind: Kind::Changed,
+                    sha256: f.sha256.clone(),
+                });
             }
-            _ => items.push(Item { path: f.path.clone(), size: f.size, kind: Kind::Modified, sha256: f.sha256.clone() }),
+            _ => items.push(Item {
+                path: f.path.clone(),
+                size: f.size,
+                kind: Kind::Modified,
+                sha256: f.sha256.clone(),
+            }),
         }
     }
-    on_step(Step { phase: "scan", done: total, total, bytes_per_sec: 0, file: None });
+    on_step(Step {
+        phase: "scan",
+        done: total,
+        total,
+        bytes_per_sec: 0,
+        file: None,
+    });
     let download_bytes = items.iter().map(|i| i.size).sum();
-    Ok(Plan { version: m.version.clone(), items, download_bytes, total_files: m.files.len(), up_to_date_files: up_to_date, kept_files: kept, confirmed })
+    Ok(Plan {
+        version: m.version.clone(),
+        items,
+        download_bytes,
+        total_files: m.files.len(),
+        up_to_date_files: up_to_date,
+        kept_files: kept,
+        confirmed,
+    })
 }
 
 pub struct Apply<'a> {
@@ -320,7 +432,10 @@ fn blocked(path: &str, e: std::io::Error) -> Error {
 
 /// Download what the plan lists. Progress is saved after every file, so an interrupted run resumes where it stopped.
 pub fn apply(a: &Apply, on_step: &dyn Fn(Step)) -> Result<()> {
-    let mut state = State { version: None, files: a.plan.confirmed.clone() };
+    let mut state = State {
+        version: None,
+        files: a.plan.confirmed.clone(),
+    };
     save_state(a.client, &state)?;
 
     let mut todo = Vec::new();
@@ -329,7 +444,15 @@ pub fn apply(a: &Apply, on_step: &dyn Fn(Step)) -> Result<()> {
             let path = fsx::safe_join(a.client, &item.path)?;
             let meta = fs::metadata(&path)?;
             let sha = hash_file(&path, a.cancel, &mut |_| {})?;
-            state.files.insert(item.path.clone(), Entry { size: meta.len(), mtime: mtime_secs(&meta), sha256: sha, kept_against: Some(item.sha256.clone()) });
+            state.files.insert(
+                item.path.clone(),
+                Entry {
+                    size: meta.len(),
+                    mtime: mtime_secs(&meta),
+                    sha256: sha,
+                    kept_against: Some(item.sha256.clone()),
+                },
+            );
         } else {
             todo.push(item);
         }
@@ -338,7 +461,11 @@ pub fn apply(a: &Apply, on_step: &dyn Fn(Step)) -> Result<()> {
     fsx::require_space(a.client, total)?;
 
     let staging = a.client.join(STATE_DIR).join("staging");
-    let replaced = a.client.join(STATE_DIR).join("replaced").join(chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string());
+    let replaced = a
+        .client
+        .join(STATE_DIR)
+        .join("replaced")
+        .join(chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string());
     let mut done = 0u64;
     let mut placed: HashMap<&str, PathBuf> = HashMap::new();
     for item in todo {
@@ -351,10 +478,21 @@ pub fn apply(a: &Apply, on_step: &dyn Fn(Step)) -> Result<()> {
         let staged = staging.join(&item.sha256);
         let copy_from = placed.get(item.sha256.as_str()).cloned();
         if copy_from.is_none() {
-            let job = Job { url: format!("{}/{}", a.objects_url, item.sha256), dest: staged.clone(), sha256: item.sha256.clone(), size: item.size };
+            let job = Job {
+                url: format!("{}/{}", a.objects_url, item.sha256),
+                dest: staged.clone(),
+                sha256: item.sha256.clone(),
+                size: item.size,
+            };
             let base = done;
             let result = download::fetch_with(a.transport, &job, a.cancel, &|p| {
-                on_step(Step { phase: "download", done: base + p.downloaded, total, bytes_per_sec: p.bytes_per_sec, file: Some(item.path.clone()) });
+                on_step(Step {
+                    phase: "download",
+                    done: base + p.downloaded,
+                    total,
+                    bytes_per_sec: p.bytes_per_sec,
+                    file: Some(item.path.clone()),
+                });
             });
             if let Err(e) = result {
                 let _ = save_state(a.client, &state);
@@ -383,16 +521,36 @@ pub fn apply(a: &Apply, on_step: &dyn Fn(Step)) -> Result<()> {
         }
         placed.insert(&item.sha256, target.clone());
         let meta = fs::metadata(&target)?;
-        state.files.insert(item.path.clone(), Entry { size: meta.len(), mtime: mtime_secs(&meta), sha256: item.sha256.clone(), kept_against: None });
+        state.files.insert(
+            item.path.clone(),
+            Entry {
+                size: meta.len(),
+                mtime: mtime_secs(&meta),
+                sha256: item.sha256.clone(),
+                kept_against: None,
+            },
+        );
         save_state(a.client, &state)?;
         done += item.size;
         let secs = started.elapsed().as_secs_f64().max(0.001);
-        on_step(Step { phase: "download", done, total, bytes_per_sec: (item.size as f64 / secs) as u64, file: Some(item.path.clone()) });
+        on_step(Step {
+            phase: "download",
+            done,
+            total,
+            bytes_per_sec: (item.size as f64 / secs) as u64,
+            file: Some(item.path.clone()),
+        });
     }
     state.version = Some(a.manifest.version.clone());
     save_state(a.client, &state)?;
     let _ = fs::remove_dir_all(&staging);
-    on_step(Step { phase: "finish", done: total, total, bytes_per_sec: 0, file: None });
+    on_step(Step {
+        phase: "finish",
+        done: total,
+        total,
+        bytes_per_sec: 0,
+        file: None,
+    });
     Ok(())
 }
 
@@ -413,9 +571,16 @@ mod tests {
 
     impl Server {
         fn new(files: &[(&str, &[u8])]) -> Self {
-            let s = Server { objects: Default::default(), requested: Default::default(), cancel_after: None };
+            let s = Server {
+                objects: Default::default(),
+                requested: Default::default(),
+                cancel_after: None,
+            };
             for (_, body) in files {
-                s.objects.lock().unwrap().insert(fsx::sha256_bytes(body), body.to_vec());
+                s.objects
+                    .lock()
+                    .unwrap()
+                    .insert(fsx::sha256_bytes(body), body.to_vec());
             }
             s
         }
@@ -430,10 +595,24 @@ mod tests {
                     cancel.cancel();
                 }
             }
-            let body = self.objects.lock().unwrap().get(&sha).cloned().ok_or("404")?;
-            let (status, start) = if from > 0 { (206, from as usize) } else { (200, 0) };
+            let body = self
+                .objects
+                .lock()
+                .unwrap()
+                .get(&sha)
+                .cloned()
+                .ok_or("404")?;
+            let (status, start) = if from > 0 {
+                (206, from as usize)
+            } else {
+                (200, 0)
+            };
             let cr = (from > 0).then(|| format!("bytes {from}-{}/{}", body.len() - 1, body.len()));
-            Ok(Reply { status, content_range: cr, body: Box::new(Cursor::new(body[start..].to_vec())) })
+            Ok(Reply {
+                status,
+                content_range: cr,
+                body: Box::new(Cursor::new(body[start..].to_vec())),
+            })
         }
     }
 
@@ -441,17 +620,40 @@ mod tests {
         Manifest {
             version: version.into(),
             published_at: None,
-            files: files.iter().map(|(p, b)| ManifestFile { path: p.to_string(), size: b.len() as u64, sha256: fsx::sha256_bytes(b) }).collect(),
+            files: files
+                .iter()
+                .map(|(p, b)| ManifestFile {
+                    path: p.to_string(),
+                    size: b.len() as u64,
+                    sha256: fsx::sha256_bytes(b),
+                })
+                .collect(),
         }
     }
 
-    const V1: [(&str, &[u8]); 4] = [("Wow.exe", b"exe-1"), ("Data/common.MPQ", b"common-mpq-data"), ("Data/patch-A.MPQ", b"patch-a-1"), ("Data/enUS/locale.MPQ", b"locale")];
+    const V1: [(&str, &[u8]); 4] = [
+        ("Wow.exe", b"exe-1"),
+        ("Data/common.MPQ", b"common-mpq-data"),
+        ("Data/patch-A.MPQ", b"patch-a-1"),
+        ("Data/enUS/locale.MPQ", b"locale"),
+    ];
 
     fn sync(dir: &Path, m: &Manifest, server: &Server, keep: bool) -> Result<Plan> {
         let state = load_state(dir).unwrap_or_default();
         let cancel = Cancel::default();
         let p = plan(dir, m, &state, &cancel, &|_| {})?;
-        apply(&Apply { client: dir, manifest: m, plan: &p, keep_modified: keep, transport: server, objects_url: "https://x.invalid/objects", cancel: &cancel }, &|_| {})?;
+        apply(
+            &Apply {
+                client: dir,
+                manifest: m,
+                plan: &p,
+                keep_modified: keep,
+                transport: server,
+                objects_url: "https://x.invalid/objects",
+                cancel: &cancel,
+            },
+            &|_| {},
+        )?;
         Ok(p)
     }
 
@@ -464,7 +666,10 @@ mod tests {
             {"path":"Interface/AddOns/CoABotUI/x.lua","size":3,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
             {"path":"MemoryBridge.log","size":3,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"#;
         let m = parse_manifest(ok).unwrap();
-        assert_eq!(m.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["Wow.exe"]);
+        assert_eq!(
+            m.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+            ["Wow.exe"]
+        );
         for bad in [
             r#"{"schema":1,"version":"v","files":[{"path":"../evil.dll","size":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"#,
             r#"{"schema":1,"version":"v","files":[{"path":"C:/evil.dll","size":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"#,
@@ -502,10 +707,26 @@ mod tests {
         let (m2, s2) = (manifest("v2", &v2), Server::new(&v2));
         let p = sync(d.path(), &m2, &s2, false).unwrap();
         let kinds: Vec<_> = p.items.iter().map(|i| (i.path.as_str(), i.kind)).collect();
-        assert_eq!(kinds, [("Data/patch-A.MPQ", Kind::Changed), ("Data/new.MPQ", Kind::Missing)]);
-        assert_eq!(s2.requested.lock().unwrap().len(), 2, "unchanged files were not downloaded again");
-        assert_eq!(fs::read(d.path().join("Data/patch-A.MPQ")).unwrap(), b"patch-a-2-longer");
-        assert!(!d.path().join(".coa-manager/replaced").exists(), "a file the Manager itself wrote needs no backup");
+        assert_eq!(
+            kinds,
+            [
+                ("Data/patch-A.MPQ", Kind::Changed),
+                ("Data/new.MPQ", Kind::Missing)
+            ]
+        );
+        assert_eq!(
+            s2.requested.lock().unwrap().len(),
+            2,
+            "unchanged files were not downloaded again"
+        );
+        assert_eq!(
+            fs::read(d.path().join("Data/patch-A.MPQ")).unwrap(),
+            b"patch-a-2-longer"
+        );
+        assert!(
+            !d.path().join(".coa-manager/replaced").exists(),
+            "a file the Manager itself wrote needs no backup"
+        );
         let again = sync(d.path(), &m2, &s2, false).unwrap();
         assert!(again.items.is_empty() && again.up_to_date_files == 5);
         assert_eq!(load_state(d.path()).unwrap().version.as_deref(), Some("v2"));
@@ -522,10 +743,20 @@ mod tests {
 
         let p = sync(d.path(), &m2, &s2, true).unwrap();
         assert_eq!(p.modified().len(), 1);
-        assert_eq!(fs::read(d.path().join("Wow.exe")).unwrap(), b"my patched exe", "kept");
-        assert!(s2.requested.lock().unwrap().is_empty(), "nothing needed downloading");
+        assert_eq!(
+            fs::read(d.path().join("Wow.exe")).unwrap(),
+            b"my patched exe",
+            "kept"
+        );
+        assert!(
+            s2.requested.lock().unwrap().is_empty(),
+            "nothing needed downloading"
+        );
         let quiet = sync(d.path(), &m2, &s2, true).unwrap();
-        assert!(quiet.items.is_empty() && quiet.kept_files == 1, "the decision is remembered");
+        assert!(
+            quiet.items.is_empty() && quiet.kept_files == 1,
+            "the decision is remembered"
+        );
 
         let mut v3 = V1.to_vec();
         v3[0] = ("Wow.exe", b"exe-3");
@@ -533,14 +764,28 @@ mod tests {
         let again = sync(d.path(), &m3, &s3, false).unwrap();
         assert_eq!(again.modified().len(), 1, "a newer client asks again");
         assert_eq!(fs::read(d.path().join("Wow.exe")).unwrap(), b"exe-3");
-        let saved = fs::read_dir(d.path().join(".coa-manager/replaced")).unwrap().next().unwrap().unwrap().path();
-        assert_eq!(fs::read(saved.join("Wow.exe")).unwrap(), b"my patched exe", "the player's version was moved aside, not lost");
+        let saved = fs::read_dir(d.path().join(".coa-manager/replaced"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(
+            fs::read(saved.join("Wow.exe")).unwrap(),
+            b"my patched exe",
+            "the player's version was moved aside, not lost"
+        );
     }
 
     #[test]
     fn renderer_files_configs_and_everything_not_in_the_manifest_survive_an_update_untouched() {
         let d = tempfile::tempdir().unwrap();
-        let v1: Vec<(&str, &[u8])> = vec![("Wow.exe", b"exe-1"), ("d3d9.dll", b"official d3d9"), ("dxvk.conf", b"official conf"), ("Data/common.MPQ", b"common-1")];
+        let v1: Vec<(&str, &[u8])> = vec![
+            ("Wow.exe", b"exe-1"),
+            ("d3d9.dll", b"official d3d9"),
+            ("dxvk.conf", b"official conf"),
+            ("Data/common.MPQ", b"common-1"),
+        ];
         sync(d.path(), &manifest("v1", &v1), &Server::new(&v1), false).unwrap();
         // the player's own setup: custom renderer + configs, addons, WTF, realmlist, extra archives, backups
         let mine: Vec<(&str, &[u8])> = vec![
@@ -548,8 +793,11 @@ mod tests {
             ("dxvk.conf", b"my conf"),
             ("ModernWoWRenderer.ini", b"cfg"),
             ("GraphicsEffects.ini.bak", b"bak"),
-            ("Data/enUS/realmlist.wtf", b"set realmlist 127.0.0.1
-"),
+            (
+                "Data/enUS/realmlist.wtf",
+                b"set realmlist 127.0.0.1
+",
+            ),
             ("Data/patch-5.MPQ", b"extra archive"),
             ("Interface/AddOns/ElvUI/ElvUI.toc", b"## Title: Elv"),
             ("WTF/Account/x/SavedVariables.lua", b"vars"),
@@ -560,18 +808,36 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, b).unwrap();
         }
-        let before: BTreeMap<String, String> = mine.iter().map(|(p, b)| (p.to_string(), fsx::sha256_bytes(b))).collect();
-        let v2: Vec<(&str, &[u8])> = vec![("Wow.exe", b"exe-2"), ("d3d9.dll", b"official d3d9 v2"), ("dxvk.conf", b"official conf v2"), ("Data/common.MPQ", b"common-2")];
+        let before: BTreeMap<String, String> = mine
+            .iter()
+            .map(|(p, b)| (p.to_string(), fsx::sha256_bytes(b)))
+            .collect();
+        let v2: Vec<(&str, &[u8])> = vec![
+            ("Wow.exe", b"exe-2"),
+            ("d3d9.dll", b"official d3d9 v2"),
+            ("dxvk.conf", b"official conf v2"),
+            ("Data/common.MPQ", b"common-2"),
+        ];
         let (m2, s2) = (manifest("v2", &v2), Server::new(&v2));
         for keep in [false, true] {
             sync(d.path(), &m2, &s2, keep).unwrap();
             for (p, h) in &before {
-                assert_eq!(&fsx::sha256_file(&d.path().join(p)).unwrap(), h, "{p} must not change (keep_modified={keep})");
+                assert_eq!(
+                    &fsx::sha256_file(&d.path().join(p)).unwrap(),
+                    h,
+                    "{p} must not change (keep_modified={keep})"
+                );
             }
             assert_eq!(fs::read(d.path().join("Wow.exe")).unwrap(), b"exe-2");
-            assert_eq!(fs::read(d.path().join("Data/common.MPQ")).unwrap(), b"common-2");
+            assert_eq!(
+                fs::read(d.path().join("Data/common.MPQ")).unwrap(),
+                b"common-2"
+            );
         }
-        assert!(!d.path().join(".coa-manager/replaced").exists(), "nothing of the player's was displaced");
+        assert!(
+            !d.path().join(".coa-manager/replaced").exists(),
+            "nothing of the player's was displaced"
+        );
     }
 
     #[test]
@@ -589,7 +855,13 @@ mod tests {
         let m = manifest("v1", &V1);
         let p = plan(d.path(), &m, &State::default(), &Cancel::default(), &|_| {}).unwrap();
         let kinds: Vec<_> = p.items.iter().map(|i| (i.path.as_str(), i.kind)).collect();
-        assert_eq!(kinds, [("Data/patch-A.MPQ", Kind::Modified), ("Data/enUS/locale.MPQ", Kind::Missing)]);
+        assert_eq!(
+            kinds,
+            [
+                ("Data/patch-A.MPQ", Kind::Modified),
+                ("Data/enUS/locale.MPQ", Kind::Missing)
+            ]
+        );
         assert_eq!(p.up_to_date_files, 2);
         assert_eq!(fs::read(d.path().join("WTF/Config.wtf")).unwrap(), b"mine");
     }
@@ -603,15 +875,34 @@ mod tests {
         s.cancel_after = Some((AtomicUsize::new(3), cancel.clone()));
         let state = State::default();
         let p = plan(d.path(), &m, &state, &cancel, &|_| {}).unwrap();
-        let r = apply(&Apply { client: d.path(), manifest: &m, plan: &p, keep_modified: false, transport: &s, objects_url: "https://x.invalid/o", cancel: &cancel }, &|_| {});
+        let r = apply(
+            &Apply {
+                client: d.path(),
+                manifest: &m,
+                plan: &p,
+                keep_modified: false,
+                transport: &s,
+                objects_url: "https://x.invalid/o",
+                cancel: &cancel,
+            },
+            &|_| {},
+        );
         assert!(r.is_err());
         let st = load_state(d.path()).unwrap();
-        assert!(st.version.is_none() && !st.files.is_empty() && st.files.len() < 4, "unfinished but remembered: {}", st.files.len());
+        assert!(
+            st.version.is_none() && !st.files.is_empty() && st.files.len() < 4,
+            "unfinished but remembered: {}",
+            st.files.len()
+        );
         assert!(local(d.path()).managed && local(d.path()).version.is_none());
 
         let s2 = Server::new(&V1);
         sync(d.path(), &m, &s2, false).unwrap();
-        assert_eq!(s2.requested.lock().unwrap().len(), 4 - st.files.len(), "only the missing files were requested");
+        assert_eq!(
+            s2.requested.lock().unwrap().len(),
+            4 - st.files.len(),
+            "only the missing files were requested"
+        );
         assert_eq!(load_state(d.path()).unwrap().version.as_deref(), Some("v1"));
     }
 

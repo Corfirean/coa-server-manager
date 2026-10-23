@@ -45,7 +45,7 @@ export function RepairCard({ serverId }: { serverId: string }) {
     {checks?.map(c => {
       const pending = c.migrations.filter(m => m.status !== "applied");
       return <div key={c.realm} className="mt-4 border-t border-line pt-3 text-sm">
-        <p className="font-medium">{c.realm === "coa" ? "Conquest of Azeroth" : "Wildcard"}</p>
+        <p className="font-medium">{c.realm === "coa" ? "Conquest of Azeroth" : c.realm === "reborn" ? "Warcraft Reborn" : "Wildcard"}</p>
         <p className={c.problems.length || pending.length ? "text-warn" : "text-ok"}>{t("repair.dbCount", { columns: c.problems.length, sql: pending.length })}</p>
         {!c.full_schema && <p className="mt-1 text-muted">{t("repair.limited")}</p>}
         <ul className="mt-2 max-h-52 overflow-auto selectable text-muted">

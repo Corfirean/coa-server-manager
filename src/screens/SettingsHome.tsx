@@ -16,13 +16,14 @@ import { hasKey, useHuman, useI18n, type Key } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { RealmStartupSettings } from "@/screens/RealmStartupSettings";
 import { RepairCard } from "@/screens/RepairCard";
+import { PublishCard } from "@/screens/PublishCard";
 import { AutoRestartSettings } from "@/screens/AutoRestartSettings";
 
 function mb(bytes: number) {
   return bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-export function SettingsHome({ serverId, path, onForget }: { serverId: string; path: string; onForget: () => Promise<void> }) {
+export function SettingsHome({ serverId, serverName = "", path, onForget }: { serverId: string; serverName?: string; path: string; onForget: () => Promise<void> }) {
   const { t } = useI18n();
   const upd = useServerUpdate(serverId);
   const human = useHuman();
@@ -179,6 +180,7 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; p
 
       <DiagnosticsCard serverId={serverId} />
       <RepairCard key={serverId} serverId={serverId} />
+      <PublishCard key={`publish-${serverId}`} serverId={serverId} serverName={serverName} />
 
       <AboutCard />
 

@@ -79,7 +79,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
     let alive = true;
     void api.realmProfiles(server.id).then((r) => {
       if (!alive) return;
-      const name = (m: "coa" | "wildcard") => (m === "coa" ? "Conquest of Azeroth" : "Wildcard");
+      const name = (m: "coa" | "wildcard" | "reborn") => (m === "coa" ? "Conquest of Azeroth" : m === "reborn" ? "Warcraft Reborn" : "Wildcard");
       setRealms({ first: name(r.active), second: name(r.active === "coa" ? "wildcard" : "coa") });
     }).catch(() => { if (alive) setRealms(null); });
     return () => { alive = false; };

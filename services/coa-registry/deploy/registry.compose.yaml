@@ -1,0 +1,45 @@
+# /opt/coa/registry/compose.yaml (Phase 10). The Registry publishes no host port: Caddy reaches it as coa-registry:8080 on coa-ingress,
+# and it reaches PostgreSQL as coa-postgres on coa-db. The image is built on the node from the repository (see docs/REGISTRY_DEPLOYMENT.md).
+name: coa-registry
+services:
+  registry:
+    image: coa-registry:${REGISTRY_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      REGISTRY_LISTEN: "0.0.0.0:8080"
+      REGISTRY_TRUST_PROXY: "1"
+      REGISTRY_DB_HOST: coa-postgres
+      REGISTRY_DB_NAME: coa_registry
+      REGISTRY_DB_USER: coa_registry
+      REGISTRY_DB_PASSWORD_FILE: /run/secrets/registry_db_password
+      REGISTRY_DB_POOL: "8"
+      REGISTRY_DB_STATEMENT_TIMEOUT_MS: "5000"
+      REGISTRY_MAX_CONNECTIONS: "256"
+      REGISTRY_MAX_IN_FLIGHT: "64"
+      REGISTRY_REQUEST_TIMEOUT_SECS: "10"
+      # staging: enough registrations from one address for the Phase-10 gate; the built-in default is 10 per hour
+      REGISTRY_REGISTER_BURST: "${REGISTRY_REGISTER_BURST:-10}"
+      REGISTRY_REGISTER_PER_HOUR: "${REGISTRY_REGISTER_PER_HOUR:-10}"
+      RUST_LOG: "info"
+    secrets:
+      - registry_db_password
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    networks:
+      coa-ingress:
+        aliases:
+          - coa-registry
+      coa-db: {}
+secrets:
+  registry_db_password:
+    file: /opt/coa/secrets/registry_db_password
+networks:
+  coa-ingress:
+    external: true
+  coa-db:
+    external: true

@@ -35,8 +35,15 @@ pub fn squid_bot_prefix(root: &Path) -> String {
     std::fs::read(root.join("Core/configs/modules/playerbots.conf"))
         .ok()
         .and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
-        .and_then(|conf| conf.get("AiPlayerbot.RandomBotAccountPrefix").map(|v| crate::config::parser::unquote(v).to_string()))
-        .filter(|prefix| !prefix.is_empty() && prefix.len() <= 32 && prefix.chars().all(|c| c.is_ascii_alphanumeric()))
+        .and_then(|conf| {
+            conf.get("AiPlayerbot.RandomBotAccountPrefix")
+                .map(|v| crate::config::parser::unquote(v).to_string())
+        })
+        .filter(|prefix| {
+            !prefix.is_empty()
+                && prefix.len() <= 32
+                && prefix.chars().all(|c| c.is_ascii_alphanumeric())
+        })
         .unwrap_or_else(|| "rndbot".into())
 }
 
@@ -62,7 +69,10 @@ pub fn parse_list(out: &str) -> Vec<AccountInfo> {
 
 pub fn list(root: &Path) -> Result<Vec<AccountInfo>> {
     let db = Db::from_repack(root, Account::Admin)?;
-    Ok(parse_list(&db.query(&LIST_SQL.replace("{SQUID}", &squid_bot_prefix(root).to_ascii_uppercase()))?))
+    Ok(parse_list(&db.query(&LIST_SQL.replace(
+        "{SQUID}",
+        &squid_bot_prefix(root).to_ascii_uppercase(),
+    ))?))
 }
 
 fn upper(name: &str) -> Result<String> {
@@ -76,22 +86,32 @@ pub fn rename(root: &Path, ra: &mut Ra, old: &str, new: &str, password: &str) ->
     let (old, new) = (upper(old)?, upper(new)?);
     validate_account(&new, password)?;
     if is_reserved(&old) || old.starts_with(&squid_bot_prefix(root).to_ascii_uppercase()) {
-        return Err(Error::Invalid("This account belongs to the Manager or the bots and cannot be renamed.".into()));
+        return Err(Error::Invalid(
+            "This account belongs to the Manager or the bots and cannot be renamed.".into(),
+        ));
     }
     if old == new {
-        return Err(Error::Invalid("That is already the name of this account.".into()));
+        return Err(Error::Invalid(
+            "That is already the name of this account.".into(),
+        ));
     }
     let db = Db::from_repack(root, Account::Admin)?;
-    let taken = db.query(&format!("SELECT COUNT(*) FROM acore_auth.account WHERE username = '{new}';"))?;
+    let taken = db.query(&format!(
+        "SELECT COUNT(*) FROM acore_auth.account WHERE username = '{new}';"
+    ))?;
     if taken.trim() != "0" {
         return Err(Error::Invalid("That account name is already taken.".into()));
     }
     let changed = db.query(&format!("UPDATE acore_auth.account SET username = '{new}' WHERE username = '{old}' AND online = 0; SELECT ROW_COUNT();"))?;
     if changed.trim() != "1" {
-        return Err(Error::Invalid("The account was not renamed: it does not exist or is logged in right now.".into()));
+        return Err(Error::Invalid(
+            "The account was not renamed: it does not exist or is logged in right now.".into(),
+        ));
     }
     if let Err(e) = ra.set_account_password(&new, password) {
-        let _ = db.query(&format!("UPDATE acore_auth.account SET username = '{old}' WHERE username = '{new}';"));
+        let _ = db.query(&format!(
+            "UPDATE acore_auth.account SET username = '{old}' WHERE username = '{new}';"
+        ));
         return Err(e);
     }
     tracing::info!(%old, %new, "account renamed");
@@ -108,16 +128,33 @@ fn is_reserved(upper_name: &str) -> bool {
 pub fn delete(root: &Path, ra: &mut Ra, name: &str) -> Result<()> {
     let name = upper(name)?;
     if is_reserved(&name) || name.starts_with(&squid_bot_prefix(root).to_ascii_uppercase()) {
-        return Err(Error::Invalid("This account belongs to the Manager or the bots and cannot be deleted.".into()));
+        return Err(Error::Invalid(
+            "This account belongs to the Manager or the bots and cannot be deleted.".into(),
+        ));
     }
     let db = Db::from_repack(root, Account::Admin)?;
-    match db.query(&format!("SELECT online FROM acore_auth.account WHERE username = '{name}';"))?.trim() {
+    match db
+        .query(&format!(
+            "SELECT online FROM acore_auth.account WHERE username = '{name}';"
+        ))?
+        .trim()
+    {
         "" => return Err(Error::Invalid("That account does not exist.".into())),
         "0" => {}
-        _ => return Err(Error::Invalid("The account is logged in right now; log it out first.".into())),
+        _ => {
+            return Err(Error::Invalid(
+                "The account is logged in right now; log it out first.".into(),
+            ))
+        }
     }
     ra.delete_account(&name)?;
-    if db.query(&format!("SELECT COUNT(*) FROM acore_auth.account WHERE username = '{name}';"))?.trim() != "0" {
+    if db
+        .query(&format!(
+            "SELECT COUNT(*) FROM acore_auth.account WHERE username = '{name}';"
+        ))?
+        .trim()
+        != "0"
+    {
         return Err(Error::Invalid("The account was not deleted.".into()));
     }
     tracing::info!(%name, "account deleted");
@@ -133,13 +170,27 @@ mod tests {
         let out = "2\tALICE\t3\t0\t2026-09-30 21:04:11\t4\n5\tBOB\t0\t1\t\t0\n7\tBROKEN\n";
         let a = parse_list(out);
         assert_eq!(a.len(), 2, "a short row is skipped");
-        assert_eq!(a[0], AccountInfo { id: 2, name: "ALICE".into(), access: 3, online: false, last_login: Some("2026-09-30 21:04:11".into()), characters: 4 });
+        assert_eq!(
+            a[0],
+            AccountInfo {
+                id: 2,
+                name: "ALICE".into(),
+                access: 3,
+                online: false,
+                last_login: Some("2026-09-30 21:04:11".into()),
+                characters: 4
+            }
+        );
         assert!(a[1].online && a[1].last_login.is_none() && a[1].access == 0);
     }
 
     #[test]
     fn the_internal_accounts_are_filtered_out_by_the_query() {
-        assert!(LIST_SQL.contains("COABOTHOST%") && LIST_SQL.contains("COAMANAGER") && LIST_SQL.contains("{SQUID}%"));
+        assert!(
+            LIST_SQL.contains("COABOTHOST%")
+                && LIST_SQL.contains("COAMANAGER")
+                && LIST_SQL.contains("{SQUID}%")
+        );
     }
 
     #[test]
@@ -150,8 +201,16 @@ mod tests {
         std::fs::create_dir_all(conf.parent().unwrap()).unwrap();
         std::fs::write(&conf, "AiPlayerbot.RandomBotAccountPrefix = \"MyBots\"\n").unwrap();
         assert_eq!(squid_bot_prefix(root.path()), "MyBots");
-        std::fs::write(&conf, "AiPlayerbot.RandomBotAccountPrefix = \"x' OR 1=1 --\"\n").unwrap();
-        assert_eq!(squid_bot_prefix(root.path()), "rndbot", "an unsafe prefix is ignored");
+        std::fs::write(
+            &conf,
+            "AiPlayerbot.RandomBotAccountPrefix = \"x' OR 1=1 --\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            squid_bot_prefix(root.path()),
+            "rndbot",
+            "an unsafe prefix is ignored"
+        );
     }
 
     #[test]
@@ -167,6 +226,10 @@ mod tests {
     #[test]
     fn names_are_validated_and_stored_in_capitals() {
         assert_eq!(upper("Alice1").unwrap(), "ALICE1");
-        assert!(upper("a").is_err() && upper("x; DROP TABLE account").is_err() && upper("bad name").is_err());
+        assert!(
+            upper("a").is_err()
+                && upper("x; DROP TABLE account").is_err()
+                && upper("bad name").is_err()
+        );
     }
 }

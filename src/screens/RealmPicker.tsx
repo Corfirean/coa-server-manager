@@ -37,16 +37,19 @@ export function RealmPicker({ serverId, running, disabled, onChanged, onBusy }: 
       {view?.simultaneous ? <span className="text-sm text-muted">Conquest of Azeroth + Wildcard</span> : <select id="realm-profile" value={selected} disabled={!view || disabled || busy} onChange={e => setSelected(e.target.value as RealmMode)} className="min-w-52 rounded-md border border-line bg-card-2 px-3 py-2 text-ink">
         <option value="coa">Conquest of Azeroth</option>
         <option value="wildcard" disabled={!view?.supported && !view?.wildcard_created}>Wildcard · Darkmoon</option>
+        <option value="reborn" disabled={!view?.reborn_supported && !view?.reborn_created}>Warcraft Reborn</option>
       </select>}
       {view && !view.simultaneous && (selected !== view.active || view.recovery_pending) && <Button size="sm" disabled={disabled || busy} onClick={() => void select()}>
         {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-        {busy ? t("realm.switching") : selected === "wildcard" && !view.wildcard_created ? t("realm.create") : running ? t("realm.restart") : t("realm.select")}
+        {busy ? t("realm.switching") : selected === "wildcard" && !view.wildcard_created ? t("realm.create") : selected === "reborn" && !view.reborn_created ? t("realm.rebornCreate") : running ? t("realm.restart") : t("realm.select")}
       </Button>}
-      {view && !view.simultaneous && <span className="ml-auto text-xs text-muted">{t("realm.active", { name: view.active === "coa" ? "CoA" : "Wildcard" })}</span>}
+      {view && !view.simultaneous && <span className="ml-auto text-xs text-muted">{t("realm.active", { name: view.active === "coa" ? "CoA" : view.active === "reborn" ? "Warcraft Reborn" : "Wildcard" })}</span>}
     </div>
     <p className="mt-3 text-sm text-muted">{t(view?.simultaneous ? "realm.bothRunning" : "realm.separate")}</p>
+    {selected === "reborn" && <p className="mt-2 text-sm text-warn">{t("realm.rebornModules")}</p>}
+    {view && selected === "reborn" && !view.reborn_supported && <p className="mt-2 text-sm text-warn">{t("realm.rebornUpdate")}</p>}
     {selected === "wildcard" && <p className="mt-2 text-sm text-warn">{t("realm.modules")}</p>}
-    {view && !view.supported && <p className="mt-2 text-sm text-warn">{t("realm.update")}</p>}
+    {view && selected === "wildcard" && !view.supported && <p className="mt-2 text-sm text-warn">{t("realm.update")}</p>}
     {view?.recovery_pending && <p className="mt-2 text-sm text-warn">{t("realm.recovery")}</p>}
     {error && <p className="mt-3 selectable text-sm text-bad" role="alert">{error}</p>}
   </Card>;

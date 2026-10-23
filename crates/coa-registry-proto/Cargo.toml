@@ -1,0 +1,19 @@
+[package]
+name = "coa-registry-proto"
+description = "Wire protocol of the CoA realm Registry (version 1): types, limits, validation and signed-request canonicalisation. No I/O."
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+uuid = { version = "1", features = ["serde", "v7"] }
+ed25519-dalek = "2"
+thiserror = "2"
+
+[dev-dependencies]

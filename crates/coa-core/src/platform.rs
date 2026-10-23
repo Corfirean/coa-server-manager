@@ -35,7 +35,13 @@ mod tests {
 
     #[test]
     fn the_screens_read_the_flavor_as_a_plain_word() {
-        assert_eq!(serde_json::to_string(&Flavor::Repack).unwrap(), "\"repack\"");
-        assert_eq!(serde_json::to_string(&Flavor::Docker).unwrap(), "\"docker\"");
+        assert_eq!(
+            serde_json::to_string(&Flavor::Repack).unwrap(),
+            "\"repack\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Flavor::Docker).unwrap(),
+            "\"docker\""
+        );
     }
 }

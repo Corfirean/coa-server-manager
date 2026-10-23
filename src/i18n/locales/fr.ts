@@ -2,6 +2,8 @@ import type en from "./en";
 
 /** Français. Traduction provisoire ; à faire relire par un locuteur natif avant la publication. */
 const fr: Partial<Record<keyof typeof en, string>> = {
+  "mod.switching": "Application des modifications… Veuillez patienter.",
+  "portable.experimental": "Fonction expérimentale : les personnages portables sont encore en développement actif. Des bugs peuvent survenir.",
   "remote.clientReady": "Votre client est prêt. Enregistrez l’adresse de l’hôte, puis cliquez sur Jouer.",
   "remote.clientIntro": "Choisissez un client existant ou téléchargez-le ici. Aucun serveur local n’est nécessaire.",
   "welcome.host.title": "Héberger un serveur",
@@ -730,6 +732,9 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   // Realmlist switcher and modules page
   "realm.profileLabel": "Royaume",
   "realm.switching": "Changement de royaume…",
+  "realm.rebornCreate": "Créer le royaume Warcraft Reborn",
+  "realm.rebornModules": "Les mécaniques de classe des bots ne sont pas encore validées sur Warcraft Reborn. Les autres modules restent expérimentaux.",
+  "realm.rebornUpdate": "Mettez le serveur à jour vers une version compatible avec Warcraft Reborn.",
   "realm.create": "Créer le royaume Wildcard",
   "realm.restart": "Changer et redémarrer",
   "realm.select": "Choisir le royaume",
@@ -738,8 +743,8 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "realm.modules": "Les compagnons CoA sont indisponibles ici. Content Scaling et les autres modules restent expérimentaux sur Wildcard.",
   "realm.update": "Mettez le serveur à jour vers une version compatible avec Wildcard pour créer ce royaume.",
   "realm.recovery": "Un changement de royaume a été interrompu. Choisissez un royaume pour restaurer la configuration enregistrée.",
-  "realm.unsupported": "Indisponible sur Wildcard : les mécaniques de classe ne sont pas encore validées.",
-  "realm.experimental": "Expérimental sur Wildcard · compatibilité en jeu non vérifiée.",
+  "realm.unsupported": "Indisponible sur Wildcard / Warcraft Reborn : les mécaniques de classe ne sont pas encore validées.",
+  "realm.experimental": "Expérimental sur Wildcard / Warcraft Reborn · compatibilité en jeu non vérifiée.",
   "realm.label": "Royaume",
   "realm.other": "Autre",
   "realm.add": "Ajouter une realmlist…",

@@ -22,7 +22,7 @@ export function RealmStartupSettings({ serverId }: { serverId: string }) {
   return <Card className="mt-6 p-6" aria-busy={busy}>
     <h2 className="font-semibold">{t("realm.startupTitle")}</h2>
     <label className="mt-3 flex items-center gap-3">
-      <input type="checkbox" checked={view?.simultaneous ?? false} disabled={!view || busy || !view.supported} onChange={e => void change(e.target.checked)} />
+      <input type="checkbox" checked={view?.simultaneous ?? false} disabled={!view || busy || !view.supported || view.active === "reborn"} onChange={e => void change(e.target.checked)} />
       <span>{t("realm.simultaneous")}</span>
     </label>
     <p className="mt-2 text-sm text-muted">{t("realm.simultaneousHint")}</p>

@@ -2,6 +2,8 @@ import type en from "./en";
 
 /** Deutsch. Entwurf einer Übersetzung; vor der Veröffentlichung von Muttersprachlern zu prüfen. */
 const de: Partial<Record<keyof typeof en, string>> = {
+  "mod.switching": "Änderungen werden angewendet… Bitte warten.",
+  "portable.experimental": "Experimentelle Funktion: Portable Charaktere befinden sich noch in aktiver Entwicklung. Fehler können auftreten.",
   "remote.clientReady": "Dein Client ist bereit. Speichere die Hostadresse und klicke auf Spielen.",
   "remote.clientIntro": "Wähle einen vorhandenen Spielclient oder lade ihn hier herunter. Ein lokaler Server ist nicht nötig.",
   "welcome.host.title": "Einen Server hosten",
@@ -730,6 +732,9 @@ const de: Partial<Record<keyof typeof en, string>> = {
   // Realmlist switcher and modules page
   "realm.profileLabel": "Realm",
   "realm.switching": "Realm wird gewechselt…",
+  "realm.rebornCreate": "Warcraft-Reborn-Realm erstellen",
+  "realm.rebornModules": "Die Klassenmechaniken der Bots sind für Warcraft Reborn noch nicht geprüft. Andere Module bleiben experimentell.",
+  "realm.rebornUpdate": "Aktualisiere den Server auf eine Version mit Warcraft-Reborn-Unterstützung.",
   "realm.create": "Wildcard-Realm erstellen",
   "realm.restart": "Wechseln und neu starten",
   "realm.select": "Realm auswählen",
@@ -738,8 +743,8 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "realm.modules": "CoA-Begleiter sind hier nicht verfügbar. Content Scaling und andere Module sind auf Wildcard experimentell.",
   "realm.update": "Aktualisiere den Server auf eine Version mit Wildcard-Unterstützung, um diesen Realm zu erstellen.",
   "realm.recovery": "Ein Realm-Wechsel wurde unterbrochen. Wähle einen Realm, um die gespeicherte Konfiguration wiederherzustellen.",
-  "realm.unsupported": "Auf Wildcard nicht verfügbar: Die Klassenmechanik wurde noch nicht geprüft.",
-  "realm.experimental": "Experimentell auf Wildcard · Spielkompatibilität noch nicht geprüft.",
+  "realm.unsupported": "Auf Wildcard / Warcraft Reborn nicht verfügbar: Die Klassenmechanik wurde noch nicht geprüft.",
+  "realm.experimental": "Experimentell auf Wildcard / Warcraft Reborn · Spielkompatibilität noch nicht geprüft.",
   "realm.label": "Realm",
   "realm.other": "Anderer",
   "realm.add": "Realmlist hinzufügen …",

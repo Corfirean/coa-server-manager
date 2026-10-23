@@ -43,10 +43,22 @@ impl Verb {
 
 fn squid_enabled(root: &Path) -> bool {
     let active = root.join("Core/configs/modules/playerbots.conf");
-    let path = if active.exists() { active } else { root.join("Core/configs/modules/playerbots.conf.dist") };
-    std::fs::read(path).ok().and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
-        .is_some_and(|config| config.get("AiPlayerbot.Enabled").is_none_or(|value|
-            !matches!(value.trim().trim_matches('"').to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")))
+    let path = if active.exists() {
+        active
+    } else {
+        root.join("Core/configs/modules/playerbots.conf.dist")
+    };
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
+        .is_some_and(|config| {
+            config.get("AiPlayerbot.Enabled").is_none_or(|value| {
+                !matches!(
+                    value.trim().trim_matches('"').to_ascii_lowercase().as_str(),
+                    "0" | "false" | "no" | "off"
+                )
+            })
+        })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,11 +76,18 @@ pub fn translate(output: &str) -> ErrorCode {
     let o = output.to_lowercase();
     if o.contains("is already used") {
         ErrorCode::PortInUse
-    } else if o.contains("another start/stop action is in progress") || o.contains("shutdown is still finishing") {
+    } else if o.contains("another start/stop action is in progress")
+        || o.contains("shutdown is still finishing")
+    {
         ErrorCode::OperationInProgress
-    } else if o.contains("packaged database is missing") || o.contains("extract the complete repack") {
+    } else if o.contains("packaged database is missing")
+        || o.contains("extract the complete repack")
+    {
         ErrorCode::ServerFilesIncomplete
-    } else if o.contains("stopped during startup") || o.contains("is still starting") || o.contains("world startup failed") {
+    } else if o.contains("stopped during startup")
+        || o.contains("is still starting")
+        || o.contains("world startup failed")
+    {
         ErrorCode::StartupFailed
     } else if o.contains("invalid port") || o.contains("unresolved placeholder") {
         ErrorCode::InvalidConfigValue
@@ -82,7 +101,8 @@ fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
     let script = root.join("Scripts/manage.py");
     if !python.is_file() || !script.is_file() {
         return Err(Error::Invalid(
-            "This server has no CoA Repack launcher; start/stop is not available for it yet.".into(),
+            "This server has no CoA Repack launcher; start/stop is not available for it yet."
+                .into(),
         ));
     }
     Ok((python, script))
@@ -105,29 +125,43 @@ pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
 fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
     let _update_lock = if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
-        Some(crate::update::operation_lock_for(&crate::registry::metadata_dir_for(&root)?, "starting server", true)?)
-    } else { None };
+        Some(crate::update::operation_lock_for(
+            &crate::registry::metadata_dir_for(&root)?,
+            "starting server",
+            true,
+        )?)
+    } else {
+        None
+    };
     if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
         crate::update::ensure_recovered(&crate::registry::metadata_dir_for(&root)?)?;
     }
-    if matches!(verb, Verb::StartAll | Verb::StartWorld) { crate::modules::ensure_bot_exclusivity(&root)?; }
+    if matches!(verb, Verb::StartAll | Verb::StartWorld) {
+        crate::modules::ensure_bot_exclusivity(&root)?;
+    }
     if crate::docker::is_docker(&root) {
         prepare_headless_world(&root, verb)?;
         return crate::docker::run(&root, verb);
     }
-    if verb == Verb::StopAll { crate::multiworld::stop(&root)?; }
+    if verb == Verb::StopAll {
+        crate::multiworld::stop(&root)?;
+    }
     if verb == Verb::StartAll {
         crate::realms::before_start(&root)?;
         if root.join("Settings/realm-profile.json").exists() {
             let db = crate::db::Db::from_repack(&root, crate::db::Account::Admin)?;
             if !db.ping() {
                 let out = run(&root, Verb::StartMysql)?;
-                if !out.ok { return Ok(out); }
+                if !out.ok {
+                    return Ok(out);
+                }
             }
             crate::realms::setup_realmlist(&root)?;
         }
     }
-    if matches!(verb, Verb::StartAll | Verb::StartWorld) { crate::modules::ensure_bot_exclusivity(&root)?; }
+    if matches!(verb, Verb::StartAll | Verb::StartWorld) {
+        crate::modules::ensure_bot_exclusivity(&root)?;
+    }
     let (python, script) = launcher(&root)?;
     prepare_headless_world(&root, verb)?;
     let original = std::fs::read_to_string(&script)?;
@@ -136,18 +170,32 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         fsx::atomic_write(&script, patched.as_bytes())?;
         if let Ok(dir) = crate::registry::metadata_dir_for(&root) {
             if let Ok((_, mut meta)) = crate::registry::MetaDir::open(&dir) {
-                if meta.original_hashes.get("Scripts/manage.py") == Some(&fsx::sha256_bytes(original.as_bytes())) {
-                    meta.original_hashes.insert("Scripts/manage.py".into(), fsx::sha256_bytes(patched.as_bytes()));
+                if meta.original_hashes.get("Scripts/manage.py")
+                    == Some(&fsx::sha256_bytes(original.as_bytes()))
+                {
+                    meta.original_hashes.insert(
+                        "Scripts/manage.py".into(),
+                        fsx::sha256_bytes(patched.as_bytes()),
+                    );
                     fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
                 }
             }
         }
     }
     discard_damaged_launcher_state(&root);
-    if matches!(verb, Verb::StopAll | Verb::StartMysql | Verb::StartAll) { recover_mysql_launcher_state(&root, verb != Verb::StopAll)?; }
+    if matches!(verb, Verb::StopAll | Verb::StartMysql | Verb::StartAll) {
+        recover_mysql_launcher_state(&root, verb != Verb::StopAll)?;
+    }
     let mut cmd = Command::new(&python);
-    cmd.arg("-B").arg("-c").arg(LAUNCH_SCRIPT).arg(&script).arg(verb.arg())
-        .current_dir(&root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg("-B")
+        .arg("-c")
+        .arg(LAUNCH_SCRIPT)
+        .arg(&script)
+        .arg(verb.arg())
+        .current_dir(&root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -190,17 +238,31 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         None
     } else {
         // Log evidence beats the launcher's generic "stopped during startup" message.
-        let base = if status.is_none() { ErrorCode::StartupFailed } else { translate(&output) };
+        let base = if status.is_none() {
+            ErrorCode::StartupFailed
+        } else {
+            translate(&output)
+        };
         match base {
-            ErrorCode::StartupFailed | ErrorCode::Unknown => Some(crate::health::diagnose_installation(&root).unwrap_or(base)),
+            ErrorCode::StartupFailed | ErrorCode::Unknown => {
+                Some(crate::health::diagnose_installation(&root).unwrap_or(base))
+            }
             other => Some(other),
         }
     };
     if code == Some(ErrorCode::PortInUse) {
         let observed = crate::process::observe(&root, &crate::layout::read_ports(&root));
-        for service in [&observed.mysql, &observed.auth, &observed.world].into_iter().chain(observed.secondary_world.iter()) {
+        for service in [&observed.mysql, &observed.auth, &observed.world]
+            .into_iter()
+            .chain(observed.secondary_world.iter())
+        {
             if let Some(conflict) = &service.conflict {
-                output.push_str(&format!("\nPort {} is used by process {} ({}).", conflict.port, conflict.pid, conflict.exe.as_deref().unwrap_or("executable unavailable")));
+                output.push_str(&format!(
+                    "\nPort {} is used by process {} ({}).",
+                    conflict.port,
+                    conflict.pid,
+                    conflict.exe.as_deref().unwrap_or("executable unavailable")
+                ));
             }
         }
     }
@@ -210,15 +272,28 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         let tail: Vec<_> = redacted.lines().rev().take(12).collect();
         tracing::warn!(?verb, exit_code, output = %tail.into_iter().rev().collect::<Vec<_>>().join("\n"), "driver: launcher verb failed");
     }
-    if ok && verb == Verb::StartAll { crate::multiworld::start(&root)?; }
-    Ok(DriverOutcome { ok, exit_code, code, human: code.map(ErrorCode::human), output })
+    if ok && verb == Verb::StartAll {
+        crate::multiworld::start(&root)?;
+    }
+    Ok(DriverOutcome {
+        ok,
+        exit_code,
+        code,
+        human: code.map(ErrorCode::human),
+        output,
+    })
 }
 
 /// Background servers receive no interactive stdin. Keep CLI EOF from stopping the world server;
 /// the Manager's console uses remote access instead. The template survives launcher regeneration.
 fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
-    if !matches!(verb, Verb::StartAll | Verb::StartWorld) { return Ok(()); }
-    for relative in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+    if !matches!(verb, Verb::StartAll | Verb::StartWorld) {
+        return Ok(());
+    }
+    for relative in [
+        "Settings/worldserver.conf.template",
+        "Core/configs/worldserver.conf",
+    ] {
         let path = root.join(relative);
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
@@ -226,7 +301,11 @@ fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
             Err(e) => return Err(e.into()),
         };
         let mut config = crate::config::parser::ConfFile::parse_bytes(&bytes)?;
-        config.set("Console.Enable", "0", &["Local console is disabled for background startup; the Manager uses remote access."]);
+        config.set(
+            "Console.Enable",
+            "0",
+            &["Local console is disabled for background startup; the Manager uses remote access."],
+        );
         let text = config.to_text();
         if text.as_bytes() != bytes {
             fsx::atomic_write(&path, text.as_bytes())?;
@@ -241,11 +320,21 @@ fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
 /// launcher treats a missing record as "not running". Only empty or all-zero `*.json` files are touched.
 pub(crate) fn discard_damaged_launcher_state(root: &Path) -> Vec<PathBuf> {
     let mut removed = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root.join(".state")) else { return removed; };
+    let Ok(entries) = std::fs::read_dir(root.join(".state")) else {
+        return removed;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_none_or(|e| !e.eq_ignore_ascii_case("json")) || !path.is_file() { continue; }
-        let Ok(bytes) = std::fs::read(&path) else { continue; };
+        if path
+            .extension()
+            .is_none_or(|e| !e.eq_ignore_ascii_case("json"))
+            || !path.is_file()
+        {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
         if bytes.iter().all(|b| *b == 0) && std::fs::remove_file(&path).is_ok() {
             tracing::warn!(file = %path.display(), bytes = bytes.len(), "driver: removed a launcher state file damaged by an interrupted write");
             removed.push(path);
@@ -258,19 +347,37 @@ pub(crate) fn discard_damaged_launcher_state(root: &Path) -> Vec<PathBuf> {
 /// graceful shutdown. Adopt only the exact executable owning its configured port.
 fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()> {
     let observed = crate::process::observe(root, &crate::layout::read_ports(root));
-    if observed.mysql.state != crate::process::ServiceState::Running || !observed.mysql.port_ready { return Ok(()); }
-    let Some(pid) = observed.mysql.pid else { return Ok(()); };
-    let Some(identity) = crate::process::identity(pid) else { return Ok(()); };
+    if observed.mysql.state != crate::process::ServiceState::Running || !observed.mysql.port_ready {
+        return Ok(());
+    }
+    let Some(pid) = observed.mysql.pid else {
+        return Ok(());
+    };
+    let Some(identity) = crate::process::identity(pid) else {
+        return Ok(());
+    };
     let (_, _, executable) = crate::layout::executables(root);
-    if !crate::process::find_by_exe(&executable).iter().any(|candidate| candidate.same_as(&identity))
-        || !crate::process::listeners().contains(&(observed.mysql.port, pid)) { return Ok(()); }
+    if !crate::process::find_by_exe(&executable)
+        .iter()
+        .any(|candidate| candidate.same_as(&identity))
+        || !crate::process::listeners().contains(&(observed.mysql.port, pid))
+    {
+        return Ok(());
+    }
     if let Some(saved) = crate::process::read_state_record(root, "mysql") {
-        if saved.same_as(&identity) { return Ok(()); }
+        if saved.same_as(&identity) {
+            return Ok(());
+        }
         if crate::process::is_alive(&saved) {
             // A valid record may describe the MySQL supervisor rather than its
             // listening child. The launcher can gracefully stop either record.
-            if crate::process::find_by_exe(&executable).iter().any(|candidate| candidate.same_as(&saved)) {
-                if !prefer_listener { return Ok(()); }
+            if crate::process::find_by_exe(&executable)
+                .iter()
+                .any(|candidate| candidate.same_as(&saved))
+            {
+                if !prefer_listener {
+                    return Ok(());
+                }
             } else {
                 return Err(Error::Invalid("The MySQL launcher record identifies a different live process. No database action was requested.".into()));
             }
@@ -278,7 +385,9 @@ fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()
     }
     let state = root.join(".state/mysql.json");
     let previous = root.join(".state/mysql-before-shutdown-recovery.json");
-    if state.is_file() && !previous.exists() { fsx::atomic_write(&previous, &std::fs::read(&state)?)?; }
+    if state.is_file() && !previous.exists() {
+        fsx::atomic_write(&previous, &std::fs::read(&state)?)?;
+    }
     fsx::atomic_write_json(&state, &identity)?;
     tracing::warn!(pid, root = %root.display(), "Recovered MySQL launcher identity from the installed executable owning its port");
     Ok(())
@@ -288,51 +397,97 @@ const LAUNCH_SCRIPT: &str = "import runpy,sys\nfrom pathlib import Path\nscript=
 
 pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
     let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
-    if !text.contains("from squid_playerbots import") || text.contains(line) { return Ok(text.into()); }
+    if !text.contains("from squid_playerbots import") || text.contains(line) {
+        return Ok(text.into());
+    }
     let root = "ROOT = Path(__file__).resolve().parents[1]";
     if !text.contains(root) || !text.lines().any(|line| line.trim() == "import sys") {
-        return Err(Error::Invalid("The server launcher cannot load its integration scripts. Repair its program files.".into()));
+        return Err(Error::Invalid(
+            "The server launcher cannot load its integration scripts. Repair its program files."
+                .into(),
+        ));
     }
     Ok(text.replacen(root, &format!("{root}\n{line}"), 1))
 }
 
 pub(crate) fn launcher_matches(signed: &str, actual: &[u8]) -> bool {
-    if signed.as_bytes() == actual { return true; }
-    if patch_launcher_imports(signed).is_ok_and(|s| s.as_bytes() == actual) { return true; }
-    crate::realms::patch_launcher(signed).is_ok_and(|s| s.as_bytes() == actual
-        || patch_launcher_imports(&s).is_ok_and(|p| p.as_bytes() == actual))
+    if signed.as_bytes() == actual {
+        return true;
+    }
+    if patch_launcher_imports(signed).is_ok_and(|s| s.as_bytes() == actual) {
+        return true;
+    }
+    crate::realms::patch_launcher(signed).is_ok_and(|s| {
+        s.as_bytes() == actual || patch_launcher_imports(&s).is_ok_and(|p| p.as_bytes() == actual)
+    })
 }
 
 /// Recover legacy metadata only when undoing supported Manager edits reproduces the recorded hash.
 pub(crate) fn launcher_matches_recorded(recorded: &str, actual: &[u8]) -> bool {
-    let Ok(text) = std::str::from_utf8(actual) else { return false; };
+    let Ok(text) = std::str::from_utf8(actual) else {
+        return false;
+    };
     let without_import = text.replacen(
         "ROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(Path(__file__).resolve().parent))",
         "ROOT = Path(__file__).resolve().parents[1]", 1,
     );
-    for candidate in [Some(without_import.clone()), crate::realms::unpatch_launcher(&without_import)].into_iter().flatten() {
+    for candidate in [
+        Some(without_import.clone()),
+        crate::realms::unpatch_launcher(&without_import),
+    ]
+    .into_iter()
+    .flatten()
+    {
         if crate::fsx::sha256_bytes(candidate.as_bytes()).eq_ignore_ascii_case(recorded)
-            && launcher_matches(&candidate, actual) { return true; }
+            && launcher_matches(&candidate, actual)
+        {
+            return true;
+        }
     }
     false
 }
 
 pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
-    let code = started.code.filter(|c| *c != ErrorCode::Unknown)
+    let code = started
+        .code
+        .filter(|c| *c != ErrorCode::Unknown)
         .or_else(|| crate::health::diagnose_installation(root));
-    let title = code.map(|c| c.human().title).unwrap_or("The server did not become ready");
+    let title = code
+        .map(|c| c.human().title)
+        .unwrap_or("The server did not become ready");
     let output = crate::diag::redact(&started.output);
     let lines: Vec<_> = output.lines().rev().take(12).collect();
-    let mut reason = if lines.is_empty() { title.into() }
-        else { format!("{title}\n{}", lines.into_iter().rev().collect::<Vec<_>>().join("\n")) };
-    for relative in ["Core/Logs/world-console.log", "Core/Logs/auth-console.log", "mysql/logs/mysql-error.log"] {
+    let mut reason = if lines.is_empty() {
+        title.into()
+    } else {
+        format!(
+            "{title}\n{}",
+            lines.into_iter().rev().collect::<Vec<_>>().join("\n")
+        )
+    };
+    for relative in [
+        "Core/Logs/world-console.log",
+        "Core/Logs/auth-console.log",
+        "mysql/logs/mysql-error.log",
+    ] {
         let tail = crate::health::tail(&root.join(relative), 64 * 1024);
-        let failures: Vec<_> = tail.lines().filter(|line| {
-            let lower = line.to_ascii_lowercase();
-            crate::health::diagnose(line).is_some() || lower.contains("fatal") || lower.contains("error") || lower.contains("aborting")
-        }).rev().take(8).collect();
+        let failures: Vec<_> = tail
+            .lines()
+            .filter(|line| {
+                let lower = line.to_ascii_lowercase();
+                crate::health::diagnose(line).is_some()
+                    || lower.contains("fatal")
+                    || lower.contains("error")
+                    || lower.contains("aborting")
+            })
+            .rev()
+            .take(8)
+            .collect();
         if !failures.is_empty() {
-            reason.push_str(&format!("\n{relative}:\n{}", crate::diag::redact(&failures.into_iter().rev().collect::<Vec<_>>().join("\n"))));
+            reason.push_str(&format!(
+                "\n{relative}:\n{}",
+                crate::diag::redact(&failures.into_iter().rev().collect::<Vec<_>>().join("\n"))
+            ));
         }
     }
     reason
@@ -347,7 +502,11 @@ mod tests {
     fn shutdown_recovery_never_adopts_a_foreign_port_listener() {
         let root = tempfile::tempdir().unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        fsx::atomic_write_json(&root.path().join("Settings/repack.json"), &serde_json::json!({"mysqlPort":listener.local_addr().unwrap().port()})).unwrap();
+        fsx::atomic_write_json(
+            &root.path().join("Settings/repack.json"),
+            &serde_json::json!({"mysqlPort":listener.local_addr().unwrap().port()}),
+        )
+        .unwrap();
         recover_mysql_launcher_state(root.path(), false).unwrap();
         recover_mysql_launcher_state(root.path(), true).unwrap();
         assert!(!root.path().join(".state/mysql.json").exists());
@@ -360,8 +519,13 @@ mod tests {
         use std::sync::{Arc, Mutex};
         struct Capture(Arc<Mutex<Vec<u8>>>);
         impl Write for Capture {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> { self.0.lock().unwrap().extend_from_slice(bytes); Ok(bytes.len()) }
-            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
         }
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("server");
@@ -370,12 +534,20 @@ mod tests {
         let _maintenance = crate::update::operation_lock(&metadata).unwrap();
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let writer = Arc::clone(&buffer);
-        let subscriber = tracing_subscriber::fmt().without_time().with_ansi(false).with_writer(move || Capture(Arc::clone(&writer))).finish();
-        let error = tracing::subscriber::with_default(subscriber, || run(&root, Verb::StartAll)).unwrap_err();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || Capture(Arc::clone(&writer)))
+            .finish();
+        let error = tracing::subscriber::with_default(subscriber, || run(&root, Verb::StartAll))
+            .unwrap_err();
         assert!(error.to_string().contains("in progress"));
         let text = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
         assert!(text.contains("launcher requested") && text.contains("StartAll"));
-        assert!(text.contains("launcher request failed before completion") && text.contains("in progress"));
+        assert!(
+            text.contains("launcher request failed before completion")
+                && text.contains("in progress")
+        );
         assert!(!text.contains("starting launcher verb"));
     }
 
@@ -417,7 +589,10 @@ mod tests {
         prepare_headless_world(root, Verb::StartAll).unwrap();
         std::fs::create_dir_all(root.join("Core/configs")).unwrap();
         let path = root.join("Core/configs/worldserver.conf");
-        for original in ["Ra.Enable = 1\n", "Console.Enable = 0\nConsole.Enable = 1\n"] {
+        for original in [
+            "Ra.Enable = 1\n",
+            "Console.Enable = 0\nConsole.Enable = 1\n",
+        ] {
             std::fs::write(&path, original).unwrap();
             prepare_headless_world(root, Verb::StartAll).unwrap();
             let bytes = std::fs::read(&path).unwrap();
@@ -433,11 +608,24 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let modules = folder.path().join("Core/configs/modules");
         std::fs::create_dir_all(&modules).unwrap();
-        std::fs::write(modules.join("playerbots.conf.dist"), "AiPlayerbot.Enabled = 1\n").unwrap();
-        assert_eq!(Verb::StartAll.timeout(folder.path()), Duration::from_secs(2700));
-        assert_eq!(Verb::StopAll.timeout(folder.path()), Duration::from_secs(240));
+        std::fs::write(
+            modules.join("playerbots.conf.dist"),
+            "AiPlayerbot.Enabled = 1\n",
+        )
+        .unwrap();
+        assert_eq!(
+            Verb::StartAll.timeout(folder.path()),
+            Duration::from_secs(2700)
+        );
+        assert_eq!(
+            Verb::StopAll.timeout(folder.path()),
+            Duration::from_secs(240)
+        );
         std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
-        assert_eq!(Verb::StartWorld.timeout(folder.path()), Duration::from_secs(420));
+        assert_eq!(
+            Verb::StartWorld.timeout(folder.path()),
+            Duration::from_secs(420)
+        );
     }
 
     #[test]
@@ -450,20 +638,39 @@ mod tests {
         std::fs::write(state.join("world.json"), "{\"pid\": 4}\n").unwrap();
         std::fs::write(state.join("stop-relay"), Vec::<u8>::new()).unwrap();
         std::fs::write(state.join("auth.json"), "{\"pid\": 0}").unwrap();
-        let mut removed: Vec<_> = discard_damaged_launcher_state(folder.path()).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        let mut removed: Vec<_> = discard_damaged_launcher_state(folder.path())
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
         removed.sort();
         assert_eq!(removed, ["configuration.json", "mysql.json"]);
-        assert!(state.join("world.json").exists() && state.join("auth.json").exists() && state.join("stop-relay").exists());
+        assert!(
+            state.join("world.json").exists()
+                && state.join("auth.json").exists()
+                && state.join("stop-relay").exists()
+        );
         assert!(discard_damaged_launcher_state(folder.path()).is_empty());
         assert!(discard_damaged_launcher_state(&folder.path().join("missing")).is_empty());
     }
 
     #[test]
     fn translates_known_launcher_messages() {
-        assert_eq!(translate("RuntimeError: Port 8085 is already used. Stop the other server"), ErrorCode::PortInUse);
-        assert_eq!(translate("Another start/stop action is in progress."), ErrorCode::OperationInProgress);
-        assert_eq!(translate("The packaged database is missing. Extract the complete repack."), ErrorCode::ServerFilesIncomplete);
-        assert_eq!(translate("world stopped during startup. Check its log."), ErrorCode::StartupFailed);
+        assert_eq!(
+            translate("RuntimeError: Port 8085 is already used. Stop the other server"),
+            ErrorCode::PortInUse
+        );
+        assert_eq!(
+            translate("Another start/stop action is in progress."),
+            ErrorCode::OperationInProgress
+        );
+        assert_eq!(
+            translate("The packaged database is missing. Extract the complete repack."),
+            ErrorCode::ServerFilesIncomplete
+        );
+        assert_eq!(
+            translate("world stopped during startup. Check its log."),
+            ErrorCode::StartupFailed
+        );
         assert_eq!(translate("Exit code -1073741819"), ErrorCode::Unknown);
     }
 
@@ -478,7 +685,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("Core/Logs")).unwrap();
         std::fs::write(dir.path().join("Core/Logs/world-console.log"), "ERROR [1146] Table 'acore_characters.playerbots_names' doesn't exist\nFATAL Could not prepare statements\n").unwrap();
-        let started = DriverOutcome { ok: true, code: None, exit_code: Some(0), human: None, output: "Worldserver and automatic bug reporting are ready.".into() };
+        let started = DriverOutcome {
+            ok: true,
+            code: None,
+            exit_code: Some(0),
+            human: None,
+            output: "Worldserver and automatic bug reporting are ready.".into(),
+        };
         let reason = startup_failure(dir.path(), &started);
         assert!(reason.contains("playerbots_names"));
         assert!(reason.contains("Core/Logs/world-console.log"));
@@ -488,9 +701,14 @@ mod tests {
     #[test]
     fn startup_failure_keeps_the_launcher_reason_without_secrets() {
         let dir = tempfile::tempdir().unwrap();
-        let started = DriverOutcome { ok: false, exit_code: Some(1), code: Some(ErrorCode::Unknown),
+        let started = DriverOutcome {
+            ok: false,
+            exit_code: Some(1),
+            code: Some(ErrorCode::Unknown),
             human: Some(ErrorCode::Unknown.human()),
-            output: "appPassword=private\nModuleNotFoundError: No module named 'squid_playerbots'".into() };
+            output: "appPassword=private\nModuleNotFoundError: No module named 'squid_playerbots'"
+                .into(),
+        };
         let reason = startup_failure(dir.path(), &started);
         assert!(reason.contains("ModuleNotFoundError"));
         assert!(!reason.contains("private"));

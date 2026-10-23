@@ -1,0 +1,37 @@
+# /opt/coa/postgres/compose.yaml (Phase 10). No `ports:`: PostgreSQL is reachable only on the internal coa-db network.
+# The superuser password is read from /opt/coa/secrets (never in git); the Registry has its own least-privilege role and database.
+name: coa-postgres
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: coa
+      POSTGRES_DB: coa
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    command: ["postgres", "-c", "max_connections=40", "-c", "shared_buffers=128MB", "-c", "password_encryption=scram-sha-256", "-c", "log_min_duration_statement=1000"]
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      coa-db:
+        aliases:
+          - coa-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coa -d coa"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 768m
+    security_opt:
+      - no-new-privileges:true
+secrets:
+  postgres_password:
+    file: /opt/coa/secrets/postgres_password
+volumes:
+  pgdata:
+networks:
+  coa-db:
+    external: true

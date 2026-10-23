@@ -1,5 +1,7 @@
 /** Simplified Chinese localization (zh-CN) */
 const zh = {
+  "mod.switching": "正在应用更改…请稍候。",
+  "portable.experimental": "实验性功能：便携角色仍在积极开发中，可能存在错误。",
   "remote.clientReady": "客户端已就绪。保存服主地址，然后点击开始游戏。",
   "remote.clientIntro": "选择已有游戏客户端，或在此下载。无需安装本地服务器。",
   "welcome.host.title": "我要搭建服务器",
@@ -17,6 +19,9 @@ const zh = {
 
   "realm.profileLabel": "服务器",
   "realm.switching": "正在切换服务器…",
+  "realm.rebornCreate": "创建 Warcraft Reborn 服务器",
+  "realm.rebornModules": "Warcraft Reborn 的机器人职业机制尚未验证，其他模块仍处于实验阶段。",
+  "realm.rebornUpdate": "请将服务器更新至支持 Warcraft Reborn 的版本。",
   "realm.create": "创建 Wildcard 服务器",
   "realm.restart": "切换并重启",
   "realm.select": "选择服务器",
@@ -25,8 +30,8 @@ const zh = {
   "realm.modules": "此处无法使用 CoA 随从。动态难度等级缩放及其他模块在 Wildcard 上仍处于实验阶段。",
   "realm.update": "请先将服务器更新至支持 Wildcard 的版本以创建此服务器。",
   "realm.recovery": "服务器切换被中断。请选择一个服务器以恢复保存的配置。",
-  "realm.unsupported": "在 Wildcard 上不可用：职业机制尚未验证通过。",
-  "realm.experimental": "在 Wildcard 上处于实验阶段 · 游戏玩法兼容性尚未验证。",
+  "realm.unsupported": "在 Wildcard / Warcraft Reborn 上不可用：职业机制尚未验证通过。",
+  "realm.experimental": "在 Wildcard / Warcraft Reborn 上处于实验阶段 · 游戏玩法兼容性尚未验证。",
   "app.name": "CoA Server Manager",
 
   "nav.overview": "概览",

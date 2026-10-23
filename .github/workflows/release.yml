@@ -6,33 +6,114 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the GitHub release (leave off to prepare signed artifacts)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
+  release-intent:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.intent.outputs.build }}
+    steps:
+      - id: intent
+        name: Keep already published release assets immutable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_PUBLISH: ${{ inputs.publish_release && 'true' || 'false' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          build = True
+          if os.environ['GITHUB_EVENT_NAME'] == 'push' or os.environ.get('REQUEST_PUBLISH') == 'true':
+              result = subprocess.run(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] + '/releases/tags/' + os.environ['GITHUB_REF_NAME']], capture_output=True, text=True)
+              if result.returncode == 0:
+                  build = json.loads(result.stdout)['draft']
+                  if not build:
+                      print('Published release already exists; preserve its assets and prerelease status.')
+              elif 'HTTP 404' not in result.stderr:
+                  raise RuntimeError('Could not establish whether this release already exists: ' + result.stderr)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('build=' + str(build).lower() + '\n')
+          PY
   installer:
+    needs: release-intent
+    if: needs.release-intent.outputs.build == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw 'The release tag does not match the application version.'
+          }
+      - name: Cache Rust dependencies and compiled targets
+        uses: actions/cache@v6
+        continue-on-error: true
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: manager-installer-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: manager-installer-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm ci
       - name: Tests
         run: cargo test --workspace -- --test-threads=1
-      - name: Build, sign and publish
+      - name: Build and sign (publish only when requested)
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ (github.event_name == 'push' || inputs.publish_release) && github.token || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: CoA Server Manager ${{ github.ref_name }}
+          tagName: ${{ (github.event_name == 'push' || inputs.publish_release) && 'v__VERSION__' || '' }}
+          releaseName: CoA Server Manager v__VERSION__
           releaseBody: See the assets to download the installer. Existing installations update themselves.
           releaseDraft: false
           prerelease: false
           args: --bundles nsis
           includeUpdaterJson: true
+      - name: Preserve the exact signed installer and updater metadata
+        shell: pwsh
+        env:
+          MANAGER_ARTIFACTS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          $paths = @($env:MANAGER_ARTIFACTS | ConvertFrom-Json)
+          $installers = @($paths | Where-Object { $_ -like '*-setup.exe' })
+          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows NSIS installer.' }
+          $installer = [IO.Path]::GetFullPath($installers[0])
+          $workspace = [IO.Path]::GetFullPath((Get-Location).Path).TrimEnd('\') + '\'
+          if (-not $installer.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) { throw 'Installer escaped the workspace.' }
+          if (-not (Test-Path -LiteralPath "$installer.sig")) { throw 'The installer has no updater signature.' }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $name = [IO.Path]::GetFileName($installer).Replace(' ', '.')
+          New-Item -ItemType Directory -Force _prepared-manager | Out-Null
+          Copy-Item -LiteralPath $installer -Destination "_prepared-manager/$name"
+          Copy-Item -LiteralPath "$installer.sig" -Destination "_prepared-manager/$name.sig"
+          $platform = @{
+            signature = (Get-Content -LiteralPath "$installer.sig" -Raw).Trim()
+            url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$version/$([Uri]::EscapeDataString($name))"
+          }
+          @{ version = $version; notes = 'See the release notes.'; pub_date = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); platforms = @{ 'windows-x86_64' = $platform } } |
+            ConvertTo-Json -Depth 8 | Set-Content _prepared-manager/latest.json -Encoding utf8NoBOM
+          @{ schema = 1; version = $version; source = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; installer = $name; sha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() } |
+            ConvertTo-Json | Set-Content _prepared-manager/prepared-source.json -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-manager-windows
+          path: _prepared-manager/*
+          if-no-files-found: error
+          retention-days: 14
