@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
+import { Bot, Clock, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
 import { api, asUiError, type CustomRacesClientStatus, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ function GithubMark(props: { className?: string }) {
 
 /** Icon and colours of a module's square tile, by the name the catalog gives it. */
 const TILES: Record<string, { icon: ComponentType<LucideProps>; from: string; to: string }> = {
+  clock: { icon: Clock, from: "from-indigo-400", to: "to-violet-800" },
   bot: { icon: Bot, from: "from-emerald-500", to: "to-teal-700" },
   scaling: { icon: Scaling, from: "from-violet-500", to: "to-indigo-700" },
   plug: { icon: Plug, from: "from-amber-500", to: "to-orange-700" },

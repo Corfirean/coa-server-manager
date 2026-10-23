@@ -140,6 +140,24 @@
       "default_on": false
     },
     {
+      "id": "time-is-time",
+      "name": "TimeIsTime",
+      "description": {
+        "en": "Adjust the day and night cycle speed and the starting game time.",
+        "ru": "Настройка скорости смены дня и ночи и начального игрового времени.",
+        "de": "Geschwindigkeit des Tag-Nacht-Zyklus und Startzeit im Spiel anpassen.",
+        "fr": "Réglez la vitesse du cycle jour-nuit et l’heure de départ en jeu.",
+        "es": "Ajusta la velocidad del ciclo de día y noche y la hora inicial del juego.",
+        "zh": "调整昼夜循环速度和游戏初始时间。"
+      },
+      "repo": "https://github.com/dunjeon/mod-TimeIsTime",
+      "conf": "mod-time_is_time.conf",
+      "enable_key": "TimeIsTime.Enable",
+      "default_on": true,
+      "status": "early",
+      "icon": "clock"
+    },
+    {
       "id": "client-compat",
       "name": "Client compatibility",
       "description": {
