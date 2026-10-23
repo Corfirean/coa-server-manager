@@ -687,6 +687,52 @@ mod tests {
         crate::update::operation_lock(folder.path()).unwrap();
     }
 
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires COA_MYSQL_TEST_BIN; starts a disposable MySQL server"]
+    fn real_mysql_inspection_timeout_preserves_server_and_releases_lock() {
+        use std::os::windows::process::CommandExt;
+        struct Server(std::process::Child);
+        impl Drop for Server {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let bin = std::path::PathBuf::from(std::env::var("COA_MYSQL_TEST_BIN").unwrap());
+        let folder = tempfile::tempdir().unwrap();
+        let data = folder.path().join("data");
+        let initialized = std::process::Command::new(bin.join("mysqld.exe"))
+            .args(["--no-defaults", "--initialize-insecure"])
+            .arg(format!("--datadir={}", data.display()))
+            .creation_flags(0x0800_0000).output().unwrap();
+        assert!(initialized.status.success(), "{}", String::from_utf8_lossy(&initialized.stderr));
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = socket.local_addr().unwrap().port();
+        drop(socket);
+        let mut server = Server(std::process::Command::new(bin.join("mysqld.exe"))
+            .args(["--no-defaults", "--bind-address=127.0.0.1", "--mysqlx=0", "--skip-log-bin"])
+            .arg(format!("--datadir={}", data.display())).arg(format!("--port={port}"))
+            .arg(format!("--log-error={}", folder.path().join("mysql.log").display()))
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .creation_flags(0x0800_0000).spawn().unwrap());
+        let db = super::Db::with_tools(bin, port, "root", "", crate::realms::Mode::Coa);
+        let ready = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !db.ping() {
+            assert!(std::time::Instant::now() < ready);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let result = (|| {
+            let _lock = crate::update::operation_lock_for(folder.path(), "checking updates", false)?;
+            db.clone().with_read_deadline(std::time::Instant::now() + std::time::Duration::from_millis(500))
+                .query("SELECT SLEEP(60);")
+        })();
+        assert!(result.unwrap_err().to_string().contains("inspection timed out"));
+        assert!(server.0.try_wait().unwrap().is_none());
+        assert_eq!(db.query("SELECT 42;").unwrap(), "42");
+        crate::update::operation_lock(folder.path()).unwrap();
+    }
+
     #[test]
     fn reborn_sql_routes_only_database_identifiers() {
         use crate::realms::Mode;
