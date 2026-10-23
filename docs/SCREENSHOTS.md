@@ -1,5 +1,7 @@
 # CoA Server Manager 0.7.0
 
+**English** · [Русский](ru/SCREENSHOTS.md) · [Deutsch](de/SCREENSHOTS.md) · [Français](fr/SCREENSHOTS.md) · [Español](es/SCREENSHOTS.md) · [简体中文](zh-CN/SCREENSHOTS.md)
+
 ### Your server, a few clicks away
 
 ![Your server, a few clicks away](screenshots/setup.png)
@@ -39,3 +41,5 @@
 ### Make a character portable · Experimental
 
 ![Make a character portable · Experimental](screenshots/remote-character.png)
+
+[All guides](README.md)

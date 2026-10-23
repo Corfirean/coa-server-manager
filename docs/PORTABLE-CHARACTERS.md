@@ -1,5 +1,7 @@
 # Take your character with you
 
+**English** · [Русский](ru/PORTABLE-CHARACTERS.md) · [Deutsch](de/PORTABLE-CHARACTERS.md) · [Français](fr/PORTABLE-CHARACTERS.md) · [Español](es/PORTABLE-CHARACTERS.md) · [简体中文](zh-CN/PORTABLE-CHARACTERS.md)
+
 **Portable characters are experimental.** The feature is in active development and may contain bugs.
 
 Portable characters let you keep a saved character in the Manager and play it on compatible CoA realms.
@@ -41,3 +43,5 @@ A realm with a lower level cap may play your character at a lower level. Check t
 ## Saved versions and conflicts
 
 Use **Saved versions** to see when progress was saved. If the Manager reports a conflict, follow its explanation before continuing. Avoid playing two copies at once, and keep normal server backups as well.
+
+[All guides](README.md)

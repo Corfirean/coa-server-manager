@@ -51,3 +51,16 @@ Server promotion uses the persistent Windows PC and the shared workflow's verifi
 production databases; run applicable local acceptance in disposable fixtures. Record the actual passed,
 failed and unrun checks. Verify both GitHub Latest and the public signed stable pointer before reporting
 that users can update. Leave the durable handoff described in the runbook for the next agent.
+
+## Public documentation languages
+
+Maintain the public README and every player/server-owner guide in all six Manager languages:
+English, Russian, German, French, Spanish and Simplified Chinese. English stays at `README.md`
+and the player-facing `docs/*.md`; translated READMEs use `README.<locale>.md`, with guides in
+`docs/<locale>/` (`ru`, `de`, `fr`, `es`, `zh-CN`). Language switches open the same page.
+When changing a public guide, update its counterparts in the same change. Write naturally for
+players in each language rather than translating word for word. Keep steps, feature limits and
+experimental Portable Characters warnings equivalent. Use actual UI labels; retain English labels
+where the released UI falls back to English. Screenshots are shared from `docs/screenshots/`.
+The public guide index is `docs/README.md`; internal protocol specifications and audits are not
+player guides. Keep canonical release histories in English and link to them instead of making copies.
