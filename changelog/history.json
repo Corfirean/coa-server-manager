@@ -685,7 +685,10 @@
         "Older copies on another host may require maintenance before returning"
       ],
       "commit": "b00e732c7f53f33680aaf6bd520da64b70b26a5a",
-      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.3...v0.8.0"
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.3...v0.8.0",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
     }
   ]
 }
