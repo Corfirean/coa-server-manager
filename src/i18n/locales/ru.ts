@@ -1011,6 +1011,12 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "portable.err.not_prepared": "Здесь можно убрать только реалм, добавленный из файла.",
   "portable.err.launch": "Не удалось запустить игру. Проверьте клиент в настройках.",
   "portable.err.other": "Что-то пошло не так. Ничего не потеряно.",
+  "portable.filter.none": "Нет персонажей для выбранного игрового режима.",
+  "portable.filter.all": "Все",
+  "browse.hidden_characters_one": "{n} персонаж из других игровых режимов скрыт",
+  "browse.hidden_characters_few": "{n} персонажа из других игровых режимов скрыто",
+  "browse.hidden_characters_many": "{n} персонажей из других игровых режимов скрыто",
+  "browse.hidden_characters_other": "{n} персонажей из других игровых режимов скрыто",
   "portable.diag.title": "Диагностика",
   "portable.diag.text": "Отчёт для сообщения об ошибке: реалмы, версии, сессии и недавние проблемы. Без паролей и без данных персонажей.",
   "portable.diag.copy": "Скопировать диагностику",
@@ -1178,6 +1184,11 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "crash.hideRaw": "Скрыть полный отчёт",
   "crash.copyReport": "Скопировать отчёт",
   "crash.copied": "Скопировано!",
+
+  "access.allowPortable": "Разрешить переносимых персонажей на этом реалме",
+  "access.relay": "Relay",
+  "access.relayUp": "Игровой relay подключён",
+  "access.relayDown": "Игровой relay не подключён",
 };
 
 export default ru;

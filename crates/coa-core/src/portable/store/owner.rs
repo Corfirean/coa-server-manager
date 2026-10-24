@@ -104,6 +104,7 @@ fn head_hash(conn: &Connection, id: CharacterId, revision: u64) -> Result<[u8; 3
 }
 
 fn ack(
+    ruleset: Ruleset,
     session: SessionId,
     sequence: u64,
     outcome: AckOutcome,
@@ -112,6 +113,7 @@ fn ack(
 ) -> OwnerAck {
     OwnerAck {
         protocol_version: PROTOCOL_VERSION,
+        ruleset,
         session_id: session,
         sequence,
         outcome,
@@ -136,9 +138,10 @@ fn owned_ids(
     (items, pets)
 }
 
-fn offer_from_row(row: &OwnerRow) -> SessionOffer {
+fn offer_from_row(row: &OwnerRow, ruleset: Ruleset) -> SessionOffer {
     SessionOffer {
         protocol_version: PROTOCOL_VERSION,
+        ruleset,
         session_id: row.session_id,
         character_id: row.character_id,
         server_id: row.server_id.clone(),
@@ -163,6 +166,7 @@ fn open_offer(tx: &Transaction<'_>, id: CharacterId, server_id: &str) -> Result<
     )?;
     Ok(offer_from_row(
         &read_owner_row(tx, session)?.expect("just inserted"),
+        record.ruleset,
     ))
 }
 
@@ -177,6 +181,10 @@ impl Store {
         check_server_id(server_id)?;
         let tx = self.write_tx()?;
         let record = read_character(&tx, id)?;
+        let busy: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM owner_session WHERE character_id = ?1 AND server_id != ?2 AND state = 'open')", params![id.to_string(), server_id], |row| row.get(0))?;
+        if busy {
+            return Err(PortableError::SessionOpen);
+        }
         let live: Option<String> = tx
             .query_row("SELECT session_id FROM owner_session WHERE character_id = ?1 AND server_id = ?2 AND state IN ('offered', 'open')", params![id.to_string(), server_id], |r| r.get(0))
             .optional()?;
@@ -186,10 +194,12 @@ impl Store {
                 return Err(PortableError::SessionOpen);
             }
             if row.c0_revision == record.revision {
-                return Ok(offer_from_row(&row));
+                return Ok(offer_from_row(&row, record.ruleset));
             }
             tx.execute("UPDATE owner_session SET state = 'superseded', updated_at = ?2 WHERE session_id = ?1", params![live, now()])?;
         }
+        // Only the selected realm may start the next session. Other idle offers must not come alive later.
+        tx.execute("UPDATE owner_session SET state='superseded', updated_at=?3 WHERE character_id=?1 AND server_id!=?2 AND state='offered'", params![id.to_string(), server_id, now()])?;
         let offer = open_offer(&tx, id, server_id)?;
         tx.commit()?;
         Ok(offer)
@@ -200,6 +210,7 @@ impl Store {
         let tx = self.write_tx()?;
         let Some(row) = read_owner_row(&tx, msg.session_id)? else {
             return Ok(ack(
+                msg.ruleset,
                 msg.session_id,
                 0,
                 AckOutcome::Rejected("unknown session".into()),
@@ -207,9 +218,11 @@ impl Store {
                 [0; 32],
             ));
         };
+        let record = read_character(&tx, row.character_id)?;
         let current_hash = head_hash(&tx, row.character_id, row.head_revision)?;
         let reject = |why: &str| {
             ack(
+                record.ruleset,
                 msg.session_id,
                 0,
                 AckOutcome::Rejected(why.into()),
@@ -217,6 +230,9 @@ impl Store {
                 current_hash,
             )
         };
+        if msg.ruleset != record.ruleset {
+            return Ok(reject("the message ruleset does not match the character"));
+        }
         if msg.character_id != row.character_id || msg.server_id != row.server_id {
             return Ok(reject("the message does not belong to this session"));
         }
@@ -237,6 +253,7 @@ impl Store {
                         && row.progression == msg.progression
                     {
                         let mut a = ack(
+                            record.ruleset,
                             msg.session_id,
                             0,
                             AckOutcome::Duplicate,
@@ -253,6 +270,7 @@ impl Store {
             "offered" => {}
             _ => {
                 return Ok(ack(
+                    record.ruleset,
                     msg.session_id,
                     0,
                     AckOutcome::StaleSession,
@@ -299,6 +317,7 @@ impl Store {
         )?;
         tx.commit()?;
         let mut a = ack(
+            record.ruleset,
             msg.session_id,
             0,
             AckOutcome::Applied,
@@ -315,6 +334,7 @@ impl Store {
         let tx = self.write_tx()?;
         let Some(row) = read_owner_row(&tx, msg.session_id)? else {
             return Ok(ack(
+                msg.ruleset,
                 msg.session_id,
                 msg.sequence,
                 AckOutcome::Rejected("unknown session".into()),
@@ -324,10 +344,23 @@ impl Store {
         };
         let record = read_character(&tx, row.character_id)?;
         let seen_hash = head_hash(&tx, row.character_id, record.revision)?;
-        let outcome =
-            |o: AckOutcome| ack(msg.session_id, msg.sequence, o, record.revision, seen_hash);
+        let outcome = |o: AckOutcome| {
+            ack(
+                record.ruleset,
+                msg.session_id,
+                msg.sequence,
+                o,
+                record.revision,
+                seen_hash,
+            )
+        };
         let reject = |why: &str| outcome(AckOutcome::Rejected(why.into()));
 
+        if msg.ruleset != record.ruleset {
+            return Ok(reject(
+                "the checkpoint ruleset does not match the character",
+            ));
+        }
         if msg.character_id != row.character_id || msg.server_id != row.server_id {
             return Ok(reject("the message does not belong to this session"));
         }
@@ -354,6 +387,7 @@ impl Store {
             }
             let revision = revision as u64;
             let mut a = ack(
+                record.ruleset,
                 msg.session_id,
                 msg.sequence,
                 AckOutcome::Duplicate,
@@ -390,6 +424,7 @@ impl Store {
             tx.execute("UPDATE owner_session SET state = 'superseded', updated_at = ?2 WHERE session_id = ?1", params![msg.session_id.to_string(), now()])?;
             tx.commit()?;
             return Ok(ack(
+                record.ruleset,
                 msg.session_id,
                 msg.sequence,
                 AckOutcome::StaleSession,
@@ -457,6 +492,7 @@ impl Store {
         };
 
         let mut a = ack(
+            record.ruleset,
             msg.session_id,
             msg.sequence,
             AckOutcome::Applied,
@@ -490,5 +526,22 @@ impl Store {
     pub fn owner_session_info(&self, session: SessionId) -> Result<Option<(String, u64, u64)>> {
         Ok(read_owner_row(&self.conn, session)?
             .map(|r| (r.state, r.last_sequence, r.head_revision)))
+    }
+
+    pub fn owner_next_session(
+        &self,
+        character: CharacterId,
+        realm: &str,
+    ) -> Result<Option<SessionId>> {
+        let sid: Option<String> = self.conn.query_row("SELECT session_id FROM owner_session WHERE character_id=?1 AND server_id=?2 AND state IN ('offered','open') ORDER BY updated_at DESC LIMIT 1", params![character.to_string(), realm], |row| row.get(0)).optional()?;
+        sid.map(|sid| sid.parse()).transpose()
+    }
+
+    pub fn owner_active_remote(&self, character: CharacterId) -> Result<Option<(String, String)>> {
+        self.conn.query_row("SELECT server_id, state FROM owner_session WHERE character_id=?1 AND server_id LIKE 'remote-%' AND state='open' ORDER BY updated_at DESC LIMIT 1", [character.to_string()], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(Into::into)
+    }
+
+    pub fn owner_session_realm(&self, session: SessionId) -> Result<Option<String>> {
+        Ok(read_owner_row(&self.conn, session)?.map(|row| row.server_id))
     }
 }

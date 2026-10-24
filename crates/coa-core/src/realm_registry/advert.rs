@@ -122,23 +122,63 @@ pub fn modules_of(root: &Path) -> Vec<ModuleEntry> {
     out
 }
 
-/// The realm a local id names: an installed server (`srv-<install id>` or the bare install id) or a prepared descriptor.
+/// The realm a local id names: an installed server (`srv-<install id>`, `srv-<install id>:<ruleset>` or the bare install id) or a prepared descriptor.
 pub fn find_access(
     descriptors: &Path,
     installs: &[(String, PathBuf)],
     local_id: &str,
 ) -> Option<RealmAccess> {
+    let (base_id, explicit_mode) = if let Some((base, rs)) = local_id.split_once(':') {
+        let m = match rs {
+            "coa" => crate::realms::Mode::Coa,
+            "wildcard" => crate::realms::Mode::Wildcard,
+            "reborn" => crate::realms::Mode::Reborn,
+            _ => return None,
+        };
+        (base, Some(m))
+    } else {
+        (local_id, None)
+    };
     if let Some((id, root)) = installs
         .iter()
-        .find(|(id, _)| format!("srv-{id}") == local_id || id == local_id)
+        .find(|(id, _)| format!("srv-{id}") == base_id || id == base_id)
     {
-        return Some(RealmAccess::from_install(id, root));
+        let mut access = RealmAccess::from_install(id, root);
+        if let Some(m) = explicit_mode {
+            if let Ok(st) = crate::realms::state(root) {
+                let supported = match m {
+                    crate::realms::Mode::Coa => {
+                        st.active == crate::realms::Mode::Coa || st.simultaneous
+                    }
+                    crate::realms::Mode::Wildcard => {
+                        st.active == crate::realms::Mode::Wildcard
+                            || (st.simultaneous && st.wildcard_created)
+                    }
+                    crate::realms::Mode::Reborn => st.active == crate::realms::Mode::Reborn,
+                };
+                if !supported {
+                    return None;
+                }
+            }
+            access.id = format!("srv-{id}:{}", m.name());
+            access.name = format!("{} — {}", access.name, m.label());
+            access.mode = Some(m);
+        }
+        return Some(access);
     }
     let (found, _) = load_descriptors(descriptors);
     found
         .into_iter()
-        .find(|d| d.id == local_id)
-        .and_then(|d| RealmAccess::from_descriptor(d).ok())
+        .find(|d| d.id == local_id || d.id == base_id)
+        .and_then(|d| {
+            let mut access = RealmAccess::from_descriptor(d).ok()?;
+            if let Some(m) = explicit_mode {
+                access.id = format!("{}:{}", access.id, m.name());
+                access.name = format!("{} — {}", access.name, m.label());
+                access.mode = Some(m);
+            }
+            Some(access)
+        })
 }
 
 struct Cached {

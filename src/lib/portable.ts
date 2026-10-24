@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { Ruleset } from "@/lib/browse";
 
 export type PlayStatus =
   | "ready" | "syncing" | "preparing" | "waiting_login" | "playing" | "saving" | "offline"
@@ -19,6 +20,7 @@ export interface CopyView {
 export interface CharacterView {
   id: string;
   name: string;
+  ruleset: Ruleset;
   class_name: string;
   race: string;
   level: number;

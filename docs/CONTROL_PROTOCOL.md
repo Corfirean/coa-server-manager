@@ -6,7 +6,7 @@ type into the game.
 
 Code: `crates/coa-control-proto` (the protocol: pure, no I/O), `services/coa-coordinator` (the Coordinator), `crates/coa-core/src/control` (Host and Player sides),
 `src-tauri/src/control_cmds.rs` and `src/screens/JoinPanel.tsx` (the interface). End-to-end tests: `services/coa-control-e2e`. Deployment: [REGISTRY_DEPLOYMENT.md](REGISTRY_DEPLOYMENT.md).
-`CONTROL_PROTOCOL_VERSION = 1`; it is independent of the Registry protocol (2) and of the portable formats.
+`CONTROL_PROTOCOL_VERSION = 2` (bumped in MR1.1/MR2 to require explicit `ruleset` fields in transfer and claim negotiations); it is independent of the Registry protocol (2) and of the portable formats.
 
 ## 1. Shape
 
@@ -148,8 +148,8 @@ its profile, and only then sends `claim_ack`; the Host marks the binding `Portab
 When a player selects a portable character that exists in their Player Manager but does not yet exist on the remote realm, the Player Manager performs an automated, transactional transfer over the encrypted Noise channel:
 
 1. **Preflight Compatibility Check**: The Player Manager checks the canonical character against the target realm's advertised capabilities (Phase 7/8). If incompatible, the transfer is refused immediately before any network mutation.
-2. **Transfer Offer (`TransferOffer`)**: Inside the end-to-end encrypted Noise channel, the Player Manager sends `transfer_offer{transfer_id, character_id, canonical_revision, content_hash, total_size, collections}`.
-   - The Host validates the PlayerIdentity, character ownership, format revision, hash format, size limit (≤ 4 MiB, `MAX_TRANSFER_REQUEST_BYTES`), and collection counts (≤ 100,000 items).
+2. **Transfer Offer (`TransferOffer`)**: Inside the end-to-end encrypted Noise channel, the Player Manager sends `transfer_offer{transfer_id, character_id, canonical_revision, content_hash, total_size, collections, ruleset}`.
+   - The Host validates the PlayerIdentity, character ownership, format revision, hash format, size limit (≤ 4 MiB, `MAX_TRANSFER_REQUEST_BYTES`), collection counts (≤ 100,000 items), and ruleset matching target realm.
    - If the exact revision was already committed or an active transfer session exists, the Host responds with `transfer_ready{transfer_id, accepted_offset}`.
 3. **Payload Transfer & Chunking (`TransferChunk` / `TransferStatus`)**:
    - The Player sends the payload in bounded chunks via `transfer_chunk{transfer_id, offset, data}`.
@@ -157,7 +157,8 @@ When a player selects a portable character that exists in their Player Manager b
    - If a connection is interrupted, the Player can query progress via `transfer_status{transfer_id}` and resume from `accepted_offset`.
 4. **Validation & Atomic Commit (`TransferCommit`)**:
    - Once all chunks arrive, the Player sends `transfer_commit{transfer_id}`.
-   - The Host verifies the SHA-256 content hash of the assembled payload against the offer.
+   - The Host verifies the SHA-256 content hash of the canonical JSON against the offer.
+   - The Host decodes the payload and verifies that `decoded.character_id == transfer.character_id`, `decoded.ruleset == transfer.ruleset`, and `transfer.ruleset == destination_realm.ruleset`.
    - The Host runs the level projection engine (e.g. projecting level 80 down to realm cap 60 via Phase-8 oracle).
    - The Host imports the character into the realm's characters database, updates/creates the working copy mapping, and arms the session.
    - The Host returns `transferred{character_id, local_guid, session_id}`.

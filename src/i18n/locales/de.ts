@@ -888,7 +888,12 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "crash.hideRaw": "Vollständigen Bericht verbergen",
   "crash.copyReport": "Bericht kopieren",
   "crash.copied": "Kopiert!",
-  // Server browser and portable-character screens.
+  "portable.filter.none": "Keine Charaktere entsprechen dem ausgewählten Spielmodus.",
+  "portable.filter.all": "Alle",
+  "browse.hidden_characters_one": "{n} Charakter aus anderen Spielmodi ist ausgeblendet",
+  "browse.hidden_characters_few": "{n} Charaktere aus anderen Spielmodi sind ausgeblendet",
+  "browse.hidden_characters_many": "{n} Charaktere aus anderen Spielmodi sind ausgeblendet",
+  "browse.hidden_characters_other": "{n} Charaktere aus anderen Spielmodi sind ausgeblendet",
   "nav.servers": "Server",
   "nav.characters": "Charaktere",
   "portable.title": "Charaktere",
@@ -985,11 +990,12 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "join.chars.make": "Portabel machen",
   "join.chars.done": "{name} ist jetzt portabel (Version {revision}).",
   "access.save": "Speichern",
-
   "fr.tab.servers": "Öffentliche Server",
-
   "fr.tab.lan": "LAN und Direktverbindung",
-
+  "access.allowPortable": "Portable Charaktere auf diesem Realm erlauben",
+  "access.relay": "Relay",
+  "access.relayUp": "Spiel-Relay verbunden",
+  "access.relayDown": "Spiel-Relay nicht verbunden",
 };
 
 export default de;

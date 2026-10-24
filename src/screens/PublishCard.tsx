@@ -23,11 +23,13 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
   const [region, setRegion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [allowPortable, setAllowPortable] = useState(false);
   const [existingOnly, setExistingOnly] = useState(false);
   const [route, setRoute] = useState("");
   const [accessSaved, setAccessSaved] = useState(false);
   const [ctl, setCtl] = useState<ControlStatus | null>(null);
-  const link = ctl?.hosting.find((h) => h.local_id === localId)?.link;
+  const host = ctl?.hosting.find((h) => h.local_id === localId);
+  const link = host?.link;
 
   useEffect(() => {
     const load = () => void control.status().then(setCtl).catch(() => {});
@@ -35,11 +37,11 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
   }, []);
-  useEffect(() => { if (mine) { setExistingOnly(mine.existing_only); setRoute(mine.route ?? ""); } }, [mine?.existing_only, mine?.route]);
+  useEffect(() => { if (mine) { setExistingOnly(mine.existing_only); setAllowPortable(mine.allow_portable); setRoute(mine.route ?? ""); } }, [mine?.existing_only, mine?.allow_portable, mine?.route]);
 
   async function saveAccess() {
     setBusy(true); setError(null); setAccessSaved(false);
-    try { await control.setAccess(localId, existingOnly, route.trim() === "" ? null : route.trim()); await refresh(); setAccessSaved(true); } catch (e) { setError(asControlError(e).message); } finally { setBusy(false); }
+    try { await control.setAccess(localId, existingOnly, allowPortable, route.trim() === "" ? null : route.trim()); await refresh(); setAccessSaved(true); } catch (e) { setError(asControlError(e).message); } finally { setBusy(false); }
   }
 
   useEffect(() => {
@@ -94,6 +96,7 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
         <p className="font-medium">{t("access.title")}</p>
         <p className="mt-1 text-xs text-muted">{t("access.text")}</p>
         <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={existingOnly} onChange={(e) => setExistingOnly(e.target.checked)} className="mt-1" data-testid="existing-only" /><span>{t("access.existingOnly")}<span className="block text-xs text-muted">{t("access.existingOnlyHint")}</span></span></label>
+        <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={allowPortable} onChange={(e) => setAllowPortable(e.target.checked)} className="mt-1" data-testid="allow-portable" /><span>{t("access.allowPortable")}</span></label>
         <label htmlFor="access-route" className="mt-3 block font-medium">{t("access.route")}</label>
         <input id="access-route" value={route} placeholder="play.example.org:3724" onChange={(e) => setRoute(e.target.value)} className="mt-1 w-full rounded-md border border-line bg-card px-3 py-2" data-testid="access-route" />
         <p className="mt-1 text-xs text-muted">{t("access.routeHint")}</p>
@@ -104,6 +107,7 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
         <p className={cn("mt-3 text-xs", link?.connected ? "text-ok" : "text-muted")} data-testid="control-link" data-connected={link?.connected ? "yes" : "no"}>
           {link?.connected ? t("access.linkUp") : t("access.linkDown")}{link?.last_error && !link.connected ? ` — ${link.last_error}` : ""}
         </p>
+        <p className={cn("mt-2 text-xs", host?.relay?.connected ? "text-ok" : "text-warn")} data-testid="relay-link">{host?.relay?.connected ? t("access.relayUp") : t("access.relayDown")}{host?.relay?.last_error ? ` — ${host.relay.last_error}` : ""}</p>
         {ctl && ctl.secret_store === "file" && <p className="mt-1 text-xs text-warn">{t("access.fileStore")}</p>}
       </div>}
       {error && <p className="mt-3 text-sm text-bad" role="alert">{error}</p>}

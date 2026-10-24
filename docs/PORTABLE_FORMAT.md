@@ -77,7 +77,8 @@ one place, no duplicate ids). Extension payloads must match their recorded hash.
 * `rollback_to` creates a **new** revision whose state equals an old one; revision numbers never decrease.
 * The newest `history_keep` revisions are kept (default 20, 1..=1000, configurable). The current revision is never
   pruned.
-* A character's `ruleset` (`coa` | `wildcard`) can never change.
+* A character's `ruleset` (`coa` | `wildcard` | `reborn`) can never change.
+* The character's `content_namespace` aligns strictly with `ruleset` (`coa`, `wildcard`, or `reborn`).
 
 ## Extensions
 
@@ -87,8 +88,9 @@ that does not support an extension simply does not receive it; the canonical cop
 
 ## Collections
 
-Account-wide sets of numeric ids (`coa:wardrobe`, `coa:vanity`, ...), stored per profile and kind:
+Account-wide sets of numeric ids (`coa:appearance`, `wildcard:appearance`, `reborn:appearance`, etc.), stored per `(profile_id, ruleset, kind)`:
 
+* partitioned strictly by ruleset: collections of different rulesets never intersect or merge;
 * union only: `stored = stored U incoming`; nothing is ever removed because a realm did not return it;
 * if the union equals what is stored, **no revision is created** and the hash is unchanged;
 * encoding: `[format version][count][first id][gap]...`, unsigned LEB128 varints, strictly ascending ids, 1-2 bytes per
@@ -98,17 +100,17 @@ Account-wide sets of numeric ids (`coa:wardrobe`, `coa:vanity`, ...), stored per
 ## Store (`%LOCALAPPDATA%\CoAServerManager\portable\portable.db`)
 
 SQLite, WAL, `synchronous=FULL`, `foreign_keys=ON`, `application_id = 0x434F4150`, forward-only migrations tracked in
-`PRAGMA user_version` (currently 3). A database from a newer Manager, or a foreign SQLite file, is refused and left untouched.
+`PRAGMA user_version` (migration 009 adds multi-ruleset collection partitioning and reborn character support). A database from a newer Manager, or a foreign SQLite file, is refused and left untouched.
 
 | Table | Purpose |
 |---|---|
 | `profile` | the owner |
-| `character` | summary row + canonical revision |
+| `character` | summary row + canonical revision (`ruleset IN ('coa', 'wildcard', 'reborn')`) |
 | `snapshot` | `(character_id, revision)` -> compressed canonical payload + hash |
 | `character_server_mapping` | `(character_id, server_id)` -> local guid; `UNIQUE(server_id, local_guid)` |
 | `item_mapping` | one row per mapping with a lifecycle (schema 2, see below) |
 | `import_journal` | schema 3: one row per import into a realm (`prepared` / `committed` / `aborted` / `needs_attention`) with the nonce/marker and the plan; see `PORTABLE_IMPORT.md` |
-| `collection` | per profile and kind: revision, hash, encoded set |
+| `collection` | per profile, ruleset, and kind: revision, hash, encoded set |
 | `setting` | `history_keep` |
 
 ## Item mapping lifecycle (schema 2)

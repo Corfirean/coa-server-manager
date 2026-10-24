@@ -20,6 +20,8 @@ use super::store::{AccountKind, ControlStore};
 use super::transport::{self, LinkError};
 use crate::{Error, Result};
 
+mod portable_sync;
+
 /// Where and as whom to reach a realm.
 #[derive(Clone, Debug)]
 pub struct RealmTarget {
@@ -115,6 +117,7 @@ pub struct AccountOutcome {
 #[derive(Debug, Clone)]
 pub struct Claimed {
     pub character_id: Uuid,
+    pub ruleset: String,
     pub payload: Vec<u8>,
     pub sha256: [u8; 32],
     pub collections: BTreeMap<String, Vec<u32>>,
@@ -347,13 +350,14 @@ impl PlayerControl {
 
     pub fn claim(&self, ch: &mut PlayerChannel, token: u32) -> R<Claimed> {
         let r = ch.request(&Request::Claim { token })?;
-        let (character_id, sha256, payload, collections) = expect(r, |r| match r {
+        let (character_id, ruleset, sha256, payload, collections) = expect(r, |r| match r {
             Response::Claimed {
                 character_id,
+                ruleset,
                 sha256,
                 payload,
                 collections,
-            } => Ok((character_id, sha256, payload, collections)),
+            } => Ok((character_id, ruleset, sha256, payload, collections)),
             other => Err(other),
         })?;
         let payload = base64::engine::general_purpose::STANDARD
@@ -373,6 +377,7 @@ impl PlayerControl {
             })?;
         Ok(Claimed {
             character_id,
+            ruleset,
             payload,
             sha256: hash,
             collections,
@@ -409,24 +414,39 @@ impl PlayerControl {
     }
 
     /// Transfer a portable character to a remote realm over the verified control channel (Phase 12.1).
-    pub fn transfer_character(
+    fn transfer_with_id(
         &self,
         ch: &mut PlayerChannel,
+        transfer_id: Uuid,
+        owned_session: bool,
         character_id: Uuid,
+        ruleset: &str,
         canonical_revision: u64,
         payload: &[u8],
         content_hash: [u8; 32],
         collections: BTreeMap<String, Vec<u32>>,
     ) -> R<RemoteTransferOutcome> {
-        let transfer_id = Uuid::now_v7();
         let content_hash_str = hex::encode(content_hash);
-        let offer = Request::TransferOffer {
-            transfer_id,
-            character_id,
-            canonical_revision,
-            content_hash: content_hash_str.clone(),
-            total_size: payload.len(),
-            collections,
+        let offer = if owned_session {
+            Request::OwnedTransferOffer {
+                transfer_id,
+                character_id,
+                ruleset: ruleset.to_string(),
+                canonical_revision,
+                content_hash: content_hash_str.clone(),
+                total_size: payload.len(),
+                collections,
+            }
+        } else {
+            Request::TransferOffer {
+                transfer_id,
+                character_id,
+                ruleset: ruleset.to_string(),
+                canonical_revision,
+                content_hash: content_hash_str.clone(),
+                total_size: payload.len(),
+                collections,
+            }
         };
         let r = ch.request(&offer)?;
         let mut offset = match r {
@@ -451,7 +471,21 @@ impl PlayerControl {
                     notes,
                 });
             }
-            Response::Error { code, message } => return Err(ControlFail::App { code, message }),
+            Response::Error { code, message } => {
+                if owned_session
+                    && matches!(
+                        code,
+                        AppError::Incompatible
+                            | AppError::NotYours
+                            | AppError::AlreadyClaimed
+                            | AppError::Invalid
+                    )
+                {
+                    self.store()?
+                        .player_remote_session_remove(character_id, transfer_id)?;
+                }
+                return Err(ControlFail::App { code, message });
+            }
             _ => {
                 return Err(ControlFail::Link(LinkError::Protocol(
                     "unexpected response to transfer offer".into(),

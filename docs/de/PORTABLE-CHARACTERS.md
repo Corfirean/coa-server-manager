@@ -45,3 +45,9 @@ Auf Realms mit einer niedrigeren Höchststufe kann dein Charakter vorübergehend
 Unter **Gespeicherte Versionen (Saved versions)** siehst du, wann dein Fortschritt gespeichert wurde. Bei einem Konflikt lies zuerst die Erklärung des Managers. Spiele nicht mit zwei Kopien gleichzeitig und behalte zusätzlich normale Serversicherungen.
 
 [Alle Anleitungen](README.md)
+
+## Portable Charaktere und Relay
+
+Aktiviere in der Karte zur öffentlichen Realmliste „Portable Charaktere auf diesem Realm erlauben“ und speichere. Ohne Zustimmung des Betreibers bleibt der Zugang gesperrt. Ausschalten verhindert neue Exporte und Importe, löscht aber keine gespeicherten Charaktere. Der Manager des Betreibers muss laufen. Steuerverbindung und Spiel-Relay haben getrennte Statusanzeigen; eine Steuerverbindung allein ist noch kein Spieltunnel. Charaktere bleiben in ihrem ursprünglichen Spielmodus: CoA, Wildcard oder Warcraft Reborn.
+
+Lass beide Manager laufen. Nach Verbindungsabbrüchen oder Neustarts wird ausstehender Fortschritt weiter gespeichert; auch spätere Anmeldungen werden überwacht. Warte vor dem Realmwechsel auf den Abschluss. Eigene installierte Server nutzen die lokale Vorbereitung und Wiederherstellung. Experimentelle Einschränkung: Eine ältere Kopie bei einem anderen Host lässt sich auf dessen laufendem Worldserver noch nicht automatisch aktualisieren. Die Rückkehr kann Wartungsarbeiten des Hosts erfordern. Die alte Kopie wird blockiert, dein kanonischer Charakter bleibt gespeichert. Lösche den Charakter nicht und installiere den Server nicht neu, um die Meldung zu umgehen.

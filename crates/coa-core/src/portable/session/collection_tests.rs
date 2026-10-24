@@ -7,7 +7,7 @@ use super::*;
 use crate::portable::collection::IdSet;
 use crate::portable::fixtures::geared_level_eighty;
 use crate::portable::ids::{CharacterId, SessionId};
-use crate::portable::model::PortableCharacter;
+use crate::portable::model::{PortableCharacter, Ruleset};
 use crate::portable::realm::knowledge::RealmKnowledge;
 use crate::portable::store::Store;
 
@@ -328,10 +328,10 @@ fn a_realm_that_lacks_an_unlock_never_removes_it_and_gets_what_it_knows_back() {
     // the Owner already holds a big wardrobe from other realms
     let profile = owner.default_profile().unwrap();
     owner
-        .merge_collection(profile, APPEARANCE, &ids(1..=500))
+        .merge_collection(profile, Ruleset::Coa, APPEARANCE, &ids(1..=500))
         .unwrap();
     owner
-        .merge_collection(profile, VANITY, &ids(1000..=1010))
+        .merge_collection(profile, Ruleset::Coa, VANITY, &ids(1000..=1010))
         .unwrap();
     // this realm knows only part of it and holds only a few
     realm.knowledge = knows(ids(1..=300), ids(1000..=1005));
@@ -344,7 +344,11 @@ fn a_realm_that_lacks_an_unlock_never_removes_it_and_gets_what_it_knows_back() {
     // the Owner unioned the realm's ids (700 included: the realm showed it) and kept everything else
     let appearance_ack = acks.iter().find(|a| a.kind == APPEARANCE).unwrap();
     assert_eq!(appearance_ack.outcome, CollectionOutcome::Applied);
-    let (_, canonical) = o.store().collection(profile, APPEARANCE).unwrap().unwrap();
+    let (_, canonical) = o
+        .store()
+        .collection(profile, Ruleset::Coa, APPEARANCE)
+        .unwrap()
+        .unwrap();
     assert_eq!(canonical.len(), 501);
     assert!(
         canonical.contains(700) && canonical.contains(1) && canonical.contains(500),
@@ -371,12 +375,14 @@ fn an_account_with_unlocks_arrives_on_a_second_realm_from_the_owners_state_alone
     let mut owner = Store::open_in_memory().unwrap();
     let profile = owner.default_profile().unwrap();
     owner
-        .merge_collection(profile, APPEARANCE, &ids(1..=40))
+        .merge_collection(profile, Ruleset::Coa, APPEARANCE, &ids(1..=40))
         .unwrap();
     owner
-        .merge_collection(profile, VANITY, &ids(50..=60))
+        .merge_collection(profile, Ruleset::Coa, VANITY, &ids(50..=60))
         .unwrap();
-    let states = OwnerService::new(&mut owner).collection_states().unwrap();
+    let states = OwnerService::new(&mut owner)
+        .collection_states(Ruleset::Coa)
+        .unwrap();
     assert_eq!(states.len(), 2);
 
     let mut host = Store::open_in_memory().unwrap();
@@ -415,16 +421,17 @@ fn hostile_or_broken_collection_messages_change_nothing() {
     let mut owner = Store::open_in_memory().unwrap();
     let profile = owner.default_profile().unwrap();
     let mut o = OwnerService::new(&mut owner);
-    let good =
-        collection_to_json(&CollectionObserved::new(SERVER, APPEARANCE, &ids(1..=10)).unwrap())
-            .unwrap();
+    let good = collection_to_json(
+        &CollectionObserved::new(SERVER, Ruleset::Coa, APPEARANCE, &ids(1..=10)).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         o.handle_collection(&good).unwrap().outcome,
         CollectionOutcome::Applied
     );
     let state_of = |o: &OwnerService| {
         o.store()
-            .collection_info(profile, APPEARANCE)
+            .collection_info(profile, Ruleset::Coa, APPEARANCE)
             .unwrap()
             .unwrap()
     };
@@ -487,13 +494,39 @@ fn hostile_or_broken_collection_messages_change_nothing() {
     // a set that decodes to more ids than the cap allows is refused before it is built
     let mut huge = vec![1u8];
     huge.extend([0xFF, 0xFF, 0xFF, 0xFF, 0x0F]);
-    let message = serde_json::json!({"protocol_version": PROTOCOL_VERSION, "server_id": SERVER, "kind": APPEARANCE, "set": {"hash": "00".repeat(32), "count": 1, "ids": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, huge)}});
+    let message = serde_json::json!({"protocol_version": COLLECTION_PROTOCOL_VERSION, "ruleset": "coa", "server_id": SERVER, "kind": APPEARANCE, "set": {"hash": "00".repeat(32), "count": 1, "ids": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, huge)}});
     assert!(matches!(
         o.handle_collection(&serde_json::to_vec(&message).unwrap())
             .unwrap()
             .outcome,
         CollectionOutcome::Rejected(_)
     ));
+
+    // attack test: prefix-confusion collection kinds are strictly rejected with zero state change
+    for evil_kind in [
+        "coax:appearance",
+        "coaevil:vanity",
+        "wildcard2:appearance",
+        "reborn-extra:vanity",
+        "coa:",
+        "unknown",
+        "coa:appearance:extra",
+    ] {
+        let mut v: serde_json::Value = serde_json::from_slice(&good).unwrap();
+        v["kind"] = evil_kind.into();
+        let ack = o
+            .handle_collection(&serde_json::to_vec(&v).unwrap())
+            .unwrap();
+        assert!(
+            matches!(ack.outcome, CollectionOutcome::Rejected(_)),
+            "evil kind {evil_kind} must be rejected"
+        );
+    }
+    assert_eq!(
+        state_of(&o),
+        before,
+        "prefix confusion attacks must mutate nothing"
+    );
 }
 
 #[test]
@@ -555,7 +588,7 @@ fn ten_thousand_and_fifty_thousand_ids_stay_cheap() {
         assert_eq!(realm.full_reads, reads);
         let stored = o
             .store()
-            .collection_info(profile, APPEARANCE)
+            .collection_info(profile, Ruleset::Coa, APPEARANCE)
             .unwrap()
             .unwrap();
         assert_eq!(stored.count, count as usize);
@@ -565,7 +598,7 @@ fn ten_thousand_and_fifty_thousand_ids_stay_cheap() {
         let mut empty_realm = FakeRealm::new(GUID);
         empty_realm.knowledge = realm.knowledge.clone();
         let state = o
-            .collection_states()
+            .collection_states(Ruleset::Coa)
             .unwrap()
             .into_iter()
             .find(|s| s.kind == APPEARANCE)
@@ -627,7 +660,7 @@ fn a_lost_acknowledgement_resends_the_same_set_and_the_owner_counts_it_once() {
         .any(|p| p.kind == APPEARANCE));
     assert_eq!(
         o.store()
-            .collection_info(profile, APPEARANCE)
+            .collection_info(profile, Ruleset::Coa, APPEARANCE)
             .unwrap()
             .unwrap()
             .revision,
@@ -737,4 +770,103 @@ fn a_session_that_changes_nothing_on_a_format_1_store_makes_no_new_revision() {
         before,
         "the same character in a newer format is not a change"
     );
+}
+
+#[test]
+fn wildcard_and_coa_collections_remain_strictly_isolated() {
+    let mut owner = Store::open_in_memory().unwrap();
+    let profile = owner.default_profile().unwrap();
+
+    let coa_set = IdSet::from_ids([10, 20, 30]).unwrap();
+    let wc_set = IdSet::from_ids([10, 40, 50]).unwrap();
+
+    owner
+        .merge_collection(profile, Ruleset::Coa, "coa:appearance", &coa_set)
+        .unwrap();
+    owner
+        .merge_collection(profile, Ruleset::Wildcard, "wildcard:appearance", &wc_set)
+        .unwrap();
+
+    // Verify initial namespaces
+    let (_, s_coa) = owner
+        .collection(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(s_coa.ids(), &[10, 20, 30]);
+
+    let (_, s_wc) = owner
+        .collection(profile, Ruleset::Wildcard, "wildcard:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(s_wc.ids(), &[10, 40, 50]);
+
+    let mut o = OwnerService::new(&mut owner);
+
+    // 1. Valid Wildcard observation updates Wildcard collection only
+    let wc_update = IdSet::from_ids([10, 40, 50, 60]).unwrap();
+    let msg_wc = CollectionObserved {
+        protocol_version: COLLECTION_PROTOCOL_VERSION,
+        ruleset: Ruleset::Wildcard,
+        server_id: "wc-realm".into(),
+        kind: "wildcard:appearance".into(),
+        set: CompactSet::seal("wildcard:appearance", &wc_update).unwrap(),
+    };
+    let ack = o.handle_collection(&to_json(&msg_wc).unwrap()).unwrap();
+    assert!(matches!(
+        ack.outcome,
+        CollectionOutcome::Applied | CollectionOutcome::Unchanged
+    ));
+
+    // CoA remains exactly [10, 20, 30]
+    let (_, s_coa_after) = o
+        .store()
+        .collection(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(s_coa_after.ids(), &[10, 20, 30]);
+
+    // Wildcard updated to [10, 40, 50, 60]
+    let (_, s_wc_after) = o
+        .store()
+        .collection(profile, Ruleset::Wildcard, "wildcard:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(s_wc_after.ids(), &[10, 40, 50, 60]);
+
+    // 2. Cross-ruleset injection attack: Wildcard message carrying coa:appearance is rejected
+    let rogue_wc = CollectionObserved {
+        protocol_version: COLLECTION_PROTOCOL_VERSION,
+        ruleset: Ruleset::Wildcard,
+        server_id: "wc-realm".into(),
+        kind: "coa:appearance".into(),
+        set: CompactSet::seal("coa:appearance", &IdSet::from_ids([999]).unwrap()).unwrap(),
+    };
+    let ack_rogue = o.handle_collection(&to_json(&rogue_wc).unwrap()).unwrap();
+    assert!(matches!(ack_rogue.outcome, CollectionOutcome::Rejected(_)));
+
+    // 3. Cross-ruleset injection attack: CoA message carrying wildcard:appearance is rejected
+    let rogue_coa = CollectionObserved {
+        protocol_version: COLLECTION_PROTOCOL_VERSION,
+        ruleset: Ruleset::Coa,
+        server_id: "coa-realm".into(),
+        kind: "wildcard:appearance".into(),
+        set: CompactSet::seal("wildcard:appearance", &IdSet::from_ids([999]).unwrap()).unwrap(),
+    };
+    let ack_rogue2 = o.handle_collection(&to_json(&rogue_coa).unwrap()).unwrap();
+    assert!(matches!(ack_rogue2.outcome, CollectionOutcome::Rejected(_)));
+
+    // Verify neither 999 touched CoA or Wildcard
+    let (_, s_coa_final) = o
+        .store()
+        .collection(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(s_coa_final.ids(), &[10, 20, 30]);
+
+    let (_, s_wc_final) = o
+        .store()
+        .collection(profile, Ruleset::Wildcard, "wildcard:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(s_wc_final.ids(), &[10, 40, 50, 60]);
 }

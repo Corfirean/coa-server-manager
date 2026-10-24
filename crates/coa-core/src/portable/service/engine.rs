@@ -31,6 +31,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::Db;
 use crate::ra::Ra;
 
+mod remote_sync;
+
 use super::super::capabilities::RealmCapabilities;
 use super::super::compat::{self, CompatibilityReport, Inputs, Operation, Outcome, Topic};
 use super::super::error::PortableError;
@@ -136,6 +138,7 @@ struct Saved {
 #[derive(Debug, Clone)]
 pub struct ClaimBundle {
     pub character_id: CharacterId,
+    pub ruleset: super::super::model::Ruleset,
     pub payload: Vec<u8>,
     pub content_hash: [u8; 32],
     pub collections: BTreeMap<String, Vec<u32>>,
@@ -181,6 +184,16 @@ pub fn class_name(class: &str) -> String {
         .and_then(|n| n.parse().ok())
         .unwrap_or(0);
     match id {
+        1 => "Warrior",
+        2 => "Paladin",
+        3 => "Hunter",
+        4 => "Rogue",
+        5 => "Priest",
+        6 => "Death Knight",
+        7 => "Shaman",
+        8 => "Mage",
+        9 => "Warlock",
+        11 => "Druid",
         12 => "Barbarian",
         13 => "Witch Doctor",
         14 => "Felsworn",
@@ -363,11 +376,26 @@ impl PortableService {
     pub fn reload_realms(&mut self) {
         let (descriptors, broken) = access::load_descriptors(&self.dir.join("realms"));
         self.broken_descriptors = broken;
-        let mut realms: Vec<RealmAccess> = self
-            .installs
-            .iter()
-            .map(|(id, root)| RealmAccess::from_install(id, root))
-            .collect();
+        let mut realms: Vec<RealmAccess> = Vec::new();
+        for (id, root) in &self.installs {
+            realms.push(RealmAccess::from_install(id, root));
+            if let Ok(state) = crate::realms::state(root) {
+                if state.wildcard_created {
+                    let mut wc = RealmAccess::from_install(id, root);
+                    wc.id = format!("srv-{id}:wildcard");
+                    wc.name = format!("{} — Wildcard", wc.name);
+                    wc.mode = Some(crate::realms::Mode::Wildcard);
+                    realms.push(wc);
+                }
+                if state.reborn_created {
+                    let mut rb = RealmAccess::from_install(id, root);
+                    rb.id = format!("srv-{id}:reborn");
+                    rb.name = format!("{} — Warcraft Reborn", rb.name);
+                    rb.mode = Some(crate::realms::Mode::Reborn);
+                    realms.push(rb);
+                }
+            }
+        }
         for d in descriptors {
             match RealmAccess::from_descriptor(d) {
                 Ok(a) if !realms.iter().any(|r| r.id == a.id) => realms.push(a),
@@ -414,10 +442,10 @@ impl PortableService {
     }
 
     fn access(&self, id: &str) -> Res<RealmAccess> {
-        self.realms
-            .iter()
-            .find(|r| r.id == id)
-            .cloned()
+        if let Some(r) = self.realms.iter().find(|r| r.id == id) {
+            return Ok(r.clone());
+        }
+        crate::realm_registry::advert::find_access(&self.dir.join("realms"), &self.installs, id)
             .ok_or_else(|| fail("realm_missing", "That realm is not known to this Manager."))
     }
 
@@ -703,6 +731,12 @@ impl PortableService {
                     updated_at: at,
                 });
             }
+            let remote_active = self
+                .owner
+                .owner_active_remote(c.character_id)
+                .ok()
+                .flatten()
+                .is_some();
             let active = copies
                 .iter()
                 .find(|x| {
@@ -715,9 +749,9 @@ impl PortableService {
                     )
                 })
                 .cloned();
-            let status = active
-                .as_ref()
-                .map(|a| a.status)
+            let status = remote_active
+                .then_some(PlayStatus::Syncing)
+                .or_else(|| active.as_ref().map(|a| a.status))
                 .or_else(|| {
                     copies
                         .iter()
@@ -728,6 +762,7 @@ impl PortableService {
             characters.push(CharacterView {
                 id: c.character_id.to_string(),
                 name: c.name,
+                ruleset: c.ruleset,
                 class_name: class_name(&c.class),
                 race: c.race,
                 level: c.level,
@@ -1291,6 +1326,11 @@ impl PortableService {
         if events.is_ok() {
             delivery = (|| {
                 for m in host.outbox()? {
+                    if self.owner.owner_session_realm(m.session_id)?.as_deref()
+                        != Some(access.id.as_str())
+                    {
+                        continue; // The remote Owner must acknowledge its own baseline and checkpoints.
+                    }
                     let mut owner = OwnerService::new(&mut self.owner);
                     let ack: OwnerAck = if m.started {
                         owner.handle_started(&m.bytes)?
@@ -1304,6 +1344,25 @@ impl PortableService {
                     }
                 }
                 for m in host.collection_outbox()? {
+                    let local_owner =
+                        host.store()
+                            .host_live_sessions(&access.id)?
+                            .iter()
+                            .any(|session| {
+                                session.local_guid.is_some_and(|guid| {
+                                    realm::collections::account_of(&db, guid).ok().flatten()
+                                        == Some(m.account)
+                                }) && self
+                                    .owner
+                                    .owner_session_realm(session.session_id)
+                                    .ok()
+                                    .flatten()
+                                    .as_deref()
+                                    == Some(access.id.as_str())
+                            });
+                    if !local_owner {
+                        continue;
+                    }
                     let ack = OwnerService::new(&mut self.owner).handle_collection(&m.bytes)?;
                     host.receive_collection_ack(&mut bridge, m.account, &ack)?;
                 }
@@ -1356,6 +1415,7 @@ impl PortableService {
             .map_err(|e| fail("realm_offline", e.to_string()))?;
         let list =
             realm::inspect_characters(&db).map_err(|e| fail("realm_offline", e.to_string()))?;
+        let realm_ruleset = realm::ruleset_of(&db)?;
         let mut out = Vec::new();
         for c in list {
             if self.host.find_by_local(realm_id, c.local_guid)?.is_some() {
@@ -1364,7 +1424,7 @@ impl PortableService {
             out.push(LocalCharacterView {
                 token: c.local_guid,
                 name: c.name.clone(),
-                class_name: class_name(&format!("coa:class:{}", c.class)),
+                class_name: class_name(&format!("{}:class:{}", realm_ruleset.as_str(), c.class)),
                 level: c.level,
                 account: c.username.clone().unwrap_or_default(),
                 eligible: c.eligible(),
@@ -1438,18 +1498,18 @@ impl PortableService {
         let model = self.host.load_current(character_id)?;
         let encoded = super::super::snapshot::encode(&model)?;
         let mut collections = BTreeMap::new();
-        if realm::ruleset_of(&db)? == super::super::model::Ruleset::Coa {
-            if let Some(account) = realm::collections::account_of(&db, local_guid)? {
-                for kind in ["coa:appearance", "coa:vanity"] {
-                    if let Ok(set) = realm::collections::read_set(&db, account, kind) {
-                        collections.insert(kind.to_string(), set.ids().to_vec());
-                    }
+        let realm_ruleset = realm::ruleset_of(&db)?;
+        if let Some(account) = realm::collections::account_of(&db, local_guid)? {
+            for kind in super::super::session::protocol::collection_kinds(realm_ruleset) {
+                if let Ok(set) = realm::collections::read_set(&db, account, kind) {
+                    collections.insert(kind.to_string(), set.ids().to_vec());
                 }
             }
         }
         self.publish();
         Ok(ClaimBundle {
             character_id,
+            ruleset: model.ruleset,
             payload: encoded.payload,
             content_hash: encoded.content_hash,
             collections,
@@ -1473,17 +1533,25 @@ impl PortableService {
                 "The character data does not belong to the character that was claimed.",
             ));
         }
+        let ruleset = model.ruleset;
+        for kind in collections.keys() {
+            if !super::super::session::protocol::carried_kind_for(kind, ruleset) {
+                return Err(fail(
+                    "incompatible",
+                    format!("Foreign collection kind {kind:?} in {ruleset} claim"),
+                ));
+            }
+        }
         if self.owner.character(character_id).is_err() {
             self.owner
                 .create_character_with_id(self.owner_profile, model, realm_id)?;
         }
         for (kind, ids) in collections {
-            if !matches!(kind.as_str(), "coa:appearance" | "coa:vanity") {
-                continue;
+            if super::super::session::protocol::carried_kind_for(kind, ruleset) {
+                let set = super::super::collection::IdSet::from_ids(ids.iter().copied())?;
+                self.owner
+                    .merge_collection(self.owner_profile, ruleset, kind, &set)?;
             }
-            let set = super::super::collection::IdSet::from_ids(ids.iter().copied())?;
-            self.owner
-                .merge_collection(self.owner_profile, kind, &set)?;
         }
         self.publish();
         self.state()
@@ -1499,13 +1567,17 @@ impl PortableService {
         let model = self.owner.load_current(cid)?;
         let encoded = super::super::snapshot::encode(&model)?;
         let mut collections = BTreeMap::new();
-        for kind in ["coa:appearance", "coa:vanity"] {
-            if let Ok(Some((_, set))) = self.owner.collection(self.owner_profile, kind) {
+        for kind in super::super::session::protocol::collection_kinds(model.ruleset) {
+            if let Ok(Some((_, set))) =
+                self.owner
+                    .collection(self.owner_profile, model.ruleset, kind)
+            {
                 collections.insert(kind.to_string(), set.ids().to_vec());
             }
         }
         Ok(ClaimBundle {
             character_id: cid,
+            ruleset: model.ruleset,
             payload: encoded.payload,
             content_hash: encoded.content_hash,
             collections,
@@ -1591,6 +1663,21 @@ impl PortableService {
         let opts = self.options(&access, &caps);
 
         // Preflight compatibility check before ANY mutation
+        let db_ruleset = super::super::realm::ruleset_of(&db)?;
+        if model.ruleset != db_ruleset {
+            return Err(fail(
+                "incompatible",
+                "Character ruleset does not match realm database ruleset.",
+            ));
+        }
+        let caps_ruleset: crate::portable::model::Ruleset = caps.content.ruleset;
+        if model.ruleset != caps_ruleset {
+            return Err(fail(
+                "incompatible",
+                "Character ruleset does not match realm capability ruleset.",
+            ));
+        }
+
         let ops = [Operation::OnlineImport, Operation::RuntimeSession];
         let report = self.report(&model, &caps, &opts, &ops, true);
         if verdict_of(report.verdict()) == Verdict::Incompatible {
@@ -1600,31 +1687,49 @@ impl PortableService {
             ));
         }
 
-        // Install or advance copy in host store
-        self.host
-            .host_install_copy(self.host_profile, &model, params.revision, "remote")?;
-
-        // Monotonic union of collections
-        for (kind, ids) in &params.collections {
-            if matches!(kind.as_str(), "coa:appearance" | "coa:vanity") {
-                if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
-                    let _ = self.host.merge_collection(self.host_profile, kind, &set);
-                }
-            }
-        }
-
         let existing_mapping = self
             .host
             .server_mappings(cid)?
             .into_iter()
             .find(|m| m.server_id == realm_id);
 
-        let session_id = SessionId::new();
+        // A live realm must never arm stale data as a new canonical revision.
+        if existing_mapping
+            .as_ref()
+            .is_some_and(|mapping| mapping.last_revision != params.revision)
+        {
+            return Err(fail("update_required", "The realm's existing copy needs an offline refresh by its owner before this revision can be played. Your canonical character is unchanged."));
+        }
+
+        // Install or advance copy in host store
+        self.host
+            .host_install_copy(self.host_profile, &model, params.revision, "remote")?;
+
+        // Monotonic union of collections
+        for (kind, ids) in &params.collections {
+            if !super::super::session::protocol::carried_kind_for(kind, model.ruleset) {
+                return Err(fail(
+                    "incompatible",
+                    format!(
+                        "Foreign collection kind {kind:?} in {} remote transfer",
+                        model.ruleset
+                    ),
+                ));
+            }
+            if let Ok(set) = super::super::collection::IdSet::from_ids(ids.iter().copied()) {
+                let _ = self
+                    .host
+                    .merge_collection(self.host_profile, model.ruleset, kind, &set);
+            }
+        }
+
+        let session_id = SessionId::from_uuid(params.session_id)?;
         let envelope = super::super::session::protocol::Envelope::from_encoded(
             &super::super::snapshot::encode(&model)?,
         );
         let offer = super::super::session::protocol::SessionOffer {
             protocol_version: super::super::session::protocol::PROTOCOL_VERSION,
+            ruleset: model.ruleset,
             session_id,
             character_id: cid,
             server_id: realm_id.to_string(),

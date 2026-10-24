@@ -55,7 +55,7 @@ pub fn ruleset_of(db: &Db) -> Result<Ruleset> {
     match db.realm() {
         Mode::Coa => Ok(Ruleset::Coa),
         Mode::Wildcard => Ok(Ruleset::Wildcard),
-        Mode::Reborn => Err(PortableError::Invalid("Portable characters are not supported on Warcraft Reborn realms yet.".into())),
+        Mode::Reborn => Ok(Ruleset::Reborn),
     }
 }
 

@@ -61,8 +61,16 @@ pub fn lines_from_text(text: &str, filter: Option<&str>, max_lines: usize) -> Ve
     let out: Vec<Line> = text
         .lines()
         .filter(|l| !l.trim().is_empty())
-        .filter(|l| needle.as_ref().map(|n| l.to_lowercase().contains(n)).unwrap_or(true))
-        .map(|l| Line { level: classify(l), text: crate::diag::redact(l) })
+        .filter(|l| {
+            needle
+                .as_ref()
+                .map(|n| l.to_lowercase().contains(n))
+                .unwrap_or(true)
+        })
+        .map(|l| Line {
+            level: classify(l),
+            text: crate::diag::redact(l),
+        })
         .collect();
     let skip = out.len().saturating_sub(max_lines);
     out.into_iter().skip(skip).collect()

@@ -72,6 +72,9 @@ pub(crate) fn start(
             None
         }
     };
+    if let (Some(player), Some(portable)) = (&player, &portable) {
+        PlayerControl::start_remote_session_sync(player, portable);
+    }
     let host = portable.and_then(|portable| {
         let store = match ControlStore::open(&base.join("host")) {
             Ok(s) => Arc::new(Mutex::new(s)),
@@ -172,6 +175,7 @@ pub(crate) async fn registry_set_access(
     state: State<'_, AppState>,
     local_id: String,
     existing_only: bool,
+    allow_portable: bool,
     route: Option<String>,
 ) -> Result<(), ServiceError> {
     let rt = state
@@ -179,7 +183,7 @@ pub(crate) async fn registry_set_access(
         .clone()
         .ok_or_else(|| fail("stopped", "the publishing service did not start"))?;
     tauri::async_runtime::spawn_blocking(move || {
-        rt.set_access(&local_id, existing_only, route.as_deref())
+        rt.set_access(&local_id, existing_only, allow_portable, route.as_deref())
             .map_err(|e| fail("invalid", e.to_string()))
     })
     .await
@@ -279,18 +283,65 @@ pub(crate) async fn join_realm(
                     out.status = "incompatible".into();
                     return Ok(out);
                 }
-                let here = pc_bg.claimed_here(&rid_bg).map_err(from_control)?;
-                if !here.iter().any(|(id, _)| id.to_string() == character) {
-                    // Phase 12.1: Transfer canonical character to remote Host over the encrypted control channel
+                let owned_realm =
+                    coa_core::realm_registry::settings::load(&data_dir().join("registry"))
+                        .map_err(|e| fail("registry", e.to_string()))?
+                        .realms
+                        .into_iter()
+                        .find(|(_, cfg)| cfg.enabled && cfg.realm_id == Some(rid_bg))
+                        .map(|(local_id, _)| local_id);
+                if let Some(local_id) = owned_realm {
+                    if let Some(pending) = pc_bg
+                        .pending_remote_sessions()
+                        .map_err(from_control)?
+                        .into_iter()
+                        .find(|pending| pending.character_id.to_string() == character)
+                    {
+                        pc_bg
+                            .leave_idle_remote_session(pending.character_id, &portable)
+                            .map_err(from_control)?;
+                    }
+                    let username = out.username.clone();
+                    portable.call(move |service| {
+                        service.play(&character, &local_id, username.as_deref())
+                    })??;
+                } else {
+                    if let Some(pending) = pc_bg
+                        .pending_remote_sessions()
+                        .map_err(from_control)?
+                        .into_iter()
+                        .find(|pending| {
+                            pending.character_id.to_string() == character
+                                && pending.realm_id != rid_bg.to_string()
+                        })
+                    {
+                        pc_bg
+                            .leave_idle_remote_session(pending.character_id, &portable)
+                            .map_err(from_control)?;
+                    }
                     let char_id_str = character.clone();
-                    let bundle =
-                        portable.call(move |s| s.export_for_remote_transfer(&char_id_str))??;
+                    let remote_realm = rid_bg.to_string();
+                    let (bundle, session, revision) = portable
+                        .call(move |s| s.prepare_remote_transfer(&char_id_str, &remote_realm))??;
+                    if bundle.ruleset.as_str() != detail.ruleset.as_str() {
+                        ch.close();
+                        return Err(fail(
+                            "incompatible",
+                            format!(
+                                "Character ruleset ({}) does not match target realm ruleset ({})",
+                                bundle.ruleset,
+                                detail.ruleset.as_str()
+                            ),
+                        ));
+                    }
                     let cuuid = bundle.character_id.as_uuid();
                     let _outcome = pc_bg
-                        .transfer_character(
+                        .transfer_owned_character(
                             &mut ch,
+                            session,
                             cuuid,
-                            1,
+                            bundle.ruleset.as_str(),
+                            revision,
                             &bundle.payload,
                             bundle.content_hash,
                             bundle.collections,
@@ -518,6 +569,10 @@ pub(crate) async fn join_claim(
             .map(|c| c.token)
             .unwrap_or(0);
         let claimed = pc.claim(&mut ch, token).map_err(from_control)?;
+        let claimed_ruleset: coa_core::portable::Ruleset = claimed
+            .ruleset
+            .parse()
+            .map_err(|e| fail("incompatible", format!("Invalid ruleset: {e}")))?;
         let server_id = format!("rr-{rid}");
         let cid = coa_core::portable::ids::CharacterId::from_uuid(claimed.character_id)
             .map_err(|e| fail("other", e.to_string()))?;
@@ -526,6 +581,25 @@ pub(crate) async fn join_claim(
             claimed.sha256,
             claimed.collections.clone(),
         );
+        let decoded = coa_core::portable::snapshot::decode(&payload, Some(&hash))
+            .map_err(|e| fail("invalid", format!("Corrupt claim snapshot: {e}")))?;
+        if decoded.ruleset != claimed_ruleset {
+            return Err(fail(
+                "incompatible",
+                format!(
+                    "Claimed ruleset mismatch: envelope={}, snapshot={}",
+                    claimed.ruleset, decoded.ruleset
+                ),
+            ));
+        }
+        for kind in claimed.collections.keys() {
+            if !coa_core::portable::session::protocol::carried_kind_for(kind, claimed_ruleset) {
+                return Err(fail(
+                    "incompatible",
+                    format!("Foreign collection kind {kind:?} in {claimed_ruleset} claim"),
+                ));
+            }
+        }
         let view = portable
             .call(move |s| s.adopt_claim(&server_id, cid, &payload, &hash, &collections))??;
         pc.acknowledge(&mut ch, claimed.character_id, &rid, &view.name)

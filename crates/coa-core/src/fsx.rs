@@ -36,7 +36,12 @@ fn key(path: &Path) -> Vec<String> {
                         return format!("{}:", char::from(drive).to_ascii_lowercase());
                     }
                     Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
-                        return format!("\\\\{}\\{}", server.to_string_lossy(), share.to_string_lossy()).to_lowercase();
+                        return format!(
+                            "\\\\{}\\{}",
+                            server.to_string_lossy(),
+                            share.to_string_lossy()
+                        )
+                        .to_lowercase();
                     }
                     _ => {}
                 }
@@ -337,12 +342,30 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn containment_matches_verbatim_drive_and_unc_prefixes() {
-        assert!(starts_with_ci(Path::new(r"\\?\C:\server\Extras\file.sql"), Path::new(r"C:\server")));
-        assert!(starts_with_ci(Path::new(r"C:\server\Extras\file.sql"), Path::new(r"\\?\c:\server")));
-        assert!(starts_with_ci(Path::new(r"\\?\UNC\host\share\server\file.sql"), Path::new(r"\\host\share\server")));
-        assert!(!starts_with_ci(Path::new(r"\\?\D:\server\file.sql"), Path::new(r"C:\server")));
-        assert!(!starts_with_ci(Path::new(r"\\?\C:\server-other\file.sql"), Path::new(r"C:\server")));
-        assert!(!starts_with_ci(Path::new(r"\\?\UNC\host\other\server\file.sql"), Path::new(r"\\host\share\server")));
+        assert!(starts_with_ci(
+            Path::new(r"\\?\C:\server\Extras\file.sql"),
+            Path::new(r"C:\server")
+        ));
+        assert!(starts_with_ci(
+            Path::new(r"C:\server\Extras\file.sql"),
+            Path::new(r"\\?\c:\server")
+        ));
+        assert!(starts_with_ci(
+            Path::new(r"\\?\UNC\host\share\server\file.sql"),
+            Path::new(r"\\host\share\server")
+        ));
+        assert!(!starts_with_ci(
+            Path::new(r"\\?\D:\server\file.sql"),
+            Path::new(r"C:\server")
+        ));
+        assert!(!starts_with_ci(
+            Path::new(r"\\?\C:\server-other\file.sql"),
+            Path::new(r"C:\server")
+        ));
+        assert!(!starts_with_ci(
+            Path::new(r"\\?\UNC\host\other\server\file.sql"),
+            Path::new(r"\\host\share\server")
+        ));
     }
 
     #[cfg(windows)]

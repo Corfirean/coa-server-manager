@@ -1029,6 +1029,12 @@ const en = {
   "portable.err.not_prepared": "Only a realm added from a file can be removed here.",
   "portable.err.launch": "The game could not be started. Check the client in Settings.",
   "portable.err.other": "Something went wrong. Nothing was lost.",
+  "portable.filter.none": "No characters match the selected game mode.",
+  "portable.filter.all": "All",
+  "browse.hidden_characters_one": "{n} character from other game modes is hidden",
+  "browse.hidden_characters_few": "{n} characters from other game modes are hidden",
+  "browse.hidden_characters_many": "{n} characters from other game modes are hidden",
+  "browse.hidden_characters_other": "{n} characters from other game modes are hidden",
   "portable.diag.title": "Diagnostics",
   "portable.diag.text": "A report for a bug report: realms, versions, sessions and recent problems. No passwords and no character data.",
   "portable.diag.copy": "Copy diagnostics",
@@ -1196,6 +1202,11 @@ const en = {
   "crash.hideRaw": "Hide full report",
   "crash.copyReport": "Copy crash report",
   "crash.copied": "Copied!",
+
+  "access.allowPortable": "Allow portable characters on this realm",
+  "access.relay": "Relay",
+  "access.relayUp": "Game relay connected",
+  "access.relayDown": "Game relay disconnected",
 } as const;
 
 export default en;

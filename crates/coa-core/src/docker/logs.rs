@@ -12,16 +12,28 @@ pub fn database_log(root: &Path, filter: Option<&str>, max_lines: usize) -> Resu
     database_log_with(&SystemDocker, root, filter, max_lines)
 }
 
-pub fn database_log_with(d: &dyn Docker, root: &Path, filter: Option<&str>, max_lines: usize) -> Result<Vec<Line>> {
+pub fn database_log_with(
+    d: &dyn Docker,
+    root: &Path,
+    filter: Option<&str>,
+    max_lines: usize,
+) -> Result<Vec<Line>> {
     let name = Config::load(root)?.names().db;
     // Ask for more than wanted: the filter may drop most of them.
     let tail = (max_lines * 4).clamp(200, 8000).to_string();
-    let out = d.run(&Call::new(&["logs", "--tail", &tail, &name], Duration::from_secs(20)))?;
+    let out = d.run(&Call::new(
+        &["logs", "--tail", &tail, &name],
+        Duration::from_secs(20),
+    ))?;
     if !out.ok() {
         return Err(Error::Invalid("This log does not exist yet.".into()));
     }
     // MySQL writes to the error stream.
-    Ok(crate::console::lines_from_text(&format!("{}\n{}", out.stderr, out.stdout), filter, max_lines))
+    Ok(crate::console::lines_from_text(
+        &format!("{}\n{}", out.stderr, out.stdout),
+        filter,
+        max_lines,
+    ))
 }
 
 #[cfg(test)]
@@ -58,7 +70,9 @@ mod tests {
         assert_eq!(fake.calls.borrow()[0][..2], ["logs", "--tail"]);
         assert_eq!(fake.calls.borrow()[0].last().unwrap(), "coa-t1-db");
         assert_eq!(lines.len(), 3);
-        assert!(lines.iter().any(|l| l.text.contains("boom") && l.level == crate::console::Level::Error));
+        assert!(lines
+            .iter()
+            .any(|l| l.text.contains("boom") && l.level == crate::console::Level::Error));
         let only = database_log_with(&fake, &root, Some("slow"), 100).unwrap();
         assert_eq!(only.len(), 1);
     }
@@ -66,7 +80,17 @@ mod tests {
     #[test]
     fn a_database_that_never_ran_has_no_log_yet() {
         let (_d, root) = root();
-        let fake = Fake { out: Output { code: Some(1), stdout: String::new(), stderr: "Error: No such container: coa-t1-db".into() }, calls: Default::default() };
-        assert!(database_log_with(&fake, &root, None, 10).unwrap_err().to_string().contains("does not exist yet"));
+        let fake = Fake {
+            out: Output {
+                code: Some(1),
+                stdout: String::new(),
+                stderr: "Error: No such container: coa-t1-db".into(),
+            },
+            calls: Default::default(),
+        };
+        assert!(database_log_with(&fake, &root, None, 10)
+            .unwrap_err()
+            .to_string()
+            .contains("does not exist yet"));
     }
 }

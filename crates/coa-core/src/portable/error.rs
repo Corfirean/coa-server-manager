@@ -64,6 +64,11 @@ pub enum PortableError {
     RealmRead(String),
     #[error("the realm database is a {found} realm but a {expected} character was requested")]
     WrongRealm { expected: String, found: String },
+    #[error("ruleset mismatch: character has {character:?}, realm expects {realm:?}")]
+    RulesetMismatch {
+        character: super::model::Ruleset,
+        realm: super::model::Ruleset,
+    },
 
     #[error("character {character} is already on server {server_id}")]
     AlreadyOnRealm {

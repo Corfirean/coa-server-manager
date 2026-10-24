@@ -890,7 +890,12 @@ const zh = {
   "crash.hideRaw": "隐藏完整日志",
   "crash.copyReport": "复制崩溃报告",
   "crash.copied": "已复制！",
-  // Server browser and portable-character screens.
+  "portable.filter.none": "没有符合所选游戏模式的角色。",
+  "portable.filter.all": "全部",
+  "browse.hidden_characters_one": "已隐藏 {n} 个其他游戏模式的角色",
+  "browse.hidden_characters_few": "已隐藏 {n} 个其他游戏模式的角色",
+  "browse.hidden_characters_many": "已隐藏 {n} 个其他游戏模式的角色",
+  "browse.hidden_characters_other": "已隐藏 {n} 个其他游戏模式的角色",
   "nav.servers": "服务器",
   "nav.characters": "角色",
   "portable.title": "角色",
@@ -987,11 +992,12 @@ const zh = {
   "join.chars.make": "保存为便携角色",
   "join.chars.done": "{name} 已保存为便携角色（版本 {revision}）。",
   "access.save": "保存",
-
   "fr.tab.servers": "公开服务器",
-
   "fr.tab.lan": "局域网与直连",
-
+  "access.allowPortable": "允许便携角色进入此服务器",
+  "access.relay": "Relay",
+  "access.relayUp": "游戏中继已连接",
+  "access.relayDown": "游戏中继未连接",
 } as const;
 
 export default zh;

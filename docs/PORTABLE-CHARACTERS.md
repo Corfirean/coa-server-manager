@@ -4,7 +4,16 @@
 
 **Portable characters are experimental.** The feature is in active development and may contain bugs.
 
-Portable characters let you keep a saved character in the Manager and play it on compatible CoA realms.
+Portable characters let you keep a saved character in the Manager and play it on compatible realms (Conquest of Azeroth and Wildcard).
+
+## Multi-Ruleset Isolation Invariant
+
+Portable characters are strictly isolated by gameplay ruleset (`coa`, `wildcard`, `reborn`):
+- A character created or claimed on a **Conquest of Azeroth** realm is a CoA character and can only ever be played on CoA realms.
+- A character created or claimed on a **Wildcard** realm is a Wildcard character and can only ever be played on Wildcard realms.
+- A character created or claimed on a **Warcraft Reborn** realm can only ever be played on Reborn realms.
+
+Cross-ruleset transfers, imports, joins, sessions, and collection merges are impossible: the Manager strictly rejects any mismatched request at every protocol, session, and database boundary with zero mutation to your characters or servers.
 
 ## Make your first character portable
 
@@ -45,3 +54,9 @@ A realm with a lower level cap may play your character at a lower level. Check t
 Use **Saved versions** to see when progress was saved. If the Manager reports a conflict, follow its explanation before continuing. Avoid playing two copies at once, and keep normal server backups as well.
 
 [All guides](README.md)
+
+## Portable access and relay
+
+In the realm's Public list card, enable “Allow portable characters on this realm” and save. It is off until the owner opts in. Turning it off blocks new exports and imports; it does not delete saved characters. Keep the host Manager running. The control connection and game relay have separate status indicators: a connected control channel does not establish a game tunnel. Characters stay within their original ruleset (CoA, Wildcard or Warcraft Reborn); changing servers does not convert their ruleset.
+
+Keep both Managers running. Saving resumes after reconnecting or restarting, and later logins stay monitored. Wait for saving before switching realms. Your installed servers use local preparation and recovery. Experimental limitation: an older existing copy on another host cannot yet be refreshed automatically while its worldserver runs. Returning may require host maintenance. The stale copy is blocked and your canonical character stays saved. Do not delete the character or reinstall the server to bypass this message.

@@ -56,58 +56,104 @@ fn run() -> Result<(), String> {
         .unwrap_or(DEFAULT_PART_SIZE);
     match cmd.as_str() {
         "plan-update" => {
-            let mut meta = coa_core::registry::InstallMeta::new(coa_core::registry::InstallKind::New, std::path::Path::new("unused"));
+            let mut meta = coa_core::registry::InstallMeta::new(
+                coa_core::registry::InstallKind::New,
+                std::path::Path::new("unused"),
+            );
             meta.core.version = Some(need(&a, "from")?.clone());
-            let selection = coa_core::update_route::select(&meta, coa_core::pkgsource::Source::Url(need(&a, "source")?.clone()), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
-            let (manifest, _) = coa_core::pkgsource::fetch_manifest(&selection.source, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
-            println!("{}", serde_json::json!({"from":meta.core.version,"next":manifest.version,"latest":selection.latest_version}));
+            let selection = coa_core::update_route::select(
+                &meta,
+                coa_core::pkgsource::Source::Url(need(&a, "source")?.clone()),
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
+            let (manifest, _) = coa_core::pkgsource::fetch_manifest(
+                &selection.source,
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
+            println!(
+                "{}",
+                serde_json::json!({"from":meta.core.version,"next":manifest.version,"latest":selection.latest_version})
+            );
         }
         "verify-install" => {
             coa_core::release_schema::verify_install_package(
-                &PathBuf::from(need(&a, "dir")?), coa_core::signing::EMBEDDED_PUBLIC_KEY,
-            ).map_err(e)?;
+                &PathBuf::from(need(&a, "dir")?),
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
         }
         "compose-install" => {
             coa_core::release_schema::compose_install(
-                &PathBuf::from(need(&a, "base")?), &PathBuf::from(need(&a, "candidate")?),
-                &PathBuf::from(need(&a, "fixture")?), coa_core::signing::EMBEDDED_PUBLIC_KEY,
-            ).map_err(e)?;
+                &PathBuf::from(need(&a, "base")?),
+                &PathBuf::from(need(&a, "candidate")?),
+                &PathBuf::from(need(&a, "fixture")?),
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
         }
         "qualify-install" => {
             let report = coa_core::release_schema::qualify_install(
-                &PathBuf::from(need(&a, "package")?), &PathBuf::from(need(&a, "fixture")?),
+                &PathBuf::from(need(&a, "package")?),
+                &PathBuf::from(need(&a, "fixture")?),
                 coa_core::signing::EMBEDDED_PUBLIC_KEY,
-            ).map_err(e)?;
-            coa_core::fsx::atomic_write_json(&PathBuf::from(need(&a, "report")?), &report).map_err(e)?;
+            )
+            .map_err(e)?;
+            coa_core::fsx::atomic_write_json(&PathBuf::from(need(&a, "report")?), &report)
+                .map_err(e)?;
         }
         "qualify-upgrade" => {
             let report = coa_core::release_schema::qualify_upgrade(
-                &PathBuf::from(need(&a, "base")?), &PathBuf::from(need(&a, "source")?),
-                &PathBuf::from(need(&a, "candidate")?), &PathBuf::from(need(&a, "fixture")?),
+                &PathBuf::from(need(&a, "base")?),
+                &PathBuf::from(need(&a, "source")?),
+                &PathBuf::from(need(&a, "candidate")?),
+                &PathBuf::from(need(&a, "fixture")?),
                 coa_core::signing::EMBEDDED_PUBLIC_KEY,
-            ).map_err(e)?;
-            coa_core::fsx::atomic_write_json(&PathBuf::from(need(&a, "report")?), &report).map_err(e)?;
+            )
+            .map_err(e)?;
+            coa_core::fsx::atomic_write_json(&PathBuf::from(need(&a, "report")?), &report)
+                .map_err(e)?;
             println!("Manager upgrade transaction passed isolated qualification");
         }
         "qualify-startup" => {
             coa_core::release_schema::validate_startup(
-                &PathBuf::from(need(&a, "fixture")?), &PathBuf::from(need(&a, "tree")?),
-                &PathBuf::from(need(&a, "base")?), coa_core::signing::EMBEDDED_PUBLIC_KEY,
-            ).map_err(e)?;
+                &PathBuf::from(need(&a, "fixture")?),
+                &PathBuf::from(need(&a, "tree")?),
+                &PathBuf::from(need(&a, "base")?),
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
             println!("authserver and worldserver passed isolated startup qualification");
         }
         "verify-channel" => {
             let bytes = std::fs::read(need(&a, "file")?).map_err(|x| x.to_string())?;
-            let pointer = coa_core::channels::verify(&bytes, need(&a, "channel")?, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
-            println!("{}", serde_json::to_string(&pointer).map_err(|x| x.to_string())?);
+            let pointer = coa_core::channels::verify(
+                &bytes,
+                need(&a, "channel")?,
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
+            println!(
+                "{}",
+                serde_json::to_string(&pointer).map_err(|x| x.to_string())?
+            );
         }
         "verify-manifest" => {
             let source = coa_core::pkgsource::Source::Dir(PathBuf::from(need(&a, "dir")?));
-            let (manifest, _) = coa_core::pkgsource::fetch_manifest(&source, coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            let (manifest, _) = coa_core::pkgsource::fetch_manifest(
+                &source,
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
             println!("verified signed manifest {}", manifest.version);
         }
         "verify-upgrade-fixture" => {
-            coa_core::release_schema::verify_upgrade_fixture(&PathBuf::from(need(&a, "dir")?), coa_core::signing::EMBEDDED_PUBLIC_KEY).map_err(e)?;
+            coa_core::release_schema::verify_upgrade_fixture(
+                &PathBuf::from(need(&a, "dir")?),
+                coa_core::signing::EMBEDDED_PUBLIC_KEY,
+            )
+            .map_err(e)?;
             println!("verified signed upgrade fixture and every archive file");
         }
         "extract-schema-base" => {
@@ -252,7 +298,8 @@ fn run() -> Result<(), String> {
         }
         "sign-channel" => {
             let pointer = coa_core::channels::Pointer {
-                schema: 1, channel: need(&a, "channel")?.clone(),
+                schema: 1,
+                channel: need(&a, "channel")?.clone(),
                 version: need(&a, "version")?.clone(),
                 release_tag: format!("server-{}", need(&a, "version")?),
                 snapshot: need(&a, "snapshot")?.clone(),
