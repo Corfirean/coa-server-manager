@@ -62,6 +62,11 @@ pub fn enable(root: &Path) -> Result<()> {
     let observed = crate::process::observe(root, &crate::layout::read_ports(root));
     if observed.world.state != crate::process::ServiceState::Stopped
         || observed.world.conflict.is_some()
+        || std::net::TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], crate::layout::read_ports(root).world)),
+            std::time::Duration::from_millis(100),
+        )
+        .is_ok()
         || crate::multiworld::is_running(root)
     {
         return Err(Error::Invalid("Stop this server, then enable portable characters and save again. The Manager must configure the core before its next start.".into()));

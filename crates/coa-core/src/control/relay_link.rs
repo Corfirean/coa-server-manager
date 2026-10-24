@@ -620,6 +620,10 @@ mod tests {
             tx,
             reset_on_drop: true,
         });
-        assert_eq!(peer.read(&mut [0u8; 1]).unwrap(), 0);
+        match peer.read(&mut [0u8; 1]) {
+            Ok(0) => {},
+            Err(error) if matches!(error.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => {},
+            other => panic!("The abandoned relay stream must close, got {other:?}"),
+        }
     }
 }
