@@ -1204,6 +1204,7 @@ const en = {
   "crash.copied": "Copied!",
 
   "access.allowPortable": "Allow portable characters on this realm",
+  "access.allowPortableHint": "Stop the server before enabling this for the first time. Saving prepares portable sessions for its next start; disabling access leaves ongoing sessions intact.",
   "access.relay": "Relay",
   "access.relayUp": "Game relay connected",
   "access.relayDown": "Game relay disconnected",

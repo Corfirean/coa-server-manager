@@ -993,6 +993,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "fr.tab.servers": "Öffentliche Server",
   "fr.tab.lan": "LAN und Direktverbindung",
   "access.allowPortable": "Portable Charaktere auf diesem Realm erlauben",
+  "access.allowPortableHint": "Stoppe den Server vor dem ersten Aktivieren. Beim Speichern werden portable Sitzungen für den nächsten Start eingerichtet. Das Sperren neuer Zugriffe unterbricht laufende Sitzungen nicht.",
   "access.relay": "Relay",
   "access.relayUp": "Spiel-Relay verbunden",
   "access.relayDown": "Spiel-Relay nicht verbunden",

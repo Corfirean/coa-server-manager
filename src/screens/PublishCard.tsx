@@ -96,7 +96,7 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
         <p className="font-medium">{t("access.title")}</p>
         <p className="mt-1 text-xs text-muted">{t("access.text")}</p>
         <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={existingOnly} onChange={(e) => setExistingOnly(e.target.checked)} className="mt-1" data-testid="existing-only" /><span>{t("access.existingOnly")}<span className="block text-xs text-muted">{t("access.existingOnlyHint")}</span></span></label>
-        <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={allowPortable} onChange={(e) => setAllowPortable(e.target.checked)} className="mt-1" data-testid="allow-portable" /><span>{t("access.allowPortable")}</span></label>
+        <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={allowPortable} onChange={(e) => setAllowPortable(e.target.checked)} className="mt-1" data-testid="allow-portable" /><span>{t("access.allowPortable")}<span className="block text-xs text-muted">{t("access.allowPortableHint")}</span></span></label>
         <label htmlFor="access-route" className="mt-3 block font-medium">{t("access.route")}</label>
         <input id="access-route" value={route} placeholder="play.example.org:3724" onChange={(e) => setRoute(e.target.value)} className="mt-1 w-full rounded-md border border-line bg-card px-3 py-2" data-testid="access-route" />
         <p className="mt-1 text-xs text-muted">{t("access.routeHint")}</p>

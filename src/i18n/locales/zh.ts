@@ -995,6 +995,7 @@ const zh = {
   "fr.tab.servers": "公开服务器",
   "fr.tab.lan": "局域网与直连",
   "access.allowPortable": "允许便携角色进入此服务器",
+  "access.allowPortableHint": "首次启用前请先停止服务器。保存时会为下次启动配置便携角色会话；关闭准入不会中断正在进行的会话。",
   "access.relay": "Relay",
   "access.relayUp": "游戏中继已连接",
   "access.relayDown": "游戏中继未连接",

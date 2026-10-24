@@ -1681,6 +1681,8 @@ impl PortableService {
         let ops = [Operation::OnlineImport, Operation::RuntimeSession];
         let report = self.report(&model, &caps, &opts, &ops, true);
         if verdict_of(report.verdict()) == Verdict::Incompatible {
+            #[cfg(test)]
+            eprintln!("Remote import compatibility: {report:?}");
             return Err(fail(
                 "incompatible",
                 "Character is incompatible with this realm; nothing was changed.",
