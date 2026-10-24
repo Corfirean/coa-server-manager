@@ -223,6 +223,8 @@ fn err(code: AppError, message: &str) -> Response {
 
 fn unavailable(what: &str, e: &Error) -> Response {
     tracing::warn!(error = %e, "{what}");
+    #[cfg(test)]
+    eprintln!("{what}: {e}");
     err(
         AppError::Unavailable,
         "The server could not do that right now.",

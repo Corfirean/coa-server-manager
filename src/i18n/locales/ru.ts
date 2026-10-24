@@ -1186,6 +1186,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "crash.copied": "Скопировано!",
 
   "access.allowPortable": "Разрешить переносимых персонажей на этом реалме",
+  "access.allowPortableHint": "Перед первым включением остановите сервер. При сохранении Менеджер настроит портативные сессии для следующего запуска. Запрет доступа не прерывает текущие сессии.",
   "access.relay": "Relay",
   "access.relayUp": "Игровой relay подключён",
   "access.relayDown": "Игровой relay не подключён",

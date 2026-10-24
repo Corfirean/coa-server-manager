@@ -993,6 +993,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "fr.tab.servers": "Servidores públicos",
   "fr.tab.lan": "LAN y conexión directa",
   "access.allowPortable": "Permitir personajes portátiles en este reino",
+  "access.allowPortableHint": "Detén el servidor antes de activar esta opción por primera vez. Al guardar se preparan las sesiones portátiles para el próximo inicio. Bloquear nuevos accesos no interrumpe las sesiones actuales.",
   "access.relay": "Relay",
   "access.relayUp": "Relay del juego conectado",
   "access.relayDown": "Relay del juego desconectado",

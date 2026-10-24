@@ -183,6 +183,31 @@ pub(crate) async fn registry_set_access(
         .clone()
         .ok_or_else(|| fail("stopped", "the publishing service did not start"))?;
     tauri::async_runtime::spawn_blocking(move || {
+        if allow_portable {
+            if let Some(route) = route.as_deref().filter(|value| !value.trim().is_empty()) {
+                coa_core::realm_registry::settings::validate_route(route.trim())
+                    .map_err(|e| fail("invalid", e.to_string()))?;
+            }
+            let installs = Registry::at(data_dir().join("installs.json"))
+                .list().map_err(|e| fail("invalid", e.to_string()))?;
+            let access = coa_core::realm_registry::advert::find_access(
+                &data_dir().join("portable/realms"), &installs, &local_id,
+            ).ok_or_else(|| fail("invalid", "This realm is no longer installed."))?;
+            if let Some(root) = &access.root {
+                coa_core::config::portable::enable(root)
+                    .map_err(|e| fail("invalid", e.to_string()))?;
+            } else {
+                let db = access.db().map_err(|e| fail("invalid", e.to_string()))?;
+                let mut ra = access.ra().map_err(|e| fail("invalid", e.to_string()))?;
+                let caps = coa_core::portable::realm::profile::probe_capabilities(
+                    &db, Some(&access.data_dir), Some(&mut ra),
+                    &coa_core::portable::extension::ExtensionRegistry::new(),
+                ).map_err(|e| fail("invalid", e.to_string()))?;
+                if !caps.content.supports(coa_core::portable::capabilities::Feature::RuntimeSessions) {
+                    return Err(fail("invalid", "Enable portable sessions in this external server's core configuration and restart it before allowing portable characters."));
+                }
+            }
+        }
         rt.set_access(&local_id, existing_only, allow_portable, route.as_deref())
             .map_err(|e| fail("invalid", e.to_string()))
     })

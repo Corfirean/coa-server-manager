@@ -2,6 +2,7 @@
 
 pub mod merge;
 pub mod parser;
+pub mod portable;
 pub mod schema;
 
 use std::collections::{BTreeMap, BTreeSet};

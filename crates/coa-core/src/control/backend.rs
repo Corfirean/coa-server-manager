@@ -471,6 +471,7 @@ mod tests {
             std::env::var("COA_REAL_CONTROL_ROOT").expect("disposable root"),
         );
         assert!(root.starts_with("C:/games/source/candidate-evidence-20261021"));
+        crate::config::portable::enable(&root).expect("owner portable-character opt-in");
         let databases = realms().expect("disposable databases");
         reset_b(&databases.b);
         let server = Server::start(spec().expect("disposable worldserver"));
