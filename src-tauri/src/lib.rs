@@ -1259,7 +1259,7 @@ async fn custom_races_install(
                 }),
             );
         })?;
-        let enabled = ctx.root.as_ref().map_or(true, |root| {
+        let enabled = ctx.root.as_ref().is_none_or(|root| {
             coa_core::modules::list(root)
                 .iter()
                 .any(|module| module.id == "custom-races" && module.enabled)

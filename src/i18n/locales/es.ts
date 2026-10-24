@@ -888,7 +888,12 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "crash.hideRaw": "Ocultar informe completo",
   "crash.copyReport": "Copiar informe",
   "crash.copied": "¡Copiado!",
-  // Server browser and portable-character screens.
+  "portable.filter.none": "Ningún personaje coincide con el modo de juego seleccionado.",
+  "portable.filter.all": "Todos",
+  "browse.hidden_characters_one": "{n} personaje de otros modos de juego está oculto",
+  "browse.hidden_characters_few": "{n} personajes de otros modos de juego están ocultos",
+  "browse.hidden_characters_many": "{n} personajes de otros modos de juego están ocultos",
+  "browse.hidden_characters_other": "{n} personajes de otros modos de juego están ocultos",
   "nav.servers": "Servidores",
   "nav.characters": "Personajes",
   "portable.title": "Personajes",
@@ -985,11 +990,12 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "join.chars.make": "Hacer portátil",
   "join.chars.done": "{name} ya es portátil (versión {revision}).",
   "access.save": "Guardar",
-
   "fr.tab.servers": "Servidores públicos",
-
   "fr.tab.lan": "LAN y conexión directa",
-
+  "access.allowPortable": "Permitir personajes portátiles en este reino",
+  "access.relay": "Relay",
+  "access.relayUp": "Relay del juego conectado",
+  "access.relayDown": "Relay del juego desconectado",
 };
 
 export default es;

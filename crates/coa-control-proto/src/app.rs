@@ -103,6 +103,7 @@ pub enum Request {
     TransferOffer {
         transfer_id: Uuid,
         character_id: Uuid,
+        ruleset: String,
         canonical_revision: u64,
         content_hash: String,
         total_size: usize,
@@ -189,6 +190,7 @@ pub enum Response {
     /// appearance and vanity ids the Host holds for the account (kind -> ids).
     Claimed {
         character_id: Uuid,
+        ruleset: String,
         sha256: String,
         payload: String,
         collections: BTreeMap<String, Vec<u32>>,
@@ -273,11 +275,15 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request> {
             return invalid("the client name is too long")
         }
         Request::TransferOffer {
+            ruleset,
             content_hash,
             total_size,
             collections,
             ..
         } => {
+            if !matches!(ruleset.as_str(), "coa" | "wildcard" | "reborn") {
+                return invalid("transfer ruleset must be coa, wildcard, or reborn");
+            }
             if content_hash.len() != 64 || !content_hash.chars().all(|c| c.is_ascii_hexdigit()) {
                 return invalid("transfer content hash must be 64 hex characters");
             }
@@ -430,6 +436,7 @@ mod tests {
         let offer = Request::TransferOffer {
             transfer_id: tid,
             character_id: cid,
+            ruleset: "coa".into(),
             canonical_revision: 5,
             content_hash: hash.clone(),
             total_size: 1024,
@@ -442,6 +449,7 @@ mod tests {
         let bad_hash = Request::TransferOffer {
             transfer_id: tid,
             character_id: cid,
+            ruleset: "coa".into(),
             canonical_revision: 5,
             content_hash: "too_short".into(),
             total_size: 1024,
@@ -466,5 +474,21 @@ mod tests {
         };
         let resp_dec = decode_response(&encode_response(&resp)).unwrap();
         assert_eq!(resp, resp_dec);
+
+        // Control protocol v2 requires ruleset in TransferOffer; missing is rejected
+        let missing_ruleset_json = serde_json::json!({
+            "op": "transfer_offer",
+            "transfer_id": tid,
+            "character_id": cid,
+            "canonical_revision": 5,
+            "content_hash": hash,
+            "total_size": 1024,
+            "collections": {}
+        });
+        let encoded_missing = serde_json::to_vec(&missing_ruleset_json).unwrap();
+        assert!(
+            decode_request(&encoded_missing).is_err(),
+            "missing ruleset in v2 must be rejected"
+        );
     }
 }

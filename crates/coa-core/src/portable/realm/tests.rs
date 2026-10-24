@@ -729,7 +729,7 @@ fn the_wildcard_ruleset_uses_its_own_namespace_and_quarantines_wildcard_state() 
     let wc_db = Db::with_tools(std::path::PathBuf::new(), 1, "root", "x", Mode::Wildcard);
     let coa_db = Db::with_tools(std::path::PathBuf::new(), 1, "root", "x", Mode::Coa);
     let reborn_db = Db::with_tools(std::path::PathBuf::new(), 1, "root", "x", Mode::Reborn);
-    assert!(ruleset_of(&reborn_db).is_err());
+    assert_eq!(ruleset_of(&reborn_db).unwrap(), Ruleset::Reborn);
     assert_eq!(
         (ruleset_of(&wc_db).unwrap(), ruleset_of(&coa_db).unwrap()),
         (Ruleset::Wildcard, Ruleset::Coa)

@@ -45,3 +45,7 @@ Si el reino tiene un nivel máximo menor, tu personaje puede jugar temporalmente
 En **Versiones guardadas (Saved versions)** puedes ver cuándo se guardó el progreso. Si aparece un conflicto, lee la explicación antes de continuar. Evita jugar con dos copias a la vez y conserva también las copias normales del servidor.
 
 [Todas las guías](README.md)
+
+## Personajes portátiles y relay
+
+En la tarjeta de publicación del reino, activa «Permitir personajes portátiles en este reino» y guarda. El acceso está desactivado por defecto. Desactivarlo impide nuevas exportaciones e importaciones sin borrar personajes guardados. El Manager del anfitrión debe permanecer abierto. La conexión de control y el relay del juego muestran estados separados: un canal de control conectado no garantiza un túnel de juego. Los personajes conservan su modo original: CoA, Wildcard o Warcraft Reborn.

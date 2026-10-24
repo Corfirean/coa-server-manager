@@ -1,7 +1,7 @@
 # Runtime portable sessions (Phase 5): design and audit
 
 Code: core `src/server/coa/CoAPortableSession*.{h,cpp}` and `CoAPortableImport*.{h,cpp}` (branch `feat/portable-session-bridge` of the
-core fork), Manager `crates/coa-core/src/portable/session/`. CoA only; Wildcard portable transfer stays disabled.
+core fork), Manager `crates/coa-core/src/portable/session/`. Supports Conquest of Azeroth and Wildcard (MR2) with strict multi-ruleset isolation.
 
 Phase 4 proved the offline model with a real client. Its one fragile rule is that the baseline `B0` must be captured *after*
 the realm's own normalisation and *before* the character is played. Phase 5 makes that rule a property of the running
@@ -130,16 +130,18 @@ Messages wait in the outbox until acknowledged; redelivery is harmless (section 
 
 ## 5. Messages (transport-neutral, versioned, JSON)
 
-`protocol_version = 1`; each message is canonical JSON with unknown fields refused. Snapshots travel in the existing
-snapshot envelope (zstd of canonical JSON, SHA-256 of the canonical JSON).
+`protocol_version = 3` (Session Protocol Version 3; Collection Protocol Version 2); each message is canonical JSON with unknown fields refused. Snapshots travel in the existing
+snapshot envelope (zstd of canonical JSON, SHA-256 of the canonical JSON). Every session message carries an explicit `ruleset` (`coa`, `wildcard`, or `reborn`):
 
 ```text
-PortableSessionStarted { protocol_version, session_id, character_id, server_id, base_canonical_revision,
-                         baseline_generation, b0: envelope, content_hash }
-PortableCheckpoint     { protocol_version, session_id, character_id, server_id, base_canonical_revision,
-                         sequence, final_checkpoint, realm_snapshot: envelope, content_hash }
-OwnerAck               { protocol_version, session_id, sequence, outcome, canonical_revision, canonical_hash,
-                         [final: canonical snapshot envelope] }
+SessionOffer           { protocol_version, ruleset, session_id, character_id, server_id,
+                         canonical_revision, snapshot: envelope }
+PortableSessionStarted { protocol_version, ruleset, session_id, character_id, server_id, base_canonical_revision,
+                         baseline_generation, b0: envelope, content_hash, progression }
+PortableCheckpoint     { protocol_version, ruleset, session_id, character_id, server_id, base_canonical_revision,
+                         sequence, final_checkpoint, realm_snapshot: envelope, content_hash, pin }
+OwnerAck               { protocol_version, ruleset, session_id, sequence, outcome, canonical_revision, canonical_hash,
+                         owned_items, owned_pets, [final: canonical snapshot envelope], next_session, pin }
 ```
 
 `outcome` is `applied`, `duplicate` (same sequence and hash, already applied), `stale_sequence`, `stale_session`

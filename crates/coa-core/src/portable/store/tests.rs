@@ -40,13 +40,13 @@ fn schema_nine_upgrade_preserves_characters_and_isolates_collections() {
     drop(old);
 
     let mut store = Store::open(dir.path()).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 9);
+    assert_eq!(store.schema_version().unwrap(), 10);
     assert_eq!(store.load_current(id).unwrap(), before);
     assert_eq!(store.server_mappings(id).unwrap()[0].local_guid, 42);
-    assert_eq!(store.collection(profile, kind).unwrap().unwrap().1, set);
+    assert_eq!(store.collection(profile, Ruleset::Coa, kind).unwrap().unwrap().1, set);
     assert_eq!(
         store
-            .collection_info(profile, kind)
+            .collection_info(profile, Ruleset::Coa, kind)
             .unwrap()
             .unwrap()
             .revision,
@@ -58,10 +58,10 @@ fn schema_nine_upgrade_preserves_characters_and_isolates_collections() {
         [],
     ).unwrap();
     store
-        .merge_collection(profile, kind, &IdSet::from_ids([30]).unwrap())
+        .merge_collection(profile, Ruleset::Coa, kind, &IdSet::from_ids([30]).unwrap())
         .unwrap();
     assert_eq!(
-        store.collection(profile, kind).unwrap().unwrap().1,
+        store.collection(profile, Ruleset::Coa, kind).unwrap().unwrap().1,
         IdSet::from_ids([10, 20, 30]).unwrap()
     );
     let foreign: (i64, Vec<u8>) = store
@@ -88,7 +88,7 @@ fn schema_nine_existing_store_and_runtime_smoke() {
     );
     for role in ["owner", "host"] {
         let store = Store::open(&root.join(role)).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 9);
+        assert_eq!(store.schema_version().unwrap(), 10);
         let records = store.list_characters_all().unwrap();
         assert!(!records.is_empty());
         for record in records {
@@ -1013,16 +1013,22 @@ fn schema_1_item_mappings_survive_the_migration_as_unverified() {
 fn collection_union_never_removes_and_unchanged_means_no_revision() {
     let (mut store, profile) = fresh();
     let kind = "coa:wardrobe";
-    assert!(store.collection(profile, kind).unwrap().is_none());
+    let ruleset = Ruleset::Coa;
+    assert!(store.collection(profile, ruleset, kind).unwrap().is_none());
 
     // nothing stored, nothing incoming: nothing is created
     let empty = store
-        .merge_collection(profile, kind, &IdSet::new())
+        .merge_collection(profile, ruleset, kind, &IdSet::new())
         .unwrap();
     assert!(!empty.changed && empty.info.is_none());
 
     let first = store
-        .merge_collection(profile, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
+        .merge_collection(
+            profile,
+            ruleset,
+            kind,
+            &IdSet::from_ids([10, 20, 30]).unwrap(),
+        )
         .unwrap();
     assert!(first.changed);
     assert_eq!(first.added, 3);
@@ -1031,7 +1037,7 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
 
     // another realm returns a subset: nothing is lost, nothing changes
     let subset = store
-        .merge_collection(profile, kind, &IdSet::from_ids([20]).unwrap())
+        .merge_collection(profile, ruleset, kind, &IdSet::from_ids([20]).unwrap())
         .unwrap();
     assert!(!subset.changed);
     assert_eq!(
@@ -1040,13 +1046,23 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
         "same revision, same hash"
     );
     let same = store
-        .merge_collection(profile, kind, &IdSet::from_ids([10, 20, 30]).unwrap())
+        .merge_collection(
+            profile,
+            ruleset,
+            kind,
+            &IdSet::from_ids([10, 20, 30]).unwrap(),
+        )
         .unwrap();
     assert!(!same.changed);
 
     // a realm with new unlocks (and without the old ones) only adds
     let more = store
-        .merge_collection(profile, kind, &IdSet::from_ids([30, 40, 5]).unwrap())
+        .merge_collection(
+            profile,
+            ruleset,
+            kind,
+            &IdSet::from_ids([30, 40, 5]).unwrap(),
+        )
         .unwrap();
     assert!(more.changed);
     assert_eq!(more.added, 2);
@@ -1054,22 +1070,25 @@ fn collection_union_never_removes_and_unchanged_means_no_revision() {
     assert_eq!((info2.revision, info2.count), (2, 5));
     assert_ne!(info2.hash, info1.hash);
 
-    let (info, set) = store.collection(profile, kind).unwrap().unwrap();
+    let (info, set) = store.collection(profile, ruleset, kind).unwrap().unwrap();
     assert_eq!(set.ids(), &[5, 10, 20, 30, 40]);
     assert_eq!(info, info2);
     assert_eq!(
-        store.collection_info(profile, kind).unwrap().unwrap(),
+        store
+            .collection_info(profile, ruleset, kind)
+            .unwrap()
+            .unwrap(),
         info2
     );
 
     // kinds are separate collections
     assert!(store
-        .collection_info(profile, "coa:vanity")
+        .collection_info(profile, ruleset, "coa:vanity")
         .unwrap()
         .is_none());
     assert!(
         store
-            .merge_collection(profile, "wardrobe", &IdSet::new())
+            .merge_collection(profile, ruleset, "wardrobe", &IdSet::new())
             .is_err(),
         "kinds must be namespaced"
     );
@@ -1085,7 +1104,9 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
     ] {
         let ids: Vec<u32> = (0..count).map(|n| n * 7 + (n % 5)).collect();
         let set = IdSet::from_ids(ids).unwrap();
-        let merge = store.merge_collection(profile, kind, &set).unwrap();
+        let merge = store
+            .merge_collection(profile, Ruleset::Coa, kind, &set)
+            .unwrap();
         assert_eq!(merge.added, count as usize);
         let stored_bytes: i64 = store
             .conn
@@ -1099,7 +1120,10 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
             stored_bytes < count as i64 * 2 + 16,
             "{kind}: {count} ids took {stored_bytes} bytes"
         );
-        let (_, back) = store.collection(profile, kind).unwrap().unwrap();
+        let (_, back) = store
+            .collection(profile, Ruleset::Coa, kind)
+            .unwrap()
+            .unwrap();
         assert_eq!(back, set);
     }
 }
@@ -1108,7 +1132,12 @@ fn collections_hold_tens_of_thousands_of_ids_compactly() {
 fn a_tampered_collection_is_detected() {
     let (mut store, profile) = fresh();
     store
-        .merge_collection(profile, "coa:vanity", &IdSet::from_ids([1, 2, 3]).unwrap())
+        .merge_collection(
+            profile,
+            Ruleset::Coa,
+            "coa:vanity",
+            &IdSet::from_ids([1, 2, 3]).unwrap(),
+        )
         .unwrap();
     let forged = IdSet::from_ids([1, 2, 3, 4]).unwrap().encode();
     store
@@ -1116,7 +1145,7 @@ fn a_tampered_collection_is_detected() {
         .execute("UPDATE collection SET payload = ?1", [forged])
         .unwrap();
     assert!(matches!(
-        store.collection(profile, "coa:vanity"),
+        store.collection(profile, Ruleset::Coa, "coa:vanity"),
         Err(PortableError::CorruptSnapshot(_))
     ));
 }
@@ -2033,4 +2062,519 @@ fn a_store_that_holds_format_1_snapshots_reads_them_and_compares_them_by_what_th
         "the old revision is still readable as it was"
     );
     assert_eq!(owner.load_current(id).unwrap(), other);
+}
+
+#[test]
+fn released_v0_7_x_database_upgrades_transactionally_through_migration_009_and_accepts_reborn() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = Store::path_of(dir.path());
+    let profile = ProfileId::new();
+    let char_coa = CharacterId::new();
+    let char_wc = CharacterId::new();
+    let item_coa = PortableItemId::new();
+    let now = "2026-10-22T12:00:00Z";
+
+    // Build realistic pre-multiruleset v0.7.x database (migrations 0..8)
+    {
+        let conn = Connection::open(&file).unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        for m in &MIGRATIONS[..8] {
+            conn.execute_batch(m).unwrap();
+        }
+        conn.pragma_update(None, "application_id", APPLICATION_ID)
+            .unwrap();
+        conn.pragma_update(None, "user_version", 8).unwrap();
+
+        // 1. Profile
+        conn.execute(
+            "INSERT INTO profile (profile_id, created_at, format_version) VALUES (?1, ?2, 1)",
+            params![profile.to_string(), now],
+        )
+        .unwrap();
+
+        // 2. Characters (CoA and Wildcard allowed in pre-009 schema)
+        conn.execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'coa', 'Varian', 'coa:race:1', 'coa:class:1', 0, 80, 1, ?3, ?3, 0)",
+            params![char_coa.to_string(), profile.to_string(), now],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'wildcard', 'RogueMage', 'coa:race:1', 'coa:class:4', 1, 60, 2, ?3, ?3, 0)",
+            params![char_wc.to_string(), profile.to_string(), now],
+        ).unwrap();
+
+        // Verify pre-009 CHECK constraint rejects 'reborn'
+        let err = conn.execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'reborn', 'Paladin', 'coa:race:1', 'coa:class:2', 0, 70, 1, ?3, ?3, 0)",
+            params![CharacterId::new().to_string(), profile.to_string(), now],
+        );
+        assert!(err.is_err(), "pre-009 schema must reject reborn");
+
+        // 3. Snapshots and revisions
+        conn.execute(
+            "INSERT INTO snapshot (character_id, revision, snapshot_format_version, created_at, source_server_id, content_hash, uncompressed_size, payload, note)
+             VALUES (?1, 1, 2, ?2, 'realm-a', ?3, 4, X'01020304', 'genesis')",
+            params![char_coa.to_string(), now, [0x42u8; 32]],
+        ).unwrap();
+
+        // 4. Mappings and server bindings
+        conn.execute(
+            "INSERT INTO character_server_mapping (character_id, server_id, local_guid, last_revision, state, updated_at)
+             VALUES (?1, 'realm-a', 101, 1, 'active', ?2)",
+            params![char_coa.to_string(), now],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO item_mapping (character_id, server_id, portable_item_id, local_item_guid, entry, identity, state, created_revision, confirmed_revision, created_at, updated_at)
+             VALUES (?1, 'realm-a', ?2, 202, 'item_entry', 'ident', 'active', 1, 1, ?3, ?3)",
+            params![char_coa.to_string(), item_coa.to_string(), now],
+        ).unwrap();
+
+        // 5. Baseline session (realm_baseline)
+        conn.execute(
+            "INSERT INTO realm_baseline (character_id, server_id, c0_revision, head_revision, state, c0_hash, c0_payload, b0_hash, b0_payload, created_at, updated_at)
+             VALUES (?1, 'realm-a', 1, 1, 'open', ?2, X'AA', ?2, X'BB', ?3, ?3)",
+            params![char_coa.to_string(), [0x42u8; 32], now],
+        ).unwrap();
+
+        // 6. Pre-009 Collection (single profile_id, kind PK)
+        conn.execute(
+            "INSERT INTO collection (profile_id, kind, collection_revision, collection_hash, format_version, item_count, updated_at, payload)
+             VALUES (?1, 'coa:appearance', 1, ?2, 1, 0, ?3, X'00')",
+            params![profile.to_string(), [0x42u8; 32], now],
+        ).unwrap();
+    }
+
+    // Upgrade through Store::open_file (applies migration 009)
+    let store = Store::open_file(&file).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 10);
+
+    // Verify all original rows and fields survived byte-for-byte and constraint-wise
+    let coa_rec = store.character(char_coa).unwrap();
+    assert_eq!(coa_rec.ruleset, Ruleset::Coa);
+    assert_eq!(coa_rec.name, "Varian");
+    assert_eq!(coa_rec.revision, 1);
+    assert_eq!(coa_rec.level, 80);
+    assert_eq!(coa_rec.created_at, now);
+
+    let wc_rec = store.character(char_wc).unwrap();
+    assert_eq!(wc_rec.ruleset, Ruleset::Wildcard);
+    assert_eq!(wc_rec.name, "RogueMage");
+    assert_eq!(wc_rec.revision, 2);
+
+    // Verify child tables survived without cascading drop
+    let server_maps = store.server_mappings(char_coa).unwrap();
+    assert_eq!(server_maps.len(), 1);
+    assert_eq!(server_maps[0].local_guid, 101);
+
+    let item_maps = store.item_mappings(char_coa, "realm-a").unwrap();
+    assert_eq!(item_maps.len(), 1);
+    assert_eq!(item_maps[0].portable_item_id, item_coa);
+    assert_eq!(item_maps[0].local_item_guid, 202);
+
+    // Verify collection migrated to composite key (profile_id, ruleset, kind)
+    let coll_info = store
+        .collection_info(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_info.revision, 1);
+
+    // Verify insertion of Reborn character succeeds now on migrated DB
+    let char_rb = CharacterId::new();
+    let rb_rec = store.conn.execute(
+        "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+         VALUES (?1, ?2, 'reborn', 'Mograine', 'coa:race:1', 'coa:class:2', 0, 70, 1, ?3, ?3, 0)",
+        params![char_rb.to_string(), profile.to_string(), now],
+    );
+    assert!(
+        rb_rec.is_ok(),
+        "migrated database must accept reborn ruleset"
+    );
+
+    let loaded_rb = store.character(char_rb).unwrap();
+    assert_eq!(loaded_rb.ruleset, Ruleset::Reborn);
+    assert_eq!(loaded_rb.name, "Mograine");
+
+    // Verify invalid ruleset is still rejected by CHECK constraint
+    let err = store.conn.execute(
+        "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+         VALUES (?1, ?2, 'invalid_ruleset', 'Bad', 'coa:race:1', 'coa:class:1', 0, 1, 1, ?3, ?3, 0)",
+        params![CharacterId::new().to_string(), profile.to_string(), now],
+    );
+    assert!(
+        err.is_err(),
+        "migrated database must reject invalid ruleset"
+    );
+}
+
+#[test]
+fn mapping_isolation_between_coa_and_wildcard_on_same_installation() {
+    let mut store = Store::open_in_memory().unwrap();
+    let profile = store.default_profile().unwrap();
+
+    let mut model_coa = fixtures::geared_level_eighty();
+    model_coa.ruleset = Ruleset::Coa;
+    let char_coa = store
+        .create_character(profile, model_coa, "srv-1:coa")
+        .unwrap();
+
+    let mut model_wc = fixtures::geared_level_eighty();
+    model_wc.ruleset = Ruleset::Wildcard;
+    let char_wc = store
+        .create_character(profile, model_wc, "srv-1:wildcard")
+        .unwrap();
+
+    // 1. Both share local_guid = 100 on their respective server_id
+    store
+        .bind_server(char_coa, "srv-1:coa", 100, 1, MappingState::Active)
+        .unwrap();
+    store
+        .bind_server(char_wc, "srv-1:wildcard", 100, 1, MappingState::Active)
+        .unwrap();
+
+    // 2. Both share local_item_guid = 500 on their respective server_id
+    let item_coa = PortableItemId::new();
+    let item_wc = PortableItemId::new();
+    store
+        .reconcile_item_mappings(
+            char_coa,
+            "srv-1:coa",
+            1,
+            &[obs(item_coa, 500, 10, "entry1")],
+        )
+        .unwrap();
+    store
+        .reconcile_item_mappings(
+            char_wc,
+            "srv-1:wildcard",
+            1,
+            &[obs(item_wc, 500, 20, "entry2")],
+        )
+        .unwrap();
+
+    // Verify lookup isolation
+    assert_eq!(
+        store.find_by_local("srv-1:coa", 100).unwrap(),
+        Some(char_coa)
+    );
+    assert_eq!(
+        store.find_by_local("srv-1:wildcard", 100).unwrap(),
+        Some(char_wc)
+    );
+
+    let maps_coa = store.item_mappings(char_coa, "srv-1:coa").unwrap();
+    assert_eq!(maps_coa.len(), 1);
+    assert_eq!(maps_coa[0].portable_item_id, item_coa);
+    assert_eq!(maps_coa[0].local_item_guid, 500);
+
+    let maps_wc = store.item_mappings(char_wc, "srv-1:wildcard").unwrap();
+    assert_eq!(maps_wc.len(), 1);
+    assert_eq!(maps_wc[0].portable_item_id, item_wc);
+    assert_eq!(maps_wc[0].local_item_guid, 500);
+}
+
+#[test]
+fn three_space_isolation_fixture_proves_wildcard_activity_leaves_coa_and_reborn_untouched() {
+    let mut store = Store::open_in_memory().unwrap();
+    let profile = store.default_profile().unwrap();
+
+    // Character A: CoA
+    let mut model_a = fixtures::geared_level_eighty();
+    model_a.identity.name = "Hero".into();
+    model_a.ruleset = Ruleset::Coa;
+    let char_a = store
+        .create_character(profile, model_a, "srv-1:coa")
+        .unwrap();
+
+    // Character B: Wildcard
+    let mut model_b = fixtures::geared_level_eighty();
+    model_b.identity.name = "Hero".into();
+    model_b.ruleset = Ruleset::Wildcard;
+    let char_b = store
+        .create_character(profile, model_b, "srv-1:wildcard")
+        .unwrap();
+
+    // Character C: Reborn
+    let mut model_c = fixtures::geared_level_eighty();
+    model_c.identity.name = "Hero".into();
+    model_c.ruleset = Ruleset::Reborn;
+    let char_c = store
+        .create_character(profile, model_c, "srv-1:reborn")
+        .unwrap();
+
+    // Initial identical mappings (local_guid = 100, item_guid = 200)
+    store
+        .bind_server(char_a, "srv-1:coa", 100, 1, MappingState::Active)
+        .unwrap();
+    store
+        .bind_server(char_b, "srv-1:wildcard", 100, 1, MappingState::Active)
+        .unwrap();
+    store
+        .bind_server(char_c, "srv-1:reborn", 100, 1, MappingState::Active)
+        .unwrap();
+
+    let item_a = PortableItemId::new();
+    let item_b = PortableItemId::new();
+    let item_c = PortableItemId::new();
+    store
+        .reconcile_item_mappings(char_a, "srv-1:coa", 1, &[obs(item_a, 200, 10, "e1")])
+        .unwrap();
+    store
+        .reconcile_item_mappings(char_b, "srv-1:wildcard", 1, &[obs(item_b, 200, 10, "e2")])
+        .unwrap();
+    store
+        .reconcile_item_mappings(char_c, "srv-1:reborn", 1, &[obs(item_c, 200, 10, "e3")])
+        .unwrap();
+
+    // Initial collections
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Coa,
+            "coa:appearance",
+            &IdSet::from_ids([1, 2, 3]).unwrap(),
+        )
+        .unwrap();
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Wildcard,
+            "wildcard:appearance",
+            &IdSet::from_ids([1, 2, 4]).unwrap(),
+        )
+        .unwrap();
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Reborn,
+            "reborn:appearance",
+            &IdSet::from_ids([1, 2, 5]).unwrap(),
+        )
+        .unwrap();
+
+    // Record baseline hashes and revisions
+    let hash_a_before = store.load_snapshot(char_a, 1).unwrap();
+    let hash_c_before = store.load_snapshot(char_c, 1).unwrap();
+
+    // ---- MUTATE WILDCARD B ONLY ----
+    let mut model_b_mut = store.load_current(char_b).unwrap();
+    model_b_mut.progression.money += 100_000;
+    model_b_mut.progression.level = 80;
+    store
+        .commit_snapshot(
+            char_b,
+            1,
+            model_b_mut,
+            "srv-1:wildcard",
+            Some("wildcard gameplay"),
+        )
+        .unwrap();
+
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Wildcard,
+            "wildcard:appearance",
+            &IdSet::from_ids([1, 2, 4, 999]).unwrap(),
+        )
+        .unwrap();
+
+    let new_item_b = PortableItemId::new();
+    store
+        .reconcile_item_mappings(
+            char_b,
+            "srv-1:wildcard",
+            2,
+            &[
+                obs(item_b, 200, 10, "e2"),
+                obs(new_item_b, 201, 10, "e2_new"),
+            ],
+        )
+        .unwrap();
+
+    // ---- ASSERT WILDCARD B ADVANCED ----
+    let rec_b = store.character(char_b).unwrap();
+    assert_eq!(rec_b.revision, 2);
+    let (_, coll_b) = store
+        .collection(profile, Ruleset::Wildcard, "wildcard:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_b.ids(), &[1, 2, 4, 999]);
+    assert_eq!(
+        store.item_mappings(char_b, "srv-1:wildcard").unwrap().len(),
+        2
+    );
+
+    // ---- ASSERT COA A IS 100% UNTOUCHED ----
+    let rec_a = store.character(char_a).unwrap();
+    assert_eq!(rec_a.revision, 1);
+    let hash_a_after = store.load_snapshot(char_a, 1).unwrap();
+    assert_eq!(hash_a_before, hash_a_after);
+    let (_, coll_a) = store
+        .collection(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_a.ids(), &[1, 2, 3]);
+    let items_a = store.item_mappings(char_a, "srv-1:coa").unwrap();
+    assert_eq!(items_a.len(), 1);
+    assert_eq!(items_a[0].portable_item_id, item_a);
+    assert_eq!(items_a[0].local_item_guid, 200);
+
+    // ---- ASSERT REBORN C IS 100% UNTOUCHED ----
+    let rec_c = store.character(char_c).unwrap();
+    assert_eq!(rec_c.revision, 1);
+    let hash_c_after = store.load_snapshot(char_c, 1).unwrap();
+    assert_eq!(hash_c_before, hash_c_after);
+    let (_, coll_c) = store
+        .collection(profile, Ruleset::Reborn, "reborn:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_c.ids(), &[1, 2, 5]);
+    let items_c = store.item_mappings(char_c, "srv-1:reborn").unwrap();
+    assert_eq!(items_c.len(), 1);
+    assert_eq!(items_c[0].portable_item_id, item_c);
+    assert_eq!(items_c[0].local_item_guid, 200);
+
+    // ---- MUTATE REBORN C ONLY ----
+    let mut model_c_mut = store.load_current(char_c).unwrap();
+    model_c_mut.progression.money += 300_000;
+    model_c_mut.progression.level = 80;
+    store
+        .commit_snapshot(
+            char_c,
+            1,
+            model_c_mut,
+            "srv-1:reborn",
+            Some("reborn gameplay progression"),
+        )
+        .unwrap();
+
+    store
+        .merge_collection(
+            profile,
+            Ruleset::Reborn,
+            "reborn:appearance",
+            &IdSet::from_ids([1, 2, 5, 8888]).unwrap(),
+        )
+        .unwrap();
+
+    let new_item_c = PortableItemId::new();
+    store
+        .reconcile_item_mappings(
+            char_c,
+            "srv-1:reborn",
+            2,
+            &[
+                obs(item_c, 200, 10, "e3"),
+                obs(new_item_c, 202, 10, "e3_new"),
+            ],
+        )
+        .unwrap();
+
+    // ---- ASSERT REBORN C ADVANCED TO REV 2 ----
+    let rec_c2 = store.character(char_c).unwrap();
+    assert_eq!(rec_c2.revision, 2);
+    let (_, coll_c2) = store
+        .collection(profile, Ruleset::Reborn, "reborn:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_c2.ids(), &[1, 2, 5, 8888]);
+    assert_eq!(
+        store.item_mappings(char_c, "srv-1:reborn").unwrap().len(),
+        2
+    );
+
+    // ---- ASSERT COA A REMAINS 100% UNTOUCHED (STILL REV 1) ----
+    let rec_a2 = store.character(char_a).unwrap();
+    assert_eq!(rec_a2.revision, 1);
+    assert_eq!(store.load_snapshot(char_a, 1).unwrap(), hash_a_before);
+    let (_, coll_a2) = store
+        .collection(profile, Ruleset::Coa, "coa:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_a2.ids(), &[1, 2, 3]);
+    assert_eq!(store.item_mappings(char_a, "srv-1:coa").unwrap().len(), 1);
+
+    // ---- ASSERT WILDCARD B REMAINS 100% UNTOUCHED (STILL REV 2) ----
+    let rec_b2 = store.character(char_b).unwrap();
+    assert_eq!(rec_b2.revision, 2);
+    let (_, coll_b2) = store
+        .collection(profile, Ruleset::Wildcard, "wildcard:appearance")
+        .unwrap()
+        .unwrap();
+    assert_eq!(coll_b2.ids(), &[1, 2, 4, 999]);
+    assert_eq!(
+        store.item_mappings(char_b, "srv-1:wildcard").unwrap().len(),
+        2
+    );
+}
+
+#[test]
+fn reborn_store_corruption_fails_closed() {
+    let mut store = Store::open_in_memory().unwrap();
+    let profile = store.default_profile().unwrap();
+
+    // 1. summary = reborn + snapshot = coa
+    let mut model_coa = fixtures::geared_level_eighty();
+    model_coa.ruleset = Ruleset::Coa;
+    let enc_coa = crate::portable::snapshot::encode(&model_coa).unwrap();
+
+    // Insert corrupt summary with reborn ruleset but pointing to coa snapshot
+    let id_1 = CharacterId::new();
+    let at = "2026-10-22T12:00:00Z";
+    store
+        .conn
+        .execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'reborn', 'HeroReborn', 'coa:race:1', 'coa:class:1', 0, 80, 1, ?3, ?3, 0)",
+            rusqlite::params![id_1.to_string(), profile.to_string(), at],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO snapshot (character_id, revision, snapshot_format_version, created_at, source_server_id, content_hash, uncompressed_size, payload, note)
+             VALUES (?1, 1, 2, ?2, 'srv-1:reborn', ?3, ?4, ?5, 'corrupted snapshot test')",
+            rusqlite::params![id_1.to_string(), at, enc_coa.content_hash.as_slice(), enc_coa.payload.len() as i64, enc_coa.payload],
+        )
+        .unwrap();
+
+    // Loading current snapshot must FAIL CLOSED with ruleset mismatch error
+    let res1 = store.load_current(id_1);
+    assert!(
+        res1.is_err(),
+        "Loading reborn summary with CoA snapshot must fail closed"
+    );
+
+    // 2. summary = reborn + snapshot = wildcard
+    let mut model_wc = fixtures::geared_level_eighty();
+    model_wc.ruleset = Ruleset::Wildcard;
+    let enc_wc = crate::portable::snapshot::encode(&model_wc).unwrap();
+
+    let id_2 = CharacterId::new();
+    store
+        .conn
+        .execute(
+            "INSERT INTO character (character_id, profile_id, ruleset, name, race, class, gender, level, revision, created_at, updated_at, archived)
+             VALUES (?1, ?2, 'reborn', 'HeroReborn2', 'coa:race:1', 'coa:class:1', 0, 80, 1, ?3, ?3, 0)",
+            rusqlite::params![id_2.to_string(), profile.to_string(), at],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT INTO snapshot (character_id, revision, snapshot_format_version, created_at, source_server_id, content_hash, uncompressed_size, payload, note)
+             VALUES (?1, 1, 2, ?2, 'srv-1:reborn', ?3, ?4, ?5, 'corrupted snapshot test 2')",
+            rusqlite::params![id_2.to_string(), at, enc_wc.content_hash.as_slice(), enc_wc.payload.len() as i64, enc_wc.payload],
+        )
+        .unwrap();
+
+    let res2 = store.load_current(id_2);
+    assert!(
+        res2.is_err(),
+        "Loading reborn summary with Wildcard snapshot must fail closed"
+    );
 }

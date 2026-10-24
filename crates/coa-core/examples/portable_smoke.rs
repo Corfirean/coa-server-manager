@@ -457,7 +457,7 @@ fn run() -> Result<(), String> {
         }
         ("collection-states", [out]) => {
             let states = OwnerService::new(&mut store)
-                .collection_states()
+                .collection_states(coa_core::portable::Ruleset::Coa)
                 .map_err(|e| e.to_string())?;
             for s in &states {
                 println!(
@@ -618,7 +618,7 @@ fn run() -> Result<(), String> {
             let set =
                 coa_core::portable::collection::IdSet::from_ids(ids).map_err(|e| e.to_string())?;
             let merge = store
-                .merge_collection(profile, kind, &set)
+                .merge_collection(profile, coa_core::portable::Ruleset::Coa, kind, &set)
                 .map_err(|e| e.to_string())?;
             println!(
                 "{kind}: {} id(s) added{}",
@@ -633,7 +633,7 @@ fn run() -> Result<(), String> {
             let profile = store.default_profile().map_err(|e| e.to_string())?;
             for kind in coa_core::portable::session::protocol::COLLECTION_KINDS {
                 match store
-                    .collection_info(profile, kind)
+                    .collection_info(profile, coa_core::portable::Ruleset::Coa, kind)
                     .map_err(|e| e.to_string())?
                 {
                     Some(i) => println!(

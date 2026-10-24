@@ -579,6 +579,13 @@ impl Store {
             Some(_) => {}
         }
         let at = now();
+        let record = read_character(&tx, s.character_id)?;
+        if ack.ruleset != record.ruleset {
+            return Err(PortableError::RulesetMismatch {
+                character: record.ruleset,
+                realm: ack.ruleset,
+            });
+        }
         if ack.outcome.accepted() && ack.pin != s.pin {
             return Err(PortableError::ProgressionChanged(
                 "the acknowledgement is under another progression profile than the session".into(),

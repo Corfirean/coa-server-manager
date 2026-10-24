@@ -417,11 +417,21 @@ pub fn launch(client: &Path) -> Result<u32> {
         return crate::wine::launch(client, exe);
     }
     let executable = client.join(exe);
-    let spawn = || Command::new(&executable).current_dir(client).spawn().map(|child| child.id());
+    let spawn = || {
+        Command::new(&executable)
+            .current_dir(client)
+            .spawn()
+            .map(|child| child.id())
+    };
     #[cfg(windows)]
-    { launch_with_elevation_fallback(spawn, || launch_elevated(&executable, client)).map_err(Into::into) }
+    {
+        launch_with_elevation_fallback(spawn, || launch_elevated(&executable, client))
+            .map_err(Into::into)
+    }
     #[cfg(not(windows))]
-    { spawn().map_err(Into::into) }
+    {
+        spawn().map_err(Into::into)
+    }
 }
 
 /// Start normally first; ask Windows for elevation only when the client requires it (ERROR_ELEVATION_REQUIRED, 740).
@@ -443,9 +453,15 @@ fn launch_elevated(executable: &Path, directory: &Path) -> std::io::Result<u32> 
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::GetProcessId;
-    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOCLOSEPROCESS, SEE_MASK_NOASYNC};
+    use windows_sys::Win32::UI::Shell::{
+        ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    let file: Vec<u16> = executable.as_os_str().encode_wide().chain(Some(0)).collect();
+    let file: Vec<u16> = executable
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
     let cwd: Vec<u16> = directory.as_os_str().encode_wide().chain(Some(0)).collect();
     let verb: Vec<u16> = "runas".encode_utf16().chain(Some(0)).collect();
     let mut info = SHELLEXECUTEINFOW {
@@ -457,12 +473,22 @@ fn launch_elevated(executable: &Path, directory: &Path) -> std::io::Result<u32> 
         nShow: SW_SHOWNORMAL,
         ..Default::default()
     };
-    if unsafe { ShellExecuteExW(&mut info) } == 0 { return Err(std::io::Error::last_os_error()); }
-    if info.hProcess.is_null() { return Err(std::io::Error::other("Windows did not return the game process handle.")); }
+    if unsafe { ShellExecuteExW(&mut info) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if info.hProcess.is_null() {
+        return Err(std::io::Error::other(
+            "Windows did not return the game process handle.",
+        ));
+    }
     let pid = unsafe { GetProcessId(info.hProcess) };
     let error = std::io::Error::last_os_error();
-    unsafe { CloseHandle(info.hProcess); }
-    if pid == 0 { return Err(error); }
+    unsafe {
+        CloseHandle(info.hProcess);
+    }
+    if pid == 0 {
+        return Err(error);
+    }
     Ok(pid)
 }
 
@@ -585,11 +611,29 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn elevation_is_requested_only_when_windows_requires_it() {
-        assert_eq!(launch_with_elevation_fallback(|| Ok(17), || panic!("unneeded elevation")).unwrap(), 17);
-        assert_eq!(launch_with_elevation_fallback(|| Err(std::io::Error::from_raw_os_error(740)), || Ok(23)).unwrap(), 23);
-        let error = launch_with_elevation_fallback(|| Err(std::io::Error::from_raw_os_error(2)), || panic!("wrong error elevated")).unwrap_err();
+        assert_eq!(
+            launch_with_elevation_fallback(|| Ok(17), || panic!("unneeded elevation")).unwrap(),
+            17
+        );
+        assert_eq!(
+            launch_with_elevation_fallback(
+                || Err(std::io::Error::from_raw_os_error(740)),
+                || Ok(23)
+            )
+            .unwrap(),
+            23
+        );
+        let error = launch_with_elevation_fallback(
+            || Err(std::io::Error::from_raw_os_error(2)),
+            || panic!("wrong error elevated"),
+        )
+        .unwrap_err();
         assert_eq!(error.raw_os_error(), Some(2));
-        let cancelled = launch_with_elevation_fallback(|| Err(std::io::Error::from_raw_os_error(740)), || Err(std::io::Error::from_raw_os_error(1223))).unwrap_err();
+        let cancelled = launch_with_elevation_fallback(
+            || Err(std::io::Error::from_raw_os_error(740)),
+            || Err(std::io::Error::from_raw_os_error(1223)),
+        )
+        .unwrap_err();
         assert_eq!(cancelled.raw_os_error(), Some(1223));
     }
 
@@ -620,7 +664,10 @@ mod tests {
         assert!(sync_realm(&c, &meta, crate::realms::Mode::Wildcard).unwrap());
         assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), original);
         assert!(sync_realm(&c, &meta, crate::realms::Mode::Reborn).unwrap());
-        assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), b"SET sound 1\r\nSET realmName \"Warcraft Reborn\"\r\n");
+        assert_eq!(
+            fs::read(c.join("WTF/Config.wtf")).unwrap(),
+            b"SET sound 1\r\nSET realmName \"Warcraft Reborn\"\r\n"
+        );
     }
 
     #[test]

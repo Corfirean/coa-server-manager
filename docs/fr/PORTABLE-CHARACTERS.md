@@ -45,3 +45,7 @@ Sur un royaume dont le niveau maximal est inférieur, votre personnage peut temp
 **Versions sauvegardées (Saved versions)** permet de voir quand le progrès a été enregistré. Si un conflit apparaît, lisez l'explication avant de continuer. Évitez de jouer avec deux copies simultanément et conservez aussi des sauvegardes classiques du serveur.
 
 [Tous les guides](README.md)
+
+## Personnages portables et relais
+
+Dans la carte de publication du royaume, activez « Autoriser les personnages portables sur ce royaume », puis enregistrez. Cet accès est désactivé par défaut. Le désactiver bloque les nouveaux exports et imports sans supprimer les personnages sauvegardés. Le Manager de l’hôte doit rester ouvert. La connexion de contrôle et le relais de jeu ont des états distincts : un canal de contrôle connecté ne suffit pas à établir un tunnel de jeu. Chaque personnage conserve son mode d’origine : CoA, Wildcard ou Warcraft Reborn.

@@ -115,6 +115,7 @@ pub struct AccountOutcome {
 #[derive(Debug, Clone)]
 pub struct Claimed {
     pub character_id: Uuid,
+    pub ruleset: String,
     pub payload: Vec<u8>,
     pub sha256: [u8; 32],
     pub collections: BTreeMap<String, Vec<u32>>,
@@ -347,13 +348,14 @@ impl PlayerControl {
 
     pub fn claim(&self, ch: &mut PlayerChannel, token: u32) -> R<Claimed> {
         let r = ch.request(&Request::Claim { token })?;
-        let (character_id, sha256, payload, collections) = expect(r, |r| match r {
+        let (character_id, ruleset, sha256, payload, collections) = expect(r, |r| match r {
             Response::Claimed {
                 character_id,
+                ruleset,
                 sha256,
                 payload,
                 collections,
-            } => Ok((character_id, sha256, payload, collections)),
+            } => Ok((character_id, ruleset, sha256, payload, collections)),
             other => Err(other),
         })?;
         let payload = base64::engine::general_purpose::STANDARD
@@ -373,6 +375,7 @@ impl PlayerControl {
             })?;
         Ok(Claimed {
             character_id,
+            ruleset,
             payload,
             sha256: hash,
             collections,
@@ -413,6 +416,7 @@ impl PlayerControl {
         &self,
         ch: &mut PlayerChannel,
         character_id: Uuid,
+        ruleset: &str,
         canonical_revision: u64,
         payload: &[u8],
         content_hash: [u8; 32],
@@ -423,6 +427,7 @@ impl PlayerControl {
         let offer = Request::TransferOffer {
             transfer_id,
             character_id,
+            ruleset: ruleset.to_string(),
             canonical_revision,
             content_hash: content_hash_str.clone(),
             total_size: payload.len(),

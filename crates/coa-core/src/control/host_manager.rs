@@ -24,6 +24,7 @@ pub struct HostControlRealm {
     pub local_id: String,
     pub realm_id: String,
     pub link: LinkStatus,
+    pub relay: Option<crate::control::relay_link::RelayStatus>,
 }
 
 pub struct HostControl {
@@ -95,18 +96,27 @@ impl HostControl {
                             store.clone(),
                             backend.clone(),
                         ));
-                        let relay_link =
-                            crate::control::transport::relay_url(&base, "/relay/v1/host").map(
-                                |r_url| {
-                                    let rl = crate::control::relay_link::RelayLink::start(
-                                        r_url,
-                                        realm_id,
-                                        key.clone(),
-                                    );
-                                    service.set_relay(rl.clone());
-                                    rl
-                                },
-                            );
+                        let relay_link = match service.local_world_port() {
+                            Ok(world_port) => {
+                                crate::control::transport::relay_url(&base, "/relay/v1/host").map(
+                                    |r_url| {
+                                        let rl =
+                                            crate::control::relay_link::RelayLink::start_with_ports(
+                                                r_url,
+                                                realm_id,
+                                                key.clone(),
+                                                Some(world_port),
+                                            );
+                                        service.set_relay(rl.clone());
+                                        rl
+                                    },
+                                )
+                            }
+                            Err(e) => {
+                                eprintln!("Relay link unavailable for {local_id}: cannot resolve world port: {e}");
+                                None
+                            }
+                        };
                         let direct_route =
                             Some(crate::control::direct_route::DirectRouteManager::start(
                                 Some(base.clone()),
@@ -135,6 +145,7 @@ impl HostControl {
                                         local_id: id.clone(),
                                         realm_id: r.realm_id.to_string(),
                                         link: r.link.status(),
+                                        relay: r.relay_link.as_ref().map(|relay| relay.status()),
                                     },
                                 )
                             })

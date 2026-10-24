@@ -9,7 +9,7 @@ have its saved realm updated immediately.
 
 Accounts are shared with your other local realms. Warcraft Reborn starts with separate characters; switching profiles does not copy existing characters or progress.
 
-Bots are unavailable on Warcraft Reborn. Other optional modules are experimental. Portable character transfers into Warcraft Reborn are not supported. **Portable characters remain experimental.**
+Bots are unavailable on Warcraft Reborn. Other optional modules are experimental. Portable Characters support for Warcraft Reborn is implemented experimentally. Automated isolation/import/session tests pass. Physical real-client verification is still pending the combined manual gate. **Portable characters remain experimental.**
 
 Backups and updates include every created realm. Check the realm recorded in a recovery point before restoring it.
 

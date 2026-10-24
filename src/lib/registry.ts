@@ -13,6 +13,7 @@ export interface RealmPublishStatus {
   language: string;
   region: string | null;
   existing_only: boolean;
+  allow_portable: boolean;
   route: string | null;
   metadata_revision: number | null;
   last_ok_unix: number | null;

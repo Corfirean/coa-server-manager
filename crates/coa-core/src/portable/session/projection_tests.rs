@@ -371,9 +371,10 @@ fn a_session_started_without_its_projection_or_with_a_wrong_one_is_not_opened() 
     );
 
     // an older protocol is not understood at all
-    let old = String::from_utf8(genuine.clone())
-        .unwrap()
-        .replace("\"protocol_version\":2", "\"protocol_version\":1");
+    let old = String::from_utf8(genuine.clone()).unwrap().replace(
+        &format!("\"protocol_version\":{PROTOCOL_VERSION}"),
+        "\"protocol_version\":1",
+    );
     assert!(o.handle_started(old.as_bytes()).is_err());
     assert_eq!(
         o.handle_started(&genuine).unwrap().outcome,

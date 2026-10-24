@@ -20,11 +20,12 @@ pub const MAX_CATALOG_ENTRIES: usize = 8;
 const MAX_TOKEN: usize = 64;
 const MAX_IDENTITY: usize = 128;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ruleset {
     Coa,
     Wildcard,
+    Reborn,
 }
 
 impl Ruleset {
@@ -32,6 +33,15 @@ impl Ruleset {
         match self {
             Ruleset::Coa => "coa",
             Ruleset::Wildcard => "wildcard",
+            Ruleset::Reborn => "reborn",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Ruleset::Coa => "Conquest of Azeroth",
+            Ruleset::Wildcard => "Wildcard",
+            Ruleset::Reborn => "Warcraft Reborn",
         }
     }
 }

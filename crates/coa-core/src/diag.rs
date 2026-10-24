@@ -1045,7 +1045,12 @@ real error
     fn stop_diagnostics_survive_while_portable_pins_remain_hidden() {
         let ordinary = "MySQL is still stopping; wait before copying the repack.";
         assert_eq!(redact(ordinary), ordinary);
-        for secret in ["PIN: 123456", "pin=123456", "transfer_pin=123456", "PIN123456"] {
+        for secret in [
+            "PIN: 123456",
+            "pin=123456",
+            "transfer_pin=123456",
+            "PIN123456",
+        ] {
             let output = redact(&format!("{ordinary}\n{secret}"));
             assert!(output.contains(ordinary));
             assert!(!output.contains("123456"));

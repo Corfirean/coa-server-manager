@@ -35,7 +35,7 @@ impl PlayerChannel {
             Duration::from_millis(500),
         )?;
         let nonce = match transport::next_frame(&mut ws, STEP)? {
-            Frame::Challenge { nonce, .. } => nonce,
+            Frame::Challenge { protocol, nonce } if protocol == coord::COORDINATOR_PROTOCOL_VERSION => nonce,
             _ => return Err(LinkError::Protocol("a challenge was expected".into())),
         };
         transport::send_text(

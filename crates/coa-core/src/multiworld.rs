@@ -62,8 +62,17 @@ pub fn set_enabled(main: &Path, enabled: bool) -> Result<realms::View> {
         ));
     }
     if enabled {
-        if realms::state(main)?.active == Mode::Reborn { return Err(Error::Invalid("Simultaneous startup supports CoA and Wildcard. Select one of these realms first.".into())); }
-        if !realms::view(main)?.supported { return Err(Error::Invalid("Update the server to a build with Wildcard support first.".into())); }
+        if realms::state(main)?.active == Mode::Reborn {
+            return Err(Error::Invalid(
+                "Simultaneous startup supports CoA and Wildcard. Select one of these realms first."
+                    .into(),
+            ));
+        }
+        if !realms::view(main)?.supported {
+            return Err(Error::Invalid(
+                "Update the server to a build with Wildcard support first.".into(),
+            ));
+        }
         secondary_launcher(&fs::read_to_string(main.join("Scripts/manage.py"))?)?;
     }
     let status = process::observe(main, &crate::layout::read_ports(main));

@@ -59,12 +59,13 @@ pub mod limits {
 
 use limits::*;
 
-/// A character belongs to exactly one ruleset for its whole life; CoA and Wildcard never mix.
+/// A character belongs to exactly one ruleset for its whole life; rulesets never mix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ruleset {
     Coa,
     Wildcard,
+    Reborn,
 }
 
 impl Ruleset {
@@ -72,20 +73,96 @@ impl Ruleset {
         match self {
             Ruleset::Coa => "coa",
             Ruleset::Wildcard => "wildcard",
+            Ruleset::Reborn => "reborn",
+        }
+    }
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Ruleset::Coa => "Conquest of Azeroth",
+            Ruleset::Wildcard => "Wildcard",
+            Ruleset::Reborn => "Warcraft Reborn",
+        }
+    }
+    pub fn realm_id(self) -> u32 {
+        match self {
+            Ruleset::Coa => 1,
+            Ruleset::Wildcard => 2,
+            Ruleset::Reborn => 3,
+        }
+    }
+    pub fn schema(self, kind: &str) -> Result<&'static str> {
+        let mode: crate::realms::Mode = self.into();
+        mode.schema(kind)
+            .map_err(|e| PortableError::Invalid(e.to_string()))
+    }
+    pub fn collection_namespace(self) -> &'static str {
+        match self {
+            Ruleset::Coa => "coa",
+            Ruleset::Wildcard => "wildcard",
+            Ruleset::Reborn => "reborn",
         }
     }
     pub fn parse(s: &str) -> Result<Self> {
         match s {
             "coa" => Ok(Ruleset::Coa),
             "wildcard" => Ok(Ruleset::Wildcard),
+            "reborn" => Ok(Ruleset::Reborn),
             other => Err(PortableError::Invalid(format!("unknown ruleset {other:?}"))),
         }
+    }
+}
+
+impl std::str::FromStr for Ruleset {
+    type Err = PortableError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Self::parse(s)
     }
 }
 
 impl std::fmt::Display for Ruleset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl From<crate::realms::Mode> for Ruleset {
+    fn from(m: crate::realms::Mode) -> Self {
+        match m {
+            crate::realms::Mode::Coa => Ruleset::Coa,
+            crate::realms::Mode::Wildcard => Ruleset::Wildcard,
+            crate::realms::Mode::Reborn => Ruleset::Reborn,
+        }
+    }
+}
+
+impl From<Ruleset> for crate::realms::Mode {
+    fn from(r: Ruleset) -> Self {
+        match r {
+            Ruleset::Coa => crate::realms::Mode::Coa,
+            Ruleset::Wildcard => crate::realms::Mode::Wildcard,
+            Ruleset::Reborn => crate::realms::Mode::Reborn,
+        }
+    }
+}
+
+impl From<coa_registry_proto::caps::Ruleset> for Ruleset {
+    fn from(r: coa_registry_proto::caps::Ruleset) -> Self {
+        match r {
+            coa_registry_proto::caps::Ruleset::Coa => Ruleset::Coa,
+            coa_registry_proto::caps::Ruleset::Wildcard => Ruleset::Wildcard,
+            coa_registry_proto::caps::Ruleset::Reborn => Ruleset::Reborn,
+        }
+    }
+}
+
+impl From<Ruleset> for coa_registry_proto::caps::Ruleset {
+    fn from(r: Ruleset) -> Self {
+        match r {
+            Ruleset::Coa => coa_registry_proto::caps::Ruleset::Coa,
+            Ruleset::Wildcard => coa_registry_proto::caps::Ruleset::Wildcard,
+            Ruleset::Reborn => coa_registry_proto::caps::Ruleset::Reborn,
+        }
     }
 }
 
@@ -804,5 +881,23 @@ impl PortableCharacter {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_mapping_never_falls_back_on_unknown_database_kind() {
+        for ruleset in [Ruleset::Coa, Ruleset::Wildcard, Ruleset::Reborn] {
+            assert!(ruleset.schema("auth").is_ok());
+            assert!(ruleset.schema("characters").is_ok());
+            assert!(ruleset.schema("world").is_ok());
+            assert!(ruleset.schema("characters_extra").is_err());
+            assert!(ruleset.schema("unknown").is_err());
+            assert!(ruleset.schema("").is_err());
+            assert!(ruleset.schema("acore_characters").is_err());
+        }
     }
 }

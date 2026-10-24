@@ -7,6 +7,7 @@ import { asUiError } from "@/lib/api";
 import { useRegistryStatus } from "@/lib/registry";
 import { asPortableError, portable, usePortable, type PreflightView } from "@/lib/portable";
 import { Notes, Projection } from "@/screens/PortablePage";
+import { RulesetBadge, formatRulesetLabel } from "@/components/RulesetBadge";
 import { JoinPanel } from "@/screens/JoinPanel";
 import { asControlError, control } from "@/lib/control";
 import { browse, rate, type BrowseParams, type ModuleEntry, type ModuleInfo, type RealmDetail, type RealmSummary, type SortKey } from "@/lib/browse";
@@ -50,7 +51,7 @@ function Online({ p }: { p: RealmSummary["population"] }) {
 }
 
 function Mode({ ruleset }: { ruleset: string }) {
-  return <span>{ruleset === "wildcard" ? "Wildcard" : "CoA"}</span>;
+  return <RulesetBadge ruleset={ruleset} size="sm" />;
 }
 
 function compactRates(r: RealmSummary["rates"], t: (k: Key, v?: Record<string, string | number>) => string): string {
@@ -67,7 +68,7 @@ function SortHeader({ id, sort, order, onSort, children, className }: { id: Sort
 }
 
 function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog: Catalog; onClose: () => void }) {
-  const { t, locale } = useI18n();
+  const { t, tn, locale } = useI18n();
   const { state, refresh: refreshPortable } = usePortable();
   const [detail, setDetail] = useState<RealmDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +76,11 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
   const [pre, setPre] = useState<PreflightView | null>(null);
   const [preError, setPreError] = useState<string | null>(null);
   const characters = state?.characters ?? [];
+  const matchingCharacters = useMemo(
+    () => characters.filter((c) => c.ruleset === summary.ruleset),
+    [characters, summary.ruleset]
+  );
+  const hiddenCount = characters.length - matchingCharacters.length;
 
   useEffect(() => {
     let alive = true;
@@ -82,7 +88,13 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
     void browse.detail(summary.realm_id).then((d) => { if (alive) setDetail(d); }).catch((e) => { if (alive) setError(asUiError(e).technical); });
     return () => { alive = false; };
   }, [summary.realm_id]);
-  useEffect(() => { if (!character && characters.length > 0) setCharacter(characters[0].id); }, [characters.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if ((!character || !matchingCharacters.some((c) => c.id === character)) && matchingCharacters.length > 0) {
+      setCharacter(matchingCharacters[0].id);
+    } else if (matchingCharacters.length === 0) {
+      setCharacter("");
+    }
+  }, [matchingCharacters, character]);
   useEffect(() => {
     if (!character || !detail) { setPre(null); return; }
     let alive = true;
@@ -142,11 +154,27 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
         <h3 className="mb-1 font-medium">{t("browse.compat")}</h3>
         {error && <p className="text-bad" role="alert">{error}</p>}
         {!error && !d && <p className="flex items-center gap-2 text-muted"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />{t("portable.make.loading")}</p>}
-        {characters.length === 0 && <p className="text-muted">{t("browse.noCharacter")}</p>}
-        {characters.length > 0 && <>
-          <select aria-label={t("browse.character")} value={character} onChange={(e) => setCharacter(e.target.value)} className="w-full rounded-md border border-line bg-card px-3 py-2">
-            {characters.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.class_name}, {t("portable.level", { level: c.level })}</option>)}
-          </select>
+        {matchingCharacters.length === 0 && (
+          <div className="space-y-1">
+            <p className="text-muted">{t("browse.noCharacter")}</p>
+            {hiddenCount > 0 && (
+              <p className="text-xs text-muted">
+                {tn("browse.hidden_characters", hiddenCount)}
+              </p>
+            )}
+          </div>
+        )}
+        {matchingCharacters.length > 0 && <>
+          <div className="space-y-1">
+            <select aria-label={t("browse.character")} value={character} onChange={(e) => setCharacter(e.target.value)} className="w-full rounded-md border border-line bg-card px-3 py-2">
+              {matchingCharacters.map((c) => <option key={c.id} value={c.id}>[{formatRulesetLabel(c.ruleset)}] {c.name} — {c.class_name}, {t("portable.level", { level: c.level })}</option>)}
+            </select>
+            {hiddenCount > 0 && (
+              <p className="text-xs text-muted">
+                {tn("browse.hidden_characters", hiddenCount)}
+              </p>
+            )}
+          </div>
           {preError && <p className="mt-2 text-warn">{preError}</p>}
           {pre && chosen && <div className={cn("mt-2 rounded-md border p-3", blocked ? "border-bad/50 bg-bad/10" : pre.verdict === "degraded" ? "border-warn/50 bg-warn/10" : "border-ok/40 bg-ok/10")} data-verdict={pre.verdict}>
             <p className="font-medium">{blocked ? t("browse.cannotPlay") : t("browse.canPlay")}</p>
@@ -166,7 +194,7 @@ export function BrowsePage() {
   const { t } = useI18n();
   const { status } = useRegistryStatus(5000);
   const [q, setQ] = useState("");
-  const [ruleset, setRuleset] = useState<"" | "coa" | "wildcard">("");
+  const [ruleset, setRuleset] = useState<"" | "coa" | "wildcard" | "reborn">("");
   const [capMin, setCapMin] = useState("");
   const [capMax, setCapMax] = useState("");
   const [module, setModule] = useState("");
@@ -247,8 +275,8 @@ export function BrowsePage() {
 
     <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
       <input aria-label={t("browse.search")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("browse.search")} className="col-span-2 rounded-md border border-line bg-card px-3 py-2 text-sm" />
-      <select aria-label={t("browse.mode")} value={ruleset} onChange={(e) => setRuleset(e.target.value as "" | "coa" | "wildcard")} className="rounded-md border border-line bg-card px-3 py-2 text-sm">
-        <option value="">{t("browse.mode")}: {t("browse.any")}</option><option value="coa">CoA</option><option value="wildcard">Wildcard</option>
+      <select aria-label={t("browse.mode")} value={ruleset} onChange={(e) => setRuleset(e.target.value as "" | "coa" | "wildcard" | "reborn")} className="rounded-md border border-line bg-card px-3 py-2 text-sm">
+        <option value="">{t("browse.mode")}: {t("browse.any")}</option><option value="coa">CoA</option><option value="wildcard">Wildcard</option><option value="reborn">Warcraft Reborn</option>
       </select>
       <div className="flex items-center gap-1 text-sm"><input aria-label={t("browse.capMin")} inputMode="numeric" value={capMin} onChange={(e) => setCapMin(e.target.value.replace(/\D/g, ""))} placeholder={t("browse.capMin")} className="w-full rounded-md border border-line bg-card px-2 py-2" /><span className="text-muted">–</span><input aria-label={t("browse.capMax")} inputMode="numeric" value={capMax} onChange={(e) => setCapMax(e.target.value.replace(/\D/g, ""))} placeholder={t("browse.capMax")} className="w-full rounded-md border border-line bg-card px-2 py-2" /></div>
       <select aria-label={t("browse.module")} value={module} onChange={(e) => setModule(e.target.value)} className="rounded-md border border-line bg-card px-3 py-2 text-sm">

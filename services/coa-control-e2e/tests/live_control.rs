@@ -19,6 +19,14 @@ use coa_registry_proto::*;
 use ed25519_dalek::SigningKey;
 use uuid::Uuid;
 
+fn transfer_snapshot(id: Uuid, money: u32) -> (Vec<u8>, [u8; 32]) {
+    let mut model = coa_core::portable::fixtures::geared_level_eighty();
+    model.character_id = coa_core::portable::CharacterId::from_uuid(id).unwrap();
+    model.progression.money = money;
+    let encoded = coa_core::portable::snapshot::encode(&model).unwrap();
+    (encoded.payload, encoded.content_hash)
+}
+
 fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
 }
@@ -179,7 +187,6 @@ fn gate_phase12_live_vps_control_channel() {
 #[ignore]
 fn gate_phase12_1_live_vps_remote_transfer() {
     use std::collections::BTreeMap;
-    use sha2::{Digest, Sha256};
 
     let Some(base) = base_url() else { return };
 
@@ -202,7 +209,7 @@ fn gate_phase12_1_live_vps_remote_transfer() {
     while Instant::now() < deadline && !link.status().connected {
         std::thread::sleep(Duration::from_millis(200));
     }
-    assert!(link.status().connected, "Host failed to connect to Coordinator via WSS");
+    assert!(link.status().connected, "Host failed to connect to Coordinator via WSS: {:?}", link.status());
 
     let player_dir = tempfile::tempdir().unwrap();
     let pc = PlayerControl::open(player_dir.path(), Arc::new(MemoryStore::default())).unwrap();
@@ -218,33 +225,32 @@ fn gate_phase12_1_live_vps_remote_transfer() {
     pc.ensure_account(&mut ch, &realm, Some("VarianWrynn")).expect("ensure_account");
 
     let cid = Uuid::now_v7();
-    let payload = b"REMOTE_PORTABLE_CHARACTER_VARIAN_PAYLOAD_V1".to_vec();
-    let hash: [u8; 32] = Sha256::digest(&payload).into();
+    let (payload, hash) = transfer_snapshot(cid, 1);
     let collections = BTreeMap::from([("coa:appearance".to_string(), vec![101, 202])]);
 
     // 1. Remote transfer over Coordinator WSS channel
-    let outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).expect("transfer_character");
+    let outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).expect("transfer_character");
     assert!(outcome.local_guid > 0);
     assert_ne!(outcome.session_id, Uuid::nil());
     println!("GATE 12.1 PASS  remote transfer succeeded over WSS: local_guid={}, session_id={}", outcome.local_guid, outcome.session_id);
 
     // 2. Idempotent retry with same payload discovers existing commit
-    let retry_outcome = pc.transfer_character(&mut ch, cid, 1, &payload, hash, collections.clone()).expect("retry transfer");
+    let retry_outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).expect("retry transfer");
     assert_eq!(outcome.local_guid, retry_outcome.local_guid, "idempotent retry must return existing guid");
     assert_eq!(outcome.session_id, retry_outcome.session_id, "idempotent retry must return existing session");
     println!("GATE 12.1 PASS  idempotent retry returned existing commit without duplication");
 
     // 3. Update with newer revision 2 updates working copy without duplicating character
-    let payload2 = b"REMOTE_PORTABLE_CHARACTER_VARIAN_PAYLOAD_V2".to_vec();
-    let hash2: [u8; 32] = Sha256::digest(&payload2).into();
-    let update_outcome = pc.transfer_character(&mut ch, cid, 2, &payload2, hash2, collections).expect("update transfer");
+    let (payload2, hash2) = transfer_snapshot(cid, 2);
+    let update_outcome = pc.transfer_character(&mut ch, cid, "coa", 2, &payload2, hash2, collections).expect("update transfer");
     assert_eq!(outcome.local_guid, update_outcome.local_guid, "revision update must preserve guid");
     println!("GATE 12.1 PASS  revision 2 update succeeded without character duplication");
 
     // 4. Incompatible realm rejects before mutation
     let incomp_id = Uuid::now_v7();
     fake.incompatible.lock().unwrap().insert(incomp_id);
-    let err = pc.transfer_character(&mut ch, incomp_id, 1, b"incomp", [0u8; 32], BTreeMap::new()).expect_err("should reject");
+    let (incomp_payload, incomp_hash) = transfer_snapshot(incomp_id, 1);
+    let err = pc.transfer_character(&mut ch, incomp_id, "coa", 1, &incomp_payload, incomp_hash, BTreeMap::new()).expect_err("should reject");
     assert_eq!(err.code(), "incompatible");
     println!("GATE 12.1 PASS  incompatible character rejected cleanly");
 
@@ -326,7 +332,7 @@ fn gate_phase13_live_vps_relay() {
     let host_ws_url = coordinator_url(&base, "/coord/v1/host").expect("coordinator host url");
     let relay_ws_url = coordinator_url(&base, "/relay/v1/host").expect("relay host url");
 
-    let relay_link = RelayLink::start(relay_ws_url.clone(), realm, host_key.clone());
+    let relay_link = RelayLink::start_with_ports(relay_ws_url.clone(), realm, host_key.clone(), Some(mock_world_port));
     service.set_relay(relay_link.clone());
 
     let mut host_link = HostLink::start(host_ws_url.clone(), realm, host_key.clone(), service, Arc::new(now));

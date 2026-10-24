@@ -25,6 +25,9 @@ pub struct PublishConfig {
     /// The realm does not create accounts for joining players (it only links accounts that exist). Off by default: new players get an account.
     #[serde(default)]
     pub existing_only: bool,
+    /// Portable character admission is an explicit owner opt-in.
+    #[serde(default)]
+    pub allow_portable: bool,
     /// An address a player's game client can reach right now (`host` or `host:port`), stated by the owner. It is not discovery and not a relay.
     #[serde(default)]
     pub route: Option<String>,
@@ -205,6 +208,7 @@ mod tests {
                 language: "en".into(),
                 region: None,
                 existing_only: false,
+                allow_portable: false,
                 route: None,
             },
         );
