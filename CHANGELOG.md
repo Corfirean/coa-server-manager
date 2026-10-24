@@ -10,6 +10,8 @@ Dates follow GitHub publication (UTC); legacy records retain their archived date
 
 ## 0.8.0 — 2026-10-24
 
+**Portable Characters are experimental and may contain bugs.**
+
 - Server owners can allow portable characters per realm.
 - Allowing portable characters also prepares the server for portable sessions.
 - Managers stay compatible with the public connection service.
