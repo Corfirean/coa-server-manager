@@ -31,6 +31,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::Db;
 use crate::ra::Ra;
 
+mod remote_sync;
+
 use super::super::capabilities::RealmCapabilities;
 use super::super::compat::{self, CompatibilityReport, Inputs, Operation, Outcome, Topic};
 use super::super::error::PortableError;
@@ -729,6 +731,12 @@ impl PortableService {
                     updated_at: at,
                 });
             }
+            let remote_active = self
+                .owner
+                .owner_active_remote(c.character_id)
+                .ok()
+                .flatten()
+                .is_some();
             let active = copies
                 .iter()
                 .find(|x| {
@@ -741,9 +749,9 @@ impl PortableService {
                     )
                 })
                 .cloned();
-            let status = active
-                .as_ref()
-                .map(|a| a.status)
+            let status = remote_active
+                .then_some(PlayStatus::Syncing)
+                .or_else(|| active.as_ref().map(|a| a.status))
                 .or_else(|| {
                     copies
                         .iter()
@@ -1318,6 +1326,11 @@ impl PortableService {
         if events.is_ok() {
             delivery = (|| {
                 for m in host.outbox()? {
+                    if self.owner.owner_session_realm(m.session_id)?.as_deref()
+                        != Some(access.id.as_str())
+                    {
+                        continue; // The remote Owner must acknowledge its own baseline and checkpoints.
+                    }
                     let mut owner = OwnerService::new(&mut self.owner);
                     let ack: OwnerAck = if m.started {
                         owner.handle_started(&m.bytes)?
@@ -1331,6 +1344,25 @@ impl PortableService {
                     }
                 }
                 for m in host.collection_outbox()? {
+                    let local_owner =
+                        host.store()
+                            .host_live_sessions(&access.id)?
+                            .iter()
+                            .any(|session| {
+                                session.local_guid.is_some_and(|guid| {
+                                    realm::collections::account_of(&db, guid).ok().flatten()
+                                        == Some(m.account)
+                                }) && self
+                                    .owner
+                                    .owner_session_realm(session.session_id)
+                                    .ok()
+                                    .flatten()
+                                    .as_deref()
+                                    == Some(access.id.as_str())
+                            });
+                    if !local_owner {
+                        continue;
+                    }
                     let ack = OwnerService::new(&mut self.owner).handle_collection(&m.bytes)?;
                     host.receive_collection_ack(&mut bridge, m.account, &ack)?;
                 }
@@ -1655,6 +1687,20 @@ impl PortableService {
             ));
         }
 
+        let existing_mapping = self
+            .host
+            .server_mappings(cid)?
+            .into_iter()
+            .find(|m| m.server_id == realm_id);
+
+        // A live realm must never arm stale data as a new canonical revision.
+        if existing_mapping
+            .as_ref()
+            .is_some_and(|mapping| mapping.last_revision != params.revision)
+        {
+            return Err(fail("update_required", "The realm's existing copy needs an offline refresh by its owner before this revision can be played. Your canonical character is unchanged."));
+        }
+
         // Install or advance copy in host store
         self.host
             .host_install_copy(self.host_profile, &model, params.revision, "remote")?;
@@ -1677,13 +1723,7 @@ impl PortableService {
             }
         }
 
-        let existing_mapping = self
-            .host
-            .server_mappings(cid)?
-            .into_iter()
-            .find(|m| m.server_id == realm_id);
-
-        let session_id = SessionId::new();
+        let session_id = SessionId::from_uuid(params.session_id)?;
         let envelope = super::super::session::protocol::Envelope::from_encoded(
             &super::super::snapshot::encode(&model)?,
         );

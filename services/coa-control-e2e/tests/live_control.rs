@@ -28,7 +28,10 @@ fn transfer_snapshot(id: Uuid, money: u32) -> (Vec<u8>, [u8; 32]) {
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }
 
 fn random_key() -> SigningKey {
@@ -45,26 +48,61 @@ fn base_url() -> Option<String> {
 fn sample_caps(max_level: u32) -> AdvertisedCapabilities {
     let content = ContentProfile {
         ruleset: Ruleset::Coa,
-        character_formats: CharacterFormats { readable: FormatRange { min: 1, max: 2 }, writable: FormatRange { min: 2, max: 2 } },
+        character_formats: CharacterFormats {
+            readable: FormatRange { min: 1, max: 2 },
+            writable: FormatRange { min: 2, max: 2 },
+        },
         online_import_job_formats: vec![2],
         session_protocol: 2,
         collection_protocol: 1,
-        features: [Feature::RuntimeSessions, Feature::Wardrobe, Feature::LevelProjection].into_iter().collect(),
+        features: [
+            Feature::RuntimeSessions,
+            Feature::Wardrobe,
+            Feature::LevelProjection,
+        ]
+        .into_iter()
+        .collect(),
         collection_kinds: ["coa:appearance".to_string()].into_iter().collect(),
-        extensions: vec![ExtensionSupport { namespace: "coa".into(), module_version: "1".into(), formats: FormatRange { min: 1, max: 1 } }],
-        client_catalog: [("Appearances.dbc".to_string(), CatalogEntry { sha256: "a".repeat(64), records: 5 })].into_iter().collect(),
+        extensions: vec![ExtensionSupport {
+            namespace: "coa".into(),
+            module_version: "1".into(),
+            formats: FormatRange { min: 1, max: 1 },
+        }],
+        client_catalog: [(
+            "Appearances.dbc".to_string(),
+            CatalogEntry {
+                sha256: "a".repeat(64),
+                records: 5,
+            },
+        )]
+        .into_iter()
+        .collect(),
     };
     let content_profile_hash = content.hash();
     AdvertisedCapabilities {
         profile_version: 2,
-        core: Some(CoreIdentity { commit: "abc123".into(), branch: "main".into(), date: "2026-10-01".into() }),
+        core: Some(CoreIdentity {
+            commit: "abc123".into(),
+            branch: "main".into(),
+            date: "2026-10-01".into(),
+        }),
         content,
         content_profile_hash,
-        progression: Some(Progression { max_player_level: max_level, projection_protocol: 1, projection_policy_version: 1, progression_signature: "b".repeat(64), scaling_enabled: false }),
+        progression: Some(Progression {
+            max_player_level: max_level,
+            projection_protocol: 1,
+            projection_policy_version: 1,
+            progression_signature: "b".repeat(64),
+            scaling_enabled: false,
+        }),
     }
 }
 
-fn register_realm(client: &RegistryClient, realm: &RealmId, key: &SigningKey) -> std::result::Result<(), Box<dyn std::error::Error>> {
+fn register_realm(
+    client: &RegistryClient,
+    realm: &RealmId,
+    key: &SigningKey,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let listing = Listing {
         display_name: "Live Control Gate".into(),
         description: "TLS Phase 12 gate".into(),
@@ -72,7 +110,10 @@ fn register_realm(client: &RegistryClient, realm: &RealmId, key: &SigningKey) ->
         region: Some("EU".into()),
         rates: Rates::default(),
         modules: vec![],
-        account_provisioning: AccountProvisioning { automatic: true, existing_only: false },
+        account_provisioning: AccountProvisioning {
+            automatic: true,
+            existing_only: false,
+        },
         manager_version: "0.7.0".into(),
     };
     let capabilities = sample_caps(60);
@@ -84,7 +125,11 @@ fn register_realm(client: &RegistryClient, realm: &RealmId, key: &SigningKey) ->
         listing,
         capabilities_hash: capabilities.advert_hash(),
         capabilities,
-        population: Population { players: 0, bots: 0, capacity: None },
+        population: Population {
+            players: 0,
+            bots: 0,
+            capacity: None,
+        },
     };
     let ts = now();
     client.register(key, &req, ts)?;
@@ -116,23 +161,40 @@ fn gate_phase12_live_vps_control_channel() {
     let service = Arc::new(HostService::new("srv-gate", realm, store, fake.clone()));
 
     let host_ws_url = coordinator_url(&base, "/coord/v1/host").expect("coordinator host url");
-    assert!(host_ws_url.starts_with("wss://"), "Coordinator URL must use WSS: {host_ws_url}");
+    assert!(
+        host_ws_url.starts_with("wss://"),
+        "Coordinator URL must use WSS: {host_ws_url}"
+    );
 
-    let mut link = HostLink::start(host_ws_url.clone(), realm, host_key.clone(), service, Arc::new(now));
+    let mut link = HostLink::start(
+        host_ws_url.clone(),
+        realm,
+        host_key.clone(),
+        service,
+        Arc::new(now),
+    );
 
     // Wait for Host to connect to Coordinator
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline && !link.status().connected {
         std::thread::sleep(Duration::from_millis(200));
     }
-    assert!(link.status().connected, "Host failed to connect to Coordinator via WSS at {host_ws_url}: {:?}", link.status());
+    assert!(
+        link.status().connected,
+        "Host failed to connect to Coordinator via WSS at {host_ws_url}: {:?}",
+        link.status()
+    );
     println!("GATE 12 PASS  Coordinator Host connection established over WSS: {host_ws_url}");
 
     // 3. Player connects to Host via Coordinator over WSS
     let player_dir = tempfile::tempdir().unwrap();
     let pc = PlayerControl::open(player_dir.path(), Arc::new(MemoryStore::default())).unwrap();
-    let player_ws_base = coordinator_url(&base, "/coord/v1/player").expect("coordinator player url");
-    assert!(player_ws_base.starts_with("wss://"), "Player Coordinator URL must use WSS: {player_ws_base}");
+    let player_ws_base =
+        coordinator_url(&base, "/coord/v1/player").expect("coordinator player url");
+    assert!(
+        player_ws_base.starts_with("wss://"),
+        "Player Coordinator URL must use WSS: {player_ws_base}"
+    );
 
     let target = RealmTarget {
         realm_id: realm,
@@ -147,20 +209,29 @@ fn gate_phase12_live_vps_control_channel() {
     assert!(auto);
     assert!(!existing_only);
     assert!(route.is_none());
-    println!("GATE 12 PASS  handshake welcome received (auto={auto}, existing_only={existing_only})");
+    println!(
+        "GATE 12 PASS  handshake welcome received (auto={auto}, existing_only={existing_only})"
+    );
 
     // 4. Automatic account provisioning over WSS
-    let outcome = pc.ensure_account(&mut ch, &realm, Some("GateWarrior")).expect("ensure_account");
+    let outcome = pc
+        .ensure_account(&mut ch, &realm, Some("GateWarrior"))
+        .expect("ensure_account");
     assert_eq!(outcome.username, "GATEWARRIOR");
     assert!(outcome.created);
-    println!("GATE 12 PASS  automatic account provisioning succeeded: {}", outcome.username);
+    println!(
+        "GATE 12 PASS  automatic account provisioning succeeded: {}",
+        outcome.username
+    );
 
     // 5. A second player tests existing-account linking over WSS
     let player2_dir = tempfile::tempdir().unwrap();
     let pc2 = PlayerControl::open(player2_dir.path(), Arc::new(MemoryStore::default())).unwrap();
     let mut ch2 = pc2.connect(&target).expect("Player 2 connect via WSS");
 
-    let linked = pc2.link_existing(&mut ch2, &realm, "OLDHERO", "SECRET123").expect("link_existing");
+    let linked = pc2
+        .link_existing(&mut ch2, &realm, "OLDHERO", "SECRET123")
+        .expect("link_existing");
     assert_eq!(linked, "OLDHERO");
     println!("GATE 12 PASS  existing-account linking succeeded: {linked}");
 
@@ -170,16 +241,24 @@ fn gate_phase12_live_vps_control_channel() {
     assert_eq!(chars[0].name, "LegacyChar");
     assert!(chars[0].eligible);
 
-    let claimed = pc2.claim(&mut ch2, chars[0].token).expect("claim character");
+    let claimed = pc2
+        .claim(&mut ch2, chars[0].token)
+        .expect("claim character");
     assert_eq!(claimed.payload, b"payload-42");
-    pc2.acknowledge(&mut ch2, claimed.character_id, &realm, "LegacyChar").expect("acknowledge claim");
-    println!("GATE 12 PASS  character claim and acknowledge succeeded: character_id={}", claimed.character_id);
+    pc2.acknowledge(&mut ch2, claimed.character_id, &realm, "LegacyChar")
+        .expect("acknowledge claim");
+    println!(
+        "GATE 12 PASS  character claim and acknowledge succeeded: character_id={}",
+        claimed.character_id
+    );
 
     // 7. Clean up
     ch.close();
     ch2.close();
     link.stop();
-    client.unpublish(&host_key, &realm, now()).expect("unpublish realm");
+    client
+        .unpublish(&host_key, &realm, now())
+        .expect("unpublish realm");
     println!("GATE 12 PASS  realm unpublished and links closed cleanly");
 }
 
@@ -200,20 +279,36 @@ fn gate_phase12_1_live_vps_remote_transfer() {
 
     let fake = FakeRealm::new(true);
     let store = Arc::new(Mutex::new(ControlStore::open_in_memory().unwrap()));
-    let service = Arc::new(HostService::new("srv-gate-12-1", realm, store, fake.clone()));
+    let service = Arc::new(HostService::new(
+        "srv-gate-12-1",
+        realm,
+        store,
+        fake.clone(),
+    ));
 
     let host_ws_url = coordinator_url(&base, "/coord/v1/host").expect("coordinator host url");
-    let mut link = HostLink::start(host_ws_url.clone(), realm, host_key.clone(), service, Arc::new(now));
+    let mut link = HostLink::start(
+        host_ws_url.clone(),
+        realm,
+        host_key.clone(),
+        service,
+        Arc::new(now),
+    );
 
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline && !link.status().connected {
         std::thread::sleep(Duration::from_millis(200));
     }
-    assert!(link.status().connected, "Host failed to connect to Coordinator via WSS: {:?}", link.status());
+    assert!(
+        link.status().connected,
+        "Host failed to connect to Coordinator via WSS: {:?}",
+        link.status()
+    );
 
     let player_dir = tempfile::tempdir().unwrap();
     let pc = PlayerControl::open(player_dir.path(), Arc::new(MemoryStore::default())).unwrap();
-    let player_ws_base = coordinator_url(&base, "/coord/v1/player").expect("coordinator player url");
+    let player_ws_base =
+        coordinator_url(&base, "/coord/v1/player").expect("coordinator player url");
 
     let target = RealmTarget {
         realm_id: realm,
@@ -222,50 +317,81 @@ fn gate_phase12_1_live_vps_remote_transfer() {
     };
 
     let mut ch = pc.connect(&target).expect("Player connect via WSS");
-    pc.ensure_account(&mut ch, &realm, Some("VarianWrynn")).expect("ensure_account");
+    pc.ensure_account(&mut ch, &realm, Some("VarianWrynn"))
+        .expect("ensure_account");
 
     let cid = Uuid::now_v7();
     let (payload, hash) = transfer_snapshot(cid, 1);
     let collections = BTreeMap::from([("coa:appearance".to_string(), vec![101, 202])]);
 
     // 1. Remote transfer over Coordinator WSS channel
-    let outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).expect("transfer_character");
+    let outcome = pc
+        .transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone())
+        .expect("transfer_character");
     assert!(outcome.local_guid > 0);
     assert_ne!(outcome.session_id, Uuid::nil());
-    println!("GATE 12.1 PASS  remote transfer succeeded over WSS: local_guid={}, session_id={}", outcome.local_guid, outcome.session_id);
+    println!(
+        "GATE 12.1 PASS  remote transfer succeeded over WSS: local_guid={}, session_id={}",
+        outcome.local_guid, outcome.session_id
+    );
 
     // 2. Idempotent retry with same payload discovers existing commit
-    let retry_outcome = pc.transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone()).expect("retry transfer");
-    assert_eq!(outcome.local_guid, retry_outcome.local_guid, "idempotent retry must return existing guid");
-    assert_eq!(outcome.session_id, retry_outcome.session_id, "idempotent retry must return existing session");
+    let retry_outcome = pc
+        .transfer_character(&mut ch, cid, "coa", 1, &payload, hash, collections.clone())
+        .expect("retry transfer");
+    assert_eq!(
+        outcome.local_guid, retry_outcome.local_guid,
+        "idempotent retry must return existing guid"
+    );
+    assert_eq!(
+        outcome.session_id, retry_outcome.session_id,
+        "idempotent retry must return existing session"
+    );
     println!("GATE 12.1 PASS  idempotent retry returned existing commit without duplication");
 
     // 3. Update with newer revision 2 updates working copy without duplicating character
     let (payload2, hash2) = transfer_snapshot(cid, 2);
-    let update_outcome = pc.transfer_character(&mut ch, cid, "coa", 2, &payload2, hash2, collections).expect("update transfer");
-    assert_eq!(outcome.local_guid, update_outcome.local_guid, "revision update must preserve guid");
+    let update_outcome = pc
+        .transfer_character(&mut ch, cid, "coa", 2, &payload2, hash2, collections)
+        .expect("update transfer");
+    assert_eq!(
+        outcome.local_guid, update_outcome.local_guid,
+        "revision update must preserve guid"
+    );
     println!("GATE 12.1 PASS  revision 2 update succeeded without character duplication");
 
     // 4. Incompatible realm rejects before mutation
     let incomp_id = Uuid::now_v7();
     fake.incompatible.lock().unwrap().insert(incomp_id);
     let (incomp_payload, incomp_hash) = transfer_snapshot(incomp_id, 1);
-    let err = pc.transfer_character(&mut ch, incomp_id, "coa", 1, &incomp_payload, incomp_hash, BTreeMap::new()).expect_err("should reject");
+    let err = pc
+        .transfer_character(
+            &mut ch,
+            incomp_id,
+            "coa",
+            1,
+            &incomp_payload,
+            incomp_hash,
+            BTreeMap::new(),
+        )
+        .expect_err("should reject");
     assert_eq!(err.code(), "incompatible");
     println!("GATE 12.1 PASS  incompatible character rejected cleanly");
 
     ch.close();
     link.stop();
-    client.unpublish(&host_key, &realm, now()).expect("unpublish realm");
+    client
+        .unpublish(&host_key, &realm, now())
+        .expect("unpublish realm");
     println!("GATE 12.1 PASS  remote transfer gate passed and cleaned up");
 }
 
 #[test]
 #[ignore]
 fn gate_phase13_live_vps_relay() {
+    use coa_core::control::relay_link::RelayLink;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use coa_core::control::relay_link::RelayLink;
 
     let Some(base) = base_url() else { return };
 
@@ -290,7 +416,9 @@ fn gate_phase13_live_vps_relay() {
 
     // Spawn mock Auth worker: sends REALM_LIST packet when connection arrives
     std::thread::spawn(move || {
-        let Ok((mut stream, _)) = mock_auth_listener.accept() else { return };
+        let Ok((mut stream, _)) = mock_auth_listener.accept() else {
+            return;
+        };
         // Build mock REALM_LIST packet
         let mut pkt = Vec::new();
         pkt.push(0x10); // Opcode
@@ -318,7 +446,9 @@ fn gate_phase13_live_vps_relay() {
 
     // Spawn mock World worker: echoes back received data
     std::thread::spawn(move || {
-        let Ok((mut stream, _)) = mock_world_listener.accept() else { return };
+        let Ok((mut stream, _)) = mock_world_listener.accept() else {
+            return;
+        };
         let mut buf = [0u8; 128];
         if let Ok(n) = stream.read(&mut buf) {
             let _ = stream.write_all(&buf[..n]);
@@ -332,24 +462,75 @@ fn gate_phase13_live_vps_relay() {
     let host_ws_url = coordinator_url(&base, "/coord/v1/host").expect("coordinator host url");
     let relay_ws_url = coordinator_url(&base, "/relay/v1/host").expect("relay host url");
 
-    let relay_link = RelayLink::start_with_ports(relay_ws_url.clone(), realm, host_key.clone(), Some(mock_world_port));
+    let mut relay_link = RelayLink::start_with_local_ports(
+        relay_ws_url.clone(),
+        realm,
+        host_key.clone(),
+        mock_auth_port,
+        Some(mock_world_port),
+    );
     service.set_relay(relay_link.clone());
 
-    let mut host_link = HostLink::start(host_ws_url.clone(), realm, host_key.clone(), service, Arc::new(now));
+    let mut host_link = HostLink::start(
+        host_ws_url.clone(),
+        realm,
+        host_key.clone(),
+        service.clone(),
+        Arc::new(now),
+    );
 
     // Wait for HostLink and RelayLink to connect
     let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline && (!host_link.status().connected || !relay_link.status().connected) {
+    while Instant::now() < deadline
+        && (!host_link.status().connected || !relay_link.status().connected)
+    {
         std::thread::sleep(Duration::from_millis(200));
     }
-    assert!(host_link.status().connected, "Host failed to connect to Coordinator");
-    assert!(relay_link.status().connected, "Host failed to connect to Game Relay: {:?}", relay_link.status());
+    assert!(
+        host_link.status().connected,
+        "Host failed to connect to Coordinator"
+    );
+    assert!(
+        relay_link.status().connected,
+        "Host failed to connect to Game Relay: {:?}",
+        relay_link.status()
+    );
     println!("GATE 13 PASS  Host connected to Coordinator and Game Relay via outbound WSS");
+
+    // Reopening the same Manager identity must restore both outbound links and permit a new allocation.
+    host_link.stop();
+    relay_link.stop();
+    relay_link = RelayLink::start_with_local_ports(
+        relay_ws_url.clone(),
+        realm,
+        host_key.clone(),
+        mock_auth_port,
+        Some(mock_world_port),
+    );
+    service.set_relay(relay_link.clone());
+    host_link = HostLink::start(
+        host_ws_url.clone(),
+        realm,
+        host_key.clone(),
+        service.clone(),
+        Arc::new(now),
+    );
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline
+        && (!host_link.status().connected || !relay_link.status().connected)
+    {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        host_link.status().connected && relay_link.status().connected,
+        "Restarted Manager failed to restore outbound links"
+    );
 
     // Player connects
     let player_dir = tempfile::tempdir().unwrap();
     let pc = PlayerControl::open(player_dir.path(), Arc::new(MemoryStore::default())).unwrap();
-    let player_ws_base = coordinator_url(&base, "/coord/v1/player").expect("coordinator player url");
+    let player_ws_base =
+        coordinator_url(&base, "/coord/v1/player").expect("coordinator player url");
 
     let target = RealmTarget {
         realm_id: realm,
@@ -358,39 +539,62 @@ fn gate_phase13_live_vps_relay() {
     };
 
     let mut ch = pc.connect(&target).expect("Player connect via WSS");
-    pc.ensure_account(&mut ch, &realm, Some("Thrall")).expect("ensure_account");
+    pc.ensure_account(&mut ch, &realm, Some("Thrall"))
+        .expect("ensure_account");
 
     // Allocate relay
     let alloc = pc.allocate_relay(&mut ch).expect("allocate_relay");
-    println!("GATE 13 PASS  allocated relay: host={}, auth_port={}, world_port={}, token={}", alloc.relay_host, alloc.auth_port, alloc.world_port, alloc.token);
+    println!(
+        "GATE 13 PASS  allocated relay: host={}, auth_port={}, world_port={}",
+        alloc.relay_host, alloc.auth_port, alloc.world_port
+    );
     assert_eq!(alloc.relay_host, "coa-manager.duckdns.org");
     assert!(alloc.auth_port >= 40000 && alloc.auth_port <= 43999);
     assert!(alloc.world_port >= 40000 && alloc.world_port <= 43999);
     assert_ne!(alloc.auth_port, alloc.world_port);
 
     // Test AUTH traffic through VPS Relay: verify REALM_LIST address rewrite
-    let mut auth_client = TcpStream::connect((alloc.relay_host.as_str(), alloc.auth_port)).expect("connect to auth relay");
-    auth_client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut auth_client = TcpStream::connect((alloc.relay_host.as_str(), alloc.auth_port))
+        .expect("connect to auth relay");
+    auth_client
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
     let mut pkt_buf = vec![0u8; 512];
-    let n = auth_client.read(&mut pkt_buf).expect("read REALM_LIST response from auth relay");
+    let n = auth_client
+        .read(&mut pkt_buf)
+        .expect("read REALM_LIST response from auth relay");
     assert!(n > 10, "expected realm list packet");
     assert_eq!(pkt_buf[0], 0x10, "opcode must be 0x10 (REALM_LIST)");
 
     let expected_world_addr = format!("{}:{}", alloc.relay_host, alloc.world_port);
-    assert!(pkt_buf[..n].windows(expected_world_addr.len()).any(|w| w == expected_world_addr.as_bytes()),
-        "REALM_LIST packet must have address rewritten to {expected_world_addr}");
+    assert!(
+        pkt_buf[..n]
+            .windows(expected_world_addr.len())
+            .any(|w| w == expected_world_addr.as_bytes()),
+        "REALM_LIST packet must have address rewritten to {expected_world_addr}"
+    );
     println!("GATE 13 PASS  AUTH stream rewrote REALM_LIST address to VPS world port {expected_world_addr}");
     drop(auth_client);
 
     // Test WORLD traffic through VPS Relay: verify dumb byte tunneling
-    let mut world_client = TcpStream::connect((alloc.relay_host.as_str(), alloc.world_port)).expect("connect to world relay");
-    world_client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut world_client = TcpStream::connect((alloc.relay_host.as_str(), alloc.world_port))
+        .expect("connect to world relay");
+    world_client
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
     let test_payload = b"WORLD_TEST_PAYLOAD_FROM_CLIENT_THROUGH_VPS_RELAY";
-    world_client.write_all(test_payload).expect("send data to world relay");
+    world_client
+        .write_all(test_payload)
+        .expect("send data to world relay");
 
     let mut echo_buf = vec![0u8; test_payload.len()];
-    world_client.read_exact(&mut echo_buf).expect("read echo from world relay");
-    assert_eq!(&echo_buf, test_payload, "world relay must tunnel bytes faithfully without alteration");
+    world_client
+        .read_exact(&mut echo_buf)
+        .expect("read echo from world relay");
+    assert_eq!(
+        &echo_buf, test_payload,
+        "world relay must tunnel bytes faithfully without alteration"
+    );
     println!("GATE 13 PASS  WORLD stream tunneled game bytes faithfully end-to-end");
     drop(world_client);
 
@@ -398,7 +602,8 @@ fn gate_phase13_live_vps_relay() {
     ch.close();
     host_link.stop();
     relay_link.stop();
-    client.unpublish(&host_key, &realm, now()).expect("unpublish realm");
+    client
+        .unpublish(&host_key, &realm, now())
+        .expect("unpublish realm");
     println!("GATE 13 PASS  game relay gate passed and cleaned up");
 }
-

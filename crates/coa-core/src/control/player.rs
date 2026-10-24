@@ -13,6 +13,9 @@ use super::identity::PlayerIdentity;
 use super::transport::{self, LinkError, Ws};
 
 pub struct PlayerChannel {
+    pub(crate) realm_id: RealmId,
+    pub(crate) realm_key: VerifyingKey,
+    pub(crate) coordinator: String,
     ws: Ws,
     channel: Channel,
     conn: u32,
@@ -35,7 +38,11 @@ impl PlayerChannel {
             Duration::from_millis(500),
         )?;
         let nonce = match transport::next_frame(&mut ws, STEP)? {
-            Frame::Challenge { protocol, nonce } if protocol == coord::COORDINATOR_PROTOCOL_VERSION => nonce,
+            Frame::Challenge { protocol, nonce }
+                if protocol == coord::COORDINATOR_PROTOCOL_VERSION =>
+            {
+                nonce
+            }
             _ => return Err(LinkError::Protocol("a challenge was expected".into())),
         };
         transport::send_text(
@@ -67,7 +74,14 @@ impl PlayerChannel {
         {
             transport::send_binary(&mut ws, f)?;
         }
-        Ok(PlayerChannel { ws, channel, conn })
+        Ok(PlayerChannel {
+            ws,
+            channel,
+            conn,
+            realm_id: *realm,
+            realm_key: *realm_key,
+            coordinator: coordinator.into(),
+        })
     }
 
     pub fn connection(&self) -> u32 {

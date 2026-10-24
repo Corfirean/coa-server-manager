@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS host_transfer(
     updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS host_transfer_char ON host_transfer(realm_local_id, character_id);
+CREATE TABLE IF NOT EXISTS player_remote_session(
+    character_id TEXT PRIMARY KEY,
+    realm_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    coordinator TEXT NOT NULL
+);
 ";
 
 fn now() -> String {
@@ -177,6 +184,15 @@ pub struct PlayerRealm {
     pub kind: AccountKind,
 }
 
+#[derive(Clone, Debug)]
+pub struct PlayerRemoteSession {
+    pub character_id: Uuid,
+    pub realm_id: String,
+    pub session_id: Uuid,
+    pub public_key: String,
+    pub coordinator: String,
+}
+
 pub struct ControlStore {
     conn: Connection,
 }
@@ -186,6 +202,66 @@ fn uuid(s: String) -> Result<Uuid> {
 }
 
 impl ControlStore {
+    pub fn player_remote_sessions(&self) -> Result<Vec<PlayerRemoteSession>> {
+        let mut statement = self.conn.prepare("SELECT character_id, realm_id, session_id, public_key, coordinator FROM player_remote_session ORDER BY character_id").map_err(db)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(db)?;
+        rows.map(|row| {
+            let (character, realm_id, session, public_key, coordinator) = row.map_err(db)?;
+            Ok(PlayerRemoteSession {
+                character_id: uuid(character)?,
+                realm_id,
+                session_id: uuid(session)?,
+                public_key,
+                coordinator,
+            })
+        })
+        .collect()
+    }
+
+    pub fn player_remote_session_set(&self, session: &PlayerRemoteSession) -> Result<()> {
+        if self.player_remote_sessions()?.iter().any(|existing| {
+            existing.character_id == session.character_id
+                && (existing.session_id != session.session_id
+                    || existing.realm_id != session.realm_id
+                    || existing.public_key != session.public_key)
+        }) {
+            return Err(Error::Invalid(
+                "The character's previous remote session must finish saving first.".into(),
+            ));
+        }
+        self.conn.execute("INSERT INTO player_remote_session(character_id, realm_id, session_id, public_key, coordinator) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(character_id) DO NOTHING", params![session.character_id.to_string(), session.realm_id, session.session_id.to_string(), session.public_key, session.coordinator]).map_err(db)?;
+        Ok(())
+    }
+
+    pub fn player_remote_session_advance(
+        &self,
+        character: Uuid,
+        previous: Uuid,
+        next: Uuid,
+    ) -> Result<()> {
+        self.conn.execute("UPDATE player_remote_session SET session_id=?3 WHERE character_id=?1 AND session_id=?2", params![character.to_string(), previous.to_string(), next.to_string()]).map_err(db)?;
+        Ok(())
+    }
+
+    pub fn player_remote_session_remove(&self, character: Uuid, session: Uuid) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM player_remote_session WHERE character_id=?1 AND session_id=?2",
+                params![character.to_string(), session.to_string()],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
     pub fn open(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
         let conn = Connection::open(dir.join("control.sqlite")).map_err(db)?;
@@ -573,6 +649,43 @@ fn row_transfer(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<HostTransfer>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_session_survives_restart_and_cannot_be_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let row = PlayerRemoteSession {
+            character_id: Uuid::now_v7(),
+            realm_id: "realm".into(),
+            session_id: Uuid::now_v7(),
+            public_key: "pinned-key".into(),
+            coordinator: "wss://example.test/coord/v1/player".into(),
+        };
+        {
+            let store = ControlStore::open(dir.path()).unwrap();
+            store.player_remote_session_set(&row).unwrap();
+            store.player_remote_session_set(&row).unwrap();
+            let mut other = row.clone();
+            other.session_id = Uuid::now_v7();
+            assert!(store.player_remote_session_set(&other).is_err());
+            other = row.clone();
+            other.public_key = "changed-key".into();
+            assert!(store.player_remote_session_set(&other).is_err());
+        }
+        let store = ControlStore::open(dir.path()).unwrap();
+        let recovered = store.player_remote_sessions().unwrap().pop().unwrap();
+        assert_eq!(
+            (recovered.session_id, recovered.public_key),
+            (row.session_id, row.public_key)
+        );
+        store
+            .player_remote_session_remove(row.character_id, Uuid::now_v7())
+            .unwrap();
+        assert_eq!(store.player_remote_sessions().unwrap().len(), 1);
+        store
+            .player_remote_session_remove(row.character_id, row.session_id)
+            .unwrap();
+        assert!(store.player_remote_sessions().unwrap().is_empty());
+    }
 
     #[test]
     fn a_player_owns_one_account_per_realm_and_an_account_one_player() {

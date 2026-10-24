@@ -43,7 +43,14 @@ fn schema_nine_upgrade_preserves_characters_and_isolates_collections() {
     assert_eq!(store.schema_version().unwrap(), 10);
     assert_eq!(store.load_current(id).unwrap(), before);
     assert_eq!(store.server_mappings(id).unwrap()[0].local_guid, 42);
-    assert_eq!(store.collection(profile, Ruleset::Coa, kind).unwrap().unwrap().1, set);
+    assert_eq!(
+        store
+            .collection(profile, Ruleset::Coa, kind)
+            .unwrap()
+            .unwrap()
+            .1,
+        set
+    );
     assert_eq!(
         store
             .collection_info(profile, Ruleset::Coa, kind)
@@ -61,7 +68,11 @@ fn schema_nine_upgrade_preserves_characters_and_isolates_collections() {
         .merge_collection(profile, Ruleset::Coa, kind, &IdSet::from_ids([30]).unwrap())
         .unwrap();
     assert_eq!(
-        store.collection(profile, Ruleset::Coa, kind).unwrap().unwrap().1,
+        store
+            .collection(profile, Ruleset::Coa, kind)
+            .unwrap()
+            .unwrap()
+            .1,
         IdSet::from_ids([10, 20, 30]).unwrap()
     );
     let foreign: (i64, Vec<u8>) = store
@@ -2577,4 +2588,17 @@ fn reborn_store_corruption_fails_closed() {
         res2.is_err(),
         "Loading reborn summary with Wildcard snapshot must fail closed"
     );
+}
+
+#[test]
+fn canonical_file_retains_full_sync_after_initialization_and_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    for _ in 0..2 {
+        let store = Store::open(dir.path()).unwrap();
+        let sync: i64 = store
+            .conn
+            .pragma_query_value(None, "synchronous", |row| row.get(0))
+            .unwrap();
+        assert_eq!(sync, 2);
+    }
 }

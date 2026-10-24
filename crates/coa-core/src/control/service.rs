@@ -20,6 +20,20 @@ use uuid::Uuid;
 use super::store::{AccountKind, ClaimState, ControlStore, HostTransfer, TransferState};
 use crate::{Error, Result};
 
+mod portable_sync;
+
+#[derive(Clone, Debug)]
+pub struct RemoteSessionMessage {
+    pub kind: app::SessionMessageKind,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteSessionState {
+    pub message: Option<RemoteSessionMessage>,
+    pub closed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealmInfo {
     /// Create accounts for joining players (the default). When false the realm only links accounts that exist.
@@ -64,6 +78,7 @@ pub struct ClaimExport {
 
 #[derive(Clone, Debug)]
 pub struct RemoteImportParams {
+    pub session_id: Uuid,
     pub character_id: Uuid,
     pub revision: u64,
     pub payload: Vec<u8>,
@@ -89,6 +104,30 @@ pub enum PreflightVerdict {
 
 /// The realm itself: its login database, its console and the portable engine.
 pub trait RealmBackend: Send + Sync {
+    fn session_message(
+        &self,
+        _local_id: &str,
+        _character: Uuid,
+        _session: Uuid,
+        _account: u32,
+    ) -> Result<RemoteSessionState> {
+        Err(Error::Invalid(
+            "Portable session synchronization is unavailable.".into(),
+        ))
+    }
+    fn session_ack(
+        &self,
+        _local_id: &str,
+        _character: Uuid,
+        _session: Uuid,
+        _account: u32,
+        _kind: app::SessionMessageKind,
+        _bytes: &[u8],
+    ) -> Result<()> {
+        Err(Error::Invalid(
+            "Portable session synchronization is unavailable.".into(),
+        ))
+    }
     fn info(&self, local_id: &str) -> Result<RealmInfo>;
     fn account_by_name(&self, local_id: &str, username: &str) -> Result<Option<AccountRow>>;
     fn account_by_id(&self, local_id: &str, id: u32) -> Result<Option<AccountRow>>;
@@ -121,6 +160,9 @@ pub trait RealmBackend: Send + Sync {
         params: RemoteImportParams,
     ) -> Result<RemoteImportOutcome>;
     /// Local world port for this realm. Must fail closed if the realm port cannot be resolved.
+    fn auth_port(&self, _local_id: &str) -> Result<u16> {
+        Ok(coa_control_proto::relay::LOCAL_AUTH_PORT)
+    }
     fn world_port(&self, local_id: &str) -> Result<u16>;
 }
 
@@ -148,7 +190,7 @@ impl Session {
 }
 
 const MAX_REQUESTS_PER_SESSION: u32 = 60;
-const MAX_TRANSFER_CHUNKS_PER_SESSION: u32 = 128;
+const MAX_TRANSFER_CHUNKS_PER_SESSION: u32 = 2048;
 const LINK_FAILURES: usize = 5;
 const LINK_WINDOW: Duration = Duration::from_secs(600);
 
@@ -222,6 +264,10 @@ impl HostService {
         self.realm_id
     }
 
+    pub fn local_auth_port(&self) -> Result<u16> {
+        self.backend.auth_port(&self.local_id)
+    }
+
     pub fn local_world_port(&self) -> Result<u16> {
         self.backend.world_port(&self.local_id)
     }
@@ -246,7 +292,12 @@ impl HostService {
         public_key: &str,
         request: Request,
     ) -> Response {
-        if matches!(request, Request::TransferChunk { .. }) {
+        if matches!(
+            request,
+            Request::TransferChunk { .. }
+                | Request::SessionRead { .. }
+                | Request::SessionAck { .. }
+        ) {
             session.transfer_chunks += 1;
             if session.transfer_chunks > MAX_TRANSFER_CHUNKS_PER_SESSION {
                 return err(
@@ -325,6 +376,26 @@ impl HostService {
                 content_hash,
                 total_size,
                 collections,
+                false,
+            ),
+            Request::OwnedTransferOffer {
+                transfer_id,
+                character_id,
+                ruleset,
+                canonical_revision,
+                content_hash,
+                total_size,
+                collections,
+            } => self.transfer_offer(
+                player,
+                transfer_id,
+                character_id,
+                ruleset,
+                canonical_revision,
+                content_hash,
+                total_size,
+                collections,
+                true,
             ),
             Request::TransferChunk {
                 transfer_id,
@@ -337,6 +408,32 @@ impl HostService {
                 transfer_id,
                 character_id,
             } => self.transfer_ack(player, transfer_id, character_id),
+            Request::SessionPoll {
+                character_id,
+                session_id,
+            } => self.session_poll(player, character_id, session_id),
+            Request::SessionRead {
+                character_id,
+                session_id,
+                message_hash,
+                offset,
+            } => self.session_read(player, character_id, session_id, &message_hash, offset),
+            Request::SessionAck {
+                character_id,
+                session_id,
+                message_hash,
+                offset,
+                total_size,
+                data,
+            } => self.session_ack_chunk(
+                player,
+                character_id,
+                session_id,
+                &message_hash,
+                offset,
+                total_size,
+                &data,
+            ),
             Request::AllocateRelay { player_id } => {
                 self.allocate_relay(session, player, &player_id)
             }
@@ -742,6 +839,7 @@ impl HostService {
         content_hash: String,
         total_size: usize,
         collections: BTreeMap<String, Vec<u32>>,
+        owned_session: bool,
     ) -> Response {
         let Ok(_guard) = self.write.lock() else {
             return err(AppError::Unavailable, "Busy.");
@@ -792,6 +890,41 @@ impl HostService {
             }
         }
 
+        // An exact committed retry returns its saved result before transient presence or compatibility checks.
+        if let Ok(Some(existing)) = self
+            .store
+            .lock()
+            .map_err(|_| Error::Invalid("lock".into()))
+            .and_then(|s| s.host_transfer_latest(&self.local_id, &character_id))
+        {
+            if existing.player_id != *player {
+                return err(
+                    AppError::NotYours,
+                    "This character's transfer belongs to another player.",
+                );
+            }
+            if existing.state != TransferState::Receiving
+                && (!owned_session || existing.transfer_id == transfer_id)
+                && existing.player_id == *player
+                && existing.ruleset == ruleset
+                && existing.total_size == total_size
+                && existing.collections == collections
+                && existing.revision == canonical_revision
+                && existing.content_hash == content_hash
+            {
+                if let (Some(guid), Some(sid)) = (existing.local_guid, existing.session_id) {
+                    return Response::TransferCommitted {
+                        transfer_id,
+                        character_id,
+                        local_guid: guid,
+                        session_id: sid,
+                        projected_level: existing.projected_level,
+                        notes: existing.notes,
+                    };
+                }
+            }
+        }
+
         // 2. Active session conflict: if account is online with active characters
         match self.backend.presence(&self.local_id, m.account_id) {
             Ok(p) if p.account_online && p.online_characters > 0 => {
@@ -817,30 +950,6 @@ impl HostService {
             }
             Err(e) => return unavailable("compatibility check", &e),
             _ => {}
-        }
-
-        // 4. Idempotency / already committed check
-        if let Ok(Some(existing)) = self
-            .store
-            .lock()
-            .map_err(|_| Error::Invalid("lock".into()))
-            .and_then(|s| s.host_transfer_latest(&self.local_id, &character_id))
-        {
-            if existing.state != TransferState::Receiving
-                && existing.revision == canonical_revision
-                && existing.content_hash == content_hash
-            {
-                if let (Some(guid), Some(sid)) = (existing.local_guid, existing.session_id) {
-                    return Response::TransferCommitted {
-                        transfer_id,
-                        character_id,
-                        local_guid: guid,
-                        session_id: sid,
-                        projected_level: existing.projected_level,
-                        notes: existing.notes,
-                    };
-                }
-            }
         }
 
         // 5. Resume check for this specific transfer_id
@@ -1099,6 +1208,7 @@ impl HostService {
         };
 
         let params = RemoteImportParams {
+            session_id: t.transfer_id,
             character_id: t.character_id,
             revision: t.revision,
             payload,
@@ -2256,6 +2366,82 @@ mod tests {
             1,
             "does not duplicate character"
         );
+    }
+
+    #[test]
+    fn committed_transfer_retry_survives_presence_and_compatibility_changes() {
+        let (realm, service, player, account) = claimed_setup();
+        let character = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let (payload, hash) = test_snapshot(character, crate::portable::Ruleset::Coa);
+        let transfer = HostTransfer {
+            realm_local_id: service.local_id.clone(),
+            transfer_id: Uuid::now_v7(),
+            character_id: character,
+            ruleset: "coa".into(),
+            player_id: player,
+            revision: 7,
+            content_hash: hash.clone(),
+            total_size: payload.len(),
+            received_size: payload.len(),
+            state: TransferState::Committed,
+            local_guid: Some(3012),
+            session_id: Some(session_id),
+            projected_level: Some(60),
+            notes: vec![],
+            collections: BTreeMap::new(),
+        };
+        service
+            .store
+            .lock()
+            .unwrap()
+            .host_transfer_save(&transfer)
+            .unwrap();
+        realm.incompatible.lock().unwrap().insert(character);
+        realm.online.lock().unwrap().insert(
+            account,
+            Presence {
+                account_online: true,
+                online_characters: 1,
+            },
+        );
+        let offer = || Request::TransferOffer {
+            transfer_id: Uuid::now_v7(),
+            character_id: character,
+            ruleset: "coa".into(),
+            canonical_revision: 7,
+            content_hash: hash.clone(),
+            total_size: payload.len(),
+            collections: BTreeMap::new(),
+        };
+        assert!(
+            matches!(service.handle(&mut Session::default(), &player, "K", offer()),
+            Response::TransferCommitted { local_guid: 3012, session_id: returned, .. } if returned == session_id)
+        );
+        let mut different = transfer;
+        different.player_id = Uuid::now_v7();
+        different.transfer_id = Uuid::now_v7();
+        different.character_id = Uuid::now_v7();
+        service
+            .store
+            .lock()
+            .unwrap()
+            .host_transfer_save(&different)
+            .unwrap();
+        let foreign_offer = Request::TransferOffer {
+            transfer_id: Uuid::now_v7(),
+            character_id: different.character_id,
+            ruleset: "coa".into(),
+            canonical_revision: 7,
+            content_hash: hash.clone(),
+            total_size: payload.len(),
+            collections: BTreeMap::new(),
+        };
+        assert!(matches!(
+            service.handle(&mut Session::default(), &player, "K", foreign_offer),
+            Response::Error { .. }
+        ));
+        assert!(realm.imported.lock().unwrap().is_empty());
     }
 
     #[test]

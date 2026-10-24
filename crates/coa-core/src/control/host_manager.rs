@@ -36,6 +36,7 @@ pub struct HostControl {
 struct Running {
     realm_id: RealmId,
     url: String,
+    ports: Option<(u16, u16)>,
     link: HostLink,
     #[allow(dead_code)]
     relay_link: Option<Arc<crate::control::relay_link::RelayLink>>,
@@ -84,7 +85,7 @@ impl HostControl {
                     running.retain(|id, r| {
                         wanted
                             .get(id)
-                            .is_some_and(|(realm, url, _, _)| *realm == r.realm_id && *url == r.url)
+                            .is_some_and(|(realm, url, _, _)| *realm == r.realm_id && *url == r.url && backend.auth_port(id).ok().zip(backend.world_port(id).ok()) == r.ports)
                     });
                     for (local_id, (realm_id, url, base, key)) in wanted {
                         if running.contains_key(&local_id) {
@@ -96,15 +97,17 @@ impl HostControl {
                             store.clone(),
                             backend.clone(),
                         ));
-                        let relay_link = match service.local_world_port() {
-                            Ok(world_port) => {
+                        let ports = service.local_auth_port().ok().zip(service.local_world_port().ok());
+                        let relay_link = match ports {
+                            Some((auth_port, world_port)) => {
                                 crate::control::transport::relay_url(&base, "/relay/v1/host").map(
                                     |r_url| {
                                         let rl =
-                                            crate::control::relay_link::RelayLink::start_with_ports(
+                                            crate::control::relay_link::RelayLink::start_with_local_ports(
                                                 r_url,
                                                 realm_id,
                                                 key.clone(),
+                                                auth_port,
                                                 Some(world_port),
                                             );
                                         service.set_relay(rl.clone());
@@ -112,8 +115,8 @@ impl HostControl {
                                     },
                                 )
                             }
-                            Err(e) => {
-                                eprintln!("Relay link unavailable for {local_id}: cannot resolve world port: {e}");
+                            None => {
+                                tracing::warn!(%local_id, "relay is waiting for valid local auth and world ports");
                                 None
                             }
                         };
@@ -129,6 +132,7 @@ impl HostControl {
                             Running {
                                 realm_id,
                                 url,
+                                ports,
                                 link,
                                 relay_link,
                                 direct_route,
