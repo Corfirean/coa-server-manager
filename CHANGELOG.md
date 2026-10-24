@@ -8,6 +8,17 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.8.0 — 2026-10-24
+
+- Server owners can allow portable characters per realm.
+- Allowing portable characters also prepares the server for portable sessions.
+- Managers stay compatible with the public connection service.
+- Relay connections recover and use the ports of the installed server.
+- Portable progress resumes after reconnecting or restarting the Manager.
+- Older copies on another host may require maintenance before returning.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.7.3...v0.8.0)
+
 ## 0.7.3 — 2026-10-23
 
 **Portable Characters are experimental and may contain bugs.**

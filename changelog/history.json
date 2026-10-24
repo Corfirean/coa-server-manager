@@ -129,7 +129,13 @@
     "Corfirean/coa-server-manager:20261023-shared-addons-links.md",
     "Corfirean/coa-server-manager:20261023-time-is-time-settings.md",
     "Corfirean/coa-server-manager:20261023-update-check-database-timeout.md",
-    "Corfirean/coa-server-manager:20261024-portable-schema-nine.md"
+    "Corfirean/coa-server-manager:20261024-portable-admission.md",
+    "Corfirean/coa-server-manager:20261024-portable-owner-core-activation.md",
+    "Corfirean/coa-server-manager:20261024-portable-schema-nine.md",
+    "Corfirean/coa-server-manager:20261024-relay-authentication.md",
+    "Corfirean/coa-server-manager:20261024-relay-recovery.md",
+    "Corfirean/coa-server-manager:20261024-remote-progress.md",
+    "Corfirean/coa-server-manager:20261024-remote-refresh.md"
   ],
   "releases": [
     {
@@ -664,6 +670,22 @@
         "portable-characters"
       ],
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.2...v0.7.3"
+    },
+    {
+      "tag": "v0.8.0",
+      "version": "0.8.0",
+      "date": "2026-10-24",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.0",
+      "notes": [
+        "Server owners can allow portable characters per realm",
+        "Allowing portable characters also prepares the server for portable sessions",
+        "Managers stay compatible with the public connection service",
+        "Relay connections recover and use the ports of the installed server",
+        "Portable progress resumes after reconnecting or restarting the Manager",
+        "Older copies on another host may require maintenance before returning"
+      ],
+      "commit": "b00e732c7f53f33680aaf6bd520da64b70b26a5a",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.3...v0.8.0"
     }
   ]
 }
