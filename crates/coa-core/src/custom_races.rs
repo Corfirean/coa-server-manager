@@ -14,12 +14,14 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "1.8.3";
+pub const CLIENT_VERSION: &str = "1.9.1";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
 pub const ARCHIVES: &[(&str, &str)] = &[
-    ("CoA-Custom-1.8.3-Client-1.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8.3/CoA-Custom-1.8.3-Client-1.zip"),
-    ("CoA-Custom-1.8.3-Client-2.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8.3/CoA-Custom-1.8.3-Client-2.zip"),
-    ("CoA-Custom-1.8.3-Client-3.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.8.3/CoA-Custom-1.8.3-Client-3.zip"),
+    ("CoA-Custom-1.9.1-Client-1.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-1.zip"),
+    ("CoA-Custom-1.9.1-Client-2.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-2.zip"),
+    ("CoA-Custom-1.9.1-Client-3.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-3.zip"),
+    ("CoA-Custom-1.9.1-Client-4.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-4.zip"),
+    ("CoA-Custom-1.9.1-Client-5.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-5.zip"),
 ];
 
 pub const RACE_MPQS: &[&str] = &[
@@ -53,6 +55,10 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZZX.MPQ",
     "patch-ZZZC.MPQ",
     "patch-ZZZD.MPQ",
+    "patch-ZZZA.MPQ",
+    "patch-ZZZE.MPQ",
+    "patch-ZZZF.MPQ",
+    "patch-ZZZZ.MPQ",
 ];
 
 pub const RACE_ADDONS: &[&str] = &[
@@ -186,6 +192,8 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
         include_str!("custom_races_hashes_1_7.json")
     } else if manifest.lines().any(|line| line == "# CoA Custom 1.8") {
         include_str!("custom_races_hashes_1_8.json")
+    } else if manifest.lines().any(|line| line == "# CoA Custom 1.8.3") {
+        include_str!("custom_races_hashes_1_8_3.json")
     } else {
         include_str!("custom_races_hashes.json")
     };
@@ -200,11 +208,6 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
             }
             Some(format!("Data/{name}"))
         } else if let Some(name) = line.strip_prefix("ROOT:") {
-            if name.contains(['/', '\\']) {
-                return Err(Error::Invalid(
-                    "Invalid custom races patch manifest.".into(),
-                ));
-            }
             Some(name.to_string())
         } else {
             line.strip_prefix("ADDON:")
@@ -624,16 +627,37 @@ pub fn uninstall_client_patches(client: &Path) -> Result<()> {
     tx.finish()
 }
 
+fn stage_root_asset(staging: &Path, relative: &str, reader: &mut impl Read) -> Result<String> {
+    let dest = fsx::safe_join(staging, relative)?;
+    fs::create_dir_all(
+        dest.parent()
+            .ok_or_else(|| Error::Invalid("Invalid client asset path.".into()))?,
+    )?;
+    let mut output = File::create(&dest)?;
+    io::copy(reader, &mut output)?;
+    let disabled = PathBuf::from(format!("{}.disabled", dest.display()));
+    if disabled.is_file() {
+        fs::remove_file(disabled)?;
+    }
+    Ok(relative.to_string())
+}
+
 fn verify_archive(path: &Path, filename: &str) -> Result<()> {
     let expected = match filename {
-        "CoA-Custom-1.8.3-Client-1.zip" => {
+        "CoA-Custom-1.9.1-Client-1.zip" => {
             "a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568"
         }
-        "CoA-Custom-1.8.3-Client-2.zip" => {
+        "CoA-Custom-1.9.1-Client-2.zip" => {
             "ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e"
         }
-        "CoA-Custom-1.8.3-Client-3.zip" => {
-            "270c7b306624bf9e5c3fe577e3bd058601221df223dd9e449ff7c25de70b9461"
+        "CoA-Custom-1.9.1-Client-3.zip" => {
+            "907e267f0ee7038807e626c3c1eca5e12db6c88b747137a23c5fb52eaa1a358e"
+        }
+        "CoA-Custom-1.9.1-Client-4.zip" => {
+            "e0bd87172af989fa50a8e2b08ba4321c72b6265047482f051a1db3b80d55bcaa"
+        }
+        "CoA-Custom-1.9.1-Client-5.zip" => {
+            "ffd75421af78957e53f586efb174c213e939b8dd346de981bdfc8e6d9deb9bc0"
         }
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
@@ -867,22 +891,8 @@ pub fn install_client_patches(
                 let mut out = File::create(&dest)?;
                 io::copy(&mut zfile, &mut out)?;
                 installed_roots.push(relative);
-            } else if zname_norm.contains("files/client_root/") {
-                let base = Path::new(&zname_norm)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-
-                if !base.is_empty() {
-                    let dest = staging.path().join(&base);
-                    let mut out = File::create(&dest)?;
-                    io::copy(&mut zfile, &mut out)?;
-                    let disabled = staging.path().join(format!("{base}.disabled"));
-                    if disabled.is_file() {
-                        fs::remove_file(disabled)?;
-                    }
-                    installed_roots.push(base);
-                }
+            } else if let Some(relative) = zname_norm.split("files/client_root/").nth(1) {
+                installed_roots.push(stage_root_asset(staging.path(), relative, &mut zfile)?);
             }
         }
     }
@@ -1046,6 +1056,44 @@ mod tests {
             .file_type()
             .is_symlink());
         fs::remove_dir(link).unwrap();
+    }
+
+    #[test]
+    fn nested_root_manifest_remains_valid_and_rejects_traversal() {
+        let temp = tempfile::tempdir().unwrap();
+        let relative = "Data/Retail/Assets/EquipmentFitting/60-0.bin";
+        fs::write(
+            temp.path().join(MANIFEST_FILENAME),
+            format!("# CoA Custom {CLIENT_VERSION}\nROOT:{relative}\n"),
+        )
+        .unwrap();
+        assert_eq!(patch_files(temp.path()).unwrap()[0].path, relative);
+        fs::write(temp.path().join(MANIFEST_FILENAME), "ROOT:../outside.bin\n").unwrap();
+        assert!(patch_files(temp.path()).is_err());
+    }
+
+    #[test]
+    fn previous_split_release_retains_its_original_hash_inventory() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.8.3\n").unwrap();
+        let old: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(include_str!("custom_races_hashes_1_8_3.json")).unwrap();
+        let files = patch_files(temp.path()).unwrap();
+        assert_eq!(files.len(), old.len());
+        assert!(files
+            .iter()
+            .all(|file| old.get(&file.path) == Some(&file.sha256)));
+    }
+
+    #[test]
+    fn root_assets_preserve_nested_paths_and_reject_traversal() {
+        let temp = tempfile::tempdir().unwrap();
+        let relative = "Data/Retail/Assets/EquipmentFitting/60-0.bin";
+        let result = stage_root_asset(temp.path(), relative, &mut &b"fitting"[..]).unwrap();
+        assert_eq!(result, relative);
+        assert_eq!(fs::read(temp.path().join(relative)).unwrap(), b"fitting");
+        assert!(!temp.path().join("60-0.bin").exists());
+        assert!(stage_root_asset(temp.path(), "../outside.bin", &mut &b"bad"[..]).is_err());
     }
 
     #[test]
