@@ -700,7 +700,10 @@
         "Install the matching CoA Custom 1.9.1 client files"
       ],
       "commit": "02e3a9e4e66870a627feeb0b4d3ec2d75a23973d",
-      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.0...v0.8.1"
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.0...v0.8.1",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
     }
   ]
 }

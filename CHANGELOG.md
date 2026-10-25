@@ -10,6 +10,8 @@ Dates follow GitHub publication (UTC); legacy records retain their archived date
 
 ## 0.8.1 — 2026-10-25
 
+**Portable Characters are experimental and may contain bugs.**
+
 - Install the matching CoA Custom 1.9.1 client files.
 
 [Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.8.0...v0.8.1)
