@@ -192,6 +192,8 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
         include_str!("custom_races_hashes_1_7.json")
     } else if manifest.lines().any(|line| line == "# CoA Custom 1.8") {
         include_str!("custom_races_hashes_1_8.json")
+    } else if manifest.lines().any(|line| line == "# CoA Custom 1.8.3") {
+        include_str!("custom_races_hashes_1_8_3.json")
     } else {
         include_str!("custom_races_hashes.json")
     };
@@ -206,11 +208,6 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
             }
             Some(format!("Data/{name}"))
         } else if let Some(name) = line.strip_prefix("ROOT:") {
-            if name.contains(['/', '\\']) {
-                return Err(Error::Invalid(
-                    "Invalid custom races patch manifest.".into(),
-                ));
-            }
             Some(name.to_string())
         } else {
             line.strip_prefix("ADDON:")
@@ -1059,6 +1056,33 @@ mod tests {
             .file_type()
             .is_symlink());
         fs::remove_dir(link).unwrap();
+    }
+
+    #[test]
+    fn nested_root_manifest_remains_valid_and_rejects_traversal() {
+        let temp = tempfile::tempdir().unwrap();
+        let relative = "Data/Retail/Assets/EquipmentFitting/60-0.bin";
+        fs::write(
+            temp.path().join(MANIFEST_FILENAME),
+            format!("# CoA Custom {CLIENT_VERSION}\nROOT:{relative}\n"),
+        )
+        .unwrap();
+        assert_eq!(patch_files(temp.path()).unwrap()[0].path, relative);
+        fs::write(temp.path().join(MANIFEST_FILENAME), "ROOT:../outside.bin\n").unwrap();
+        assert!(patch_files(temp.path()).is_err());
+    }
+
+    #[test]
+    fn previous_split_release_retains_its_original_hash_inventory() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.8.3\n").unwrap();
+        let old: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(include_str!("custom_races_hashes_1_8_3.json")).unwrap();
+        let files = patch_files(temp.path()).unwrap();
+        assert_eq!(files.len(), old.len());
+        assert!(files
+            .iter()
+            .all(|file| old.get(&file.path) == Some(&file.sha256)));
     }
 
     #[test]
