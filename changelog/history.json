@@ -135,7 +135,8 @@
     "Corfirean/coa-server-manager:20261024-relay-authentication.md",
     "Corfirean/coa-server-manager:20261024-relay-recovery.md",
     "Corfirean/coa-server-manager:20261024-remote-progress.md",
-    "Corfirean/coa-server-manager:20261024-remote-refresh.md"
+    "Corfirean/coa-server-manager:20261024-remote-refresh.md",
+    "Corfirean/coa-server-manager:20261025-custom-races-191.md"
   ],
   "releases": [
     {
@@ -689,6 +690,17 @@
       "experimentalFeatures": [
         "portable-characters"
       ]
+    },
+    {
+      "tag": "v0.8.1",
+      "version": "0.8.1",
+      "date": "2026-10-25",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.1",
+      "notes": [
+        "Install the matching CoA Custom 1.9.1 client files"
+      ],
+      "commit": "02e3a9e4e66870a627feeb0b4d3ec2d75a23973d",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.0...v0.8.1"
     }
   ]
 }
