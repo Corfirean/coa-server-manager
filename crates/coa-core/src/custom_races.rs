@@ -14,14 +14,14 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "1.9.1";
+pub const CLIENT_VERSION: &str = "1.9.2";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
 pub const ARCHIVES: &[(&str, &str)] = &[
-    ("CoA-Custom-1.9.1-Client-1.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-1.zip"),
-    ("CoA-Custom-1.9.1-Client-2.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-2.zip"),
-    ("CoA-Custom-1.9.1-Client-3.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-3.zip"),
-    ("CoA-Custom-1.9.1-Client-4.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-4.zip"),
-    ("CoA-Custom-1.9.1-Client-5.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.1/CoA-Custom-1.9.1-Client-5.zip"),
+    ("CoA-Custom-1.9.2-Client-1.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-1.zip"),
+    ("CoA-Custom-1.9.2-Client-2.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-2.zip"),
+    ("CoA-Custom-1.9.2-Client-3.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-3.zip"),
+    ("CoA-Custom-1.9.2-Client-4.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-4.zip"),
+    ("CoA-Custom-1.9.2-Client-5.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-5.zip"),
 ];
 
 pub const RACE_MPQS: &[&str] = &[
@@ -62,6 +62,8 @@ pub const RACE_MPQS: &[&str] = &[
 ];
 
 pub const RACE_ADDONS: &[&str] = &[
+    "CoAQuestSafe/CoAQuestSafe.lua",
+    "CoAQuestSafe/CoAQuestSafe.toc",
     "CoAWC2Cursor/CoAWC2Cursor.lua",
     "CoAWC2Cursor/CoAWC2Cursor.toc",
     "CoAHideArmor/CoAHideArmor.lua",
@@ -194,6 +196,8 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
         include_str!("custom_races_hashes_1_8.json")
     } else if manifest.lines().any(|line| line == "# CoA Custom 1.8.3") {
         include_str!("custom_races_hashes_1_8_3.json")
+    } else if manifest.lines().any(|line| line == "# CoA Custom 1.9.1") {
+        include_str!("custom_races_hashes_1_9_1.json")
     } else {
         include_str!("custom_races_hashes.json")
     };
@@ -644,20 +648,20 @@ fn stage_root_asset(staging: &Path, relative: &str, reader: &mut impl Read) -> R
 
 fn verify_archive(path: &Path, filename: &str) -> Result<()> {
     let expected = match filename {
-        "CoA-Custom-1.9.1-Client-1.zip" => {
+        "CoA-Custom-1.9.2-Client-1.zip" => {
             "a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568"
         }
-        "CoA-Custom-1.9.1-Client-2.zip" => {
+        "CoA-Custom-1.9.2-Client-2.zip" => {
             "ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e"
         }
-        "CoA-Custom-1.9.1-Client-3.zip" => {
+        "CoA-Custom-1.9.2-Client-3.zip" => {
             "907e267f0ee7038807e626c3c1eca5e12db6c88b747137a23c5fb52eaa1a358e"
         }
-        "CoA-Custom-1.9.1-Client-4.zip" => {
+        "CoA-Custom-1.9.2-Client-4.zip" => {
             "e0bd87172af989fa50a8e2b08ba4321c72b6265047482f051a1db3b80d55bcaa"
         }
-        "CoA-Custom-1.9.1-Client-5.zip" => {
-            "ffd75421af78957e53f586efb174c213e939b8dd346de981bdfc8e6d9deb9bc0"
+        "CoA-Custom-1.9.2-Client-5.zip" => {
+            "73364ad1b58c6342641a848a3b20a835472834f600416606be1470386774ca78"
         }
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
@@ -1083,6 +1087,18 @@ mod tests {
         assert!(files
             .iter()
             .all(|file| old.get(&file.path) == Some(&file.sha256)));
+    }
+
+    #[test]
+    fn previous_191_release_keeps_its_hashes_and_does_not_claim_new_addons() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join(MANIFEST_FILENAME), "# CoA Custom 1.9.1\n").unwrap();
+        let old: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(include_str!("custom_races_hashes_1_9_1.json")).unwrap();
+        let files = patch_files(temp.path()).unwrap();
+        assert_eq!(files.len(), old.len());
+        assert!(files.iter().all(|file| old.get(&file.path) == Some(&file.sha256)));
+        assert!(!files.iter().any(|file| file.path.contains("CoAQuestSafe")));
     }
 
     #[test]
