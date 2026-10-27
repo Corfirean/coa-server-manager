@@ -10,8 +10,10 @@ Dates follow GitHub publication (UTC); legacy records retain their archived date
 
 ## 0.8.2 — 2026-10-27
 
-- Install the CoA Custom 1.9.2 client patches.
-- Server updates preserve the order of database migrations added during merges.
+**Portable Characters are experimental and may contain bugs.**
+
+- Installs the verified CoA Custom 1.9.2 client patches and quest safety addon, while recognizing existing 1.9.1 installations.
+- Server updates preserve the order of database migrations introduced during merges, preventing older snapshots from overwriting newer progression.
 
 [Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.8.1...v0.8.2)
 
