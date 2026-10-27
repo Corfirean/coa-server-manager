@@ -11,6 +11,7 @@ export {};
   let added = new URLSearchParams(location.search).has("demo"), running = false;
   let realm: "coa" | "wildcard" | "reborn" = "coa", wildcardCreated = false, rebornCreated = false;
   let simultaneous = false;
+  let withReborn = false;
   let remoteHost = localStorage.getItem("demo-remote-host") ?? "";
   const moduleEdits: Record<string, Record<string, string>> = {};
   const modState: Record<string, boolean> = { "companions": true, "content-scaling": true, "client-compat": true, "tbc-content": true, "wotlk-content": true, "npc-enchanter": true };
@@ -27,18 +28,19 @@ export {};
   (window as any).__TAURI_INTERNALS__ = {
     transformCallback: (cb: unknown)=>cb, unregisterCallback(){}, convertFileSrc:(x: unknown)=>x,
     invoke: async (cmd: string, args?: any)=>{
-      if(cmd==="realm_profiles") return {active:realm,wildcard_created:wildcardCreated,reborn_created:rebornCreated,reborn_supported:true,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:simultaneous&&running};
-      if(cmd==="realm_simultaneous") { if(running) throw new Error("Stop both realms before changing simultaneous startup."); simultaneous=args.enabled; wildcardCreated ||= simultaneous; return {active:realm,wildcard_created:wildcardCreated,reborn_created:rebornCreated,reborn_supported:true,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:false}; }
+      if(cmd==="realm_profiles") return {active:realm,wildcard_created:wildcardCreated,reborn_created:rebornCreated,reborn_supported:true,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:simultaneous&&running,with_reborn:withReborn,reborn_world_port:withReborn?8087:null,reborn_running:withReborn&&running};
+      if(cmd==="realm_simultaneous") { if(running) throw new Error("Stop both realms before changing simultaneous startup."); simultaneous=args.enabled; wildcardCreated ||= simultaneous; return {active:realm,wildcard_created:wildcardCreated,reborn_created:rebornCreated,reborn_supported:true,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:false,with_reborn:withReborn,reborn_world_port:withReborn?8087:null,reborn_running:false}; }
+      if(cmd==="realm_with_reborn") { if(running) throw new Error("Stop all realms before changing which realms start together."); withReborn=args.enabled; rebornCreated ||= withReborn; return {active:realm,wildcard_created:wildcardCreated,reborn_created:rebornCreated,reborn_supported:true,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:false,with_reborn:withReborn,reborn_world_port:withReborn?8087:null,reborn_running:false}; }
       if(cmd==="check_database") return [{realm, migrations:[],problems:[],full_schema:false}];
       if(cmd==="repair_server") { if(running) throw new Error("Stop the server before repairing it."); return {restored:[],applied:[],backup:"demo-before-repair",database:[{realm,migrations:[],problems:[],full_schema:false}],error:null}; }
-      if(cmd==="realm_select"){await new Promise(r=>setTimeout(r,600));realm=args.mode;rebornCreated ||= realm==="reborn";wildcardCreated ||= realm==="wildcard";modState.companions=realm==="coa";return {active:realm,wildcard_created:wildcardCreated,reborn_created:rebornCreated,reborn_supported:true,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:simultaneous&&running};}
+      if(cmd==="realm_select"){await new Promise(r=>setTimeout(r,600));realm=args.mode;rebornCreated ||= realm==="reborn";wildcardCreated ||= realm==="wildcard";modState.companions=realm==="coa";return {active:realm,wildcard_created:wildcardCreated,reborn_created:rebornCreated,reborn_supported:true,supported:true,recovery_pending:false,simultaneous,secondary_world_port:simultaneous?8086:null,secondary_running:simultaneous&&running,with_reborn:withReborn,reborn_world_port:withReborn?8087:null,reborn_running:withReborn&&running};}
       if(cmd==="remote_connection") return {host:remoteHost,client_path:null};
       if(cmd==="remote_connect") { remoteHost=args.host.trim(); localStorage.setItem("demo-remote-host",remoteHost); return {host:remoteHost,client_path:null}; }
       if(cmd==="play") return {ok:true,exit_code:null,code:null,human:null,output:""};
       if(cmd==="list_servers") return added?[{id:"1",name:"CoA-Repack",path:report.path}]:[];
       if(cmd==="scan_server") return report;
       if(cmd==="add_server"){added=true;return {id:"1",name:"CoA-Repack",path:report.path};}
-      if(cmd==="server_status"){const s=running?"running":"stopped";return {observed:{mysql:svc("mysql",3307,s),auth:svc("auth",3724,s),world:svc("world",8085,s),secondary_world:simultaneous?svc("world-secondary",8086,s):null},busy:false,path_exists:true};}
+      if(cmd==="server_status"){const s=running?"running":"stopped";return {observed:{mysql:svc("mysql",3307,s),auth:svc("auth",3724,s),world:svc("world",8085,s),secondary_world:simultaneous?svc("world-secondary",8086,s):null,reborn_world:withReborn?svc("world-reborn",8087,s):null},busy:false,path_exists:true};}
       if(cmd==="start_server"){await new Promise((r: any)=>setTimeout(r,1500));running=true;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd==="stop_server"){await new Promise((r: any)=>setTimeout(r,1500));running=false;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd.startsWith("plugin:dialog")) return "C:\\games\\CoA-Repack";

@@ -1851,9 +1851,8 @@ impl RepackEnv<'_> {
                     if o.mysql.state == ServiceState::Running
                         && o.auth.state == ServiceState::Running
                         && o.world.state == ServiceState::Running
-                        && o.secondary_world
-                            .as_ref()
-                            .is_none_or(|s| s.state == ServiceState::Running)
+                        && o.extra_worlds()
+                            .all(|s| s.state == ServiceState::Running)
                     {
                         let since = ready_since.get_or_insert_with(std::time::Instant::now);
                         if since.elapsed() >= std::time::Duration::from_secs(10) {

@@ -13,6 +13,8 @@ export function RealmPicker({ serverId, running, disabled, onChanged, onBusy }: 
   const [selected, setSelected] = useState<RealmMode>("coa");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // More than one world starts together: the main realm cannot be switched then.
+  const together = !!view && (view.simultaneous || view.with_reborn);
   useEffect(() => {
     let alive = true;
     void api.realmProfiles(serverId).then(v => { if (alive) { setView(v); setSelected(v.active); } }).catch(e => { if (alive) setError(asUiError(e).technical); });
@@ -34,18 +36,18 @@ export function RealmPicker({ serverId, running, disabled, onChanged, onBusy }: 
     <div className="flex flex-wrap items-center gap-3">
       <Layers className="h-5 w-5 text-gold" aria-hidden />
       <label htmlFor="realm-profile" className="font-medium">{t("realm.profileLabel")}</label>
-      {view?.simultaneous ? <span className="text-sm text-muted">Conquest of Azeroth + Wildcard</span> : <select id="realm-profile" value={selected} disabled={!view || disabled || busy} onChange={e => setSelected(e.target.value as RealmMode)} className="min-w-52 rounded-md border border-line bg-card-2 px-3 py-2 text-ink">
+      {together ? <span className="text-sm text-muted">{[view.active, ...(view.simultaneous ? [view.active === "coa" ? "wildcard" : "coa"] : []), ...(view.with_reborn ? ["reborn"] : [])].map(m => m === "coa" ? "Conquest of Azeroth" : m === "reborn" ? "Warcraft Reborn" : "Wildcard").join(" + ")}</span> : <select id="realm-profile" value={selected} disabled={!view || disabled || busy} onChange={e => setSelected(e.target.value as RealmMode)} className="min-w-52 rounded-md border border-line bg-card-2 px-3 py-2 text-ink">
         <option value="coa">Conquest of Azeroth</option>
         <option value="wildcard" disabled={!view?.supported && !view?.wildcard_created}>Wildcard · Darkmoon</option>
         <option value="reborn" disabled={!view?.reborn_supported && !view?.reborn_created}>Warcraft Reborn</option>
       </select>}
-      {view && !view.simultaneous && (selected !== view.active || view.recovery_pending) && <Button size="sm" disabled={disabled || busy} onClick={() => void select()}>
+      {view && !together && (selected !== view.active || view.recovery_pending) && <Button size="sm" disabled={disabled || busy} onClick={() => void select()}>
         {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
         {busy ? t("realm.switching") : selected === "wildcard" && !view.wildcard_created ? t("realm.create") : selected === "reborn" && !view.reborn_created ? t("realm.rebornCreate") : running ? t("realm.restart") : t("realm.select")}
       </Button>}
-      {view && !view.simultaneous && <span className="ml-auto text-xs text-muted">{t("realm.active", { name: view.active === "coa" ? "CoA" : view.active === "reborn" ? "Warcraft Reborn" : "Wildcard" })}</span>}
+      {view && !together && <span className="ml-auto text-xs text-muted">{t("realm.active", { name: view.active === "coa" ? "CoA" : view.active === "reborn" ? "Warcraft Reborn" : "Wildcard" })}</span>}
     </div>
-    <p className="mt-3 text-sm text-muted">{t(view?.simultaneous ? "realm.bothRunning" : "realm.separate")}</p>
+    <p className="mt-3 text-sm text-muted">{t(together ? "realm.bothRunning" : "realm.separate")}</p>
     {selected === "reborn" && <p className="mt-2 text-sm text-warn">{t("realm.rebornModules")}</p>}
     {view && selected === "reborn" && !view.reborn_supported && <p className="mt-2 text-sm text-warn">{t("realm.rebornUpdate")}</p>}
     {selected === "wildcard" && <p className="mt-2 text-sm text-warn">{t("realm.modules")}</p>}

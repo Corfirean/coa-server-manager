@@ -12,12 +12,66 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub fn root(main: &Path) -> PathBuf {
-    main.join(".realms/secondary")
+/// A world that runs next to the primary one. Each has its own folder, configs, logs and ports; auth and MySQL stay shared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tree {
+    /// Wildcard next to Conquest of Azeroth (or Conquest of Azeroth next to Wildcard when Wildcard is the primary).
+    Second,
+    /// Warcraft Reborn next to Conquest of Azeroth.
+    Reborn,
 }
 
-pub fn is_running(main: &Path) -> bool {
-    let second = root(main);
+impl Tree {
+    pub const ALL: [Tree; 2] = [Tree::Second, Tree::Reborn];
+
+    fn dir(self) -> &'static str {
+        match self {
+            Tree::Second => ".realms/secondary",
+            Tree::Reborn => ".realms/reborn",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Tree::Second => "second realm",
+            Tree::Reborn => "Warcraft Reborn realm",
+        }
+    }
+
+    fn mode(self, active: Mode) -> Mode {
+        match self {
+            Tree::Second if active == Mode::Coa => Mode::Wildcard,
+            Tree::Second => Mode::Coa,
+            Tree::Reborn => Mode::Reborn,
+        }
+    }
+
+    fn enabled(self, s: &RealmState) -> bool {
+        match self {
+            Tree::Second => s.simultaneous,
+            Tree::Reborn => s.with_reborn,
+        }
+    }
+
+    fn ports(self, s: &RealmState) -> (Option<u16>, Option<u16>) {
+        match self {
+            Tree::Second => (s.secondary_world_port, s.secondary_ra_port),
+            Tree::Reborn => (s.reborn_world_port, s.reborn_ra_port),
+        }
+    }
+}
+
+pub fn tree_root(main: &Path, tree: Tree) -> PathBuf {
+    main.join(tree.dir())
+}
+
+/// The folder of the second realm (Wildcard next to Conquest of Azeroth).
+pub fn root(main: &Path) -> PathBuf {
+    tree_root(main, Tree::Second)
+}
+
+pub fn tree_running(main: &Path, tree: Tree) -> bool {
+    let second = tree_root(main, tree);
     if !second.exists() {
         return false;
     }
@@ -26,6 +80,11 @@ pub fn is_running(main: &Path) -> bool {
         || ["supervisor", "relay"]
             .iter()
             .any(|n| process::read_state_record(&second, n).is_some_and(|p| process::is_alive(&p)))
+}
+
+/// Any of the extra worlds is running or still stopping.
+pub fn is_running(main: &Path) -> bool {
+    Tree::ALL.into_iter().any(|t| tree_running(main, t))
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {
@@ -55,23 +114,52 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Start Wildcard together with Conquest of Azeroth.
 pub fn set_enabled(main: &Path, enabled: bool) -> Result<realms::View> {
+    set_tree(main, Tree::Second, enabled)
+}
+
+/// Start Warcraft Reborn together with Conquest of Azeroth.
+pub fn set_reborn_enabled(main: &Path, enabled: bool) -> Result<realms::View> {
+    set_tree(main, Tree::Reborn, enabled)
+}
+
+fn set_tree(main: &Path, tree: Tree, enabled: bool) -> Result<realms::View> {
     if enabled && !cfg!(windows) {
         return Err(Error::Invalid(
             "Simultaneous realms currently require Windows.".into(),
         ));
     }
     if enabled {
-        if realms::state(main)?.active == Mode::Reborn {
-            return Err(Error::Invalid(
-                "Simultaneous startup supports CoA and Wildcard. Select one of these realms first."
-                    .into(),
-            ));
-        }
-        if !realms::view(main)?.supported {
-            return Err(Error::Invalid(
-                "Update the server to a build with Wildcard support first.".into(),
-            ));
+        let active = realms::state(main)?.active;
+        let view = realms::view(main)?;
+        match tree {
+            Tree::Second => {
+                if active == Mode::Reborn {
+                    return Err(Error::Invalid(
+                        "Wildcard starts together with Conquest of Azeroth. Select Conquest of Azeroth first."
+                            .into(),
+                    ));
+                }
+                if !view.supported {
+                    return Err(Error::Invalid(
+                        "Update the server to a build with Wildcard support first.".into(),
+                    ));
+                }
+            }
+            Tree::Reborn => {
+                if active != Mode::Coa {
+                    return Err(Error::Invalid(
+                        "Warcraft Reborn starts together with Conquest of Azeroth. Select Conquest of Azeroth first."
+                            .into(),
+                    ));
+                }
+                if !view.reborn_supported {
+                    return Err(Error::Invalid(
+                        "Update the server to a build with Warcraft Reborn support first.".into(),
+                    ));
+                }
+            }
         }
         secondary_launcher(&fs::read_to_string(main.join("Scripts/manage.py"))?)?;
     }
@@ -81,20 +169,21 @@ pub fn set_enabled(main: &Path, enabled: bool) -> Result<realms::View> {
         || is_running(main)
     {
         return Err(Error::Invalid(
-            "Stop both realms before changing simultaneous startup.".into(),
+            "Stop all realms before changing which realms start together.".into(),
         ));
     }
-    let original = realms::state(main)?.active;
-    if enabled && !realms::state(main)?.wildcard_created {
-        realms::select(main, Mode::Wildcard)?;
-        if original != Mode::Wildcard {
-            realms::select(main, original)?;
-        }
+    if enabled {
+        realms::ensure_created(main, tree.mode(realms::state(main)?.active))?;
     }
     let mut s = realms::state(main)?;
     if enabled {
         let p = crate::layout::read_ports(main);
         let mut reserved = vec![p.mysql, p.auth, p.world, p.ra];
+        // Ports already saved for any other extra world stay reserved, so two worlds never get the same one.
+        for other in Tree::ALL.into_iter().filter(|t| *t != tree) {
+            let (world, ra) = other.ports(&s);
+            reserved.extend(world.into_iter().chain(ra));
+        }
         let mut choose = |saved: Option<u16>, near: u16| -> Result<u16> {
             if let Some(port) = saved.filter(|p| *p > 0 && !reserved.contains(p)) {
                 reserved.push(port);
@@ -104,31 +193,41 @@ pub fn set_enabled(main: &Path, enabled: bool) -> Result<realms::View> {
                 .find(|p| {
                     !reserved.contains(p) && std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok()
                 })
-                .ok_or_else(|| Error::Invalid("No free port for the second realm.".into()))?;
+                .ok_or_else(|| Error::Invalid(format!("No free port for the {}.", tree.label())))?;
             reserved.push(port);
             Ok(port)
         };
-        s.secondary_world_port = Some(choose(s.secondary_world_port, p.world)?);
-        s.secondary_ra_port = Some(choose(s.secondary_ra_port, p.ra)?);
+        let (world, ra) = tree.ports(&s);
+        let (world, ra) = (choose(world, p.world)?, choose(ra, p.ra)?);
+        match tree {
+            Tree::Second => {
+                s.secondary_world_port = Some(world);
+                s.secondary_ra_port = Some(ra);
+            }
+            Tree::Reborn => {
+                s.reborn_world_port = Some(world);
+                s.reborn_ra_port = Some(ra);
+            }
+        }
     }
-    s.simultaneous = enabled;
+    match tree {
+        Tree::Second => s.simultaneous = enabled,
+        Tree::Reborn => s.with_reborn = enabled,
+    }
     fsx::atomic_write_json(&main.join("Settings/realm-profile.json"), &s)?;
     realms::view(main)
 }
 
-fn prepare(main: &Path) -> Result<PathBuf> {
-    if is_running(main) {
-        return Err(Error::Invalid(
-            "The second realm is still running; stop it before preparing its files.".into(),
-        ));
+fn prepare(main: &Path, tree: Tree) -> Result<PathBuf> {
+    if tree_running(main, tree) {
+        return Err(Error::Invalid(format!(
+            "The {} is still running; stop it before preparing its files.",
+            tree.label()
+        )));
     }
     let s = realms::state(main)?;
-    let mode = if s.active == Mode::Coa {
-        Mode::Wildcard
-    } else {
-        Mode::Coa
-    };
-    let second = fsx::ensure_within(main, &root(main))?;
+    let mode = tree.mode(s.active);
+    let second = fsx::ensure_within(main, &tree_root(main, tree))?;
     for folder in ["Runtime", "BugReport", "mysql/bin"] {
         copy_tree(
             &main.join(folder),
@@ -214,13 +313,12 @@ fn prepare(main: &Path) -> Result<PathBuf> {
         )?;
     }
     let mut cfg: serde_json::Value = fsx::read_json(&main.join("Settings/repack.json"))?;
-    cfg["worldPort"] = s
-        .secondary_world_port
-        .ok_or_else(|| Error::Invalid("Second realm world port is missing.".into()))?
+    let (world_port, ra_port) = tree.ports(&s);
+    cfg["worldPort"] = world_port
+        .ok_or_else(|| Error::Invalid(format!("The {} world port is missing.", tree.label())))?
         .into();
-    cfg["raPort"] = s
-        .secondary_ra_port
-        .ok_or_else(|| Error::Invalid("Second realm console port is missing.".into()))?
+    cfg["raPort"] = ra_port
+        .ok_or_else(|| Error::Invalid(format!("The {} console port is missing.", tree.label())))?
         .into();
     fsx::atomic_write_json(&second.join("Settings/repack.json"), &cfg)?;
     fsx::atomic_write(
@@ -232,6 +330,7 @@ fn prepare(main: &Path) -> Result<PathBuf> {
         &RealmState {
             active: mode,
             wildcard_created: true,
+            reborn_created: true,
             ..Default::default()
         },
     )?;
@@ -256,12 +355,9 @@ fn secondary_launcher(source: &str) -> Result<String> {
     ))
 }
 
-pub fn start(main: &Path) -> Result<()> {
-    if !realms::state(main)?.simultaneous {
-        return Ok(());
-    }
-    if is_running(main) {
-        let second = root(main);
+fn start_tree(main: &Path, tree: Tree) -> Result<()> {
+    if tree_running(main, tree) {
+        let second = tree_root(main, tree);
         if process::observe(&second, &crate::layout::read_ports(&second))
             .world
             .state
@@ -269,35 +365,50 @@ pub fn start(main: &Path) -> Result<()> {
         {
             return Ok(());
         }
-        return Err(Error::Invalid(
-            "The second realm is still starting or stopping.".into(),
-        ));
+        return Err(Error::Invalid(format!(
+            "The {} is still starting or stopping.",
+            tree.label()
+        )));
     }
-    let second = prepare(main)?;
+    let second = prepare(main, tree)?;
     let out = driver::run(&second, Verb::StartWorld)?;
     if !out.ok {
         return Err(Error::Invalid(format!(
-            "The second realm did not start: {}",
+            "The {} did not start: {}",
+            tree.label(),
             out.output
         )));
     }
     Ok(())
 }
 
-pub fn stop(main: &Path) -> Result<()> {
-    let second = root(main);
+/// Start every extra world that is switched on.
+pub fn start(main: &Path) -> Result<()> {
+    let s = realms::state(main)?;
+    for tree in Tree::ALL.into_iter().filter(|t| t.enabled(&s)) {
+        start_tree(main, tree)?;
+    }
+    Ok(())
+}
+
+fn stop_tree(main: &Path, tree: Tree) -> Result<()> {
+    let second = tree_root(main, tree);
     if !second.join("Scripts/manage.py").exists() {
-        if is_running(main) {
-            return Err(Error::Invalid("The running second realm's launcher is missing. The shared database was left running.".into()));
+        if tree_running(main, tree) {
+            return Err(Error::Invalid(format!(
+                "The running {}'s launcher is missing. The shared database was left running.",
+                tree.label()
+            )));
         }
         return Ok(());
     }
     // Its state has no auth/MySQL records: the shared database remains up until the primary world stops.
-    if is_running(main) {
+    if tree_running(main, tree) {
         let out = driver::run(&second, Verb::StopAll)?;
-        if !out.ok || is_running(main) {
+        if !out.ok || tree_running(main, tree) {
             return Err(Error::Invalid(format!(
-                "The second realm could not stop; the database was left running: {}",
+                "The {} could not stop; the database was left running: {}",
+                tree.label(),
                 out.output
             )));
         }
@@ -305,9 +416,54 @@ pub fn stop(main: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Stop every extra world; one that fails does not keep the others running.
+pub fn stop(main: &Path) -> Result<()> {
+    let mut first = None;
+    for tree in Tree::ALL {
+        if let Err(e) = stop_tree(main, tree) {
+            first.get_or_insert(e);
+        }
+    }
+    first.map_or(Ok(()), Err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_extra_world_has_its_own_folder_realm_and_ports() {
+        let mut s = RealmState::default();
+        assert_eq!(Tree::Second.mode(Mode::Coa), Mode::Wildcard);
+        assert_eq!(Tree::Second.mode(Mode::Wildcard), Mode::Coa);
+        assert_eq!(Tree::Reborn.mode(Mode::Coa), Mode::Reborn);
+        assert_ne!(Tree::Second.dir(), Tree::Reborn.dir());
+        s.secondary_world_port = Some(8086);
+        s.reborn_world_port = Some(8087);
+        assert_eq!(Tree::Second.ports(&s).0, Some(8086));
+        assert_eq!(Tree::Reborn.ports(&s).0, Some(8087));
+        assert!(!Tree::Second.enabled(&s) && !Tree::Reborn.enabled(&s));
+        s.with_reborn = true;
+        assert!(!Tree::Second.enabled(&s) && Tree::Reborn.enabled(&s));
+    }
+
+    #[test]
+    fn reborn_starts_together_with_conquest_of_azeroth_only() {
+        let t = tempfile::tempdir().unwrap();
+        fsx::atomic_write(
+            &t.path().join("Core/worldserver.exe"),
+            b"Warcraft Reborn class spells are unavailable",
+        )
+        .unwrap();
+        fsx::atomic_write(
+            &t.path().join("Settings/realm-profile.json"),
+            br#"{"active":"wildcard","wildcard_created":true}"#,
+        )
+        .unwrap();
+        let err = set_reborn_enabled(t.path(), true).unwrap_err().to_string();
+        assert!(err.contains("Select Conquest of Azeroth first"), "{err}");
+        assert!(!realms::state(t.path()).unwrap().with_reborn);
+    }
+
     #[test]
     fn secondary_never_starts_the_shared_database() {
         let patched = secondary_launcher("def start_world(config, offset):\r\n    start_mysql(config)\r\n    wait_ready('world', 8086)\r\n").unwrap();

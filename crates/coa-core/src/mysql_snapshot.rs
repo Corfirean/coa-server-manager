@@ -284,7 +284,7 @@ fn stop_failure(
     )];
     for service in [&status.mysql, &status.auth, &status.world]
         .into_iter()
-        .chain(status.secondary_world.iter())
+        .chain(status.extra_worlds())
     {
         if service.state != crate::process::ServiceState::Stopped {
             details.push(format!(
@@ -506,6 +506,7 @@ mod tests {
             auth: stopped("auth"),
             world: stopped("world"),
             secondary_world: None,
+            reborn_world: None,
         };
         let outcome = crate::driver::DriverOutcome {
             ok: false,
