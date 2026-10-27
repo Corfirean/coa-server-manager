@@ -31,6 +31,11 @@
   "copper": "铜币"
  },
  "settings": {
+  "SkillChance.Prospecting": {"t": "选矿技能提升", "d": "允许通过选矿提升专业技能。"},
+  "SkillChance.Milling": {"t": "研磨技能提升", "d": "允许通过研磨提升专业技能。"},
+  "SkillGain.Crafting": {"t": "制造技能提升点数", "d": "制造成功触发技能提升时获得的点数。"},
+  "SkillGain.Defense": {"t": "防御技能提升点数", "d": "防御成功触发技能提升时获得的点数。"},
+  "SkillGain.Gathering": {"t": "采集技能提升点数", "d": "采集成功触发技能提升时获得的点数。"},
   "CoaBots.RandomSpawn.DefaultCount": {
    "t": "单次生成命令创建数量",
    "d": "当生成命令未指定数量时，默认创建的机器人数量。"

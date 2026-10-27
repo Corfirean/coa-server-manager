@@ -31,6 +31,11 @@
   "copper": "cobre"
  },
  "settings": {
+  "SkillChance.Prospecting": {"t": "Mejora de habilidad al prospectar", "d": "Permitir que prospectar aumente la habilidad de profesión."},
+  "SkillChance.Milling": {"t": "Mejora de habilidad al moler", "d": "Permitir que moler aumente la habilidad de profesión."},
+  "SkillGain.Crafting": {"t": "Puntos de habilidad al fabricar", "d": "Puntos otorgados por una mejora de habilidad al fabricar."},
+  "SkillGain.Defense": {"t": "Puntos de habilidad de defensa", "d": "Puntos otorgados por una mejora de habilidad de defensa."},
+  "SkillGain.Gathering": {"t": "Puntos de habilidad al recolectar", "d": "Puntos otorgados por una mejora de habilidad al recolectar."},
   "CoaBots.RandomSpawn.DefaultCount": {
    "t": "Bots creados por comando",
    "d": "Cuántos bots crea el comando de creación cuando no indicas un número."

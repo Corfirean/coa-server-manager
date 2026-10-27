@@ -1025,6 +1025,67 @@
       "advanced": false,
       "restartRequired": "world",
       "dangerous": false
+    },
+    {
+      "key": "SkillChance.Prospecting",
+      "type": "bool",
+      "category": "rates",
+      "title": "Prospecting skill gains",
+      "description": "Allow prospecting to increase the profession skill.",
+      "default": false,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "SkillChance.Milling",
+      "type": "bool",
+      "category": "rates",
+      "title": "Milling skill gains",
+      "description": "Allow milling to increase the profession skill.",
+      "default": false,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "SkillGain.Crafting",
+      "type": "int",
+      "category": "rates",
+      "title": "Crafting skill gain",
+      "description": "Skill points awarded by a successful crafting skill increase.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 450
+    },
+    {
+      "key": "SkillGain.Defense",
+      "type": "int",
+      "category": "rates",
+      "title": "Defense skill gain",
+      "description": "Skill points awarded by a successful defense skill increase.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 450
+    },
+    {
+      "key": "SkillGain.Gathering",
+      "type": "int",
+      "category": "rates",
+      "title": "Gathering skill gain",
+      "description": "Skill points awarded by a successful gathering skill increase.",
+      "default": 1,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0,
+      "max": 450
     }
   ]
 }

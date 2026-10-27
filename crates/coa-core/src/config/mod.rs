@@ -1035,6 +1035,31 @@ Spellbook.New = 5
     }
 
     #[test]
+    fn skill_controls_persist_and_reject_invalid_gains() {
+        let (_d, root, meta) = fixture();
+        let changes = BTreeMap::from([
+            ("SkillChance.Prospecting".into(), json!(true)),
+            ("SkillChance.Milling".into(), json!(true)),
+            ("SkillGain.Crafting".into(), json!(3)),
+            ("SkillGain.Defense".into(), json!(4)),
+            ("SkillGain.Gathering".into(), json!(5)),
+        ]);
+        let report = save(&root, &meta, Scope::Server, &changes).unwrap();
+        assert_eq!(report.changed.len(), 5);
+        assert_eq!(report.restart, Some(Restart::World));
+        for path in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+            let conf = load_conf(&root.join(path)).unwrap();
+            for (key, expected) in [("SkillChance.Prospecting", "1"), ("SkillChance.Milling", "1"), ("SkillGain.Crafting", "3"), ("SkillGain.Defense", "4"), ("SkillGain.Gathering", "5")] {
+                assert_eq!(conf.get(key), Some(expected));
+            }
+            assert_eq!(conf.get("Unknown.Custom"), Some("\"keep me\""));
+        }
+        for value in [json!(-1), json!(1.5), json!(451)] {
+            assert!(save(&root, &meta, Scope::Server, &BTreeMap::from([("SkillGain.Crafting".into(), value)])).is_err());
+        }
+    }
+
+    #[test]
     fn creature_rates_save_independently_in_template_and_active_config() {
         let (_d, root, meta) = fixture();
         let mut changes = BTreeMap::new();
