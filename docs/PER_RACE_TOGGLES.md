@@ -92,6 +92,20 @@ the original DBC. The DBC-bit approach has not been declared incompatible; it wa
 
 ## Server controls implemented in the feature branches
 
+### Maintenance when new races are added
+
+Whenever upstream adds races, include every new playable custom RaceID in the availability
+list and verify its name and Horde/Alliance grouping. The Manager reads this list from the
+installed server catalog automatically; update the server catalog rather than maintaining a
+second hardcoded UI list. Review and explicitly save existing restrictions after the catalog
+changes, preserving the owner's choices for unchanged IDs.
+
+Also update and verify the client Lua RaceID mapping and filtering for the new races. A race
+appearing in the Manager does not by itself establish client support. Check creation restrictions
+and new-bot generation in both CoA Companions and SQUID, retaining user and crashing-race exclusions.
+
+### Current implementation
+
 Manager exposes a versioned catalog read from the server's `DataDir/dbc_races/ChrRaces.dbc`, with
 strict WDBC layout/ID/name validation and stock/nonplayable rows excluded. The UI supports search,
 counts, per-race allow checkboxes, Allow all, explicit Save/Discard and navigation guards. New
