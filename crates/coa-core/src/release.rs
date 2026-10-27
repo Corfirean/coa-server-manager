@@ -39,6 +39,8 @@ fn sql_in(dir: &Path) -> Vec<PathBuf> {
 fn introduction_rank(repo: &Path, pathspecs: &[&str]) -> std::collections::HashMap<String, usize> {
     let mut args = vec![
         "log",
+        "--full-history",
+        "--diff-merges=first-parent",
         "--reverse",
         "--diff-filter=A",
         "--name-only",
@@ -305,6 +307,56 @@ pub fn revision(commit: &str) -> Revision {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrations_added_by_a_merge_precede_later_dependent_updates() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.name", "Migration Test"]);
+        git(&["config", "user.email", "migration-test@example.invalid"]);
+        write(
+            root,
+            "data/sql/updates/pending_db_world/00_schema.sql",
+            "SELECT 1;",
+        );
+        git(&["add", "."]);
+        git(&["commit", "-m", "schema"]);
+        git(&["switch", "-c", "side"]);
+        git(&["commit", "--allow-empty", "-m", "side"]);
+        git(&["switch", "main"]);
+        git(&["commit", "--allow-empty", "-m", "main"]);
+        git(&["merge", "--no-ff", "--no-commit", "side"]);
+        write(
+            root,
+            "data/sql/updates/pending_db_world/10_snapshot.sql",
+            "SELECT 2;",
+        );
+        git(&["add", "."]);
+        git(&["commit", "-m", "merge with snapshot"]);
+        write(
+            root,
+            "data/sql/updates/pending_db_world/20_progression.sql",
+            "SELECT 3;",
+        );
+        git(&["add", "."]);
+        git(&["commit", "-m", "new progression"]);
+        let sql = collect_core_sql(root).unwrap();
+        let ids: Vec<_> = sql.iter().map(|file| file.id.as_str()).collect();
+        assert_eq!(ids, ["00_schema", "10_snapshot", "20_progression"]);
+    }
 
     fn write(root: &Path, rel: &str, c: &str) {
         let p = root.join(rel);
