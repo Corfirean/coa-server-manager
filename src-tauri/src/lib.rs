@@ -604,7 +604,19 @@ async fn start_server(
             })
             .await;
             let _ = tauri::async_runtime::spawn_blocking(move || {
-                meta_dir(&root).and_then(|m| coa_core::friends::reapply(&root, &m))
+                let meta = meta_dir(&root)?;
+                coa_core::friends::reapply(&root, &meta)?;
+                // A world switched on after the server was opened to friends has no firewall rule yet. Rules are only
+                // added when missing (one Windows confirmation); a refusal must not undo a start that worked.
+                if platform::flavor() == Flavor::Repack
+                    && coa_core::friends::load(&meta).mode != coa_core::friends::Mode::Local
+                {
+                    let extra = coa_core::realms::state(&root)?.extra_world_ports();
+                    if let Err(e) = coa_core::firewall::ensure_rules_with_extra(&layout::read_ports(&root), &extra) {
+                        tracing::warn!("firewall rules for the running worlds were not added: {e}");
+                    }
+                }
+                Ok::<(), Error>(())
             })
             .await;
         }
@@ -2557,13 +2569,7 @@ async fn friends_enable(
         let ports = layout::read_ports(&root);
         let mut note = None;
         let realms = coa_core::realms::state(&root)?;
-        let extra: Vec<u16> = [
-            realms.secondary_world_port.filter(|_| realms.simultaneous),
-            realms.reborn_world_port.filter(|_| realms.with_reborn),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        let extra = realms.extra_world_ports();
         let host = match mode {
             Mode::Local => "127.0.0.1".to_string(),
             Mode::Lan => coa_core::net::resolve_lan_host(lan_address_override.as_deref(), coa_core::net::lan_ip())?,

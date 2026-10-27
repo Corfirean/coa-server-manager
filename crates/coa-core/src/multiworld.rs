@@ -82,6 +82,21 @@ pub fn tree_running(main: &Path, tree: Tree) -> bool {
             .any(|n| process::read_state_record(&second, n).is_some_and(|p| process::is_alive(&p)))
 }
 
+/// The folder whose world server runs `mode`: the main folder, or the folder of the extra world that runs that realm.
+/// Its settings hold the console port that belongs to that world.
+pub fn world_root(main: &Path, mode: Mode) -> PathBuf {
+    let Ok(s) = realms::state(main) else {
+        return main.to_path_buf();
+    };
+    if mode == s.active {
+        return main.to_path_buf();
+    }
+    Tree::ALL
+        .into_iter()
+        .find(|t| t.enabled(&s) && t.mode(s.active) == mode)
+        .map_or_else(|| main.to_path_buf(), |t| tree_root(main, t))
+}
+
 /// Any of the extra worlds is running or still stopping.
 pub fn is_running(main: &Path) -> bool {
     Tree::ALL.into_iter().any(|t| tree_running(main, t))
@@ -444,6 +459,28 @@ mod tests {
         assert!(!Tree::Second.enabled(&s) && !Tree::Reborn.enabled(&s));
         s.with_reborn = true;
         assert!(!Tree::Second.enabled(&s) && Tree::Reborn.enabled(&s));
+    }
+
+    #[test]
+    fn a_realm_is_reached_through_the_folder_of_its_own_world() {
+        let t = tempfile::tempdir().unwrap();
+        let main = t.path();
+        fsx::atomic_write(
+            &main.join("Settings/realm-profile.json"),
+            br#"{"active":"coa","wildcard_created":true,"reborn_created":true,"simultaneous":true,"with_reborn":true}"#,
+        )
+        .unwrap();
+        assert_eq!(world_root(main, Mode::Coa), main);
+        assert_eq!(world_root(main, Mode::Wildcard), main.join(".realms/secondary"));
+        assert_eq!(world_root(main, Mode::Reborn), main.join(".realms/reborn"));
+        // A realm that is not switched on has no world of its own: the main folder answers.
+        fsx::atomic_write(
+            &main.join("Settings/realm-profile.json"),
+            br#"{"active":"coa","wildcard_created":true,"reborn_created":true,"with_reborn":true}"#,
+        )
+        .unwrap();
+        assert_eq!(world_root(main, Mode::Wildcard), main);
+        assert_eq!(world_root(main, Mode::Reborn), main.join(".realms/reborn"));
     }
 
     #[test]

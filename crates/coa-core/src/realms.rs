@@ -80,6 +80,17 @@ pub struct RealmState {
 }
 
 impl RealmState {
+    /// World ports of the realms that run next to the primary one (the ones that are switched on).
+    pub fn extra_world_ports(&self) -> Vec<u16> {
+        [
+            self.secondary_world_port.filter(|_| self.simultaneous),
+            self.reborn_world_port.filter(|_| self.with_reborn),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
     /// Realms that run as a world of their own next to the primary one.
     pub fn extra_modes(&self) -> Vec<Mode> {
         let mut modes = Vec::new();
@@ -1047,6 +1058,12 @@ CoA.GameModeMask = 0
         assert_eq!(s.extra_modes(), [Mode::Reborn]);
         s.simultaneous = true;
         assert_eq!(s.extra_modes(), [Mode::Wildcard, Mode::Reborn]);
+        s.secondary_world_port = Some(8086);
+        s.reborn_world_port = Some(8087);
+        assert_eq!(s.extra_world_ports(), [8086, 8087]);
+        s.with_reborn = false;
+        assert_eq!(s.extra_world_ports(), [8086]);
+        s.with_reborn = true;
         // Wildcard as the main realm still pairs with Conquest of Azeroth.
         s.active = Mode::Wildcard;
         s.with_reborn = false;
