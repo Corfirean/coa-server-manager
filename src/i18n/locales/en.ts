@@ -1,5 +1,18 @@
 /** English is the source of truth: every key must exist here; other locales fall back to it. */
 const en = {
+  "races.unknownIds": "RaceIDs no longer in this catalog: {ids}. Saving the reviewed list removes these old restrictions.",
+  "races.reviewCatalog": "The race catalog changed or has not been verified. Review the list and save it before applying restrictions.",
+  "races.available": "Available races",
+  "races.count": "{allowed} allowed · {disabled} disabled",
+  "races.allowCreation": "Allow new characters",
+  "races.allowAll": "Allow all",
+  "races.alliance": "Alliance",
+  "races.horde": "Horde",
+  "races.updateServer": "Update the server to a build supporting individual race restrictions.",
+  "races.restart": "Stop the server before saving; start it again to apply the policy.",
+  "races.saved": "Server configuration saved. Start the server to apply it.",
+  "races.clientPending": "Client visibility: automatic synchronization is not configured yet.",
+  "races.existing": "Existing characters keep their race and data.",
   "mod.switching": "Applying changes… Please wait.",
   "remote.clientReady": "Your client is ready. Save the host’s address, then press Play.",
   "remote.clientIntro": "Choose an existing game client or download one here. No local server is needed.",

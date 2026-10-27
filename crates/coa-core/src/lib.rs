@@ -48,6 +48,7 @@ pub mod population;
 pub mod portable;
 pub mod process;
 pub mod ra;
+pub mod race_availability;
 pub mod realm_registry;
 pub mod realmlist;
 pub mod realms;

@@ -2,6 +2,19 @@ import type en from "./en";
 
 /** Español. Traducción provisional; debe revisarla un hablante nativo antes de publicarse. */
 const es: Partial<Record<keyof typeof en, string>> = {
+  "races.unknownIds": "RaceID que ya no están en el catálogo: {ids}. Al guardar la lista revisada se eliminan estas restricciones antiguas.",
+  "races.reviewCatalog": "El catálogo de razas ha cambiado o aún no está verificado. Revisa la lista y guárdala.",
+  "races.available": "Razas disponibles",
+  "races.count": "{allowed} permitidas · {disabled} desactivadas",
+  "races.allowCreation": "Permitir nuevos personajes",
+  "races.allowAll": "Permitir todas",
+  "races.alliance": "Alianza",
+  "races.horde": "Horda",
+  "races.updateServer": "Actualiza el servidor para restringir razas individualmente.",
+  "races.restart": "Detén el servidor antes de guardar y vuelve a iniciarlo después.",
+  "races.saved": "Configuración guardada. Inicia el servidor para aplicarla.",
+  "races.clientPending": "Cliente: la sincronización automática aún no está configurada.",
+  "races.existing": "Los personajes existentes conservan su raza y sus datos.",
   "mod.switching": "Aplicando cambios… Espera un momento.",
   "portable.experimental": "Función experimental: los personajes portátiles siguen en desarrollo activo. Pueden producirse errores.",
   "remote.clientReady": "Tu cliente está listo. Guarda la dirección del anfitrión y pulsa Jugar.",

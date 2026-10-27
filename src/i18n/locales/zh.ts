@@ -1,5 +1,18 @@
 /** Simplified Chinese localization (zh-CN) */
 const zh = {
+  "races.unknownIds": "此目录中已不存在的种族 ID：{ids}。保存检查后的列表将移除这些旧限制。",
+  "races.reviewCatalog": "种族目录已更改或尚未验证。请检查列表并保存后再应用限制。",
+  "races.available": "可用种族",
+  "races.count": "已允许 {allowed} · 已禁用 {disabled}",
+  "races.allowCreation": "允许创建新角色",
+  "races.allowAll": "允许全部",
+  "races.alliance": "联盟",
+  "races.horde": "部落",
+  "races.updateServer": "请更新服务器以支持单独限制种族。",
+  "races.restart": "保存前请停止服务器，然后重新启动以应用设置。",
+  "races.saved": "服务器配置已保存。请启动服务器以应用。",
+  "races.clientPending": "客户端：尚未配置自动同步。",
+  "races.existing": "现有角色保留其种族和数据。",
   "mod.switching": "正在应用更改…请稍候。",
   "portable.experimental": "实验性功能：便携角色仍在积极开发中，可能存在错误。",
   "remote.clientReady": "客户端已就绪。保存服主地址，然后点击开始游戏。",

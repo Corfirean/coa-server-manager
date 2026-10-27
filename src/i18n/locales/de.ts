@@ -2,6 +2,19 @@ import type en from "./en";
 
 /** Deutsch. Entwurf einer Übersetzung; vor der Veröffentlichung von Muttersprachlern zu prüfen. */
 const de: Partial<Record<keyof typeof en, string>> = {
+  "races.unknownIds": "Nicht mehr im Katalog vorhandene Völker-IDs: {ids}. Beim Speichern werden diese alten Einschränkungen entfernt.",
+  "races.reviewCatalog": "Der Völkerkatalog wurde geändert oder noch nicht geprüft. Prüfe die Liste und speichere sie erneut.",
+  "races.available": "Verfügbare Völker",
+  "races.count": "{allowed} erlaubt · {disabled} deaktiviert",
+  "races.allowCreation": "Neue Charaktere erlauben",
+  "races.allowAll": "Alle erlauben",
+  "races.alliance": "Allianz",
+  "races.horde": "Horde",
+  "races.updateServer": "Aktualisiere den Server für individuelle Völkerbeschränkungen.",
+  "races.restart": "Stoppe den Server vor dem Speichern und starte ihn danach erneut.",
+  "races.saved": "Serverkonfiguration gespeichert. Starte den Server zum Anwenden.",
+  "races.clientPending": "Client: Die automatische Synchronisierung ist noch nicht eingerichtet.",
+  "races.existing": "Bestehende Charaktere behalten ihr Volk und ihre Daten.",
   "mod.switching": "Änderungen werden angewendet… Bitte warten.",
   "portable.experimental": "Experimentelle Funktion: Portable Charaktere befinden sich noch in aktiver Entwicklung. Fehler können auftreten.",
   "remote.clientReady": "Dein Client ist bereit. Speichere die Hostadresse und klicke auf Spielen.",

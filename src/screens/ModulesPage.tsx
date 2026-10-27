@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { useHuman, useI18n, useSchemaText, type Key } from "@/i18n";
 import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField, retiredModuleKeys } from "@/lib/moduleSettings";
 import { AuctionTypes } from "@/screens/AuctionTypes";
+import { RaceAvailabilitySettings } from "@/screens/RaceAvailabilitySettings";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 /** The GitHub mark (lucide dropped its brand icons). */
@@ -104,11 +105,17 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
     }
   }, [serverId]);
   const [guard, setGuard] = useState<UnsavedChangesGuard | null>(null);
+  const [racesGuard, setRacesGuard] = useState<UnsavedChangesGuard | null>(null);
 
   useEffect(() => {
-    onRegisterGuard?.(guard);
+    const guards = [guard, racesGuard].filter((item): item is UnsavedChangesGuard => item !== null);
+    onRegisterGuard?.(guards.length ? {
+      isDirty: () => guards.some(item => item.isDirty()),
+      save: async () => { for (const item of guards) if (item.isDirty() && !await item.save()) return false; return true; },
+      discard: () => guards.forEach(item => item.discard()),
+    } : null);
     return () => onRegisterGuard?.(null);
-  }, [guard, onRegisterGuard]);
+  }, [guard, racesGuard, onRegisterGuard]);
 
   const load = useCallback(async () => {
     try {
@@ -317,6 +324,9 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
             <SettingsPanel key={selected.id} className="sm:col-span-2">
               <h2 className="font-semibold">{t("mod.settingsOf", { name: selected.name })}</h2>
               <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} onRegisterGuard={setGuard} />
+              {selected.id === "custom-races" && <RaceAvailabilitySettings serverId={serverId}
+                blocked={racesInstalling || toggling !== null} onSaved={() => setChanged(true)}
+                onRegisterGuard={setRacesGuard} />}
             </SettingsPanel>
           )}
           </Fragment>
@@ -409,7 +419,7 @@ function ModuleSettings({ serverId, module, onSaved, onRegisterGuard }: { server
     else next[key] = value;
     return next;
   });
-  const available = items?.filter(s => s.key !== moduleEnableKey(module.id) && !retiredModuleKeys.has(s.key)) ?? [];
+  const available = items?.filter(s => s.key !== moduleEnableKey(module.id) && !["CoACustomRaces.DisabledRaceIds", "CoACustomRaces.DisabledRaceCatalogSha256"].includes(s.key) && !retiredModuleKeys.has(s.key)) ?? [];
   const advancedCount = available.filter(s => !auctionWeightKey(s.key) && (!moduleField(s.key, locale, s.field) || moduleField(s.key, locale, s.field)?.advanced)).length;
   const visible = available.filter(s => {
     if (module.id === "ah-bot" && auctionWeightKey(s.key)) return false;

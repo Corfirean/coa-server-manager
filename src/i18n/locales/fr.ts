@@ -2,6 +2,19 @@ import type en from "./en";
 
 /** Français. Traduction provisoire ; à faire relire par un locuteur natif avant la publication. */
 const fr: Partial<Record<keyof typeof en, string>> = {
+  "races.unknownIds": "RaceID absents de ce catalogue : {ids}. Sauvegarder la liste vérifiée supprime ces anciennes restrictions.",
+  "races.reviewCatalog": "Le catalogue des races a changé ou n’a pas été vérifié. Vérifiez la liste et sauvegardez-la.",
+  "races.available": "Races disponibles",
+  "races.count": "{allowed} autorisées · {disabled} désactivées",
+  "races.allowCreation": "Autoriser les nouveaux personnages",
+  "races.allowAll": "Tout autoriser",
+  "races.alliance": "Alliance",
+  "races.horde": "Horde",
+  "races.updateServer": "Mettez le serveur à jour pour restreindre les races individuellement.",
+  "races.restart": "Arrêtez le serveur avant de sauvegarder, puis redémarrez-le.",
+  "races.saved": "Configuration sauvegardée. Démarrez le serveur pour l’appliquer.",
+  "races.clientPending": "Client : la synchronisation automatique n’est pas encore configurée.",
+  "races.existing": "Les personnages existants conservent leur race et leurs données.",
   "mod.switching": "Application des modifications… Veuillez patienter.",
   "portable.experimental": "Fonction expérimentale : les personnages portables sont encore en développement actif. Des bugs peuvent survenir.",
   "remote.clientReady": "Votre client est prêt. Enregistrez l’adresse de l’hôte, puis cliquez sur Jouer.",

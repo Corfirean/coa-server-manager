@@ -1238,6 +1238,32 @@ async fn custom_races_status(
 }
 
 #[tauri::command]
+async fn race_availability(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::race_availability::Availability, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::race_availability::status(&root)).await
+}
+
+#[tauri::command]
+async fn race_availability_save(
+    state: State<'_, AppState>,
+    id: String,
+    catalog_sha256: String,
+    realm: coa_core::realms::Mode,
+    disabled_race_ids: Vec<u32>,
+) -> std::result::Result<coa_core::race_availability::Availability, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::race_availability::save(&root, &dir, &catalog_sha256, realm, &disabled_race_ids)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn custom_races_install(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -2847,6 +2873,8 @@ pub fn run() {
             console_risk,
             console_command,
             custom_races_status,
+            race_availability,
+            race_availability_save,
             custom_races_install,
             custom_races_uninstall,
             custom_races_toggle_client,

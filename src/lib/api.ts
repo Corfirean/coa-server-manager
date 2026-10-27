@@ -393,6 +393,16 @@ export interface ClientDownloadCheck {
 
 export type ClientPatchState = "not-installed" | "enabled" | "disabled" | "partially-installed";
 
+export interface RaceAvailability {
+  realm: RealmMode;
+  races: { id: number; name: string; faction: "alliance" | "horde" | null }[];
+  disabledRaceIds: number[];
+  catalogSha256: string;
+  serverConfigSupported: boolean;
+  catalogNeedsReview: boolean;
+  unrecognizedRaceIds: number[];
+}
+
 export interface CustomRacesClientStatus {
   version: string | null;
   state: ClientPatchState;
@@ -553,6 +563,9 @@ export const api = {
   clientDownload: (id: string, parent: string) => invoke<ClientInfo>("client_download", { id, parent }),
   clientCancel: () => invoke<void>("client_cancel"),
   customRacesStatus: (id: string) => invoke<CustomRacesClientStatus | null>("custom_races_status", { id }),
+    raceAvailability: (id: string) => invoke<RaceAvailability>("race_availability", { id }),
+    raceAvailabilitySave: (id: string, catalogSha256: string, realm: RealmMode, disabledRaceIds: number[]) =>
+      invoke<RaceAvailability>("race_availability_save", { id, catalogSha256, realm, disabledRaceIds }),
   customRacesUninstall: (id: string) => invoke<void>("custom_races_uninstall", { id }),
   customRacesInstall: (id: string) => invoke<void>("custom_races_install", { id }),
   customRacesToggleClient: (id: string, enabled: boolean) => invoke<void>("custom_races_toggle_client", { id, enabled }),
