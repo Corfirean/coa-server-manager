@@ -31,6 +31,11 @@
   "copper": "cuivre"
  },
  "settings": {
+  "SkillChance.Prospecting": {"t": "Progression avec la prospection", "d": "Permettre à la prospection d’améliorer la compétence de métier."},
+  "SkillChance.Milling": {"t": "Progression avec la mouture", "d": "Permettre à la mouture d’améliorer la compétence de métier."},
+  "SkillGain.Crafting": {"t": "Gain de compétence en fabrication", "d": "Points accordés lors d’une progression réussie en fabrication."},
+  "SkillGain.Defense": {"t": "Gain de compétence en défense", "d": "Points accordés lors d’une progression réussie en défense."},
+  "SkillGain.Gathering": {"t": "Gain de compétence en récolte", "d": "Points accordés lors d’une progression réussie en récolte."},
   "CoaBots.RandomSpawn.DefaultCount": {
    "t": "Bots créés par commande",
    "d": "Nombre de bots que la commande de création crée quand vous n’indiquez pas de nombre."
