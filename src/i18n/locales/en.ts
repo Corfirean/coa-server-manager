@@ -777,6 +777,7 @@ const en = {
   "rep.target.manager": "CoA Server Manager, the server or other modules",
   "rep.target.companions": "CoA Companions (bots and the CoABotUI addon)",
   "rep.target.squid": "SQUID Playerbots",
+  "rep.target.content-scaling": "Content Scaling (difficulty and level scaling)",
   "rep.target.custom-races": "Custom Races (races and client patches)",
   "rep.targetPublic": "The report will be public on GitHub in {repo}.",
   "rep.botsVersion": "Bot release",

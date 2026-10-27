@@ -33,6 +33,7 @@ export function reportBody(r: ReportInput): string {
     ...(r.serverVersion ? [`**Server version:** ${r.serverVersion}  `] : []),
     ...(r.target === "squid" || r.target === "companions" ? [`**Bot system:** ${r.target === "squid" ? "SQUID Playerbots" : "CoA Companions"}${r.botsVersion ? ` ${r.botsVersion}` : ""}  `] : []),
     ...(r.target === "custom-races" ? ["**Component:** Custom Races  "] : []),
+    ...(r.target === "content-scaling" ? ["**Component:** Content Scaling  "] : []),
     "",
     "**What happened?**  ",
     text(r.what, "Describe the problem."),

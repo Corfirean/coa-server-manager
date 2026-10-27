@@ -736,6 +736,7 @@ const zh = {
   "rep.target.manager": "CoA Server Manager、服务器或其他模块",
   "rep.target.companions": "CoA Companions（机器人与 CoABotUI 插件）",
   "rep.target.squid": "SQUID Playerbots",
+  "rep.target.content-scaling": "Content Scaling（难度与等级缩放）",
   "rep.target.custom-races": "Custom Races（种族与客户端补丁）",
   "rep.targetPublic": "该报告将公开发布在 GitHub 的 {repo}。",
   "rep.botsVersion": "机器人版本",

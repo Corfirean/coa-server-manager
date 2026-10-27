@@ -42,7 +42,7 @@ pub fn targets() -> Vec<Target> {
         repo: MANAGER_REPO.into(),
         ours: true,
     }];
-    for (id, module) in [("companions", "companions"), ("squid", "playerbots")] {
+    for (id, module) in [("companions", "companions"), ("squid", "playerbots"), ("content-scaling", "content-scaling")] {
         if let Some(repo) = catalog_repo(module) {
             v.push(Target {
                 id,
@@ -122,6 +122,8 @@ mod tests {
         assert!(t.iter().find(|x| x.id == "squid").is_some_and(|x| !x.ours));
         assert_eq!(repo("custom-races").as_deref(), Some("ilusixn/azerothcore-wotlk-coa"));
         assert!(t.iter().find(|x| x.id == "custom-races").is_some_and(|x| !x.ours));
+        assert_eq!(repo("content-scaling").as_deref(), Some("Corfirean/mod-coa-content-scaling"));
+        assert!(t.iter().find(|x| x.id == "content-scaling").is_some_and(|x| x.ours));
     }
 
     #[test]
@@ -141,6 +143,7 @@ mod tests {
 
     #[test]
     fn only_the_new_issue_pages_of_the_targets_are_allowed() {
+        assert!(is_new_issue_url("https://github.com/Corfirean/mod-coa-content-scaling/issues/new?title=a&body=b"));
         assert!(is_new_issue_url("https://github.com/ilusixn/azerothcore-wotlk-coa/issues/new?title=a&body=b"));
         assert!(!is_new_issue_url("https://github.com/ilusixn/azerothcore-wotlk-coa/issues/newer"));
         assert!(is_new_issue_url(
