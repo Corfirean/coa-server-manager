@@ -136,7 +136,9 @@
     "Corfirean/coa-server-manager:20261024-relay-recovery.md",
     "Corfirean/coa-server-manager:20261024-remote-progress.md",
     "Corfirean/coa-server-manager:20261024-remote-refresh.md",
-    "Corfirean/coa-server-manager:20261025-custom-races-191.md"
+    "Corfirean/coa-server-manager:20261025-custom-races-191.md",
+    "Corfirean/coa-server-manager:20261026-custom-races-192.md",
+    "Corfirean/coa-server-manager:20261027-merged-database-migration-order.md"
   ],
   "releases": [
     {
@@ -704,6 +706,18 @@
       "experimentalFeatures": [
         "portable-characters"
       ]
+    },
+    {
+      "tag": "v0.8.2",
+      "version": "0.8.2",
+      "date": "2026-10-27",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.2",
+      "notes": [
+        "Install the CoA Custom 1.9.2 client patches",
+        "Server updates preserve the order of database migrations added during merges"
+      ],
+      "commit": "81b040ef02763c7cf7a3a3da1424b73177e9d433",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.1...v0.8.2"
     }
   ]
 }

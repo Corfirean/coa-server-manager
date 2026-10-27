@@ -8,6 +8,13 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.8.2 — 2026-10-27
+
+- Install the CoA Custom 1.9.2 client patches.
+- Server updates preserve the order of database migrations added during merges.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.8.1...v0.8.2)
+
 ## 0.8.1 — 2026-10-25
 
 **Portable Characters are experimental and may contain bugs.**
