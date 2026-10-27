@@ -10,6 +10,10 @@ import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { RealmlistMenu } from "@/screens/RealmlistMenu";
 import { RealmPicker } from "@/screens/RealmPicker";
 import { CrashHistoryModal } from "@/screens/CrashHistoryModal";
+import { ListingChip } from "@/screens/PublishCard";
+import { PublishRealmDialog } from "@/screens/PublishDialog";
+import { useRegistryStatus } from "@/lib/registry";
+import { usePublishRealms, type PublishRealm } from "@/lib/publishRealms";
 import { useAutoRestart } from "@/lib/autoRestartPrefs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -114,6 +118,14 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   const [crashCount, setCrashCount] = useState(0);
   const crashCountRef = useRef(0);
   const [showCrashModal, setShowCrashModal] = useState(false);
+  const publishRealms = usePublishRealms(server.id, server.name);
+  const { status: registry } = useRegistryStatus(5000);
+  const [publishing, setPublishing] = useState<PublishRealm | null>(null);
+  // The realm a card shows: the first card is the main realm, then the realm that starts next to it, then Warcraft Reborn.
+  const chipOf = (realm: PublishRealm | undefined) => realm && <ListingChip status={registry?.realms.find((r) => r.local_id === realm.localId)} hasUrl={!!registry?.url} onOpen={() => setPublishing(realm)} />;
+  const mainRealm = publishRealms?.[0];
+  const secondRealm = publishRealms?.find((r) => r !== mainRealm && r.mode !== "reborn");
+  const rebornRealm = publishRealms?.find((r) => r !== mainRealm && r.mode === "reborn");
   const [hasCrashHistory, setHasCrashHistory] = useState(false);
   const [crashLoopPaused, setCrashLoopPaused] = useState(false);
   const [crashRestartNotice, setCrashRestartNotice] = useState<string | null>(null);
@@ -317,7 +329,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       <RealmPicker serverId={server.id} running={anyUp} disabled={transitioning || upd.applying} onBusy={setRealmBusy} onChanged={() => { onRealmChanged(); void poll(); }} />
 
       <Card className="mt-6 p-7">
-        <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.first} · ${t("overview.server")}` : t("overview.server")}</div>
+        <div className="mb-1 flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.14em] text-muted"><span>{realms ? `${realms.first} · ${t("overview.server")}` : t("overview.server")}</span>{chipOf(mainRealm)}</div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className={cn("flex items-center gap-3 text-3xl font-semibold", tone)} role="status" aria-live="polite">
             <span
@@ -565,7 +577,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
       {secondary_world && (
         <Card className="mt-4 p-7">
-          <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.second} · ${t("overview.server")}` : t("realm.secondWorld")}</div>
+          <div className="mb-1 flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.14em] text-muted"><span>{realms ? `${realms.second} · ${t("overview.server")}` : t("realm.secondWorld")}</span>{chipOf(secondRealm)}</div>
           <div
             className={cn("flex items-center gap-3 text-3xl font-semibold", secondary_world.state === "running" ? "text-ok" : secondary_world.state === "starting" || transitioning ? "text-warn" : "text-muted")}
             role="status"
@@ -587,7 +599,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
       {reborn_world && (
         <Card className="mt-4 p-7">
-          <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.reborn} · ${t("overview.server")}` : t("realm.rebornWorld")}</div>
+          <div className="mb-1 flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.14em] text-muted"><span>{realms ? `${realms.reborn} · ${t("overview.server")}` : t("realm.rebornWorld")}</span>{chipOf(rebornRealm)}</div>
           <div
             className={cn("flex items-center gap-3 text-3xl font-semibold", reborn_world.state === "running" ? "text-ok" : reborn_world.state === "starting" || transitioning ? "text-warn" : "text-muted")}
             role="status"
@@ -649,6 +661,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         />
       )}
 
+      {publishing && <PublishRealmDialog realm={publishing} onClose={() => setPublishing(null)} />}
       {showCrashModal && (
         <CrashHistoryModal
           serverId={server.id}
