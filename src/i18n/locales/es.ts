@@ -721,6 +721,8 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "rep.target.manager": "CoA Server Manager, el servidor u otros módulos",
   "rep.target.companions": "CoA Companions (bots y el addon CoABotUI)",
   "rep.target.squid": "SQUID Playerbots",
+  "rep.target.content-scaling": "Content Scaling (ajuste de dificultad y niveles)",
+  "rep.target.custom-races": "Custom Races (razas y parches del cliente)",
   "rep.targetPublic": "El informe será público en GitHub, en {repo}.",
   "rep.botsVersion": "Versión de los bots",
   "rep.withDiag": "Reunir el diagnóstico por mí (recomendado)",

@@ -257,7 +257,7 @@ export interface ReportContext {
   bots_version: string | null;
 }
 
-export type ReportTargetId = "manager" | "companions" | "squid";
+export type ReportTargetId = "manager" | "companions" | "squid" | "custom-races" | "content-scaling";
 
 /** A place a problem report can go: its GitHub repository as `owner/name`. */
 export interface ReportTarget {
