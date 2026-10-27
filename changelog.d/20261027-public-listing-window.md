@@ -1,4 +1,4 @@
-﻿---
+---
 area: manager
 type: changed
 audience: admins
