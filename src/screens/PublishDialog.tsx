@@ -62,6 +62,19 @@ function ListingFields({ idPrefix, name, setName, description, setDescription, l
   </>;
 }
 
+/** Who may join and how: shown before publishing, so the choice is made once, not found later. */
+function JoinChoices({ existingOnly, setExistingOnly, allowPortable, setAllowPortable }: { existingOnly: boolean; setExistingOnly: (v: boolean) => void; allowPortable: boolean; setAllowPortable: (v: boolean) => void }) {
+  const t = useT();
+  return (
+    <div className="mt-4 rounded-md border border-line p-3 text-sm">
+      <p className="font-medium">{t("access.title")}</p>
+      <p className="mt-1 text-xs text-muted">{t("access.text")}</p>
+      <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={existingOnly} onChange={(e) => setExistingOnly(e.target.checked)} className="mt-1" /><span>{t("access.existingOnly")}<span className="block text-xs text-muted">{t("access.existingOnlyHint")}</span></span></label>
+      <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={allowPortable} onChange={(e) => setAllowPortable(e.target.checked)} className="mt-1" /><span>{t("access.allowPortable")}<span className="block text-xs text-muted">{t("access.allowPortableHint")}</span></span></label>
+    </div>
+  );
+}
+
 /** Publishing, stopping and the access options of one realm. */
 export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; onClose: () => void }) {
   const t = useT();
@@ -75,7 +88,8 @@ export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; on
   const [region, setRegion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [allowPortable, setAllowPortable] = useState(false);
+  // New listings start with portable characters allowed and accounts created for new players; the choice is shown before publishing.
+  const [allowPortable, setAllowPortable] = useState(true);
   const [existingOnly, setExistingOnly] = useState(false);
   const [route, setRoute] = useState("");
   const [accessSaved, setAccessSaved] = useState(false);
@@ -103,6 +117,17 @@ export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; on
     setError(null);
     try { await action(); await refresh(); } catch (e) { setError(asUiError(e).technical); } finally { setBusy(false); }
   }
+  async function publish() {
+    setBusy(true);
+    setError(null);
+    try {
+      await realmRegistry.publish(localId, name, description, language, region.trim() === "" ? null : region.trim());
+      // Saving the joining options needs the listing to exist; if it cannot be saved now (for example the server is running), the options stay available below.
+      try { await control.setAccess(localId, existingOnly, allowPortable, route.trim() === "" ? null : route.trim()); }
+      catch (e) { setError(t("registry.accessFailed", { reason: asControlError(e).message })); }
+      await refresh();
+    } catch (e) { setError(asUiError(e).technical); } finally { setBusy(false); }
+  }
 
   return (
     <Modal title={t("registry.dialogTitle", { realm: realm.label })} onClose={onClose}>
@@ -110,8 +135,9 @@ export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; on
 
       {!published && <div className="mt-4">
         <ListingFields idPrefix={`pub-${localId}`} name={name} setName={setName} description={description} setDescription={setDescription} language={language} setLanguage={setLanguage} region={region} setRegion={setRegion} />
+        <JoinChoices existingOnly={existingOnly} setExistingOnly={setExistingOnly} allowPortable={allowPortable} setAllowPortable={setAllowPortable} />
         <div className="mt-4">
-          <Button variant="primary" disabled={busy || !status?.url || name.trim() === ""} onClick={() => void run(() => realmRegistry.publish(localId, name, description, language, region.trim() === "" ? null : region.trim()))}>
+          <Button variant="primary" disabled={busy || !status?.url || name.trim() === ""} onClick={() => void publish()}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{t("registry.publish")}
           </Button>
           {!status?.url && <p className="mt-2 text-xs text-muted">{t("registry.noUrl")}</p>}
@@ -159,6 +185,8 @@ export function PublishAllDialog({ realms, onClose }: { realms: PublishRealm[]; 
   const [description, setDescription] = useState("");
   const [language, setLanguage] = useState("en");
   const [region, setRegion] = useState("");
+  const [allowPortable, setAllowPortable] = useState(true);
+  const [existingOnly, setExistingOnly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const todo = realms.filter((r) => !isListed(status?.realms.find((s) => s.local_id === r.localId)));
@@ -167,8 +195,15 @@ export function PublishAllDialog({ realms, onClose }: { realms: PublishRealm[]; 
     setBusy(true); setError(null);
     try {
       for (const r of todo) await realmRegistry.publish(r.localId, r.defaultName, description, language, region.trim() === "" ? null : region.trim());
+      // The joining options are saved realm by realm; one that cannot be saved now (for example the server is running) does not stop the others.
+      const failed: string[] = [];
+      for (const r of todo) {
+        try { await control.setAccess(r.localId, existingOnly, allowPortable, null); }
+        catch (e) { failed.push(`${r.label}: ${asControlError(e).message}`); }
+      }
       await refresh();
-      onClose();
+      if (failed.length === 0) onClose();
+      else setError(t("registry.accessFailed", { reason: failed.join(" · ") }));
     } catch (e) { setError(asUiError(e).technical); await refresh(); } finally { setBusy(false); }
   }
 
@@ -180,6 +215,7 @@ export function PublishAllDialog({ realms, onClose }: { realms: PublishRealm[]; 
       </ul>
       {todo.length > 0 && <div className="mt-4">
         <ListingFields idPrefix="pub-all" name="" setName={() => undefined} description={description} setDescription={setDescription} language={language} setLanguage={setLanguage} region={region} setRegion={setRegion} hideName />
+        <JoinChoices existingOnly={existingOnly} setExistingOnly={setExistingOnly} allowPortable={allowPortable} setAllowPortable={setAllowPortable} />
         <div className="mt-4">
           <Button variant="primary" disabled={busy || !status?.url} onClick={() => void publishAll()}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{t("registry.publishAllButton", { n: todo.length })}
