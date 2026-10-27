@@ -1,5 +1,4 @@
-//! Where a problem report goes. A report about the bots goes to the repository of the bot system in question, anything
-//! else to the Manager's own. The repositories come from the module catalog, so there is one list to keep right.
+//! Problem-report destinations for the Manager, bot systems and upstream custom races.
 
 use std::path::Path;
 
@@ -36,7 +35,7 @@ fn catalog_repo(id: &str) -> Option<String> {
         .and_then(|e| repo_of(&e.repo))
 }
 
-/// The three places, in the order the page lists them. A bot system whose repository is unknown falls back to the Manager's.
+/// Report destinations in display order. Custom-race reports go to the upstream asset maintainer.
 pub fn targets() -> Vec<Target> {
     let mut v = vec![Target {
         id: "manager",
@@ -52,6 +51,11 @@ pub fn targets() -> Vec<Target> {
             });
         }
     }
+    v.push(Target {
+        id: "custom-races",
+        repo: "ilusixn/azerothcore-wotlk-coa".into(),
+        ours: false,
+    });
     v
 }
 
@@ -103,7 +107,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_three_targets_come_from_the_catalog() {
+    fn report_targets_route_to_their_maintainers() {
         let t = targets();
         let repo = |id: &str| t.iter().find(|x| x.id == id).map(|x| x.repo.clone());
         assert_eq!(
@@ -116,6 +120,8 @@ mod tests {
         );
         assert_eq!(repo("squid").as_deref(), Some("Zyth45/mod-playerbots"));
         assert!(t.iter().find(|x| x.id == "squid").is_some_and(|x| !x.ours));
+        assert_eq!(repo("custom-races").as_deref(), Some("ilusixn/azerothcore-wotlk-coa"));
+        assert!(t.iter().find(|x| x.id == "custom-races").is_some_and(|x| !x.ours));
     }
 
     #[test]
@@ -135,6 +141,8 @@ mod tests {
 
     #[test]
     fn only_the_new_issue_pages_of_the_targets_are_allowed() {
+        assert!(is_new_issue_url("https://github.com/ilusixn/azerothcore-wotlk-coa/issues/new?title=a&body=b"));
+        assert!(!is_new_issue_url("https://github.com/ilusixn/azerothcore-wotlk-coa/issues/newer"));
         assert!(is_new_issue_url(
             "https://github.com/Zyth45/mod-playerbots/issues/new"
         ));
