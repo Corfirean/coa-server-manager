@@ -2571,7 +2571,7 @@ async fn friends_enable(
         friends::save(&meta, &settings)?;
         let running = coa_core::process::observe(&root, &ports).world.state == coa_core::process::ServiceState::Running;
         if running {
-            friends::apply_realm_address(&root, &host)?;
+            friends::apply_realm_address(&root, &settings)?;
         }
         Ok(FriendsResult { host, restart_required: changed && running, note })
     })

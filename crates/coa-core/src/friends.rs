@@ -163,10 +163,52 @@ pub fn set_open(root: &Path, meta: &Path, open: bool) -> Result<bool> {
 
 /// Make the realm list advertise `host` to remote clients (the launcher resets it to 127.0.0.1 at every start, so this
 /// runs after each start).
-pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
+fn realm_address_sql(
+    host: &str,
+    local: Option<(std::net::Ipv4Addr, std::net::Ipv4Addr)>,
+    where_realms: &str,
+) -> Result<String> {
     if !host_ok(host) {
         return Err(Error::Invalid("That address is not valid.".into()));
     }
+    let local = local
+        .map(|(address, mask)| format!(",localAddress='{address}',localSubnetMask='{mask}'"))
+        .unwrap_or_default();
+    Ok(format!(
+        "UPDATE acore_auth.realmlist SET address='{host}'{local} WHERE {where_realms};"
+    ))
+}
+
+pub fn apply_realm_address(root: &Path, settings: &Settings) -> Result<()> {
+    let host = settings.host.as_deref().unwrap_or("127.0.0.1");
+    let local = match settings.mode {
+        Mode::Direct | Mode::Lan => {
+            let address = if settings.mode == Mode::Lan {
+                host.to_owned()
+            } else {
+                crate::net::resolve_lan_host(
+                    settings.lan_address_override.as_deref(),
+                    crate::net::lan_ip(),
+                )?
+            };
+            let address = crate::net::validate_lan_address(&address)?;
+            let mask = if_addrs::get_if_addrs()?
+                .into_iter()
+                .find_map(|interface| match interface.addr {
+                    if_addrs::IfAddr::V4(v4) if v4.ip == address => Some(v4.netmask),
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    Error::Invalid("The selected local network address is not connected.".into())
+                })?;
+            Some((address, mask))
+        }
+        Mode::Local => Some((
+            std::net::Ipv4Addr::LOCALHOST,
+            std::net::Ipv4Addr::new(255, 0, 0, 0),
+        )),
+        Mode::Private => None,
+    };
     let db = Db::from_repack(root, Account::Admin)?;
     let realm = crate::realms::state(root)?.active.realm_id();
     let where_realms = if crate::realms::state(root)?.simultaneous {
@@ -174,9 +216,7 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
     } else {
         format!("id={realm}")
     };
-    db.query(&format!(
-        "UPDATE acore_auth.realmlist SET address='{host}' WHERE {where_realms};"
-    ))?;
+    db.query(&realm_address_sql(host, local, &where_realms)?)?;
     Ok(())
 }
 
@@ -194,9 +234,9 @@ pub fn ensure_bind(root: &Path, meta: &Path) -> Result<bool> {
 /// After every server start: put the chosen address back into the realm list (the launcher resets it to 127.0.0.1).
 pub fn reapply(root: &Path, meta: &Path) -> Result<()> {
     let s = load(meta);
-    match (s.mode, s.host) {
+    match (s.mode, &s.host) {
         (Mode::Local, _) | (_, None) => Ok(()),
-        (_, Some(host)) => apply_realm_address(root, &host),
+        (_, Some(_)) => apply_realm_address(root, &s),
     }
 }
 
@@ -388,6 +428,25 @@ CoA.AllowRemoteClients = 0
             (s.mode, s.host.as_deref()),
             (Mode::Private, Some("100.64.1.2"))
         );
+    }
+
+    #[test]
+    fn realm_addresses_restore_lan_without_replacing_public_host() {
+        let sql = realm_address_sql(
+            "203.0.113.9",
+            Some((
+                "192.168.50.7".parse().unwrap(),
+                "255.255.254.0".parse().unwrap(),
+            )),
+            "id IN (1,2)",
+        )
+        .unwrap();
+        assert_eq!(sql, "UPDATE acore_auth.realmlist SET address='203.0.113.9',localAddress='192.168.50.7',localSubnetMask='255.255.254.0' WHERE id IN (1,2);");
+        assert_eq!(
+            realm_address_sql("100.64.1.2", None, "id=1").unwrap(),
+            "UPDATE acore_auth.realmlist SET address='100.64.1.2' WHERE id=1;"
+        );
+        assert!(realm_address_sql("bad'host", None, "id=1").is_err());
     }
 
     #[test]
