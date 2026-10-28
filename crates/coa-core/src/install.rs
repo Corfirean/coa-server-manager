@@ -239,14 +239,14 @@ fn bootstrap_database_inner(root: &Path) -> Result<()> {
     }
     fs::copy(&boot, &target)?; // launcher needs database.json to render its files at first start
 
-    let started = driver::run(root, Verb::StartMysql)?;
-    if !started.ok {
-        return Err(Error::Invalid(format!(
-            "The database could not be started. {}",
-            driver::startup_failure(root, &started)
-        )));
-    }
     let result = (|| -> Result<()> {
+        let started = driver::run(root, Verb::StartMysql)?;
+        if !started.ok {
+            return Err(Error::Invalid(format!(
+                "The database could not be started. {}",
+                driver::startup_failure(root, &started)
+            )));
+        }
         let db = Db::from_repack(root, Account::Admin)?;
         let (root_pw, app_pw) = (random_hex(48), random_hex(48));
         let accounts = db.query(
@@ -362,6 +362,7 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
     // 3. Extract into our own staging folder.
     if staging_root.exists() {
         if staging_root.join(MARKER).is_file() {
+            stop_installation(&staging_root)?;
             fs::remove_dir_all(&staging_root)?; // leftover of an earlier failed attempt that we created
         } else {
             return Err(Error::Invalid(format!("{} is left over from an earlier installation that did not finish, and the Manager cannot tell whether it may be deleted. Delete that folder yourself, then try again.", staging_root.display())));
@@ -426,23 +427,59 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
     })();
 
     if result.is_err() {
-        if staging_root.join(MARKER).exists() {
-            // Unfinished work of ours; the destination was never touched.
-            let _ = driver::run(&staging_root, Verb::StopAll);
-            let _ = fs::remove_dir_all(&staging_root);
+        let unfinished = if staging_root.join(MARKER).is_file() {
+            Some(&staging_root)
         } else if dest.join(MARKER).is_file() {
-            // Failed after the folder was moved into place. The destination was empty or absent before (preflight),
-            // so what carries our marker is only our unfinished install.
-            let _ = driver::run(&dest, Verb::StopAll);
-            let _ = fs::remove_dir_all(&dest);
+            Some(&dest)
+        } else {
+            None
+        };
+        if let Some(unfinished) = unfinished {
+            if let Err(cleanup) = stop_installation(unfinished) {
+                return Err(Error::Invalid(format!(
+                    "{} {cleanup}",
+                    result.as_ref().unwrap_err()
+                )));
+            }
+            let _ = fs::remove_dir_all(unfinished);
         }
     }
     result
 }
 
+fn stop_installation(root: &Path) -> Result<()> {
+    if !root.join("Scripts/manage.py").is_file() {
+        return Ok(());
+    }
+    let stopped = driver::run(root, Verb::StopAll)?;
+    if !stopped.ok {
+        return Err(Error::Invalid(format!(
+            "The unfinished installation could not be stopped; its files were kept. {}",
+            driver::startup_failure(root, &stopped)
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unstoppable_partial_installation_keeps_its_files_for_recovery() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        fs::create_dir_all(root.join("Scripts")).unwrap();
+        fs::write(root.join("Scripts/manage.py"), "# incomplete launcher").unwrap();
+        fs::write(root.join(MARKER), "").unwrap();
+        fs::write(root.join("database-preserved"), "unchanged").unwrap();
+        assert!(stop_installation(root).is_err());
+        assert_eq!(
+            fs::read_to_string(root.join("database-preserved")).unwrap(),
+            "unchanged"
+        );
+        assert!(root.join(MARKER).is_file());
+    }
 
     fn reg(d: &Path) -> Registry {
         Registry::at(d.join("reg/installs.json"))
