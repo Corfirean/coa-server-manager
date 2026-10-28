@@ -149,8 +149,12 @@
     "Corfirean/coa-server-manager:20261027-skill-gain-controls.md",
     "Corfirean/coa-server-manager:20261027-start-checks-the-realm-class-setting.md",
     "Corfirean/coa-server-manager:20261027-start-wildcard-and-reborn-with-coa.md",
+    "Corfirean/coa-server-manager:20261028-coa-config-search.md",
     "Corfirean/coa-server-manager:20261028-existing-character-update-validation.md",
-    "Corfirean/coa-server-manager:20261028-portable-settings-and-tray.md"
+    "Corfirean/coa-server-manager:20261028-legacy-world-shutdown.md",
+    "Corfirean/coa-server-manager:20261028-mysql-install-startup.md",
+    "Corfirean/coa-server-manager:20261028-portable-settings-and-tray.md",
+    "Corfirean/coa-server-manager:20261028-update-check-queue.md"
   ],
   "releases": [
     {
@@ -771,6 +775,20 @@
       "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.1",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.0...v0.9.1",
       "commit": "8bbf16ed4f14e9b78c680783e4be5d8c580cc06b"
+    },
+    {
+      "tag": "v0.9.2",
+      "version": "0.9.2",
+      "date": "2026-10-28",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.2",
+      "notes": [
+        "Find and edit CoA options in the existing server settings",
+        "Recovery can stop an unfinished world startup after restoring an older launcher",
+        "New server installation waits for slower database startup",
+        "Simultaneous update checks share results or wait their turn"
+      ],
+      "commit": "2d9c6a65bbb1e296dc919e4c9e5785ed9d4a070b",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2"
     }
   ]
 }

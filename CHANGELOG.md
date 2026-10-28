@@ -8,6 +8,15 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.2 — 2026-10-28
+
+- Find and edit CoA options in the existing server settings.
+- Recovery can stop an unfinished world startup after restoring an older launcher.
+- New server installation waits for slower database startup.
+- Simultaneous update checks share results or wait their turn.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2)
+
 ## 0.9.1 — 2026-10-28
 
 **Portable Characters are experimental and may contain bugs.**
