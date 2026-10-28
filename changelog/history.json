@@ -782,13 +782,16 @@
       "date": "2026-10-28",
       "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.2",
       "notes": [
-        "Find and edit CoA options in the existing server settings",
-        "Recovery can stop an unfinished world startup after restoring an older launcher",
         "New server installation waits for slower database startup",
-        "Simultaneous update checks share results or wait their turn"
+        "Find and edit CoA options in the existing server settings",
+        "Simultaneous update checks share results or wait their turn",
+        "Recovery can stop an unfinished world startup after restoring an older launcher"
       ],
       "commit": "2d9c6a65bbb1e296dc919e4c9e5785ed9d4a070b",
-      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2"
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
     }
   ]
 }

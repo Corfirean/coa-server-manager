@@ -10,10 +10,12 @@ Dates follow GitHub publication (UTC); legacy records retain their archived date
 
 ## 0.9.2 — 2026-10-28
 
-- Find and edit CoA options in the existing server settings.
-- Recovery can stop an unfinished world startup after restoring an older launcher.
+**Portable Characters are experimental and may contain bugs.**
+
 - New server installation waits for slower database startup.
+- Find and edit CoA options in the existing server settings.
 - Simultaneous update checks share results or wait their turn.
+- Recovery can stop an unfinished world startup after restoring an older launcher.
 
 [Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2)
 
