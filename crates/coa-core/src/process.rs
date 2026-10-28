@@ -64,6 +64,16 @@ pub struct Observed {
     pub auth: ServiceStatus,
     pub world: ServiceStatus,
     pub secondary_world: Option<ServiceStatus>,
+    /// The Warcraft Reborn world that starts together with Conquest of Azeroth.
+    #[serde(default)]
+    pub reborn_world: Option<ServiceStatus>,
+}
+
+impl Observed {
+    /// The worlds that run next to the primary one.
+    pub fn extra_worlds(&self) -> impl Iterator<Item = &ServiceStatus> {
+        self.secondary_world.iter().chain(self.reborn_world.iter())
+    }
 }
 
 pub fn read_state_record(root: &Path, name: &str) -> Option<ProcessIdentity> {
@@ -392,20 +402,30 @@ pub fn observe(root: &Path, ports: &Ports) -> Observed {
     }
     let listen = listeners();
     let (world, auth, mysql) = crate::layout::executables(root);
-    let secondary = crate::multiworld::root(root);
-    let secondary_world = if crate::realms::state(root).is_ok_and(|s| s.simultaneous)
-        || crate::multiworld::is_running(root)
-    {
-        Some(service(
-            &secondary,
-            "world-secondary",
-            secondary.join("Core/worldserver.exe"),
-            crate::layout::read_ports(&secondary).world,
-            &listen,
-        ))
-    } else {
-        None
+    use crate::multiworld::Tree;
+    let realm_state = crate::realms::state(root).ok();
+    let extra_world = |tree: Tree, name: &'static str, enabled: bool| {
+        let folder = crate::multiworld::tree_root(root, tree);
+        (enabled || crate::multiworld::tree_running(root, tree)).then(|| {
+            service(
+                &folder,
+                name,
+                folder.join("Core/worldserver.exe"),
+                crate::layout::read_ports(&folder).world,
+                &listen,
+            )
+        })
     };
+    let secondary_world = extra_world(
+        Tree::Second,
+        "world-secondary",
+        realm_state.as_ref().is_some_and(|s| s.simultaneous),
+    );
+    let reborn_world = extra_world(
+        Tree::Reborn,
+        "world-reborn",
+        realm_state.as_ref().is_some_and(|s| s.with_reborn),
+    );
     Observed {
         mysql: service(root, "mysql", mysql, ports.mysql, &listen),
         auth: service(root, "auth", auth, ports.auth, &listen),
@@ -418,6 +438,7 @@ pub fn observe(root: &Path, ports: &Ports) -> Observed {
             &listen,
         ),
         secondary_world,
+        reborn_world,
     }
 }
 

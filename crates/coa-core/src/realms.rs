@@ -63,15 +63,50 @@ pub struct RealmState {
     pub wildcard_created: bool,
     #[serde(default)]
     pub reborn_created: bool,
+    /// Wildcard starts together with Conquest of Azeroth (the second of the two when Wildcard is the primary realm).
     #[serde(default)]
     pub simultaneous: bool,
     #[serde(default)]
     pub secondary_world_port: Option<u16>,
     #[serde(default)]
     pub secondary_ra_port: Option<u16>,
+    /// Warcraft Reborn starts together with Conquest of Azeroth, which is then the primary realm.
+    #[serde(default)]
+    pub with_reborn: bool,
+    #[serde(default)]
+    pub reborn_world_port: Option<u16>,
+    #[serde(default)]
+    pub reborn_ra_port: Option<u16>,
 }
 
 impl RealmState {
+    /// World ports of the realms that run next to the primary one (the ones that are switched on).
+    pub fn extra_world_ports(&self) -> Vec<u16> {
+        [
+            self.secondary_world_port.filter(|_| self.simultaneous),
+            self.reborn_world_port.filter(|_| self.with_reborn),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    /// Realms that run as a world of their own next to the primary one.
+    pub fn extra_modes(&self) -> Vec<Mode> {
+        let mut modes = Vec::new();
+        if self.simultaneous {
+            modes.push(if self.active == Mode::Coa {
+                Mode::Wildcard
+            } else {
+                Mode::Coa
+            });
+        }
+        if self.with_reborn {
+            modes.push(Mode::Reborn);
+        }
+        modes
+    }
+
     pub fn created(&self, mode: Mode) -> bool {
         match mode {
             Mode::Coa => true,
@@ -101,6 +136,9 @@ pub struct View {
     pub simultaneous: bool,
     pub secondary_world_port: Option<u16>,
     pub secondary_running: bool,
+    pub with_reborn: bool,
+    pub reborn_world_port: Option<u16>,
+    pub reborn_running: bool,
 }
 
 pub fn state(root: &Path) -> Result<RealmState> {
@@ -139,7 +177,10 @@ pub fn view(root: &Path) -> Result<View> {
         recovery_pending: root.join(JOURNAL).exists(),
         simultaneous: s.simultaneous,
         secondary_world_port: s.secondary_world_port,
-        secondary_running: crate::multiworld::is_running(root),
+        secondary_running: crate::multiworld::tree_running(root, crate::multiworld::Tree::Second),
+        with_reborn: s.with_reborn,
+        reborn_world_port: s.reborn_world_port,
+        reborn_running: crate::multiworld::tree_running(root, crate::multiworld::Tree::Reborn),
     })
 }
 
@@ -447,6 +488,58 @@ fn create_databases(root: &Path, mode: Mode) -> Result<()> {
     })
 }
 
+/// Create the saved settings and the databases of a realm that was never set up. `before` is the current
+/// configuration, the base of a new realm while Conquest of Azeroth is the active one.
+fn create_realm(root: &Path, s: &mut RealmState, mode: Mode, before: &Files) -> Result<()> {
+    if s.created(mode) {
+        return Ok(());
+    }
+    let base = if s.active == Mode::Coa {
+        before.clone()
+    } else {
+        fsx::read_json(&snapshot(root, Mode::Coa))?
+    };
+    let files = match mode {
+        Mode::Wildcard => wildcard_configs(base)?,
+        Mode::Reborn => reborn_configs(base)?,
+        Mode::Coa => unreachable!(),
+    };
+    fsx::atomic_write_json(&snapshot(root, mode), &files)?;
+    create_databases(root, mode)?;
+    match mode {
+        Mode::Wildcard => s.wildcard_created = true,
+        Mode::Reborn => s.reborn_created = true,
+        Mode::Coa => {}
+    }
+    fsx::atomic_write_json(&root.join(STATE), s)?;
+    Ok(())
+}
+
+/// Set a realm up without making it the active one, so it can start next to the active realm.
+pub fn ensure_created(root: &Path, mode: Mode) -> Result<()> {
+    let meta = crate::registry::metadata_dir_for(root)?;
+    let _update_lock = crate::update::operation_lock(&meta)?;
+    crate::update::ensure_recovered(&meta)?;
+    require_world_stopped(root)?;
+    recover(root)?;
+    let mut s = state(root)?;
+    let supported = view(root)?;
+    if mode == Mode::Wildcard && !supported.supported {
+        return Err(Error::Invalid(
+            "Update the server to a build with Wildcard support first.".into(),
+        ));
+    }
+    if mode == Mode::Reborn && !supported.reborn_supported {
+        return Err(Error::Invalid(
+            "Update the server to a build with Warcraft Reborn support first.".into(),
+        ));
+    }
+    // Verify launcher support before creating databases, as selecting a realm does.
+    prepare_launcher(root)?;
+    let before = configs(root)?;
+    create_realm(root, &mut s, mode, &before)
+}
+
 pub fn select(root: &Path, mode: Mode) -> Result<View> {
     let meta = crate::registry::metadata_dir_for(root)?;
     let _update_lock = crate::update::operation_lock(&meta)?;
@@ -467,35 +560,16 @@ pub fn select(root: &Path, mode: Mode) -> Result<View> {
             "Update the server to a build with Warcraft Reborn support first.".into(),
         ));
     }
-    if s.simultaneous && mode != s.active {
+    if (s.simultaneous || s.with_reborn) && mode != s.active {
         return Err(Error::Invalid(
-            "Disable simultaneous startup before switching realms.".into(),
+            "Disable the realms that start together before switching realms.".into(),
         ));
     }
     // Verify launcher support before creating databases or changing the selected realm.
     prepare_launcher(root)?;
     let before = configs(root)?;
     fsx::atomic_write_json(&snapshot(root, s.active), &before)?;
-    if !s.created(mode) {
-        let base = if s.active == Mode::Coa {
-            before.clone()
-        } else {
-            fsx::read_json(&snapshot(root, Mode::Coa))?
-        };
-        let files = match mode {
-            Mode::Wildcard => wildcard_configs(base)?,
-            Mode::Reborn => reborn_configs(base)?,
-            Mode::Coa => unreachable!(),
-        };
-        fsx::atomic_write_json(&snapshot(root, mode), &files)?;
-        create_databases(root, mode)?;
-        match mode {
-            Mode::Wildcard => s.wildcard_created = true,
-            Mode::Reborn => s.reborn_created = true,
-            Mode::Coa => {}
-        }
-        fsx::atomic_write_json(&root.join(STATE), &s)?;
-    }
+    create_realm(root, &mut s, mode, &before)?;
     let target: Files = fsx::read_json(&snapshot(root, mode))?;
     // The launcher and batch files share this lock; recheck after the potentially long database copy.
     fs::create_dir_all(root.join(".state"))?;
@@ -653,9 +727,46 @@ pub(crate) fn unpatch_launcher(source: &str) -> Option<String> {
     (check == source).then_some(original)
 }
 
+/// The character-creation model the world server advertises for a realm. Every realm has its own database and its own
+/// entry on Overview, so it advertises exactly one model: a list such as `"coa wcr"` would let players create
+/// Warcraft Reborn characters in the Conquest of Azeroth realm.
+fn class_model_for(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Coa => "coa",
+        Mode::Wildcard => "hero",
+        Mode::Reborn => "wcr",
+    }
+}
+
+/// The client builds its character-creation screen from `CoA.ClassModel`, so a realm whose setting lacks its own
+/// model would show the wrong screen (a Conquest of Azeroth realm set to `"hero"` has no classes). The realm chosen in
+/// the Manager wins: any other setting is replaced by the realm's own model.
+/// A missing key means the server default, `"coa"`; a missing file is left to the server.
+fn align_class_model(root: &Path, mode: Mode) -> Result<()> {
+    let path = root.join("Core/configs/modules/coa.conf");
+    let Ok(bytes) = fs::read(&path) else {
+        return Ok(());
+    };
+    let mut conf = ConfFile::parse_bytes(&bytes)?;
+    let current = conf
+        .get("CoA.ClassModel")
+        .map(crate::config::parser::unquote)
+        .unwrap_or("coa")
+        .to_string();
+    let wanted = class_model_for(mode);
+    if current.split_whitespace().eq([wanted]) {
+        return Ok(());
+    }
+    conf.set("CoA.ClassModel", &format!("\"{wanted}\""), &[]);
+    fsx::atomic_write(&path, conf.to_text().as_bytes())?;
+    tracing::warn!(realm = mode.name(), from = %current, to = wanted, "CoA.ClassModel did not fit the selected realm and was corrected");
+    Ok(())
+}
+
 pub fn before_start(root: &Path) -> Result<()> {
     recover(root)?;
     let s = state(root)?;
+    align_class_model(root, s.active)?;
     if !root.join(STATE).exists() {
         return Ok(());
     }
@@ -665,12 +776,22 @@ pub fn before_start(root: &Path) -> Result<()> {
             "The installed server build does not support simultaneous Wildcard startup.".into(),
         ));
     }
-    if s.simultaneous && s.active == Mode::Reborn {
+    if (s.simultaneous || s.with_reborn) && s.active == Mode::Reborn {
         return Err(Error::Invalid(
-            "Simultaneous startup supports CoA and Wildcard only.".into(),
+            "Realms that start together need Conquest of Azeroth or Wildcard as the main realm.".into(),
         ));
     }
-    if s.simultaneous {
+    if s.with_reborn && s.active != Mode::Coa {
+        return Err(Error::Invalid(
+            "Warcraft Reborn can start together with Conquest of Azeroth only. Select Conquest of Azeroth first.".into(),
+        ));
+    }
+    if s.with_reborn && !view(root)?.reborn_supported {
+        return Err(Error::Invalid(
+            "The installed server build does not support Warcraft Reborn.".into(),
+        ));
+    }
+    if s.simultaneous || s.with_reborn {
         fsx::atomic_write_json(&snapshot(root, s.active), &configs(root)?)?;
     }
     if s.active == Mode::Reborn && !view(root)?.reborn_supported {
@@ -734,37 +855,38 @@ pub fn setup_realmlist(root: &Path) -> Result<()> {
         };
         db.query(&format!("UPDATE acore_auth.realmlist SET port=CASE id WHEN 1 THEN {coa} ELSE {wildcard} END,flag=0 WHERE id IN (1,2);"))?;
     }
+    if s.with_reborn {
+        let reborn = s
+            .reborn_world_port
+            .ok_or_else(|| Error::Invalid("Warcraft Reborn realm port is missing.".into()))?;
+        db.query(&format!(
+            "UPDATE acore_auth.realmlist SET port={reborn},flag=0 WHERE id={};",
+            Mode::Reborn.realm_id()
+        ))?;
+    }
     Ok(())
 }
 
 pub fn world_port_for_mode(root: &Path, mode: Mode) -> Result<u16> {
     let ports = crate::layout::read_ports(root);
     let s = state(root)?;
-    if s.simultaneous {
-        let second = s
-            .secondary_world_port
-            .ok_or_else(|| Error::Invalid("Second realm port is missing.".into()))?;
-        let port = match (s.active, mode) {
-            (Mode::Coa, Mode::Coa) => ports.world,
-            (Mode::Coa, Mode::Wildcard) => second,
-            (Mode::Wildcard, Mode::Wildcard) => ports.world,
-            (Mode::Wildcard, Mode::Coa) => second,
-            _ => {
-                return Err(Error::Invalid(format!(
-                    "Unsupported mode {mode:?} for simultaneous hosting (active: {:?})",
-                    s.active
-                )))
-            }
-        };
-        Ok(port)
-    } else if mode == s.active {
-        Ok(ports.world)
-    } else {
-        Err(Error::Invalid(format!(
-            "Realm mode {mode:?} is not active (active: {:?}) and simultaneous mode is disabled.",
-            s.active
-        )))
+    if mode == s.active {
+        return Ok(ports.world);
     }
+    if mode == Mode::Reborn && s.with_reborn && s.active == Mode::Coa {
+        return s
+            .reborn_world_port
+            .ok_or_else(|| Error::Invalid("Warcraft Reborn realm port is missing.".into()));
+    }
+    if s.simultaneous && matches!((s.active, mode), (Mode::Coa, Mode::Wildcard) | (Mode::Wildcard, Mode::Coa)) {
+        return s
+            .secondary_world_port
+            .ok_or_else(|| Error::Invalid("Second realm port is missing.".into()));
+    }
+    Err(Error::Invalid(format!(
+        "Realm mode {mode:?} is not active (active: {:?}) and simultaneous mode is disabled.",
+        s.active
+    )))
 }
 
 #[cfg(test)]
@@ -836,6 +958,134 @@ mod tests {
         assert!(guard_module(t.path(), "companions").is_err());
         assert!(guard_module(t.path(), "playerbots").is_err());
         assert!(guard_module(t.path(), "content-scaling").is_ok());
+    }
+
+    fn write_class_model(root: &Path, text: &str) {
+        fsx::atomic_write(&root.join("Core/configs/modules/coa.conf"), text.as_bytes()).unwrap();
+    }
+
+    fn class_model(root: &Path) -> String {
+        let bytes = fs::read(root.join("Core/configs/modules/coa.conf")).unwrap();
+        ConfFile::parse_bytes(&bytes)
+            .unwrap()
+            .get("CoA.ClassModel")
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    #[test]
+    fn a_class_model_that_does_not_fit_the_realm_is_replaced_by_the_realms_own() {
+        let t = tempfile::tempdir().unwrap();
+        // No file: left to the server. No key: the server default "coa" applies, which fits Conquest of Azeroth.
+        align_class_model(t.path(), Mode::Coa).unwrap();
+        assert!(!t.path().join("Core/configs/modules/coa.conf").exists());
+        write_class_model(t.path(), "[worldserver]
+# CoA.ClassModel = \"hero\"
+");
+        align_class_model(t.path(), Mode::Coa).unwrap();
+        assert_eq!(class_model(t.path()), "");
+
+        write_class_model(t.path(), "# note
+CoA.ClassModel = \"hero\"
+CoA.GameModeMask = 0
+");
+        align_class_model(t.path(), Mode::Coa).unwrap();
+        assert_eq!(
+            fs::read_to_string(t.path().join("Core/configs/modules/coa.conf")).unwrap(),
+            "# note
+CoA.ClassModel = \"coa\"
+CoA.GameModeMask = 0
+"
+        );
+        align_class_model(t.path(), Mode::Wildcard).unwrap();
+        assert_eq!(class_model(t.path()), "\"hero\"");
+        align_class_model(t.path(), Mode::Reborn).unwrap();
+        assert_eq!(class_model(t.path()), "\"wcr\"");
+
+        // A missing key does not fit a realm other than Conquest of Azeroth.
+        write_class_model(t.path(), "[worldserver]
+");
+        align_class_model(t.path(), Mode::Wildcard).unwrap();
+        assert_eq!(class_model(t.path()), "\"hero\"");
+    }
+
+    #[test]
+    fn a_class_model_list_is_narrowed_to_the_realms_own_model() {
+        let t = tempfile::tempdir().unwrap();
+        // The shipped default serves two models; the realm chosen in the Manager keeps only its own.
+        for (mode, want) in [(Mode::Coa, "\"coa\""), (Mode::Reborn, "\"wcr\"")] {
+            write_class_model(t.path(), "CoA.ClassModel = \"coa wcr\"
+");
+            align_class_model(t.path(), mode).unwrap();
+            assert_eq!(class_model(t.path()), want);
+        }
+        // A setting that is already exactly right is not rewritten, quoted or not.
+        for (text, mode) in [
+            ("CoA.ClassModel = \"coa\"
+", Mode::Coa),
+            ("CoA.ClassModel = hero
+", Mode::Wildcard),
+        ] {
+            write_class_model(t.path(), text);
+            align_class_model(t.path(), mode).unwrap();
+            assert_eq!(
+                fs::read_to_string(t.path().join("Core/configs/modules/coa.conf")).unwrap(),
+                text
+            );
+        }
+    }
+
+    #[test]
+    fn before_start_aligns_the_class_model_with_the_active_realm() {
+        let t = tempfile::tempdir().unwrap();
+        write_class_model(t.path(), "CoA.ClassModel = \"hero\"
+");
+        before_start(t.path()).unwrap();
+        assert_eq!(class_model(t.path()), "\"coa\"");
+    }
+
+    #[test]
+    fn extra_realms_follow_the_two_switches_and_old_states_still_load() {
+        let old: RealmState = serde_json::from_str(
+            r#"{"active":"coa","wildcard_created":true,"simultaneous":true,"secondary_world_port":8086}"#,
+        )
+        .unwrap();
+        assert!(!old.with_reborn && old.reborn_world_port.is_none());
+        assert_eq!(old.extra_modes(), [Mode::Wildcard]);
+        let mut s = RealmState::default();
+        assert!(s.extra_modes().is_empty());
+        s.with_reborn = true;
+        assert_eq!(s.extra_modes(), [Mode::Reborn]);
+        s.simultaneous = true;
+        assert_eq!(s.extra_modes(), [Mode::Wildcard, Mode::Reborn]);
+        s.secondary_world_port = Some(8086);
+        s.reborn_world_port = Some(8087);
+        assert_eq!(s.extra_world_ports(), [8086, 8087]);
+        s.with_reborn = false;
+        assert_eq!(s.extra_world_ports(), [8086]);
+        s.with_reborn = true;
+        // Wildcard as the main realm still pairs with Conquest of Azeroth.
+        s.active = Mode::Wildcard;
+        s.with_reborn = false;
+        assert_eq!(s.extra_modes(), [Mode::Coa]);
+    }
+
+    #[test]
+    fn each_running_realm_has_its_own_world_port() {
+        let t = tempfile::tempdir().unwrap();
+        fsx::atomic_write(&t.path().join("Settings/repack.json"), br#"{"worldPort": 8085}"#).unwrap();
+        let write = |json: &str| fsx::atomic_write(&t.path().join(STATE), json.as_bytes()).unwrap();
+        write(r#"{"active":"coa","wildcard_created":true,"reborn_created":true,"simultaneous":true,"secondary_world_port":8086,"with_reborn":true,"reborn_world_port":8087}"#);
+        assert_eq!(world_port_for_mode(t.path(), Mode::Coa).unwrap(), 8085);
+        assert_eq!(world_port_for_mode(t.path(), Mode::Wildcard).unwrap(), 8086);
+        assert_eq!(world_port_for_mode(t.path(), Mode::Reborn).unwrap(), 8087);
+        // Only Reborn next to Conquest of Azeroth: Wildcard is not running anywhere.
+        write(r#"{"active":"coa","wildcard_created":true,"reborn_created":true,"with_reborn":true,"reborn_world_port":8087}"#);
+        assert_eq!(world_port_for_mode(t.path(), Mode::Reborn).unwrap(), 8087);
+        assert!(world_port_for_mode(t.path(), Mode::Wildcard).is_err());
+        // Reborn only pairs with Conquest of Azeroth as the main realm.
+        write(r#"{"active":"wildcard","wildcard_created":true,"reborn_created":true,"with_reborn":true,"reborn_world_port":8087}"#);
+        assert!(world_port_for_mode(t.path(), Mode::Reborn).is_err());
     }
 
     #[test]

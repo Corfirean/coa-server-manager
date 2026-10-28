@@ -758,6 +758,7 @@ pub fn observe_with(d: &dyn Docker, root: &Path, ports: &Ports) -> Observed {
             auth: unknown("auth", ports.auth),
             world: unknown("world", ports.world),
             secondary_world: None,
+            reborn_world: None,
         };
     };
     let n = cfg.names();
@@ -767,6 +768,7 @@ pub fn observe_with(d: &dyn Docker, root: &Path, ports: &Ports) -> Observed {
             auth: unknown("auth", ports.auth),
             world: unknown("world", ports.world),
             secondary_world: None,
+            reborn_world: None,
         };
     };
     let ip = connect_ip(&cfg);
@@ -795,6 +797,7 @@ pub fn observe_with(d: &dyn Docker, root: &Path, ports: &Ports) -> Observed {
             listening(state.get(&n.world), ports.world),
         ),
         secondary_world: None,
+        reborn_world: None,
     }
 }
 

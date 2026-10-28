@@ -48,13 +48,13 @@ export interface ServiceStatus {
 }
 
 export interface StatusView {
-  observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus; secondary_world?: ServiceStatus | null };
+  observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus; secondary_world?: ServiceStatus | null; reborn_world?: ServiceStatus | null };
   busy: boolean;
   path_exists: boolean;
 }
 
 export type RealmMode = "coa" | "wildcard" | "reborn";
-export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean }
+export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean; with_reborn: boolean; reborn_world_port: number | null; reborn_running: boolean }
 export interface DatabaseCheck {
   realm: RealmMode;
   migrations: { id: string; db: string; status: "applied" | "pending" | "failed"; error: string | null }[];
@@ -439,6 +439,7 @@ export interface FriendsStatus {
   auth_port: number;
   world_port: number;
   secondary_world_port?: number | null;
+  reborn_world_port?: number | null;
 }
 
 export interface InternetCheck {
@@ -482,6 +483,7 @@ export const api = {
     realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
     realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
     realmSimultaneous: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_simultaneous", { id, enabled }),
+    realmWithReborn: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_with_reborn", { id, enabled }),
     checkDatabase: (id: string) => invoke<DatabaseCheck[]>("check_database", { id }),
     repairServer: (id: string) => invoke<RepairReport>("repair_server", { id }),
   defaultInstallDir: () => invoke<string>("default_install_dir"),

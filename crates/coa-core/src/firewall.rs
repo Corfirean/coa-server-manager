@@ -88,23 +88,27 @@ fn run_elevated(commands: &[String]) -> Result<()> {
 
 /// Make sure both rules exist (adds only the missing ones) and confirm afterwards.
 pub fn ensure_rules(ports: &Ports) -> Result<Status> {
-    ensure_rules_with_secondary(ports, None)
+    ensure_rules_with_extra(ports, &[])
 }
 
-pub fn ensure_rules_with_secondary(ports: &Ports, secondary: Option<u16>) -> Result<Status> {
+/// As `ensure_rules`, plus one rule for the world port of each extra realm that runs next to the main one.
+pub fn ensure_rules_with_extra(ports: &Ports, extra: &[u16]) -> Result<Status> {
     let have = status();
     let mut cmds = plan(ports, &have);
-    let second_name = secondary.map(|port| format!("CoA Server Manager - Second World {port}"));
-    if let (Some(port), Some(name)) = (secondary, &second_name) {
+    let extra_names: Vec<String> = extra
+        .iter()
+        .map(|port| format!("CoA Server Manager - Second World {port}"))
+        .collect();
+    for (port, name) in extra.iter().zip(&extra_names) {
         if !rule_exists(name) {
-            cmds.push(add_cmd(name, port));
+            cmds.push(add_cmd(name, *port));
         }
     }
     if !cmds.is_empty() {
         run_elevated(&cmds)?;
     }
     let now = status();
-    if now.auth && now.world && second_name.as_ref().is_none_or(|name| rule_exists(name)) {
+    if now.auth && now.world && extra_names.iter().all(|name| rule_exists(name)) {
         Ok(now)
     } else {
         Err(Error::Invalid(

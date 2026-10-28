@@ -604,7 +604,19 @@ async fn start_server(
             })
             .await;
             let _ = tauri::async_runtime::spawn_blocking(move || {
-                meta_dir(&root).and_then(|m| coa_core::friends::reapply(&root, &m))
+                let meta = meta_dir(&root)?;
+                coa_core::friends::reapply(&root, &meta)?;
+                // A world switched on after the server was opened to friends has no firewall rule yet. Rules are only
+                // added when missing (one Windows confirmation); a refusal must not undo a start that worked.
+                if platform::flavor() == Flavor::Repack
+                    && coa_core::friends::load(&meta).mode != coa_core::friends::Mode::Local
+                {
+                    let extra = coa_core::realms::state(&root)?.extra_world_ports();
+                    if let Err(e) = coa_core::firewall::ensure_rules_with_extra(&layout::read_ports(&root), &extra) {
+                        tracing::warn!("firewall rules for the running worlds were not added: {e}");
+                    }
+                }
+                Ok::<(), Error>(())
             })
             .await;
         }
@@ -1167,6 +1179,17 @@ async fn realm_simultaneous(
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || coa_core::multiworld::set_enabled(&root, enabled)).await
+}
+
+#[tauri::command]
+async fn realm_with_reborn(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> std::result::Result<coa_core::realms::View, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::multiworld::set_reborn_enabled(&root, enabled)).await
 }
 
 #[tauri::command]
@@ -2348,6 +2371,7 @@ struct FriendsStatus {
     auth_port: u16,
     world_port: u16,
     secondary_world_port: Option<u16>,
+    reborn_world_port: Option<u16>,
 }
 
 /// Open one of a few known help pages in the default browser. Anything else is refused, so a page can never ask the
@@ -2511,6 +2535,9 @@ async fn friends_status(
             secondary_world_port: coa_core::realms::state(&root)?
                 .secondary_world_port
                 .filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.simultaneous)),
+            reborn_world_port: coa_core::realms::state(&root)?
+                .reborn_world_port
+                .filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.with_reborn)),
         })
     })
     .await
@@ -2568,7 +2595,7 @@ async fn friends_enable(
         let ports = layout::read_ports(&root);
         let mut note = None;
         let realms = coa_core::realms::state(&root)?;
-        let secondary = realms.secondary_world_port.filter(|_| realms.simultaneous);
+        let extra = realms.extra_world_ports();
         let host = match mode {
             Mode::Local => "127.0.0.1".to_string(),
             Mode::Lan => coa_core::net::resolve_lan_host(lan_address_override.as_deref(), coa_core::net::lan_ip())?,
@@ -2578,7 +2605,7 @@ async fn friends_enable(
         let open = mode != Mode::Local;
         let changed = friends::set_open(&root, &meta, open)?;
         if open && platform::flavor() == Flavor::Repack {
-            coa_core::firewall::ensure_rules_with_secondary(&ports, secondary)?;
+            coa_core::firewall::ensure_rules_with_extra(&ports, &extra)?;
         }
         if mode == Mode::Direct && use_upnp {
             match coa_core::upnp::discover() {
@@ -2586,7 +2613,7 @@ async fn friends_enable(
                     let lan = coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("No local address.".into()))?;
                     coa_core::upnp::add_mapping(&gw, ports.auth, lan, "Auth")?;
                     coa_core::upnp::add_mapping(&gw, ports.world, lan, "World")?;
-                    if let Some(port) = secondary { coa_core::upnp::add_mapping(&gw, port, lan, "Second world")?; }
+                    for port in &extra { coa_core::upnp::add_mapping(&gw, *port, lan, "Extra world")?; }
                     note = Some("Your router was asked to forward the game ports.".to_string());
                 }
                 None => note = Some("Your router does not support automatic setup; forward the two game ports by hand or use the private network.".to_string()),
@@ -2819,6 +2846,7 @@ pub fn run() {
             realm_profiles,
             realm_select,
             realm_simultaneous,
+            realm_with_reborn,
             check_database,
             repair_server,
             module_set_enabled,
