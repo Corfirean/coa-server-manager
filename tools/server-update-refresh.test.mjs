@@ -52,6 +52,19 @@ test("refresh after recovery returns the latest disk state, then its absence", a
   assert.equal(await refreshServerUpdateState("recovery-case"), null);
 });
 
+test("successful update keeps the existing-character warning across disk refresh", async () => {
+  const original = globalThis.__hotfixApi.applyUpdate;
+  try {
+    applyFailure = false;
+    stateFailure = false;
+    pending = null;
+    globalThis.__hotfixApi.applyUpdate = async () => ({ txn: { state: "committed", to_version: "2" }, preexisting_character_count: 174 });
+    assert.equal(await applyServerUpdate("old-character-warnings", { choices: {} }), true);
+    await refreshServerUpdateState("old-character-warnings");
+    assert.deepEqual(useServerUpdate("old-character-warnings").result, { committed: "2", preexistingCharacters: 174 });
+  } finally { globalThis.__hotfixApi.applyUpdate = original; }
+});
+
 test("a stopped server is left stopped after a successful update by default", async () => {
   calls.length = 0;
   serverRunning = false;

@@ -1,5 +1,7 @@
 /** Simplified Chinese localization (zh-CN) */
 const zh = {
+  "upd.preexistingCharacters": "更新前已有 {n} 条角色记录缺少种族/职业初始数据。未变化的记录已保留，不会阻止更新。详情已保存到诊断报告；这些既有问题尚未自动修复。",
+
   "races.unknownIds": "此目录中已不存在的种族 ID：{ids}。保存检查后的列表将移除这些旧限制。",
   "races.reviewCatalog": "种族目录已更改或尚未验证。请检查列表并保存后再应用限制。",
   "races.available": "可用种族",
