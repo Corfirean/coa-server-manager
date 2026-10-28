@@ -752,7 +752,10 @@
         "Control portable characters and keep Manager running in the system tray"
       ],
       "commit": "dc97095bd6b36d9b5111f04f0cfd88e1fb2ab1f1",
-      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.2...v0.9.0"
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.2...v0.9.0",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
     }
   ]
 }

@@ -10,6 +10,8 @@ Dates follow GitHub publication (UTC); legacy records retain their archived date
 
 ## 0.9.0 — 2026-10-28
 
+**Portable Characters are experimental and may contain bugs.**
+
 - Choose Parallel or Global level scaling in module settings.
 - Report Content Scaling problems directly to its repository.
 - Send custom race problem reports directly to their maintainer.
