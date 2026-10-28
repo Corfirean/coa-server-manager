@@ -149,6 +149,7 @@
     "Corfirean/coa-server-manager:20261027-skill-gain-controls.md",
     "Corfirean/coa-server-manager:20261027-start-checks-the-realm-class-setting.md",
     "Corfirean/coa-server-manager:20261027-start-wildcard-and-reborn-with-coa.md",
+    "Corfirean/coa-server-manager:20261028-existing-character-update-validation.md",
     "Corfirean/coa-server-manager:20261028-portable-settings-and-tray.md"
   ],
   "releases": [
@@ -756,6 +757,17 @@
       "experimentalFeatures": [
         "portable-characters"
       ]
+    },
+    {
+      "tag": "v0.9.1",
+      "version": "0.9.1",
+      "date": "2026-10-28",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.1",
+      "notes": [
+        "Existing unsupported character records no longer block unrelated server updates"
+      ],
+      "commit": "8bbf16ed4f14e9b78c680783e4be5d8c580cc06b",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.0...v0.9.1"
     }
   ]
 }

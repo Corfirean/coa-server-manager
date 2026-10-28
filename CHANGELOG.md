@@ -8,6 +8,12 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.1 — 2026-10-28
+
+- Existing unsupported character records no longer block unrelated server updates.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.0...v0.9.1)
+
 ## 0.9.0 — 2026-10-28
 
 **Portable Characters are experimental and may contain bugs.**
