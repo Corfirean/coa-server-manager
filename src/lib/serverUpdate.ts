@@ -21,7 +21,7 @@ export interface ServerUpdateState {
   stateError: UiError | null;
   stateRevision: number;
   /** How the last update ended; kept here so the Settings card can show it after the user left and came back. */
-  result: { committed: string } | { pending: UpdateTxn } | null;
+  result: { committed: string; preexistingCharacters?: number } | { pending: UpdateTxn } | null;
 }
 
 const EMPTY: ServerUpdateState = { preview: null, available: false, checking: false, applying: false, step: null, percent: 0, error: null, uiError: null, stateError: null, stateRevision: 0, result: null };
@@ -98,7 +98,7 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
   }
   try {
     const out = await api.applyUpdate(id, opts?.choices ?? {}, opts?.source);
-    set(id, { result: out.txn.state === "committed" ? { committed: out.txn.to_version ?? "" } : { pending: out.txn } });
+    set(id, { result: out.txn.state === "committed" ? { committed: out.txn.to_version ?? "", ...(out.preexisting_character_count ? { preexistingCharacters: out.preexisting_character_count } : {}) } : { pending: out.txn } });
     if (out.txn.state === "committed" && !wasRunning && !startAfterUpdate("server", id)) await api.stop(id).catch(() => undefined);
     return true;
   } catch (e) {

@@ -11,6 +11,7 @@ pub mod accounts;
 pub mod allsettings;
 pub mod backup;
 pub mod channels;
+pub mod character_start_check;
 pub mod cleanbase;
 pub mod client;
 pub mod clientdl;

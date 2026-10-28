@@ -1,5 +1,7 @@
 /** English is the source of truth: every key must exist here; other locales fall back to it. */
 const en = {
+  "upd.preexistingCharacters": "Before the update, {n} character records already lacked race/class starting data. Unchanged records were preserved and did not block the update. Details are saved in diagnostics; these older inconsistencies have not been automatically repaired.",
+
   "races.unknownIds": "RaceIDs no longer in this catalog: {ids}. Saving the reviewed list removes these old restrictions.",
   "races.reviewCatalog": "The race catalog changed or has not been verified. Review the list and save it before applying restrictions.",
   "races.available": "Available races",

@@ -554,6 +554,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
             <Button size="sm" variant="ghost" onClick={() => void startClientUpdate(server.id)}>{t("client.dl.retry")}</Button>
           </p>
         )}
+        {upd.result && "committed" in upd.result && !!upd.result.preexistingCharacters && <p className="mt-3 text-sm text-warn" role="status">{t("upd.preexistingCharacters", { n: upd.result.preexistingCharacters })}</p>}
         {upd.available && upd.preview && (
           <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3 text-sm">
             <p>{t("overview.updateAvail", { to: upd.preview.to_version, from: upd.preview.from_version ?? "?" })}</p>

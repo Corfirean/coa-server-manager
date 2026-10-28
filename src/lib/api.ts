@@ -542,7 +542,7 @@ export const api = {
   checkUpdate: (id: string, source?: string, background?: boolean) => invoke<UpdatePreview>("check_update", { id, source: source ?? null, background: background ?? false }),
   pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
-    invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
+    invoke<{ txn: UpdateTxn; preexisting_character_count?: number }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
   population: (id: string) => invoke<Population | null>("get_population", { id }),

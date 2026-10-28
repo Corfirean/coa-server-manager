@@ -2,6 +2,8 @@ import type en from "./en";
 
 /** Deutsch. Entwurf einer Übersetzung; vor der Veröffentlichung von Muttersprachlern zu prüfen. */
 const de: Partial<Record<keyof typeof en, string>> = {
+  "upd.preexistingCharacters": "Bereits vor dem Update fehlten bei {n} Charakterdatensätzen die Startdaten für Volk/Klasse. Unveränderte Datensätze wurden bewahrt und blockierten das Update nicht. Details stehen in der Diagnose; diese älteren Unstimmigkeiten wurden nicht automatisch behoben.",
+
   "races.unknownIds": "Nicht mehr im Katalog vorhandene Völker-IDs: {ids}. Beim Speichern werden diese alten Einschränkungen entfernt.",
   "races.reviewCatalog": "Der Völkerkatalog wurde geändert oder noch nicht geprüft. Prüfe die Liste und speichere sie erneut.",
   "races.available": "Verfügbare Völker",

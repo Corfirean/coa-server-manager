@@ -22,6 +22,8 @@ use crate::pkgsource::{fetch_manifest, fetch_parts, Source};
 use crate::registry::{InstallMeta, MetaDir};
 
 const STAGED_PREFIX: &str = "_migrations/";
+const CHARACTER_BASELINE: &str = "character-start-baseline.json";
+const CHARACTER_BASELINE_HASH: &str = "@character-starts";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -105,6 +107,9 @@ pub trait Env {
     }
     fn verify_snapshot(&self, _id: &str) -> Result<()> {
         Ok(())
+    }
+    fn character_start_baseline(&self) -> Result<Option<crate::character_start_check::Baseline>> {
+        Ok(None)
     }
     fn snapshot(&self) -> Result<String>;
     fn restore_snapshot(&self, id: &str) -> Result<()>;
@@ -223,11 +228,12 @@ fn read_journal(path: &Path) -> Result<Txn> {
             "Update journal contains invalid recovery hashes.".into(),
         ));
     }
-    for key in txn
-        .recovery_hashes
-        .keys()
-        .filter(|key| !matches!(key.as_str(), "@install" | "@point"))
-    {
+    for key in txn.recovery_hashes.keys().filter(|key| {
+        !matches!(
+            key.as_str(),
+            "@install" | "@point" | CHARACTER_BASELINE_HASH
+        )
+    }) {
         fsx::safe_join(path.parent().unwrap(), key)?;
     }
     if completed_legacy_repair {
@@ -684,6 +690,7 @@ pub struct Params<'a> {
 #[derive(Debug, Serialize)]
 pub struct Outcome {
     pub txn: Txn,
+    pub preexisting_character_count: usize,
     pub migrations: Option<ApplyReport>,
 }
 
@@ -816,6 +823,26 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
             .insert("@point".into(), fsx::sha256_file(&point_meta)?);
     }
     save(meta_dir, &txn)?;
+    // Capture before any new files or SQL are applied; retry must reuse these exact bytes.
+    let baseline = match p.env.character_start_baseline() {
+        Ok(baseline) => baseline,
+        Err(error) => {
+            txn.state = State::Failed;
+            txn.message = Some(format!("The update was not applied because the character baseline could not be captured: {error}"));
+            save(meta_dir, &txn)?;
+            return Err(error);
+        }
+    };
+    let preexisting_character_count = baseline
+        .as_ref()
+        .map_or(0, |b| b.realms.values().map(|r| r.len()).sum());
+    if let Some(baseline) = &baseline {
+        let path = tdir.join(CHARACTER_BASELINE);
+        fsx::atomic_write_json(&path, baseline)?;
+        txn.recovery_hashes
+            .insert(CHARACTER_BASELINE_HASH.into(), fsx::sha256_file(&path)?);
+        save(meta_dir, &txn)?;
+    }
     txn.ops = items
         .iter()
         .filter(|i| i.action != Action::Skip)
@@ -909,6 +936,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
         save(meta_dir, &txn)?;
         return Ok(Outcome {
             txn,
+            preexisting_character_count,
             migrations: migrated,
         });
     }
@@ -919,6 +947,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
     let _ = archive;
     Ok(Outcome {
         txn,
+        preexisting_character_count,
         migrations: migrated,
     })
 }
@@ -1039,6 +1068,7 @@ pub fn retry_validation(
             )));
         }
     }
+    read_character_baseline(meta_dir, &txn)?;
     env.ensure_stopped()?;
     if let Err(error) = env.validate() {
         txn.message = Some(format!(
@@ -1115,7 +1145,13 @@ fn restore_transaction(
     txn: &mut Txn,
     env: &dyn Env,
 ) -> Result<()> {
-    for (rel, expected) in &txn.recovery_hashes {
+    // This baseline is a validation input, not a recovery copy: corruption must block
+    // retry/commit, but must never prevent restoration of the verified safety backup.
+    for (rel, expected) in txn
+        .recovery_hashes
+        .iter()
+        .filter(|(key, _)| key.as_str() != CHARACTER_BASELINE_HASH)
+    {
         let saved = match rel.as_str() {
             "@install" => before.join("manager-install.json"),
             "@point" => crate::backup::point_json(
@@ -1504,6 +1540,33 @@ fn prune(meta_dir: &Path, keep: usize) {
     }
 }
 
+fn read_character_baseline(
+    meta: &Path,
+    txn: &Txn,
+) -> Result<Option<crate::character_start_check::Baseline>> {
+    let path = txn_dir(meta, &txn.id)?.join(CHARACTER_BASELINE);
+    let Some(expected) = txn.recovery_hashes.get(CHARACTER_BASELINE_HASH) else {
+        if path.exists() {
+            return Err(Error::Invalid(
+                "An unverified character start baseline was found.".into(),
+            ));
+        }
+        return Ok(None); // Older transactions remain strict; never learn a baseline after applying SQL.
+    };
+    if fsx::sha256_file(&path)? != *expected {
+        return Err(Error::Invalid(
+            "The saved character start baseline failed verification.".into(),
+        ));
+    }
+    let baseline: crate::character_start_check::Baseline = fsx::read_json(&path)?;
+    if baseline.schema != 1 {
+        return Err(Error::Invalid(
+            "Unsupported character start baseline.".into(),
+        ));
+    }
+    Ok(Some(baseline))
+}
+
 /// The real environment: a repack-shaped installation driven through its launcher.
 pub struct RepackEnv<'a> {
     pub root: &'a Path,
@@ -1511,6 +1574,12 @@ pub struct RepackEnv<'a> {
 }
 
 impl RepackEnv<'_> {
+    fn saved_character_baseline(&self) -> Result<Option<crate::character_start_check::Baseline>> {
+        match unfinished(self.meta_dir) {
+            Some(txn) => read_character_baseline(self.meta_dir, &txn),
+            None => Ok(None),
+        }
+    }
     pub fn pending_migrations(&self, manifest: &Manifest) -> Result<usize> {
         Ok(self
             .pending_migrations_with(manifest, DatabaseAccess::Start)?
@@ -1527,9 +1596,9 @@ impl RepackEnv<'_> {
             return Ok(Some(0));
         }
         let count = |db: &crate::db::Db| -> Result<usize> {
-            let db = db.clone().with_read_deadline(
-                std::time::Instant::now() + std::time::Duration::from_secs(15),
-            );
+            let db = db
+                .clone()
+                .with_read_deadline(std::time::Instant::now() + std::time::Duration::from_secs(15));
             let realms = crate::realms::state(self.root)?;
             let modes = realms.modes();
             let mut count = 0;
@@ -1772,12 +1841,25 @@ impl Env for RepackEnv<'_> {
         Ok(())
     }
 
+    fn character_start_baseline(&self) -> Result<Option<crate::character_start_check::Baseline>> {
+        crate::backup::with_database(self.root, |db| {
+            crate::character_start_check::capture(db, self.root)
+        })
+        .map(Some)
+    }
+
     fn migrate(&self, manifest: &Manifest, staged: &Path) -> Result<ApplyReport> {
         crate::backup::with_database(self.root, |db| {
             let identities = database_identities(db)?;
-            let result = migrate_databases(db, self.root, manifest, staged, &|| {
-                self.migration_snapshot()
-            })?;
+            let baseline = self.saved_character_baseline()?;
+            let result = migrate_databases(
+                db,
+                self.root,
+                manifest,
+                staged,
+                &|| self.migration_snapshot(),
+                baseline.as_ref(),
+            )?;
             if result.failed.is_none() {
                 verify_database_identities(db, &identities)?;
             }
@@ -1799,6 +1881,11 @@ impl RepackEnv<'_> {
         crate::mysql_snapshot::stop(self.root)?;
         self.ensure_stopped()?;
         self.recover_validation()?;
+        let baseline = if check_schema {
+            self.saved_character_baseline()?
+        } else {
+            None
+        };
         let result = (|| -> Result<()> {
             crate::update_isolation::begin(self.root, self.meta_dir)?;
             use crate::process::{observe, ServiceState};
@@ -1806,9 +1893,10 @@ impl RepackEnv<'_> {
                 if check_schema {
                     let modes = crate::realms::state(self.root)?.modes();
                     for mode in modes {
-                        if let Some(p) = crate::schema_check::check_with_report(
+                        if let Some(p) = crate::schema_check::check_update_with_report(
                             &db.clone().for_realm(mode),
                             self.root,
+                            baseline.as_ref(),
                         )?
                         .first()
                         {
@@ -1851,8 +1939,7 @@ impl RepackEnv<'_> {
                     if o.mysql.state == ServiceState::Running
                         && o.auth.state == ServiceState::Running
                         && o.world.state == ServiceState::Running
-                        && o.extra_worlds()
-                            .all(|s| s.state == ServiceState::Running)
+                        && o.extra_worlds().all(|s| s.state == ServiceState::Running)
                     {
                         let since = ready_since.get_or_insert_with(std::time::Instant::now);
                         if since.elapsed() >= std::time::Duration::from_secs(10) {
@@ -1869,7 +1956,26 @@ impl RepackEnv<'_> {
             };
             if healthy {
                 crate::backup::with_database(self.root, |db| {
-                    verify_database_identities(db, &identities)
+                    verify_database_identities(db, &identities)?;
+                    if check_schema {
+                        for mode in crate::realms::state(self.root)?.modes() {
+                            if let Some(problem) = crate::schema_check::check_update_with_report(
+                                &db.clone().for_realm(mode),
+                                self.root,
+                                baseline.as_ref(),
+                            )?
+                            .first()
+                            {
+                                return Err(Error::Invalid(format!(
+                                    "Database validation failed after startup on {}: {}: {}",
+                                    mode.name(),
+                                    problem.table,
+                                    problem.detail
+                                )));
+                            }
+                        }
+                    }
+                    Ok(())
                 })?;
                 return Ok(());
             }
@@ -1892,6 +1998,7 @@ fn migrate_databases(
     manifest: &Manifest,
     staged: &Path,
     snapshot: &dyn Fn() -> Result<String>,
+    baseline: Option<&crate::character_start_check::Baseline>,
 ) -> Result<ApplyReport> {
     let realms = crate::realms::state(root)?;
     let modes = realms.modes();
@@ -1943,7 +2050,8 @@ fn migrate_databases(
             return Ok(result);
         }
         crate::schema_check::repair_missing_defaults(&db, root, contract)?;
-        if let Some(p) = crate::schema_check::check_with_report(&db, root)?.first() {
+        if let Some(p) = crate::schema_check::check_update_with_report(&db, root, baseline)?.first()
+        {
             return Err(Error::Invalid(format!(
                 "Database validation failed on {}: {}.{}: {}",
                 mode.name(),
@@ -2010,6 +2118,8 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     struct Fake {
+        character_baseline: RefCell<Option<crate::character_start_check::Baseline>>,
+        baseline_failed: Cell<bool>,
         activation_expected: RefCell<Option<(PathBuf, String)>>,
         activation_failed: Cell<bool>,
         activated: Cell<bool>,
@@ -2027,6 +2137,8 @@ mod tests {
     impl Fake {
         fn ok() -> Fake {
             Fake {
+                character_baseline: RefCell::new(None),
+                baseline_failed: Cell::new(false),
                 activation_expected: RefCell::new(None),
                 activation_failed: Cell::new(false),
                 activated: Cell::new(false),
@@ -2044,6 +2156,14 @@ mod tests {
     }
 
     impl Env for Fake {
+        fn character_start_baseline(
+            &self,
+        ) -> Result<Option<crate::character_start_check::Baseline>> {
+            if self.baseline_failed.get() {
+                return Err(Error::Invalid("fixture baseline unavailable".into()));
+            }
+            Ok(self.character_baseline.borrow().clone())
+        }
         fn activate(&self) -> Result<()> {
             if let Some((meta, version)) = self.activation_expected.borrow().as_ref() {
                 ensure_recovered(meta)?;
@@ -3484,5 +3604,116 @@ mod tests {
             .items
             .iter()
             .any(|i| i.path == "Core/newfile.dll" && i.action == Action::Create));
+    }
+    fn baseline_fixture() -> crate::character_start_check::Baseline {
+        crate::character_start_check::Baseline {
+            schema: 1,
+            realms: BTreeMap::from([(
+                "coa".into(),
+                crate::character_start_check::parse_missing("1\t44\t14\n2\t44\t14\n3\t44\t14")
+                    .unwrap(),
+            )]),
+        }
+    }
+
+    #[test]
+    fn character_baseline_is_captured_once_persisted_and_verified_for_retry() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        *env.character_baseline.borrow_mut() = Some(baseline_fixture());
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        assert_eq!(out.txn.state, State::NeedsDecision);
+        assert_eq!(out.preexisting_character_count, 3);
+        let baseline_path = txn_dir(&w.meta, &out.txn.id)
+            .unwrap()
+            .join(CHARACTER_BASELINE);
+        let original = fs::read(&baseline_path).unwrap();
+        assert_eq!(
+            read_character_baseline(&w.meta, &out.txn)
+                .unwrap()
+                .unwrap()
+                .realms["coa"]
+                .len(),
+            3
+        );
+        // A retry may not learn new gaps from an already modified database.
+        *env.character_baseline.borrow_mut() = None;
+        env.healthy.set(true);
+        fs::write(&baseline_path, b"{}").unwrap();
+        assert!(retry_validation(
+            &w.root,
+            &w.meta,
+            &out.txn.id,
+            &Source::Dir(w.pkg.clone()),
+            &w.key,
+            &env
+        )
+        .is_err());
+        fs::write(&baseline_path, original).unwrap();
+        let done = retry_validation(
+            &w.root,
+            &w.meta,
+            &out.txn.id,
+            &Source::Dir(w.pkg.clone()),
+            &w.key,
+            &env,
+        )
+        .unwrap();
+        assert_eq!(done.state, State::Committed);
+    }
+
+    #[test]
+    fn corrupt_character_baseline_does_not_prevent_safe_rollback() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        *env.character_baseline.borrow_mut() = Some(baseline_fixture());
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        fs::write(
+            txn_dir(&w.meta, &out.txn.id)
+                .unwrap()
+                .join(CHARACTER_BASELINE),
+            b"bad",
+        )
+        .unwrap();
+        let restored = rollback(&w.root, &w.meta, &out.txn.id, &env).unwrap();
+        assert_eq!(restored.state, State::RolledBack);
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+    }
+
+    #[test]
+    fn missing_or_unverified_character_baselines_fail_closed() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.healthy.set(false);
+        let out = run(&w, &env, BTreeMap::new(), None).unwrap();
+        assert!(read_character_baseline(&w.meta, &out.txn)
+            .unwrap()
+            .is_none());
+        let path = txn_dir(&w.meta, &out.txn.id)
+            .unwrap()
+            .join(CHARACTER_BASELINE);
+        fsx::atomic_write_json(&path, &baseline_fixture()).unwrap();
+        assert!(read_character_baseline(&w.meta, &out.txn).is_err());
+        let mut txn = out.txn;
+        txn.recovery_hashes.insert(
+            CHARACTER_BASELINE_HASH.into(),
+            fsx::sha256_file(&path).unwrap(),
+        );
+        fs::remove_file(path).unwrap();
+        assert!(read_character_baseline(&w.meta, &txn).is_err());
+    }
+
+    #[test]
+    fn baseline_capture_failure_precedes_file_and_database_changes() {
+        let w = world(&[], true);
+        let env = Fake::ok();
+        env.baseline_failed.set(true);
+        assert!(run(&w, &env, BTreeMap::new(), None).is_err());
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
+        assert!(!env.calls.borrow().contains(&"migrate"));
+        assert!(!env.calls.borrow().contains(&"validate"));
+        assert!(unfinished(&w.meta).is_none());
     }
 }

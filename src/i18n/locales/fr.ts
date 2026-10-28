@@ -2,6 +2,8 @@ import type en from "./en";
 
 /** Français. Traduction provisoire ; à faire relire par un locuteur natif avant la publication. */
 const fr: Partial<Record<keyof typeof en, string>> = {
+  "upd.preexistingCharacters": "Avant la mise à jour, {n} fiches de personnage n’avaient déjà pas de données de départ pour leur race/classe. Les fiches inchangées ont été conservées sans bloquer la mise à jour. Les détails sont dans le diagnostic ; ces incohérences anciennes n’ont pas été corrigées automatiquement.",
+
   "races.unknownIds": "RaceID absents de ce catalogue : {ids}. Sauvegarder la liste vérifiée supprime ces anciennes restrictions.",
   "races.reviewCatalog": "Le catalogue des races a changé ou n’a pas été vérifié. Vérifiez la liste et sauvegardez-la.",
   "races.available": "Races disponibles",

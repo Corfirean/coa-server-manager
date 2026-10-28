@@ -210,6 +210,7 @@ export function SettingsHome({ serverId, serverName = "", path, onForget }: { se
         )}
 
         {done && pendingChecked && !pendingStateError && <p className="mt-4 text-sm text-ok" role="status">{done}</p>}
+        {upd.result && "committed" in upd.result && !!upd.result.preexistingCharacters && <p className="mt-3 text-sm text-warn" role="status">{t("upd.preexistingCharacters", { n: upd.result.preexistingCharacters })}</p>}
         {error && (
           <div className="mt-4" role="alert">
             <p className="selectable whitespace-pre-wrap break-words text-sm text-bad">

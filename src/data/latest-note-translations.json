@@ -1,0 +1,20 @@
+{
+  "manager": {
+    "ru": {
+      "Existing unsupported character records no longer block unrelated server updates": "Старые неподдерживаемые записи персонажей больше не блокируют несвязанные обновления сервера"
+    },
+    "de": {
+      "Existing unsupported character records no longer block unrelated server updates": "Bestehende nicht unterstützte Charakterdatensätze blockieren keine unabhängigen Serverupdates mehr"
+    },
+    "fr": {
+      "Existing unsupported character records no longer block unrelated server updates": "Les anciennes fiches de personnage non prises en charge ne bloquent plus les mises à jour sans rapport"
+    },
+    "es": {
+      "Existing unsupported character records no longer block unrelated server updates": "Los registros antiguos de personajes no compatibles ya no bloquean actualizaciones del servidor no relacionadas"
+    },
+    "zh": {
+      "Existing unsupported character records no longer block unrelated server updates": "已有的不受支持角色记录不再阻止无关的服务器更新"
+    }
+  },
+  "server": {}
+}
