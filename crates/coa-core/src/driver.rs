@@ -34,8 +34,8 @@ impl Verb {
     fn timeout(self, root: &Path) -> Duration {
         match self {
             Verb::StartAll | Verb::StartWorld if squid_enabled(root) => Duration::from_secs(2700),
-            Verb::StartAll | Verb::StartWorld => Duration::from_secs(420),
-            Verb::StartMysql => Duration::from_secs(120),
+            Verb::StartAll | Verb::StartWorld => Duration::from_secs(720),
+            Verb::StartMysql => Duration::from_secs(360),
             Verb::StopAll => Duration::from_secs(240),
         }
     }
@@ -393,7 +393,7 @@ fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()
     Ok(())
 }
 
-const LAUNCH_SCRIPT: &str = "import runpy,sys\nfrom pathlib import Path\nscript=sys.argv[1]\nsys.path.insert(0,str(Path(script).resolve().parent))\nsys.argv=sys.argv[1:]\nif sys.argv[1]=='stop-all':\n    launcher=runpy.run_path(script,run_name='coa_manager_shutdown')\n    config=launcher['settings']()\n    with launcher['control_lock']():\n        launcher['stop_all'](config)\nelse:\n    runpy.run_path(script,run_name='__main__')";
+const LAUNCH_SCRIPT: &str = include_str!("launcher_bridge.py");
 
 pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
     let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
@@ -624,7 +624,11 @@ mod tests {
         std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
         assert_eq!(
             Verb::StartWorld.timeout(folder.path()),
-            Duration::from_secs(420)
+            Duration::from_secs(720)
+        );
+        assert_eq!(
+            Verb::StartMysql.timeout(folder.path()),
+            Duration::from_secs(360)
         );
     }
 

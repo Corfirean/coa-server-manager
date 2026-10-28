@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { updateCheckQueue } from "./updateCheckQueue";
+
+const queuedUpdateCheck = updateCheckQueue<UpdatePreview>();
 
 export const REMOTE_CLIENT_ID = "@remote-client";
 export interface RemoteConnection { host: string; client_path: string | null }
@@ -539,7 +542,10 @@ export const api = {
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),
   /** `background`: the repeating check, which must not start the database of a stopped server. */
-  checkUpdate: (id: string, source?: string, background?: boolean) => invoke<UpdatePreview>("check_update", { id, source: source ?? null, background: background ?? false }),
+  checkUpdate: (id: string, source?: string, background?: boolean) => queuedUpdateCheck(
+    id, JSON.stringify([source ?? null, background ?? false]),
+    () => invoke<UpdatePreview>("check_update", { id, source: source ?? null, background: background ?? false }),
+  ),
   pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
     invoke<{ txn: UpdateTxn; preexisting_character_count?: number }>("apply_update", { id, source: source ?? null, resolutions }),
