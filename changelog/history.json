@@ -123,6 +123,7 @@
     "Corfirean/coa-server-manager:20261021-scaling-health-settings.md",
     "Corfirean/coa-server-manager:20261021-warcraft-reborn-realm.md",
     "Corfirean/coa-server-manager:20261022-custom-races-client.md",
+    "Corfirean/coa-server-manager:20261022-scaling-progression-modes.md",
     "Corfirean/coa-server-manager:20261023-ah-bot-single-switch.md",
     "Corfirean/coa-server-manager:20261023-interface-language-coverage.md",
     "Corfirean/coa-server-manager:20261023-online-players-exclude-squid-bots.md",
@@ -138,7 +139,17 @@
     "Corfirean/coa-server-manager:20261024-remote-refresh.md",
     "Corfirean/coa-server-manager:20261025-custom-races-191.md",
     "Corfirean/coa-server-manager:20261026-custom-races-192.md",
-    "Corfirean/coa-server-manager:20261027-merged-database-migration-order.md"
+    "Corfirean/coa-server-manager:20261027-content-scaling-reports.md",
+    "Corfirean/coa-server-manager:20261027-custom-races-reports.md",
+    "Corfirean/coa-server-manager:20261027-internet-lan-address.md",
+    "Corfirean/coa-server-manager:20261027-merged-database-migration-order.md",
+    "Corfirean/coa-server-manager:20261027-per-race-server-settings.md",
+    "Corfirean/coa-server-manager:20261027-public-list-shows-every-running-realm.md",
+    "Corfirean/coa-server-manager:20261027-public-listing-window.md",
+    "Corfirean/coa-server-manager:20261027-skill-gain-controls.md",
+    "Corfirean/coa-server-manager:20261027-start-checks-the-realm-class-setting.md",
+    "Corfirean/coa-server-manager:20261027-start-wildcard-and-reborn-with-coa.md",
+    "Corfirean/coa-server-manager:20261028-portable-settings-and-tray.md"
   ],
   "releases": [
     {
@@ -721,6 +732,27 @@
       "experimentalFeatures": [
         "portable-characters"
       ]
+    },
+    {
+      "tag": "v0.9.0",
+      "version": "0.9.0",
+      "date": "2026-10-28",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.0",
+      "notes": [
+        "Choose Parallel or Global level scaling in module settings",
+        "Report Content Scaling problems directly to its repository",
+        "Send custom race problem reports directly to their maintainer",
+        "Internet sharing restores the LAN address after server restarts",
+        "Configure custom race availability for new characters",
+        "Public listing offers every realm that starts together, not just the main one",
+        "Public listing is a short list of realms with a window for the details",
+        "Configure profession and defense skill gains in server settings",
+        "Starting a server sets the character classes of the realm chosen on Overview",
+        "Start Wildcard and Warcraft Reborn together with Conquest of Azeroth",
+        "Control portable characters and keep Manager running in the system tray"
+      ],
+      "commit": "dc97095bd6b36d9b5111f04f0cfd88e1fb2ab1f1",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.2...v0.9.0"
     }
   ]
 }

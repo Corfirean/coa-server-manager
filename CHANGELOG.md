@@ -8,6 +8,22 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.0 — 2026-10-28
+
+- Choose Parallel or Global level scaling in module settings.
+- Report Content Scaling problems directly to its repository.
+- Send custom race problem reports directly to their maintainer.
+- Internet sharing restores the LAN address after server restarts.
+- Configure custom race availability for new characters.
+- Public listing offers every realm that starts together, not just the main one.
+- Public listing is a short list of realms with a window for the details.
+- Configure profession and defense skill gains in server settings.
+- Starting a server sets the character classes of the realm chosen on Overview.
+- Start Wildcard and Warcraft Reborn together with Conquest of Azeroth.
+- Control portable characters and keep Manager running in the system tray.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.8.2...v0.9.0)
+
 ## 0.8.2 — 2026-10-27
 
 **Portable Characters are experimental and may contain bugs.**
