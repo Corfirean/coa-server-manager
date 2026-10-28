@@ -759,15 +759,18 @@
       ]
     },
     {
-      "tag": "v0.9.1",
       "version": "0.9.1",
+      "tag": "v0.9.1",
       "date": "2026-10-28",
-      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.1",
       "notes": [
         "Existing unsupported character records no longer block unrelated server updates"
       ],
-      "commit": "8bbf16ed4f14e9b78c680783e4be5d8c580cc06b",
-      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.0...v0.9.1"
+      "experimentalFeatures": [
+        "portable-characters"
+      ],
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.1",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.0...v0.9.1",
+      "commit": "8bbf16ed4f14e9b78c680783e4be5d8c580cc06b"
     }
   ]
 }
