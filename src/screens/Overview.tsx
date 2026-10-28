@@ -558,6 +558,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3 text-sm">
             <p>{t("overview.updateAvail", { to: upd.preview.to_version, from: upd.preview.from_version ?? "?" })}</p>
             {upd.preview.latest_version && <p>{t("upd.intermediate", { to: upd.preview.to_version, latest: upd.preview.latest_version })}</p>}
+            <button className="mt-2 cursor-pointer text-gold hover:underline" onClick={onOpenUpdates}>{t("history.open")}</button>
             {needsDecision && <p className="mt-1 text-muted">{t("overview.updateConflicts")}</p>}
             {upd.applying && (
               <div className="mt-2">

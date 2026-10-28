@@ -54,6 +54,7 @@ pub mod realmlist;
 pub mod realms;
 pub mod registry;
 pub mod release;
+pub mod release_history;
 pub mod release_schema;
 pub mod remote_client;
 pub mod repair;

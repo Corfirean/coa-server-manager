@@ -2,6 +2,33 @@ import type en from "./en";
 
 /** Français. Traduction provisoire ; à faire relire par un locuteur natif avant la publication. */
 const fr: Partial<Record<keyof typeof en, string>> = {
+  "settings.autoManager": "Télécharger les mises à jour en arrière-plan",
+  "settings.startServer": "Démarrer après la mise à jour",
+  "settings.version": "Version {v}",
+  "settings.startupHelp": "Détails du démarrage",
+
+  "settings.section.updates": "Mises à jour",
+  "settings.section.startup": "Démarrage",
+  "settings.section.client": "Client et fichiers",
+  "settings.section.service": "Maintenance",
+  "settings.section.interface": "Interface",
+  "settings.organized": "Gérer les mises à jour, le démarrage et les fichiers du jeu",
+  "settings.clientLink": "Fichiers du client et données du jeu",
+  "history.title": "Historique des changements",
+  "history.open": "Ce qui change",
+  "history.server": "Serveur",
+  "history.manager": "Manager",
+  "history.all": "Toutes les versions",
+  "history.range": "Pour cette mise à jour",
+  "history.language": "Langue des notes",
+  "history.fallback": "Original anglais : cette version n’est pas encore traduite",
+  "history.empty": "Aucune note publiée pour cette mise à jour",
+  "history.files": "Fichiers modifiés",
+  "history.offline": "Historique enregistré · disponible hors ligne",
+  "history.refreshed": "Historique publié actualisé",
+  "history.experimental": "Les personnages portables sont expérimentaux. Sauvegardez vos personnages avant utilisation.",
+  "settings.attention": "Une mise à jour nécessite votre attention. Ouvrez Mises à jour pour les options de récupération.",
+
   "races.unknownIds": "RaceID absents de ce catalogue : {ids}. Sauvegarder la liste vérifiée supprime ces anciennes restrictions.",
   "races.reviewCatalog": "Le catalogue des races a changé ou n’a pas été vérifié. Vérifiez la liste et sauvegardez-la.",
   "races.available": "Races disponibles",

@@ -15,6 +15,10 @@ const stubs = {
   "@/lib/clientJob": `export const dismissClientJob=()=>{}; export const startClientUpdate=()=>{}; export const stopClientJob=()=>{}; export const syncClient=()=>{}; export const useClientJob=()=>({phase:'idle'});`,
   "@/lib/clientUpdate": `export const checkClient=()=>{}; export const useClientStatus=()=>({status:null});`,
   "@/lib/autoRestartPrefs": `export const useAutoRestart=()=>[false,()=>{}];`,
+  "@/screens/PublishCard": `export const ListingChip=()=>null;`,
+  "@/screens/PublishDialog": `export const PublishRealmDialog=()=>null;`,
+  "@/lib/registry": `export const useRegistryStatus=()=>({status:null});`,
+  "@/lib/publishRealms": `export const usePublishRealms=()=>null;`,
   "@/components/ui/button": `import {createElement} from 'react'; export const Button=({children,disabled,onClick,className})=>createElement('button',{disabled,onClick,className},children);`,
   "@/components/ui/card": `import {createElement} from 'react'; export const Card=({children,...props})=>createElement('div',props,children);`,
 };

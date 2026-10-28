@@ -2,6 +2,33 @@ import type en from "./en";
 
 /** Deutsch. Entwurf einer Übersetzung; vor der Veröffentlichung von Muttersprachlern zu prüfen. */
 const de: Partial<Record<keyof typeof en, string>> = {
+  "settings.autoManager": "Updates im Hintergrund herunterladen",
+  "settings.startServer": "Nach dem Update starten",
+  "settings.version": "Version {v}",
+  "settings.startupHelp": "Details zum Start",
+
+  "settings.section.updates": "Updates",
+  "settings.section.startup": "Start",
+  "settings.section.client": "Client und Dateien",
+  "settings.section.service": "Wartung",
+  "settings.section.interface": "Oberfläche",
+  "settings.organized": "Updates, Serverstart und Spieldateien verwalten",
+  "settings.clientLink": "Clientdateien und Spieldaten",
+  "history.title": "Änderungsverlauf",
+  "history.open": "Was sich ändert",
+  "history.server": "Server",
+  "history.manager": "Manager",
+  "history.all": "Alle Versionen",
+  "history.range": "Für dieses Update",
+  "history.language": "Sprache der Einträge",
+  "history.fallback": "Englisches Original: Diese Version wurde noch nicht übersetzt",
+  "history.empty": "Für dieses Update sind noch keine Einträge veröffentlicht",
+  "history.files": "Dateiänderungen",
+  "history.offline": "Gespeicherter Verlauf · offline verfügbar",
+  "history.refreshed": "Veröffentlichter Verlauf aktualisiert",
+  "history.experimental": "Portable Charaktere sind experimentell. Sichere deine Charaktere vor der Verwendung.",
+  "settings.attention": "Ein Update erfordert Aufmerksamkeit. Öffne Updates für die Wiederherstellungsoptionen.",
+
   "races.unknownIds": "Nicht mehr im Katalog vorhandene Völker-IDs: {ids}. Beim Speichern werden diese alten Einschränkungen entfernt.",
   "races.reviewCatalog": "Der Völkerkatalog wurde geändert oder noch nicht geprüft. Prüfe die Liste und speichere sie erneut.",
   "races.available": "Verfügbare Völker",
