@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useT, type Key } from "@/i18n";
-import { asUiError } from "@/lib/api";
+import { asUiError, api } from "@/lib/api";
 import { realmRegistry, useRegistryStatus } from "@/lib/registry";
 import { asControlError, control, type ControlStatus } from "@/lib/control";
 import { isListed, stateTone, type PublishRealm } from "@/lib/publishRealms";
@@ -93,9 +93,21 @@ export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; on
   const [existingOnly, setExistingOnly] = useState(false);
   const [route, setRoute] = useState("");
   const [accessSaved, setAccessSaved] = useState(false);
+  const [portableEnabled, setPortableEnabled] = useState<boolean | null>(null);
+  const primaryRealm = !localId.includes(":");
   const [ctl, setCtl] = useState<ControlStatus | null>(null);
   const host = ctl?.hosting.find((h) => h.local_id === localId);
   const link = host?.link;
+
+  useEffect(() => {
+    if (!primaryRealm) return;
+    let active = true;
+    void api.allSettings(localId.slice(4)).then((items) => {
+      const item = items.find((i) => i.key === "PortableSession.Enable");
+      if (active && item) setPortableEnabled(item.value === "1" || item.value.toLowerCase() === "true");
+    }).catch((e) => { if (active) setError(asUiError(e).technical); });
+    return () => { active = false; };
+  }, [localId, primaryRealm]);
 
   useEffect(() => {
     const load = () => void control.status().then(setCtl).catch(() => {});
@@ -110,7 +122,17 @@ export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; on
 
   async function saveAccess() {
     setBusy(true); setError(null); setAccessSaved(false);
-    try { await control.setAccess(localId, existingOnly, allowPortable, route.trim() === "" ? null : route.trim()); await refresh(); setAccessSaved(true); } catch (e) { setError(asControlError(e).message); } finally { setBusy(false); }
+    try {
+      if (primaryRealm && portableEnabled !== null) {
+        await api.allSettingsSave(localId.slice(4), {
+          "PortableSession.Enable": portableEnabled ? "1" : "0",
+          ...(portableEnabled ? { "CharacterDatabase.WorkerThreads": "1" } : {}),
+        });
+      }
+      await control.setAccess(localId, existingOnly, allowPortable, route.trim() === "" ? null : route.trim());
+      await refresh();
+      setAccessSaved(true);
+    } catch (e) { setError(asControlError(e).message); } finally { setBusy(false); }
   }
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -146,6 +168,7 @@ export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; on
 
       {mine && isListed(mine) && <div className="mt-4 rounded-md border border-line p-3 text-sm" role="status">
         <p className={cn("font-medium", stateTone(mine.state))} data-state={mine.state}>{t(`registry.state.${mine.state}` as Key)}</p>
+        {mine.state === "realm_stopped" && <p className="mt-2 text-xs text-warn">{t("registry.realmStoppedHint")}</p>}
         <p className="mt-1 text-xs text-muted">{mine.display_name}{mine.metadata_revision ? ` · ${t("registry.revision", { n: mine.metadata_revision })}` : ""}</p>
         {mine.last_error && <p className="mt-1 text-xs text-warn">{mine.last_error}</p>}
         {mine.state === "retrying" && mine.retry_in_secs !== null && <p className="mt-1 text-xs text-muted">{t("registry.retryIn", { s: mine.retry_in_secs })}</p>}
@@ -158,6 +181,7 @@ export function PublishRealmDialog({ realm, onClose }: { realm: PublishRealm; on
       {mine && isListed(mine) && <div className="mt-4 rounded-md border border-line p-3 text-sm" data-testid="access-options">
         <p className="font-medium">{t("access.title")}</p>
         <p className="mt-1 text-xs text-muted">{t("access.text")}</p>
+        {primaryRealm && <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={portableEnabled ?? false} disabled={portableEnabled === null} onChange={(e) => setPortableEnabled(e.target.checked)} className="mt-1" data-testid="portable-enabled" /><span>{t("access.portableEnabled")}<span className="block text-xs text-muted">{t("access.portableEnabledHint")}</span></span></label>}
         <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={existingOnly} onChange={(e) => setExistingOnly(e.target.checked)} className="mt-1" data-testid="existing-only" /><span>{t("access.existingOnly")}<span className="block text-xs text-muted">{t("access.existingOnlyHint")}</span></span></label>
         <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={allowPortable} onChange={(e) => setAllowPortable(e.target.checked)} className="mt-1" data-testid="allow-portable" /><span>{t("access.allowPortable")}<span className="block text-xs text-muted">{t("access.allowPortableHint")}</span></span></label>
         <label htmlFor={`access-route-${localId}`} className="mt-3 block font-medium">{t("access.route")}</label>

@@ -2782,6 +2782,8 @@ async fn console_command(
     .await
 }
 
+static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -2937,11 +2939,75 @@ pub fn run() {
             control_cmds::join_characters,
             control_cmds::join_claim
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .setup(|app| {
+            #[cfg(desktop)]
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                use tauri::Manager;
+
+                let show = MenuItem::with_id(app, "show", "Open CoA Server Manager", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &quit])?;
+
+                let mut builder = TrayIconBuilder::new()
+                    .tooltip("CoA Server Manager")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    });
+
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+
+                builder.build(app)?;
+            }
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building CoA Server Manager")
-        .run(|app, event| {
-            // the Host loop stops with the application: what it is doing is finished first, the stores keep every session
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if !QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                }
+            }
+            tauri::RunEvent::Exit => {
+                // the Host loop stops with the application: what it is doing is finished first, the stores keep every session
                 if let Some(rt) = app.state::<AppState>().portable.clone() {
                     rt.shutdown();
                 }
@@ -2952,6 +3018,7 @@ pub fn run() {
                     rt.shutdown();
                 }
             }
+            _ => {}
         });
 }
 

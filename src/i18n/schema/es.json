@@ -380,6 +380,10 @@
    "t": "Intervalo de autoguardado",
    "d": "Con qué frecuencia se guardan los personajes de los jugadores mientras están conectados."
   },
+  "PortableSession.Enable": {
+   "t": "Personajes portátiles (juego portátil)",
+   "d": "Permite a los jugadores jugar en este reino con personajes portátiles guardados en su Manager."
+  },
   "CharactersPerAccount": {
    "t": "Personajes por cuenta",
    "d": "Máximo de personajes que puede tener una cuenta entre todos los reinos."

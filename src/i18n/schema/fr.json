@@ -380,6 +380,10 @@
    "t": "Intervalle de sauvegarde automatique",
    "d": "Fréquence de sauvegarde des personnages des joueurs pendant qu’ils sont en ligne."
   },
+  "PortableSession.Enable": {
+   "t": "Personnages portables (jeu portable)",
+   "d": "Permet aux joueurs de jouer sur ce royaume avec des personnages portables enregistrés dans leur Manager."
+  },
   "CharactersPerAccount": {
    "t": "Personnages par compte",
    "d": "Nombre maximal de personnages qu’un compte peut avoir sur tous les royaumes."
