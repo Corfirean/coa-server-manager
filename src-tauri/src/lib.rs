@@ -604,7 +604,19 @@ async fn start_server(
             })
             .await;
             let _ = tauri::async_runtime::spawn_blocking(move || {
-                meta_dir(&root).and_then(|m| coa_core::friends::reapply(&root, &m))
+                let meta = meta_dir(&root)?;
+                coa_core::friends::reapply(&root, &meta)?;
+                // A world switched on after the server was opened to friends has no firewall rule yet. Rules are only
+                // added when missing (one Windows confirmation); a refusal must not undo a start that worked.
+                if platform::flavor() == Flavor::Repack
+                    && coa_core::friends::load(&meta).mode != coa_core::friends::Mode::Local
+                {
+                    let extra = coa_core::realms::state(&root)?.extra_world_ports();
+                    if let Err(e) = coa_core::firewall::ensure_rules_with_extra(&layout::read_ports(&root), &extra) {
+                        tracing::warn!("firewall rules for the running worlds were not added: {e}");
+                    }
+                }
+                Ok::<(), Error>(())
             })
             .await;
         }
@@ -1170,6 +1182,17 @@ async fn realm_simultaneous(
 }
 
 #[tauri::command]
+async fn realm_with_reborn(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> std::result::Result<coa_core::realms::View, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::multiworld::set_reborn_enabled(&root, enabled)).await
+}
+
+#[tauri::command]
 async fn check_database(
     state: State<'_, AppState>,
     id: String,
@@ -1233,6 +1256,32 @@ async fn custom_races_status(
         Ok(client
             .as_deref()
             .map(coa_core::custom_races::client_patch_status))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn race_availability(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::race_availability::Availability, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::race_availability::status(&root)).await
+}
+
+#[tauri::command]
+async fn race_availability_save(
+    state: State<'_, AppState>,
+    id: String,
+    catalog_sha256: String,
+    realm: coa_core::realms::Mode,
+    disabled_race_ids: Vec<u32>,
+) -> std::result::Result<coa_core::race_availability::Availability, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::race_availability::save(&root, &dir, &catalog_sha256, realm, &disabled_race_ids)
     })
     .await
 }
@@ -2322,6 +2371,7 @@ struct FriendsStatus {
     auth_port: u16,
     world_port: u16,
     secondary_world_port: Option<u16>,
+    reborn_world_port: Option<u16>,
 }
 
 /// Open one of a few known help pages in the default browser. Anything else is refused, so a page can never ask the
@@ -2485,6 +2535,9 @@ async fn friends_status(
             secondary_world_port: coa_core::realms::state(&root)?
                 .secondary_world_port
                 .filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.simultaneous)),
+            reborn_world_port: coa_core::realms::state(&root)?
+                .reborn_world_port
+                .filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.with_reborn)),
         })
     })
     .await
@@ -2542,7 +2595,7 @@ async fn friends_enable(
         let ports = layout::read_ports(&root);
         let mut note = None;
         let realms = coa_core::realms::state(&root)?;
-        let secondary = realms.secondary_world_port.filter(|_| realms.simultaneous);
+        let extra = realms.extra_world_ports();
         let host = match mode {
             Mode::Local => "127.0.0.1".to_string(),
             Mode::Lan => coa_core::net::resolve_lan_host(lan_address_override.as_deref(), coa_core::net::lan_ip())?,
@@ -2552,7 +2605,7 @@ async fn friends_enable(
         let open = mode != Mode::Local;
         let changed = friends::set_open(&root, &meta, open)?;
         if open && platform::flavor() == Flavor::Repack {
-            coa_core::firewall::ensure_rules_with_secondary(&ports, secondary)?;
+            coa_core::firewall::ensure_rules_with_extra(&ports, &extra)?;
         }
         if mode == Mode::Direct && use_upnp {
             match coa_core::upnp::discover() {
@@ -2560,7 +2613,7 @@ async fn friends_enable(
                     let lan = coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("No local address.".into()))?;
                     coa_core::upnp::add_mapping(&gw, ports.auth, lan, "Auth")?;
                     coa_core::upnp::add_mapping(&gw, ports.world, lan, "World")?;
-                    if let Some(port) = secondary { coa_core::upnp::add_mapping(&gw, port, lan, "Second world")?; }
+                    for port in &extra { coa_core::upnp::add_mapping(&gw, *port, lan, "Extra world")?; }
                     note = Some("Your router was asked to forward the game ports.".to_string());
                 }
                 None => note = Some("Your router does not support automatic setup; forward the two game ports by hand or use the private network.".to_string()),
@@ -2729,6 +2782,8 @@ async fn console_command(
     .await
 }
 
+static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -2793,6 +2848,7 @@ pub fn run() {
             realm_profiles,
             realm_select,
             realm_simultaneous,
+            realm_with_reborn,
             check_database,
             repair_server,
             module_set_enabled,
@@ -2847,6 +2903,8 @@ pub fn run() {
             console_risk,
             console_command,
             custom_races_status,
+            race_availability,
+            race_availability_save,
             custom_races_install,
             custom_races_uninstall,
             custom_races_toggle_client,
@@ -2881,11 +2939,75 @@ pub fn run() {
             control_cmds::join_characters,
             control_cmds::join_claim
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .setup(|app| {
+            #[cfg(desktop)]
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                use tauri::Manager;
+
+                let show = MenuItem::with_id(app, "show", "Open CoA Server Manager", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &quit])?;
+
+                let mut builder = TrayIconBuilder::new()
+                    .tooltip("CoA Server Manager")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    });
+
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+
+                builder.build(app)?;
+            }
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building CoA Server Manager")
-        .run(|app, event| {
-            // the Host loop stops with the application: what it is doing is finished first, the stores keep every session
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if !QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                }
+            }
+            tauri::RunEvent::Exit => {
+                // the Host loop stops with the application: what it is doing is finished first, the stores keep every session
                 if let Some(rt) = app.state::<AppState>().portable.clone() {
                     rt.shutdown();
                 }
@@ -2896,6 +3018,7 @@ pub fn run() {
                     rt.shutdown();
                 }
             }
+            _ => {}
         });
 }
 

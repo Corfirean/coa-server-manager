@@ -111,6 +111,13 @@ pub fn playerbots_conf_paths(root: &Path) -> Vec<PathBuf> {
 /// Checks whether playerbots are configured to allow custom races.
 /// Returns true if AiPlayerbot.ExcludedBotRaces exists and does not exclude general custom races.
 pub fn is_bot_custom_races_allowed(root: &Path) -> Option<bool> {
+    if let Ok(bytes) = fs::read(root.join("Core/configs/modules/coa_custom_races.conf")) {
+        if let Ok(conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
+            if let Some(value) = conf.get("CoACustomRaces.BotsEnable") {
+                return Some(matches!(value.trim().trim_matches('"'), "1" | "true"));
+            }
+        }
+    }
     for path in playerbots_conf_paths(root) {
         if let Ok(bytes) = fs::read(&path) {
             if let Ok(conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
@@ -142,6 +149,15 @@ pub fn sync_bot_races_config(root: &Path, allow_custom_races: bool) -> Result<()
     for path in playerbots_conf_paths(root) {
         if let Ok(bytes) = fs::read(&path) {
             if let Ok(mut conf) = crate::config::parser::ConfFile::parse_bytes(&bytes) {
+                if let Some(value) = conf.get("AiPlayerbot.ExcludedBotRaces") {
+                    let clean = value.trim().trim_matches(['"', '\'']);
+                    let owned = String::from_utf8_lossy(&bytes)
+                        .contains("CoA Custom: races new random bots never get")
+                        && matches!(clean, EXCLUDED_BOT_RACES_RECOMMENDED | EXCLUDED_BOT_RACES_EXPERIMENTAL);
+                    if !owned {
+                        continue;
+                    }
+                }
                 conf.set(
                     "AiPlayerbot.ExcludedBotRaces",
                     &format!("\"{excluded}\""),
@@ -1621,7 +1637,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let conf = temp.path().join("Core/configs/modules/playerbots.conf");
         fs::create_dir_all(conf.parent().unwrap()).unwrap();
-        fs::write(&conf, "AiPlayerbot.ExcludedBotRaces = \"\"\n").unwrap();
+        fs::write(&conf, "AiPlayerbot.Enabled = 1\n").unwrap();
         sync_bot_races_config(temp.path(), false).unwrap();
         assert_eq!(is_bot_custom_races_allowed(temp.path()), Some(false));
         let parsed =
@@ -1637,6 +1653,21 @@ mod tests {
                 ![1, 2, 3, 4, 5, 6, 7, 8, 10, 11].contains(&race),
                 "race {race}"
             );
+        }
+    }
+
+    #[test]
+    fn bot_race_sync_preserves_user_and_crashing_exclusions() {
+        let temp = tempfile::tempdir().unwrap();
+        let conf = temp.path().join("Core/configs/modules/playerbots.conf");
+        fs::create_dir_all(conf.parent().unwrap()).unwrap();
+        for value in ["", "1,82,97", EXCLUDED_BOT_RACES_RECOMMENDED] {
+            let original = format!("AiPlayerbot.ExcludedBotRaces = \"{value}\"\nAiPlayerbot.CrashingBotRaces = \"72,77,97\"\n");
+            fs::write(&conf, &original).unwrap();
+            sync_bot_races_config(temp.path(), true).unwrap();
+            assert_eq!(fs::read_to_string(&conf).unwrap(), original);
+            sync_bot_races_config(temp.path(), false).unwrap();
+            assert_eq!(fs::read_to_string(&conf).unwrap(), original);
         }
     }
 }

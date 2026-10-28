@@ -380,6 +380,10 @@
    "t": "Autospeicher-Intervall",
    "d": "Wie oft Spielercharaktere gespeichert werden, solange sie online sind."
   },
+  "PortableSession.Enable": {
+   "t": "Portable Charaktere (portables Spiel)",
+   "d": "Erlaubt Spielern, mit ihren im Manager gespeicherten portablen Charakteren auf diesem Realm zu spielen."
+  },
   "CharactersPerAccount": {
    "t": "Charaktere pro Konto",
    "d": "Maximale Zahl an Charakteren, die ein Konto über alle Realms hat."

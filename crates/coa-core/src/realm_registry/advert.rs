@@ -154,7 +154,10 @@ pub fn find_access(
                         st.active == crate::realms::Mode::Wildcard
                             || (st.simultaneous && st.wildcard_created)
                     }
-                    crate::realms::Mode::Reborn => st.active == crate::realms::Mode::Reborn,
+                    crate::realms::Mode::Reborn => {
+                        st.active == crate::realms::Mode::Reborn
+                            || (st.with_reborn && st.reborn_created)
+                    }
                 };
                 if !supported {
                     return None;

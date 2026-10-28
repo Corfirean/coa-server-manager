@@ -446,6 +446,17 @@
       "unit": "ms"
     },
     {
+      "key": "PortableSession.Enable",
+      "type": "bool",
+      "category": "characters",
+      "title": "Portable characters",
+      "description": "Allow players to play on this realm with portable characters saved in their Manager.",
+      "default": true,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
       "key": "CharactersPerAccount",
       "type": "int",
       "category": "characters",

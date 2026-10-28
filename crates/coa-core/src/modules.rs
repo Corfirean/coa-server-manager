@@ -516,6 +516,20 @@ fn save_settings_in(
     let mut changed = Vec::new();
     for (key, value) in changes {
         let value = value.trim();
+        if id == "custom-races" && key == crate::race_availability::KEY {
+            require_bot_server_stopped(root)?;
+            let catalog = crate::race_availability::status(root)?;
+            if !catalog.server_config_supported {
+                return Err(Error::Invalid("Update the server before configuring individual race restrictions.".into()));
+            }
+            crate::race_availability::parse_disabled(value, &catalog.races)?;
+        }
+        if id == "custom-races" && key == crate::race_availability::CATALOG_KEY {
+            let hash = value.trim_matches('"');
+            if !hash.is_empty() && (hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())) {
+                return Err(Error::Invalid("Invalid race catalog fingerprint.".into()));
+            }
+        }
         if let Some(field) = fields.get(key) {
             crate::squid::validate(field, value)?;
         }
