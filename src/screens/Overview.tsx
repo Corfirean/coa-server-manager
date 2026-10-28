@@ -15,6 +15,7 @@ import { PublishRealmDialog } from "@/screens/PublishDialog";
 import { useRegistryStatus } from "@/lib/registry";
 import { usePublishRealms, type PublishRealm } from "@/lib/publishRealms";
 import { useAutoRestart } from "@/lib/autoRestartPrefs";
+import { SplitButton } from "@/components/ui/split-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -410,30 +411,19 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
         <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-3">
           {running ? (
-            <Button variant="secondary" size="xl" disabled={transitioning} onClick={() => run("stopping")} className="min-w-56">
+            <Button variant="secondary" size="xl" disabled={transitioning} onClick={() => run("stopping")} className="min-w-40">
               {transitioning && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
               {t("btn.stop")}
             </Button>
           ) : upd.available ? (
-            <Button
-              variant="primary"
-              size="xl"
-              disabled={transitioning || upd.applying}
-              onClick={() => (needsDecision ? onOpenUpdates() : void runServerUpdate())}
-              className="min-w-56"
-            >
-              {upd.applying && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
-              {upd.applying ? t("btn.updating") : needsDecision ? t("overview.openUpdates") : t("btn.update")}
-            </Button>
+            <SplitButton label={t("overview.server")}
+              primary={{ disabled: transitioning || upd.applying, onClick: () => (needsDecision ? onOpenUpdates() : void runServerUpdate()), children: <>{upd.applying && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{upd.applying ? t("btn.updating") : needsDecision ? t("overview.openUpdates") : t("btn.update")}</> }}
+              secondary={{ disabled: transitioning || upd.applying, onClick: () => run("starting"), children: t("btn.startWithoutUpdate") }}
+            />
           ) : (
-            <Button variant="primary" size="xl" disabled={transitioning} onClick={() => run("starting")} className="min-w-56">
+            <Button variant="primary" size="xl" disabled={transitioning} onClick={() => run("starting")} className="min-w-40">
               {transitioning && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
               {transitioning ? (action === "stopping" ? t("btn.stoppingCaps") : t("btn.startingCaps")) : t("btn.start")}
-            </Button>
-          )}
-          {!running && upd.available && (
-            <Button variant="secondary" size="sm" disabled={transitioning || upd.applying} onClick={() => run("starting")}>
-              {t("btn.startWithoutUpdate")}
             </Button>
           )}
           {running && (
@@ -456,7 +446,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           {client && <RealmlistMenu serverId={server.id} />}
           {client && jobBusy ? (
             <div
-              className="relative flex h-16 min-w-64 items-center overflow-hidden rounded-md border border-gold/50 bg-card-2"
+              className="relative flex h-12 min-w-64 items-center overflow-hidden rounded-md border border-gold/50 bg-card-2"
               role="progressbar"
               aria-valuenow={jobPct}
               aria-valuemin={0}
@@ -482,9 +472,10 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               </button>
             </div>
           ) : client && (clientStatus?.update_available || job.phase === "choose") ? (
-            <Button variant="primary" size="xl" disabled={playing || job.phase === "choose"} onClick={() => void startClientUpdate(server.id)} className="min-w-40">
-              {t("btn.updateClient")}
-            </Button>
+            <SplitButton label={t("btn.play")}
+              primary={{ disabled: playing || job.phase === "choose", onClick: () => void startClientUpdate(server.id), children: t("btn.updateClient") }}
+              secondary={{ disabled: realmBusy || playing || upd.applying, onClick: () => void play(), children: <>{playing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{t("btn.playWithoutUpdate")}</> }}
+            />
           ) : client ? (
             <Button variant="primary" size="xl" disabled={realmBusy || playing} onClick={() => void play()} className="min-w-40">
               {playing && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
@@ -495,11 +486,6 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               {t("btn.setupClient")}
             </Button>
           ) : null}
-          {client && !jobBusy && (clientStatus?.update_available || job.phase === "choose") && (
-            <Button variant="secondary" size="sm" disabled={realmBusy || playing || upd.applying} onClick={() => void play()}>
-              {t("btn.playWithoutUpdate")}
-            </Button>
-          )}
           </div>
         </div>
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-4 text-xs text-muted">
