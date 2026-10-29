@@ -497,7 +497,12 @@ mod tests {
         )
         .unwrap();
         let err = set_reborn_enabled(t.path(), true).unwrap_err().to_string();
-        assert!(err.contains("Select Conquest of Azeroth first"), "{err}");
+        let expected = if cfg!(windows) {
+            "Select Conquest of Azeroth first"
+        } else {
+            "Simultaneous realms currently require Windows"
+        };
+        assert!(err.contains(expected), "{err}");
         assert!(!realms::state(t.path()).unwrap().with_reborn);
     }
 
