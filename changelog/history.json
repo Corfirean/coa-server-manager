@@ -154,7 +154,8 @@
     "Corfirean/coa-server-manager:20261028-legacy-world-shutdown.md",
     "Corfirean/coa-server-manager:20261028-mysql-install-startup.md",
     "Corfirean/coa-server-manager:20261028-portable-settings-and-tray.md",
-    "Corfirean/coa-server-manager:20261028-update-check-queue.md"
+    "Corfirean/coa-server-manager:20261028-update-check-queue.md",
+    "Corfirean/coa-server-manager:20261029-slow-world-startup.md"
   ],
   "releases": [
     {
@@ -789,6 +790,20 @@
       ],
       "commit": "2d9c6a65bbb1e296dc919e4c9e5785ed9d4a070b",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "tag": "v0.9.3",
+      "version": "0.9.3",
+      "date": "2026-10-29",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.3",
+      "notes": [
+        "Slow server startup no longer triggers an early update rollback"
+      ],
+      "commit": "e7b76137d1b22a7596c2b1fa05ca9d12403b99d3",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.2...v0.9.3",
       "experimentalFeatures": [
         "portable-characters"
       ]

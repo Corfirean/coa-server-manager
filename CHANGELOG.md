@@ -8,6 +8,14 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.3 — 2026-10-29
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Slow server startup no longer triggers an early update rollback.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.3) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.2...v0.9.3)
+
 ## 0.9.2 — 2026-10-28
 
 **Portable Characters are experimental and may contain bugs.**
