@@ -3,6 +3,7 @@ import runpy
 import sys
 import tempfile
 import unittest
+import time
 from unittest.mock import patch
 
 BRIDGE = pathlib.Path(__file__).resolve().parents[1] / 'crates/coa-core/src/launcher_bridge.py'
@@ -103,7 +104,54 @@ def main():
     wait_ready('world', 23456, 180)
     wait_ready('mysql', 12345, 900)
 ''')
-        self.assertEqual(result['launcher']['calls'], [('mysql', 300), ('world', 180), ('mysql', 900)])
+        calls = result['launcher']['calls']
+        self.assertEqual(calls[0], ('mysql', 300))
+        self.assertEqual(calls[2], ('mysql', 900))
+        self.assertEqual(calls[1][0], 'world')
+        self.assertAlmostEqual(calls[1][1], 1500, delta=1)
+
+    def world_start(self, *, game_at=420, console_at=480, dies_at=None, requested=180):
+        clock = [0.0]
+        def sleep(seconds): clock[0] += seconds
+        body = f'''
+import time
+calls = []
+dies_at = {dies_at!r}
+def wait_ready(name, port, seconds=180):
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        if dies_at is not None and time.monotonic() >= dies_at:
+            raise RuntimeError('world stopped during startup')
+        if time.monotonic() >= ({game_at!r} if port == 1 else {console_at!r}):
+            calls.append(port)
+            return
+        time.sleep(0.5)
+    raise RuntimeError('world is still starting')
+def start_mysql(): pass
+def main():
+    wait_ready('world', 1, {requested})
+    wait_ready('world', 2, {requested})
+'''
+        with patch('time.monotonic', side_effect=lambda: clock[0]), patch('time.sleep', side_effect=sleep):
+            result = self.launch('start-all', body)
+        return clock[0], result['launcher']['calls']
+
+    def test_legacy_coa_world_waits_for_both_ports_after_three_minutes(self):
+        elapsed, calls = self.world_start()
+        self.assertEqual((elapsed, calls), (480, [1, 2]))
+
+    def test_console_wait_shares_the_world_deadline(self):
+        with self.assertRaisesRegex(RuntimeError, 'still starting'):
+            self.world_start(game_at=1490, console_at=1510)
+        self.assertEqual(self.launcher['calls'], [1])
+
+    def test_world_exit_is_reported_without_waiting_out_the_extended_budget(self):
+        with self.assertRaisesRegex(RuntimeError, 'stopped during startup'):
+            self.world_start(dies_at=12)
+        self.assertEqual(self.launcher['calls'], [])
+
+    def test_existing_longer_world_timeout_is_preserved(self):
+        self.assertEqual(self.world_start(game_at=1600, console_at=1700, requested=1800), (1700, [1, 2]))
 
     def test_stop_dispatch_does_not_prepare_or_start_anything(self):
         result = self.launch('stop-all', '''

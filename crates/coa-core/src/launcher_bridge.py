@@ -1,5 +1,6 @@
 import runpy
 import sys
+import time
 from pathlib import Path
 
 script = sys.argv[1]
@@ -7,10 +8,20 @@ sys.path.insert(0, str(Path(script).resolve().parent))
 sys.argv = sys.argv[1:]
 launcher = runpy.run_path(script, run_name="coa_manager_launcher")
 original_wait = launcher["wait_ready"]
+world_deadline = None
 
 
 def wait_ready(name, port, seconds=180):
-    return original_wait(name, port, max(seconds, 300) if name == "mysql" else seconds)
+    global world_deadline
+    if name == "mysql":
+        seconds = max(seconds, 300)
+    elif name == "world":
+        # Both game and console listeners belong to one startup, including on old repacks.
+        # Ordinary CoA worlds can load slowly too; this must not depend on SQUID.
+        if world_deadline is None:
+            world_deadline = time.monotonic() + max(seconds, 1500)
+        seconds = max(0, world_deadline - time.monotonic())
+    return original_wait(name, port, seconds)
 
 
 launcher["start_mysql"].__globals__["wait_ready"] = wait_ready

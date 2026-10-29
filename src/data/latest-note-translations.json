@@ -5,35 +5,40 @@
       "New server installation waits for slower database startup": "Установка нового сервера дольше ожидает запуска базы на медленных дисках",
       "Find and edit CoA options in the existing server settings": "Параметры CoA доступны для поиска и редактирования в настройках сервера",
       "Simultaneous update checks share results or wait their turn": "Одновременные проверки обновлений используют общий результат или ожидают своей очереди",
-      "Recovery can stop an unfinished world startup after restoring an older launcher": "Восстановление может остановить зависший запуск мира после возврата старого launcher"
+      "Recovery can stop an unfinished world startup after restoring an older launcher": "Восстановление может остановить зависший запуск мира после возврата старого launcher",
+      "Slow server startup no longer triggers an early update rollback": "Медленный запуск сервера больше не вызывает преждевременный откат обновления"
     },
     "de": {
       "Existing unsupported character records no longer block unrelated server updates": "Bestehende nicht unterstützte Charakterdatensätze blockieren keine unabhängigen Serverupdates mehr",
       "New server installation waits for slower database startup": "Die Neuinstallation wartet länger auf einen langsamen Datenbankstart",
       "Find and edit CoA options in the existing server settings": "CoA-Optionen in den bestehenden Servereinstellungen suchen und bearbeiten",
       "Simultaneous update checks share results or wait their turn": "Gleichzeitige Updateprüfungen teilen Ergebnisse oder warten aufeinander",
-      "Recovery can stop an unfinished world startup after restoring an older launcher": "Die Wiederherstellung stoppt einen unvollständigen Weltstart auch mit altem Launcher"
+      "Recovery can stop an unfinished world startup after restoring an older launcher": "Die Wiederherstellung stoppt einen unvollständigen Weltstart auch mit altem Launcher",
+      "Slow server startup no longer triggers an early update rollback": "Ein langsamer Serverstart löst keinen vorzeitigen Update-Rollback mehr aus"
     },
     "fr": {
       "Existing unsupported character records no longer block unrelated server updates": "Les anciennes fiches de personnage non prises en charge ne bloquent plus les mises à jour sans rapport",
       "New server installation waits for slower database startup": "L’installation attend le démarrage de la base sur les disques plus lents",
       "Find and edit CoA options in the existing server settings": "Recherchez et modifiez les options CoA dans les paramètres du serveur",
       "Simultaneous update checks share results or wait their turn": "Les vérifications simultanées partagent leurs résultats ou attendent leur tour",
-      "Recovery can stop an unfinished world startup after restoring an older launcher": "La restauration peut arrêter un démarrage du monde inachevé avec un ancien lanceur"
+      "Recovery can stop an unfinished world startup after restoring an older launcher": "La restauration peut arrêter un démarrage du monde inachevé avec un ancien lanceur",
+      "Slow server startup no longer triggers an early update rollback": "Un démarrage lent du serveur ne déclenche plus un retour arrière prématuré"
     },
     "es": {
       "Existing unsupported character records no longer block unrelated server updates": "Los registros antiguos de personajes no compatibles ya no bloquean actualizaciones del servidor no relacionadas",
       "New server installation waits for slower database startup": "La instalación espera más tiempo al inicio de la base de datos en discos lentos",
       "Find and edit CoA options in the existing server settings": "Busca y edita opciones de CoA en la configuración actual del servidor",
       "Simultaneous update checks share results or wait their turn": "Las comprobaciones simultáneas comparten resultados o esperan su turno",
-      "Recovery can stop an unfinished world startup after restoring an older launcher": "La recuperación puede detener el inicio del mundo tras restaurar un lanzador antiguo"
+      "Recovery can stop an unfinished world startup after restoring an older launcher": "La recuperación puede detener el inicio del mundo tras restaurar un lanzador antiguo",
+      "Slow server startup no longer triggers an early update rollback": "El inicio lento del servidor ya no provoca una reversión prematura de la actualización"
     },
     "zh": {
       "Existing unsupported character records no longer block unrelated server updates": "已有的不受支持角色记录不再阻止无关的服务器更新",
       "New server installation waits for slower database startup": "安装新服务器时会等待较慢的数据库启动",
       "Find and edit CoA options in the existing server settings": "在现有服务器设置中查找和编辑 CoA 选项",
       "Simultaneous update checks share results or wait their turn": "同时进行的更新检查会共用结果或依次执行",
-      "Recovery can stop an unfinished world startup after restoring an older launcher": "恢复旧版启动器后，恢复流程也能停止未完成启动的世界服务器"
+      "Recovery can stop an unfinished world startup after restoring an older launcher": "恢复旧版启动器后，恢复流程也能停止未完成启动的世界服务器",
+      "Slow server startup no longer triggers an early update rollback": "服务器启动缓慢不再导致更新过早回滚"
     }
   },
   "server": {}
