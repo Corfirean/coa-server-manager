@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Globe, Network } from "lucide-react";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { PublishCard } from "./PublishCard";
 import { BrowsePage } from "@/screens/BrowsePage";
 import { FriendsPage } from "@/screens/FriendsPage";
 
-export function PlayWithFriends({ serverId }: { serverId: string; path?: string }) {
+export function PlayWithFriends({ serverId, serverName = "" }: { serverId: string; serverName?: string; path?: string }) {
   const t = useT();
   const [tab, setTab] = useState<"servers" | "lan">("servers");
 
@@ -38,7 +39,7 @@ export function PlayWithFriends({ serverId }: { serverId: string; path?: string 
         </button>
       </div>
 
-      {tab === "servers" && <BrowsePage />}
+      {tab === "servers" && <><PublishCard serverId={serverId} serverName={serverName} /><BrowsePage /></>}
       {tab === "lan" && <FriendsPage serverId={serverId} />}
     </div>
   );

@@ -28,6 +28,16 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 mod control_cmds;
 
+/// Informational release notes only; never used to select or authorize an update.
+#[tauri::command]
+async fn release_history(component: String) -> std::result::Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        coa_core::release_history::load(&component, &data_dir().join("release-history"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 struct AppState {
     registry: Registry,
     /// Installation ids with a start/stop currently running (one action at a time per server).
@@ -2806,6 +2816,7 @@ pub fn run() {
             host_control,
         })
         .invoke_handler(tauri::generate_handler![
+            release_history,
             default_install_dir,
             game_data_folder,
             set_game_data_folder,
