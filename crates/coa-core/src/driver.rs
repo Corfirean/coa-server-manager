@@ -31,34 +31,15 @@ impl Verb {
         }
     }
 
-    fn timeout(self, root: &Path) -> Duration {
+    fn timeout(self, _root: &Path) -> Duration {
         match self {
-            Verb::StartAll | Verb::StartWorld if squid_enabled(root) => Duration::from_secs(2700),
-            Verb::StartAll | Verb::StartWorld => Duration::from_secs(720),
+            // Includes database startup, optional bot provisioning and the shared 25-minute
+            // world/console wait in launcher_bridge.py, even for older installed scripts.
+            Verb::StartAll | Verb::StartWorld => Duration::from_secs(3600),
             Verb::StartMysql => Duration::from_secs(360),
             Verb::StopAll => Duration::from_secs(240),
         }
     }
-}
-
-fn squid_enabled(root: &Path) -> bool {
-    let active = root.join("Core/configs/modules/playerbots.conf");
-    let path = if active.exists() {
-        active
-    } else {
-        root.join("Core/configs/modules/playerbots.conf.dist")
-    };
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
-        .is_some_and(|config| {
-            config.get("AiPlayerbot.Enabled").is_none_or(|value| {
-                !matches!(
-                    value.trim().trim_matches('"').to_ascii_lowercase().as_str(),
-                    "0" | "false" | "no" | "off"
-                )
-            })
-        })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -230,6 +211,13 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     let mut output = out_t.join().unwrap_or_default();
     output.push_str(&err_t.join().unwrap_or_default());
     let mut output = output.trim().to_string();
+    if status.is_none() {
+        output.push_str(&format!(
+            "\nLauncher {} exceeded its {} second deadline; check the server logs.",
+            verb.arg(),
+            verb.timeout(&root).as_secs()
+        ));
+    }
     let (ok, exit_code) = match status {
         Some(st) => (st.success(), st.code()),
         None => (false, None),
@@ -604,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn large_squid_provisioning_has_time_to_finish_without_extending_shutdown() {
+    fn slow_world_startup_has_time_with_either_bot_system_without_extending_shutdown() {
         let folder = tempfile::tempdir().unwrap();
         let modules = folder.path().join("Core/configs/modules");
         std::fs::create_dir_all(&modules).unwrap();
@@ -615,7 +603,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             Verb::StartAll.timeout(folder.path()),
-            Duration::from_secs(2700)
+            Duration::from_secs(3600)
         );
         assert_eq!(
             Verb::StopAll.timeout(folder.path()),
@@ -624,7 +612,7 @@ mod tests {
         std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
         assert_eq!(
             Verb::StartWorld.timeout(folder.path()),
-            Duration::from_secs(720)
+            Duration::from_secs(3600)
         );
         assert_eq!(
             Verb::StartMysql.timeout(folder.path()),
