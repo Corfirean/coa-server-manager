@@ -822,7 +822,10 @@
         "Maximizing the window keeps text and controls at a comfortable size"
       ],
       "commit": "c004b90c54fa358b3037c56b093cf019dfcf02b8",
-      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.3...v0.9.4"
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.3...v0.9.4",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
     }
   ]
 }

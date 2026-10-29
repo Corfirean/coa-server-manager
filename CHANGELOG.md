@@ -10,6 +10,8 @@ Dates follow GitHub publication (UTC); legacy records retain their archived date
 
 ## 0.9.4 — 2026-10-29
 
+**Portable Characters are experimental and may contain bugs.**
+
 - Settings group updates, startup and maintenance with translated release history.
 - Update and launch without updating share a divided button.
 - Maximizing the window keeps text and controls at a comfortable size.
