@@ -154,7 +154,10 @@
     "Corfirean/coa-server-manager:20261028-legacy-world-shutdown.md",
     "Corfirean/coa-server-manager:20261028-mysql-install-startup.md",
     "Corfirean/coa-server-manager:20261028-portable-settings-and-tray.md",
+    "Corfirean/coa-server-manager:20261028-settings-release-history.md",
+    "Corfirean/coa-server-manager:20261028-split-update-actions.md",
     "Corfirean/coa-server-manager:20261028-update-check-queue.md",
+    "Corfirean/coa-server-manager:20261028-window-density.md",
     "Corfirean/coa-server-manager:20261029-slow-world-startup.md"
   ],
   "releases": [
@@ -807,6 +810,19 @@
       "experimentalFeatures": [
         "portable-characters"
       ]
+    },
+    {
+      "tag": "v0.9.4",
+      "version": "0.9.4",
+      "date": "2026-10-29",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.4",
+      "notes": [
+        "Settings group updates, startup and maintenance with translated release history",
+        "Update and launch without updating share a divided button",
+        "Maximizing the window keeps text and controls at a comfortable size"
+      ],
+      "commit": "c004b90c54fa358b3037c56b093cf019dfcf02b8",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.3...v0.9.4"
     }
   ]
 }

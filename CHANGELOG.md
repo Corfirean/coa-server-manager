@@ -8,6 +8,14 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.4 — 2026-10-29
+
+- Settings group updates, startup and maintenance with translated release history.
+- Update and launch without updating share a divided button.
+- Maximizing the window keeps text and controls at a comfortable size.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.4) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.3...v0.9.4)
+
 ## 0.9.3 — 2026-10-29
 
 **Portable Characters are experimental and may contain bugs.**
