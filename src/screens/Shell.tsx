@@ -161,7 +161,7 @@ export function Shell(props: {
         ) : page === "report" ? (
           <ReportPage key={server.id} serverId={server.id} />
         ) : page === "friends" ? (
-          <PlayWithFriends key={server.id} serverId={server.id} path={server.path} />
+          <PlayWithFriends key={server.id} serverName={server.name} serverId={server.id} path={server.path} />
         ) : page === "settings" ? (
           <SettingsHome key={server.id} serverId={server.id} serverName={server.name} path={server.path} onForget={() => props.onForget(server.id)} />
         ) : page === "characters" ? (

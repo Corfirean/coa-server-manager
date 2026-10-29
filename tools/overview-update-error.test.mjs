@@ -28,6 +28,7 @@ const bundle = await rolldown({
   external: (id, importer) => id === "react/jsx-runtime" || id === "lucide-react" || (id === "react" && !importer?.endsWith("Overview.tsx")),
   plugins: [{ name: "overview-test",
     resolveId(id, importer) {
+      if (id === "@/components/ui/split-button") return fileURLToPath(new URL("../src/components/ui/split-button.tsx", import.meta.url));
       if (id.startsWith("@/") || (id === "react" && importer?.endsWith("Overview.tsx"))) return "\0" + id;
     },
     load(id) {

@@ -92,7 +92,7 @@ export function RealmlistMenu({ serverId, className }: { serverId: string; class
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex h-16 cursor-pointer items-center gap-3 rounded-md border border-line bg-card-2 px-4 text-left transition-colors hover:border-gold/50"
+        className="flex h-12 cursor-pointer items-center gap-3 rounded-md border border-line bg-card-2 px-4 text-left transition-colors hover:border-gold/50"
       >
         <span>
           <span className="block text-[11px] uppercase tracking-wide text-muted">{t("realm.label")}</span>

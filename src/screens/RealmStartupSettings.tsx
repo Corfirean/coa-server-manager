@@ -33,7 +33,7 @@ export function RealmStartupSettings({ serverId }: { serverId: string }) {
     {view?.with_reborn && <p className="mt-1 text-sm text-muted">{t("realm.rebornPort", { port: view.reborn_world_port ?? "—" })}</p>}
     {view && view.active !== "coa" && !view.with_reborn && <p className="mt-1 text-sm text-warn">{t("realm.rebornNeedsCoa")}</p>}
     {view?.simultaneous && view.with_reborn && <p className="mt-3 text-sm">{t("realm.allThree")}</p>}
-    <p className="mt-3 text-sm text-muted">{t("realm.simultaneousHint")}</p>
+    <details className="mt-4 text-sm text-muted"><summary className="cursor-pointer">{t("settings.startupHelp")}</summary><p className="mt-2 leading-relaxed">{t("realm.simultaneousHint")}</p></details>
     {busy && <p className="mt-2 text-sm" role="status">{t("realm.preparing")}</p>}
     {error && <p className="mt-3 text-sm text-bad" role="alert">{error}</p>}
   </Card>;

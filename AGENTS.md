@@ -35,6 +35,16 @@ Every published Manager version, including a clearly marked Pre-release, belongs
 CHANGELOG.md and changelog/history.json. Its GitHub release notes use the same reviewed record.
 Promotion updates that entry without duplicating it; Manager and server histories remain separate.
 
+Translated release notes are a required preparation step before freezing a new Manager source. Follow the
+runbook's "Mandatory translated release notes during preparation" checklist: translate every new reviewed
+Manager/server note into Russian, German, French, Spanish and Simplified Chinese in
+`src/data/latest-note-translations.json`, keyed by exact canonical English text. Preserve existing translations
+and released fragments. Refresh the bundled server-history snapshot from a pinned canonical commit and record
+its provenance. Run `node --test tools/release-history.test.mjs`, `node tools/check-i18n.mjs` and `npm run build`;
+verify each new record, all six viewer languages, English fallback and offline use. Save source/version and checks
+in the handoff. Translations ship with Manager: a server-only release must record the carrying Manager version or
+pending translation delivery, without forcing another Manager release or changing already signed installers.
+
 Before preparing or publishing a Manager/server release, read the maintained
 [release runbook](https://github.com/Corfirean/coa-server-build/blob/main/docs/server-release.md)
 and [build agent instructions](https://github.com/Corfirean/coa-server-build/blob/main/AGENTS.md).
