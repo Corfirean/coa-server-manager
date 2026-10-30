@@ -32,9 +32,9 @@ mod control_cmds;
 
 /// Informational release notes only; never used to select or authorize an update.
 #[tauri::command]
-async fn release_history(component: String) -> std::result::Result<Value, String> {
+async fn release_history(component: String, target: Option<String>) -> std::result::Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        coa_core::release_history::load(&component, &data_dir().join("release-history"))
+        coa_core::release_history::load_for_target(&component, &data_dir().join("release-history"), target.as_deref())
     })
     .await
     .map_err(|e| e.to_string())?
