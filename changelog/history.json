@@ -158,7 +158,17 @@
     "Corfirean/coa-server-manager:20261028-split-update-actions.md",
     "Corfirean/coa-server-manager:20261028-update-check-queue.md",
     "Corfirean/coa-server-manager:20261028-window-density.md",
-    "Corfirean/coa-server-manager:20261029-slow-world-startup.md"
+    "Corfirean/coa-server-manager:20261029-slow-world-startup.md",
+    "Corfirean/coa-server-manager:20261030-account-console-confirmation.md",
+    "Corfirean/coa-server-manager:20261030-close-abandoned-relay-sockets.md",
+    "Corfirean/coa-server-manager:20261030-disabled-client-renderers.md",
+    "Corfirean/coa-server-manager:20261030-force-stop-unresponsive-world.md",
+    "Corfirean/coa-server-manager:20261030-native-crash-reports.md",
+    "Corfirean/coa-server-manager:20261030-playerbots-overview-count.md",
+    "Corfirean/coa-server-manager:20261030-public-server-browsing-control.md",
+    "Corfirean/coa-server-manager:20261030-stop-does-not-trigger-auto-restart.md",
+    "Corfirean/coa-server-manager:20261030-wait-for-world-console-readiness.md",
+    "Corfirean/coa-server-manager:20261030-window-lifecycle.md"
   ],
   "releases": [
     {
@@ -826,6 +836,26 @@
       "experimentalFeatures": [
         "portable-characters"
       ]
+    },
+    {
+      "tag": "v0.9.5",
+      "version": "0.9.5",
+      "date": "2026-10-30",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.5",
+      "notes": [
+        "Account creation verifies a lost console reply against the requested login",
+        "Abandoned game relay tunnels close their local connection immediately",
+        "Keep disabled graphics components disabled during client updates",
+        "Force-stop an unresponsive world after a failed normal shutdown",
+        "Crash history includes reports from every world and Windows text files",
+        "Show the online bot count for Playerbots on the overview",
+        "Disable public server browsing in Settings",
+        "Keep deliberate stops and update shutdowns from triggering crash restart",
+        "Server startup waits for a responsive console before reporting success",
+        "Restore the existing Manager window when launching it again"
+      ],
+      "commit": "642da8fdc1a0165aea74fbd1ab1b46933fc7e589",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.4...v0.9.5"
     }
   ]
 }

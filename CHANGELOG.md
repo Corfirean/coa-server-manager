@@ -8,6 +8,21 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.5 — 2026-10-30
+
+- Account creation verifies a lost console reply against the requested login.
+- Abandoned game relay tunnels close their local connection immediately.
+- Keep disabled graphics components disabled during client updates.
+- Force-stop an unresponsive world after a failed normal shutdown.
+- Crash history includes reports from every world and Windows text files.
+- Show the online bot count for Playerbots on the overview.
+- Disable public server browsing in Settings.
+- Keep deliberate stops and update shutdowns from triggering crash restart.
+- Server startup waits for a responsive console before reporting success.
+- Restore the existing Manager window when launching it again.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.5) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.4...v0.9.5)
+
 ## 0.9.4 — 2026-10-29
 
 **Portable Characters are experimental and may contain bugs.**
