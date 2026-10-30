@@ -31,14 +31,14 @@ export function ReleaseHistory({ selection, onSelect }: { selection: HistorySele
   }, [selection, component, updater.version]);
   useEffect(() => {
     let live = true;
-    void invoke<History>("release_history", { component }).then(feed => {
+    void invoke<History>("release_history", { component, target }).then(feed => {
       if (live && feed.component === component && Array.isArray(feed.releases)) {
         setFeeds(previous => ({ ...previous, [component]: feed }));
         setFresh(previous => ({ ...previous, [component]: feed.source === "remote" }));
       }
     }).catch(() => {}); // Bundled reviewed notes remain visible offline.
     return () => { live = false; };
-  }, [component]);
+  }, [component, target]);
   const releases = [...(mode === "range" ? releasesForUpdate(feeds[component].releases, from, target) : feeds[component].releases)]
     .sort((a, b) => compareVersions(b.version.split("-")[0], a.version.split("-")[0]) || b.date.localeCompare(a.date));
   const record = releases.find(r => r.version === selected) ?? releases[0];

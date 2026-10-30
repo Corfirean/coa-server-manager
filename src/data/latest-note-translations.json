@@ -30,7 +30,8 @@
       "Disable public server browsing in Settings": "Отключайте просмотр публичных серверов в настройках",
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Ручная остановка и остановка для обновления не вызывают перезапуск после сбоя",
       "Server startup waits for a responsive console before reporting success": "Запуск сервера ожидает ответа консоли перед сообщением об успехе",
-      "Restore the existing Manager window when launching it again": "Повторный запуск открывает уже существующее окно менеджера"
+      "Restore the existing Manager window when launching it again": "Повторный запуск открывает уже существующее окно менеджера",
+      "Show available update notes even when release history is cached": "Показывать изменения доступного обновления даже при сохранённой истории"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -62,7 +63,8 @@
       "Disable public server browsing in Settings": "Öffentliche Serversuche in den Einstellungen deaktivieren",
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Bewusstes Stoppen und Herunterfahren für Updates lösen keinen Absturzneustart aus",
       "Server startup waits for a responsive console before reporting success": "Der Serverstart wartet vor der Erfolgsmeldung auf eine reagierende Konsole",
-      "Restore the existing Manager window when launching it again": "Erneutes Starten stellt das vorhandene Manager-Fenster wieder her"
+      "Restore the existing Manager window when launching it again": "Erneutes Starten stellt das vorhandene Manager-Fenster wieder her",
+      "Show available update notes even when release history is cached": "Änderungen verfügbarer Updates auch bei zwischengespeichertem Verlauf anzeigen"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -94,7 +96,8 @@
       "Disable public server browsing in Settings": "Désactivez la consultation des serveurs publics dans les paramètres",
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Les arrêts volontaires et ceux des mises à jour ne déclenchent plus de redémarrage après plantage",
       "Server startup waits for a responsive console before reporting success": "Le démarrage du serveur attend une console réactive avant d’annoncer sa réussite",
-      "Restore the existing Manager window when launching it again": "Un nouveau lancement restaure la fenêtre existante du gestionnaire"
+      "Restore the existing Manager window when launching it again": "Un nouveau lancement restaure la fenêtre existante du gestionnaire",
+      "Show available update notes even when release history is cached": "Afficher les changements des mises à jour disponibles même si l’historique est en cache"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -126,7 +129,8 @@
       "Disable public server browsing in Settings": "Desactiva la consulta de servidores públicos en los ajustes",
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Las paradas voluntarias y las de actualización no activan el reinicio por fallo",
       "Server startup waits for a responsive console before reporting success": "El arranque del servidor espera a que responda la consola antes de indicar que ha terminado",
-      "Restore the existing Manager window when launching it again": "Al volver a iniciar el gestor se restaura su ventana existente"
+      "Restore the existing Manager window when launching it again": "Al volver a iniciar el gestor se restaura su ventana existente",
+      "Show available update notes even when release history is cached": "Mostrar los cambios de las actualizaciones disponibles aunque el historial esté en caché"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -158,7 +162,8 @@
       "Disable public server browsing in Settings": "可在设置中禁用公共服务器浏览",
       "Keep deliberate stops and update shutdowns from triggering crash restart": "主动停止及更新时关闭不会触发崩溃自动重启",
       "Server startup waits for a responsive console before reporting success": "服务器启动会等待控制台响应后再报告成功",
-      "Restore the existing Manager window when launching it again": "再次启动时恢复已有的管理器窗口"
+      "Restore the existing Manager window when launching it again": "再次启动时恢复已有的管理器窗口",
+      "Show available update notes even when release history is cached": "即使历史记录已缓存，也显示可用更新的说明"
     }
   },
   "server": {

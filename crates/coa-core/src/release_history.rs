@@ -63,7 +63,46 @@ fn validate(bytes: &[u8], component: &str) -> Result<Value, String> {
 }
 
 pub fn load(component: &str, cache_dir: &Path) -> Result<Value, String> {
+    load_for_target(component, cache_dir, None)
+}
+
+pub fn load_for_target(
+    component: &str,
+    cache_dir: &Path,
+    target: Option<&str>,
+) -> Result<Value, String> {
     let (repo, branch) = repository(component)?;
+    load_with_remote(component, cache_dir, target, || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| e.to_string())?;
+        let response = client
+            .get(format!(
+                "https://raw.githubusercontent.com/{repo}/{branch}/changelog/history.json"
+            ))
+            .query(&[("target", target.unwrap_or(""))])
+            .header(reqwest::header::CACHE_CONTROL, "no-cache")
+            .send()
+            .and_then(|r| r.error_for_status())
+            .map_err(|e| e.to_string())?;
+        let mut bytes = Vec::new();
+        response
+            .take(LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        Ok(bytes)
+    })
+}
+
+fn load_with_remote(
+    component: &str,
+    cache_dir: &Path,
+    target: Option<&str>,
+    remote: impl FnOnce() -> Result<Vec<u8>, String>,
+) -> Result<Value, String> {
+    repository(component)?;
     let cache = cache_dir.join(format!("{component}.json"));
     let cached = || {
         let mut bytes = Vec::new();
@@ -81,41 +120,33 @@ pub fn load(component: &str, cache_dir: &Path) -> Result<Value, String> {
         .and_then(|t| t.elapsed().ok())
         .is_some_and(|age| age < Duration::from_secs(3600))
     {
-        if let Some(mut v) = cached() {
-            v["source"] = "cache".into();
-            return Ok(v);
+        if let Some(mut value) = cached() {
+            if target.is_none_or(|target| {
+                value["releases"].as_array().is_some_and(|releases| {
+                    releases
+                        .iter()
+                        .any(|release| release["version"].as_str() == Some(target))
+                })
+            }) {
+                value["source"] = "cache".into();
+                return Ok(value);
+            }
         }
     }
-    let remote = || -> Result<Value, String> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(8))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| e.to_string())?;
-        let response = client
-            .get(format!(
-                "https://raw.githubusercontent.com/{repo}/{branch}/changelog/history.json"
-            ))
-            .send()
-            .and_then(|r| r.error_for_status())
-            .map_err(|e| e.to_string())?;
-        let mut bytes = Vec::new();
-        response
-            .take(LIMIT + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
+    let fetched = (|| {
+        let bytes = remote()?;
         let mut value = validate(&bytes, component)?;
         if std::fs::create_dir_all(cache_dir).is_ok() {
-            let _ = std::fs::write(&cache, &bytes);
+            let _ = crate::fsx::atomic_write(&cache, &bytes);
         }
         value["source"] = "remote".into();
         Ok(value)
-    };
-    remote().or_else(|error| {
+    })();
+    fetched.or_else(|error| {
         cached()
-            .map(|mut v| {
-                v["source"] = "cache".into();
-                v
+            .map(|mut value| {
+                value["source"] = "cache".into();
+                value
             })
             .ok_or(error)
     })
@@ -155,6 +186,34 @@ mod tests {
         value["releases"][0]["date"] = "2026-10-28".into();
         value["releases"][0]["notes"] = serde_json::json!([{"html": "not a text note"}]);
         assert!(validate(&serde_json::to_vec(&value).unwrap(), "server").is_err());
+    }
+
+    #[test]
+    fn available_update_bypasses_fresh_cache_missing_the_target_and_keeps_offline_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let feed = |version: &str| {
+            serde_json::to_vec(&serde_json::json!({
+                "schema":1,"component":"manager","repository":"Corfirean/coa-server-manager",
+                "releases":[{"version":version,"tag":format!("v{version}"),"date":"2026-10-30",
+                             "notes":["Visible update notes"]}]
+            }))
+            .unwrap()
+        };
+        std::fs::write(dir.path().join("manager.json"), feed("0.9.4")).unwrap();
+        let value =
+            load_with_remote("manager", dir.path(), Some("0.9.5"), || Ok(feed("0.9.5"))).unwrap();
+        assert_eq!(value["source"], "remote");
+        assert_eq!(value["releases"][0]["version"], "0.9.5");
+        let cached = load_with_remote("manager", dir.path(), Some("0.9.5"), || {
+            panic!("fresh target is cached")
+        })
+        .unwrap();
+        assert_eq!(cached["source"], "cache");
+        let offline = load_with_remote("manager", dir.path(), Some("0.9.6"), || {
+            Err("offline".into())
+        })
+        .unwrap();
+        assert_eq!(offline["releases"][0]["version"], "0.9.5");
     }
 
     #[test]
