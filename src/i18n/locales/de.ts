@@ -1066,6 +1066,23 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "registry.realmStoppedHint": "Der Realm ist gestoppt. Den Server starten, damit Spieler beitreten und Charaktersitzungen verfolgen können.",
   "access.portableEnabled": "Portable Charaktere zulassen",
   "access.portableEnabledHint": "Spieler können auf diesem Realm mit ihren im Manager gespeicherten Charakteren spielen.",
+  "settings.publicServers": "Öffentliche Server anzeigen",
+  "settings.publicServersHint": "Wenn deaktiviert, ruft der Manager keine öffentlichen Serverlisten oder Details ab. Wenn aktiviert, lädt Aktualisieren die Liste.",
+  "browse.disabled": "Die Anzeige öffentlicher Server ist deaktiviert. Aktiviere sie in den Einstellungen, um den Katalog zu laden.",
+
+  "client.graphics.dxvk": "Kompatible Grafik verwenden (DXVK deaktivieren)",
+  "client.graphics.enhancements": "Zusätzliche Grafikverbesserungen deaktivieren",
+  "client.graphics.hint": "Schließe das Spiel vor Änderungen. Client-Updates lassen deaktivierte Grafikkomponenten ausgeschaltet.",
+  "settings.closeToTray": "Beim Schließen in den Infobereich minimieren",
+  "settings.closeToTrayHint": "Wenn ausgeschaltet, beendet das Schließen des Fensters den Manager. Ein erneuter Start öffnet das bereits laufende Fenster.",
+
+  "overview.bots": "+ {n} Bots",
+
+  "stop.force": "Beenden erzwingen",
+  "stop.forceTitle": "Diesen Server zwangsweise beenden?",
+  "stop.forceWarning": "Ungespeicherter Spielfortschritt kann verloren gehen. Nur geprüfte Prozesse dieses Servers werden beendet. Die Datenbank läuft weiter, bis alle Welten beendet sind.",
+  "stop.cancel": "Abbrechen",
+
 };
 
 export default de;

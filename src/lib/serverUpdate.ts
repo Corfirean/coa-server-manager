@@ -1,3 +1,4 @@
+import { serverLifecycle } from "@/lib/serverLifecycle";
 import { useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from "@/lib/api";
@@ -30,6 +31,11 @@ const listeners = new Set<() => void>();
 export const CHECK_EVERY_MS = 5 * 60 * 1000;
 
 const get = (id: string) => states.get(id) ?? EMPTY;
+export function serverUpdateBlocksRestart(id: string): boolean {
+  const state = get(id);
+  return state.applying || state.stateError !== null || !!(state.result && "pending" in state.result);
+}
+
 function set(id: string, next: Partial<ServerUpdateState>) {
   states.set(id, { ...get(id), ...next });
   listeners.forEach((l) => l());
@@ -89,6 +95,7 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
   // The update stops a running server and proves the new build by starting it; a server that was stopped stays stopped
   // unless the owner asked for it to start.
   const wasRunning = await api.status(id).then((s) => [s.observed.mysql, s.observed.auth, s.observed.world].some((x) => x.state === "running" || x.state === "starting")).catch(() => true);
+  serverLifecycle(id).beginMaintenance();
   set(id, { applying: true, step: null, percent: 0, error: null, uiError: null, result: null });
   let un: (() => void) | undefined;
   try {
@@ -110,6 +117,7 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
     try {
       await refreshServerUpdateState(id);
     } catch { /* The state error remains visible and prevents another apply. */ }
+    serverLifecycle(id).endMaintenance();
     set(id, { applying: false });
     void checkServerUpdate(id);
   }

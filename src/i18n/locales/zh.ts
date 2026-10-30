@@ -1068,6 +1068,23 @@ const zh = {
   "registry.realmStoppedHint": "世界当前已停止。请启动服务器，以便玩家加入并跟踪角色会话。",
   "access.portableEnabled": "允许便携角色",
   "access.portableEnabledHint": "允许玩家在此服务器使用保存在 Manager 中的角色。",
+  "settings.publicServers": "允许浏览公共服务器",
+  "settings.publicServersHint": "关闭后，管理器不会请求公共服务器列表或详情。启用后，点击“刷新”加载列表。",
+  "browse.disabled": "公共服务器浏览已关闭。请在设置中启用以加载目录。",
+
+  "client.graphics.dxvk": "使用兼容图形模式（禁用 DXVK）",
+  "client.graphics.enhancements": "禁用额外图形增强",
+  "client.graphics.hint": "更改前请关闭游戏。客户端更新会保留已禁用的图形组件。",
+  "settings.closeToTray": "关闭窗口时最小化到托盘",
+  "settings.closeToTrayHint": "关闭此选项后，关闭窗口将退出管理器。再次启动会打开已运行的窗口。",
+
+  "overview.bots": "+ {n} 个机器人",
+
+  "stop.force": "强制停止",
+  "stop.forceTitle": "强制停止此服务器？",
+  "stop.forceWarning": "玩家未保存的进度可能丢失。只会停止经验证属于此服务器的进程。所有世界停止后才会关闭数据库。",
+  "stop.cancel": "取消",
+
 } as const;
 
 export default zh;

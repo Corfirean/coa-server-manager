@@ -2,8 +2,8 @@
 
 The Manager feed is imported from the canonical `changelog/history.json`. The
 server snapshot in this directory is copied from `Corfirean/coa-server-build`
-commit `9bf1411de93e98cbcd0e8ebbcdac3a457d5fbaf0`, path
-`changelog/history.json`, on 2026-10-28. Only schema, component, repository and
+commit `15687243bd3f4d60dfedf70b938b6076c1bd6393`, path
+`changelog/history.json`, on 2026-10-30. Only schema, component, repository and
 releases are retained. Do not independently edit historical records here.
 
 At runtime the native read-only command fetches the fixed canonical URL, bounds
@@ -22,3 +22,7 @@ canonical commit and add all five translations for each new original note.
 Never rewrite released fragments to add translations. Run
 `node --test tools/release-history.test.mjs`; its completeness check expects the
 latest bundled record of each component to have every translation.
+
+Manager 0.9.5 prepares all five translations of the ten reviewed stabilization notes and
+three server stabilization notes before their release. The bundled snapshot includes server
+0.261029.85 from the pinned commit above. Pending notes do not fabricate published records.

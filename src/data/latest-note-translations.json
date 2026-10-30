@@ -20,7 +20,17 @@
       "Slow server startup no longer triggers an early update rollback": "Медленный запуск сервера больше не вызывает преждевременный откат обновления",
       "Settings group updates, startup and maintenance with translated release history": "Настройки сгруппированы по обновлениям, запуску и обслуживанию с переведённой историей выпусков",
       "Update and launch without updating share a divided button": "Обновление и запуск без обновления объединены в разделённую кнопку",
-      "Maximizing the window keeps text and controls at a comfortable size": "При разворачивании окна текст и элементы управления сохраняют удобный размер"
+      "Maximizing the window keeps text and controls at a comfortable size": "При разворачивании окна текст и элементы управления сохраняют удобный размер",
+      "Account creation verifies a lost console reply against the requested login": "Создание аккаунта проверяет запрошенные данные входа при потере ответа консоли",
+      "Abandoned game relay tunnels close their local connection immediately": "Закрытые игровые туннели немедленно освобождают локальное соединение",
+      "Keep disabled graphics components disabled during client updates": "Обновление клиента сохраняет отключённые графические компоненты",
+      "Force-stop an unresponsive world after a failed normal shutdown": "Принудительно останавливайте зависший мир после неудачной обычной остановки",
+      "Crash history includes reports from every world and Windows text files": "История сбоев включает отчёты всех миров и текстовые файлы Windows",
+      "Show the online bot count for Playerbots on the overview": "Обзор показывает количество ботов Playerbots в игре",
+      "Disable public server browsing in Settings": "Отключайте просмотр публичных серверов в настройках",
+      "Keep deliberate stops and update shutdowns from triggering crash restart": "Ручная остановка и остановка для обновления не вызывают перезапуск после сбоя",
+      "Server startup waits for a responsive console before reporting success": "Запуск сервера ожидает ответа консоли перед сообщением об успехе",
+      "Restore the existing Manager window when launching it again": "Повторный запуск открывает уже существующее окно менеджера"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -42,7 +52,17 @@
       "Slow server startup no longer triggers an early update rollback": "Ein langsamer Serverstart löst keinen vorzeitigen Update-Rollback mehr aus",
       "Settings group updates, startup and maintenance with translated release history": "Einstellungen bündeln Updates, Start und Wartung mit übersetztem Versionsverlauf",
       "Update and launch without updating share a divided button": "Aktualisieren und ohne Update starten teilen sich eine geteilte Schaltfläche",
-      "Maximizing the window keeps text and controls at a comfortable size": "Beim Maximieren bleiben Text und Bedienelemente angenehm groß"
+      "Maximizing the window keeps text and controls at a comfortable size": "Beim Maximieren bleiben Text und Bedienelemente angenehm groß",
+      "Account creation verifies a lost console reply against the requested login": "Bei verlorener Konsolenantwort werden die angeforderten Kontodaten geprüft",
+      "Abandoned game relay tunnels close their local connection immediately": "Verlassene Spieltunnel schließen ihre lokale Verbindung sofort",
+      "Keep disabled graphics components disabled during client updates": "Deaktivierte Grafikkomponenten bleiben bei Client-Updates deaktiviert",
+      "Force-stop an unresponsive world after a failed normal shutdown": "Eine nicht reagierende Welt nach fehlgeschlagenem normalem Herunterfahren zwangsweise stoppen",
+      "Crash history includes reports from every world and Windows text files": "Der Absturzverlauf enthält Berichte aller Welten und Windows-Textdateien",
+      "Show the online bot count for Playerbots on the overview": "Die Übersicht zeigt die Anzahl angemeldeter Playerbots",
+      "Disable public server browsing in Settings": "Öffentliche Serversuche in den Einstellungen deaktivieren",
+      "Keep deliberate stops and update shutdowns from triggering crash restart": "Bewusstes Stoppen und Herunterfahren für Updates lösen keinen Absturzneustart aus",
+      "Server startup waits for a responsive console before reporting success": "Der Serverstart wartet vor der Erfolgsmeldung auf eine reagierende Konsole",
+      "Restore the existing Manager window when launching it again": "Erneutes Starten stellt das vorhandene Manager-Fenster wieder her"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -64,7 +84,17 @@
       "Slow server startup no longer triggers an early update rollback": "Un démarrage lent du serveur ne déclenche plus un retour arrière prématuré",
       "Settings group updates, startup and maintenance with translated release history": "Les paramètres regroupent les mises à jour, le démarrage et la maintenance avec un historique traduit",
       "Update and launch without updating share a divided button": "La mise à jour et le lancement sans mise à jour partagent un bouton divisé",
-      "Maximizing the window keeps text and controls at a comfortable size": "Le texte et les commandes gardent une taille confortable lorsque la fenêtre est maximisée"
+      "Maximizing the window keeps text and controls at a comfortable size": "Le texte et les commandes gardent une taille confortable lorsque la fenêtre est maximisée",
+      "Account creation verifies a lost console reply against the requested login": "La création de compte vérifie les identifiants demandés si la réponse de la console est perdue",
+      "Abandoned game relay tunnels close their local connection immediately": "Les tunnels de jeu abandonnés ferment immédiatement leur connexion locale",
+      "Keep disabled graphics components disabled during client updates": "Les composants graphiques désactivés le restent lors des mises à jour du client",
+      "Force-stop an unresponsive world after a failed normal shutdown": "Arrêtez de force un monde bloqué après un échec de l’arrêt normal",
+      "Crash history includes reports from every world and Windows text files": "L’historique des plantages inclut les rapports de tous les mondes et les fichiers texte Windows",
+      "Show the online bot count for Playerbots on the overview": "La vue d’ensemble affiche le nombre de Playerbots connectés",
+      "Disable public server browsing in Settings": "Désactivez la consultation des serveurs publics dans les paramètres",
+      "Keep deliberate stops and update shutdowns from triggering crash restart": "Les arrêts volontaires et ceux des mises à jour ne déclenchent plus de redémarrage après plantage",
+      "Server startup waits for a responsive console before reporting success": "Le démarrage du serveur attend une console réactive avant d’annoncer sa réussite",
+      "Restore the existing Manager window when launching it again": "Un nouveau lancement restaure la fenêtre existante du gestionnaire"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -86,7 +116,17 @@
       "Slow server startup no longer triggers an early update rollback": "El inicio lento del servidor ya no provoca una reversión prematura de la actualización",
       "Settings group updates, startup and maintenance with translated release history": "Los ajustes agrupan actualizaciones, inicio y mantenimiento con un historial de versiones traducido",
       "Update and launch without updating share a divided button": "Actualizar e iniciar sin actualizar comparten un botón dividido",
-      "Maximizing the window keeps text and controls at a comfortable size": "Al maximizar la ventana, el texto y los controles mantienen un tamaño cómodo"
+      "Maximizing the window keeps text and controls at a comfortable size": "Al maximizar la ventana, el texto y los controles mantienen un tamaño cómodo",
+      "Account creation verifies a lost console reply against the requested login": "La creación de cuentas verifica las credenciales solicitadas si se pierde la respuesta de la consola",
+      "Abandoned game relay tunnels close their local connection immediately": "Los túneles de juego abandonados cierran su conexión local de inmediato",
+      "Keep disabled graphics components disabled during client updates": "Los componentes gráficos desactivados permanecen así al actualizar el cliente",
+      "Force-stop an unresponsive world after a failed normal shutdown": "Detén por la fuerza un mundo bloqueado si falla el cierre normal",
+      "Crash history includes reports from every world and Windows text files": "El historial de fallos incluye informes de todos los mundos y archivos de texto de Windows",
+      "Show the online bot count for Playerbots on the overview": "El resumen muestra la cantidad de Playerbots conectados",
+      "Disable public server browsing in Settings": "Desactiva la consulta de servidores públicos en los ajustes",
+      "Keep deliberate stops and update shutdowns from triggering crash restart": "Las paradas voluntarias y las de actualización no activan el reinicio por fallo",
+      "Server startup waits for a responsive console before reporting success": "El arranque del servidor espera a que responda la consola antes de indicar que ha terminado",
+      "Restore the existing Manager window when launching it again": "Al volver a iniciar el gestor se restaura su ventana existente"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -108,7 +148,17 @@
       "Slow server startup no longer triggers an early update rollback": "服务器启动缓慢不再导致更新过早回滚",
       "Settings group updates, startup and maintenance with translated release history": "设置按更新、启动和维护分组，并提供已翻译的版本历史",
       "Update and launch without updating share a divided button": "更新和不更新直接启动使用同一个分段按钮",
-      "Maximizing the window keeps text and controls at a comfortable size": "最大化窗口时，文字和控件仍保持舒适的大小"
+      "Maximizing the window keeps text and controls at a comfortable size": "最大化窗口时，文字和控件仍保持舒适的大小",
+      "Account creation verifies a lost console reply against the requested login": "控制台响应丢失时，创建账号会核验所请求的登录凭据",
+      "Abandoned game relay tunnels close their local connection immediately": "废弃的游戏中继隧道会立即关闭本地连接",
+      "Keep disabled graphics components disabled during client updates": "客户端更新时保留已禁用的图形组件状态",
+      "Force-stop an unresponsive world after a failed normal shutdown": "正常关闭失败后可强制停止无响应的世界服务器",
+      "Crash history includes reports from every world and Windows text files": "崩溃历史包含所有世界的报告和 Windows 文本文件",
+      "Show the online bot count for Playerbots on the overview": "概览中显示在线 Playerbots 数量",
+      "Disable public server browsing in Settings": "可在设置中禁用公共服务器浏览",
+      "Keep deliberate stops and update shutdowns from triggering crash restart": "主动停止及更新时关闭不会触发崩溃自动重启",
+      "Server startup waits for a responsive console before reporting success": "服务器启动会等待控制台响应后再报告成功",
+      "Restore the existing Manager window when launching it again": "再次启动时恢复已有的管理器窗口"
     }
   },
   "server": {
@@ -145,7 +195,11 @@
       "Normal Classic dungeons retain their authored damage at full party size": "Обычные подземелья классики сохраняют исходный урон при полной группе",
       "Interactive World Map displays allied bots, guild tasks and events": "Интерактивная карта мира показывает союзных ботов, задания гильдии и события",
       "Database startup allows time for slower hard drives": "Запуск базы данных допускает более долгое ожидание на медленных дисках",
-      "Option to make low-health runners walk": "Добавлена возможность замедлить убегающих существ с низким здоровьем до шага"
+      "Option to make low-health runners walk": "Добавлена возможность замедлить убегающих существ с низким здоровьем до шага",
+      "Prevent crashes while players update Apex Hunt quest markers on different maps": "Устранены падения при обновлении меток заданий Apex Hunt игроками на разных картах",
+      "Thin Human and Leper Troll characters retain their starting data after updates": "Персонажи Thin Human и Leper Troll сохраняют стартовые данные после обновлений",
+      "Companions avoid rejected names and recover from forced rename login failures": "Компаньоны получают допустимые имена и восстанавливают вход при требовании переименования",
+      "Updated the reviewed CoA upstream snapshot": "Обновлена проверенная версия исходников CoA"
     },
     "de": {
       "Restrict new characters by custom race without changing existing characters": "Neue Charaktere nach zusätzlichem Volk beschränken, ohne bestehende Charaktere zu ändern",
@@ -180,7 +234,11 @@
       "Normal Classic dungeons retain their authored damage at full party size": "Normale Classic-Dungeons behalten bei voller Gruppe ihren ursprünglichen Schaden",
       "Interactive World Map displays allied bots, guild tasks and events": "Die interaktive Weltkarte zeigt verbündete Bots, Gildenaufgaben und Ereignisse",
       "Database startup allows time for slower hard drives": "Der Datenbankstart lässt langsameren Festplatten mehr Zeit",
-      "Option to make low-health runners walk": "Fliehende Kreaturen mit wenig Gesundheit können im Schritttempo laufen"
+      "Option to make low-health runners walk": "Fliehende Kreaturen mit wenig Gesundheit können im Schritttempo laufen",
+      "Prevent crashes while players update Apex Hunt quest markers on different maps": "Abstürze beim Aktualisieren von Apex-Hunt-Questmarkierungen auf verschiedenen Karten verhindern",
+      "Thin Human and Leper Troll characters retain their starting data after updates": "Charaktere der Völker Thin Human und Leper Troll behalten ihre Startdaten nach Updates",
+      "Companions avoid rejected names and recover from forced rename login failures": "Begleiter vermeiden unzulässige Namen und können sich nach erzwungener Umbenennung wieder anmelden",
+      "Updated the reviewed CoA upstream snapshot": "Geprüften CoA-Upstream-Stand aktualisiert"
     },
     "fr": {
       "Restrict new characters by custom race without changing existing characters": "Restreignez les races supplémentaires des nouveaux personnages sans modifier les personnages existants",
@@ -215,7 +273,11 @@
       "Normal Classic dungeons retain their authored damage at full party size": "Les donjons Classic normaux conservent leurs dégâts d’origine avec un groupe complet",
       "Interactive World Map displays allied bots, guild tasks and events": "La carte du monde interactive affiche les bots alliés, les tâches de guilde et les événements",
       "Database startup allows time for slower hard drives": "Le démarrage de la base de données laisse plus de temps aux disques lents",
-      "Option to make low-health runners walk": "Une option permet aux créatures affaiblies de fuir en marchant"
+      "Option to make low-health runners walk": "Une option permet aux créatures affaiblies de fuir en marchant",
+      "Prevent crashes while players update Apex Hunt quest markers on different maps": "Évite les plantages lorsque les joueurs actualisent les marqueurs de quête Apex Hunt sur différentes cartes",
+      "Thin Human and Leper Troll characters retain their starting data after updates": "Les personnages Thin Human et Leper Troll conservent leurs données de départ après les mises à jour",
+      "Companions avoid rejected names and recover from forced rename login failures": "Les compagnons évitent les noms refusés et récupèrent leur connexion après un renommage imposé",
+      "Updated the reviewed CoA upstream snapshot": "Version amont vérifiée de CoA mise à jour"
     },
     "es": {
       "Restrict new characters by custom race without changing existing characters": "Restringe las razas adicionales de personajes nuevos sin modificar los existentes",
@@ -250,7 +312,11 @@
       "Normal Classic dungeons retain their authored damage at full party size": "Las mazmorras Classic normales conservan su daño original con un grupo completo",
       "Interactive World Map displays allied bots, guild tasks and events": "El mapa del mundo interactivo muestra bots aliados, tareas de hermandad y eventos",
       "Database startup allows time for slower hard drives": "El inicio de la base de datos permite más tiempo en discos lentos",
-      "Option to make low-health runners walk": "Una opción permite que las criaturas con poca salud huyan caminando"
+      "Option to make low-health runners walk": "Una opción permite que las criaturas con poca salud huyan caminando",
+      "Prevent crashes while players update Apex Hunt quest markers on different maps": "Evita fallos al actualizar marcadores de misiones Apex Hunt en distintos mapas",
+      "Thin Human and Leper Troll characters retain their starting data after updates": "Los personajes Thin Human y Leper Troll conservan sus datos iniciales tras actualizar",
+      "Companions avoid rejected names and recover from forced rename login failures": "Los compañeros evitan nombres rechazados y recuperan el acceso tras un cambio de nombre obligatorio",
+      "Updated the reviewed CoA upstream snapshot": "Actualizada la versión revisada del código original de CoA"
     },
     "zh": {
       "Restrict new characters by custom race without changing existing characters": "限制新角色可选的自定义种族，不影响现有角色",
@@ -285,7 +351,11 @@
       "Normal Classic dungeons retain their authored damage at full party size": "普通经典地下城在满员队伍下保留原始伤害",
       "Interactive World Map displays allied bots, guild tasks and events": "交互式世界地图显示友方机器人、公会任务和事件",
       "Database startup allows time for slower hard drives": "数据库启动为较慢的硬盘预留更多等待时间",
-      "Option to make low-health runners walk": "新增选项，可让低生命值的逃跑生物改为步行"
+      "Option to make low-health runners walk": "新增选项，可让低生命值的逃跑生物改为步行",
+      "Prevent crashes while players update Apex Hunt quest markers on different maps": "防止玩家在不同地图更新 Apex Hunt 任务标记时崩溃",
+      "Thin Human and Leper Troll characters retain their starting data after updates": "Thin Human 和 Leper Troll 角色在更新后保留初始数据",
+      "Companions avoid rejected names and recover from forced rename login failures": "同伴避免使用被拒绝的名称，并修复强制改名导致的登录失败",
+      "Updated the reviewed CoA upstream snapshot": "更新已审核的 CoA 上游版本"
     }
   }
 }

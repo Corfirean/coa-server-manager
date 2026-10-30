@@ -1066,6 +1066,23 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "registry.realmStoppedHint": "Le royaume est arrêté. Démarrez le serveur pour permettre la connexion et le suivi des sessions des personnages.",
   "access.portableEnabled": "Autoriser les personnages portables",
   "access.portableEnabledHint": "Les joueurs peuvent utiliser sur ce royaume leurs personnages enregistrés dans Manager.",
+  "settings.publicServers": "Autoriser la consultation des serveurs publics",
+  "settings.publicServersHint": "Si cette option est désactivée, le gestionnaire ne demande ni liste ni détails des serveurs publics. Sinon, chargez la liste avec Actualiser.",
+  "browse.disabled": "La consultation des serveurs publics est désactivée. Activez-la dans les paramètres pour charger le catalogue.",
+
+  "client.graphics.dxvk": "Utiliser le mode graphique compatible (désactiver DXVK)",
+  "client.graphics.enhancements": "Désactiver les améliorations graphiques supplémentaires",
+  "client.graphics.hint": "Fermez le jeu avant toute modification. Les mises à jour du client conservent les composants graphiques désactivés.",
+  "settings.closeToTray": "Réduire dans la zone de notification à la fermeture",
+  "settings.closeToTrayHint": "Sinon, fermer la fenêtre quitte le gestionnaire. Un nouveau lancement ouvre la fenêtre existante si le gestionnaire est déjà actif.",
+
+  "overview.bots": "+ {n} bots",
+
+  "stop.force": "Forcer l’arrêt",
+  "stop.forceTitle": "Forcer l’arrêt de ce serveur ?",
+  "stop.forceWarning": "La progression non enregistrée peut être perdue. Seuls les processus vérifiés de ce serveur seront arrêtés. La base de données reste active jusqu’à l’arrêt de tous les mondes.",
+  "stop.cancel": "Annuler",
+
 };
 
 export default fr;

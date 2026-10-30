@@ -7,6 +7,8 @@ import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { AboutCard } from "@/screens/AboutCard";
 import { PortablePage } from "@/screens/PortablePage";
 import { BrowsePage } from "@/screens/BrowsePage";
+import { WindowSettings } from "./WindowSettings";
+import { PublicServerSettings } from "./PublicServerSettings";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -65,7 +67,7 @@ export function RemoteClient({ onHost }: { onHost: () => void }) {
       <div className="mt-auto border-t border-line pt-3"><Button variant="ghost" size="sm" className="w-full justify-start" onClick={onHost}>{t("remote.hostInstead")}</Button></div>
     </nav>
     <main className="h-full flex-1 overflow-y-auto px-10 py-8">
-      {page === "servers" ? <BrowsePage /> : page === "characters" ? <PortablePage /> : page === "settings" ? <><div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">{t("nav.settings")}</h1><LanguagePicker /></div><AboutCard /></> : <>
+      {page === "servers" ? <BrowsePage /> : page === "characters" ? <PortablePage /> : page === "settings" ? <><div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">{t("nav.settings")}</h1><LanguagePicker /></div><WindowSettings /><PublicServerSettings /><AboutCard /></> : <>
         <div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">{t("welcome.connect.title")}</h1><LanguagePicker /></div>
         <p className="mt-2 text-muted">{t("remote.intro")}</p>
         <Card className="mt-6 p-6">

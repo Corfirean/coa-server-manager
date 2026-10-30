@@ -299,6 +299,11 @@ pub fn plan(
             bytes_per_sec: 0,
             file: Some(f.path.clone()),
         });
+        if crate::client_graphics::disabled(client, &f.path)? {
+            kept += 1;
+            done += f.size;
+            continue;
+        }
         let path = fsx::safe_join(client, &f.path)?;
         let meta = match fs::metadata(&path) {
             Ok(meta) if meta.is_file() => meta,
@@ -440,6 +445,9 @@ pub fn apply(a: &Apply, on_step: &dyn Fn(Step)) -> Result<()> {
 
     let mut todo = Vec::new();
     for item in &a.plan.items {
+        if crate::client_graphics::disabled(a.client, &item.path)? {
+            continue;
+        }
         if item.kind == Kind::Modified && a.keep_modified {
             let path = fsx::safe_join(a.client, &item.path)?;
             let meta = fs::metadata(&path)?;
@@ -774,6 +782,52 @@ mod tests {
             fs::read(saved.join("Wow.exe")).unwrap(),
             b"my patched exe",
             "the player's version was moved aside, not lost"
+        );
+    }
+
+    #[test]
+    fn disabled_launcher_renderers_are_never_restored_even_with_a_stale_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let files: Vec<(&str, &[u8])> = vec![("d3d9.dll", b"dxvk"), ("dxgi.dll", b"enhancements")];
+        let manifest = manifest("v1", &files);
+        let cancel = Cancel::default();
+        let old_plan = plan(dir.path(), &manifest, &State::default(), &cancel, &|_| {}).unwrap();
+        fs::write(dir.path().join("d3d9.dll.DISABLED"), b"custom disabled").unwrap();
+        crate::client_graphics::set(dir.path(), "dxgi.dll", true).unwrap();
+        let server = Server::new(&files);
+        apply(
+            &Apply {
+                client: dir.path(),
+                manifest: &manifest,
+                plan: &old_plan,
+                keep_modified: false,
+                transport: &server,
+                objects_url: "https://x.invalid/objects",
+                cancel: &cancel,
+            },
+            &|_| {},
+        )
+        .unwrap();
+        assert!(server.requested.lock().unwrap().is_empty());
+        assert!(!dir.path().join("d3d9.dll").exists());
+        assert!(!dir.path().join("dxgi.dll").exists());
+        assert_eq!(
+            fs::read(dir.path().join("d3d9.dll.DISABLED")).unwrap(),
+            b"custom disabled"
+        );
+        let after = plan(
+            dir.path(),
+            &manifest,
+            &load_state(dir.path()).unwrap(),
+            &cancel,
+            &|_| {},
+        )
+        .unwrap();
+        assert!(after.items.is_empty());
+        crate::client_graphics::set(dir.path(), "d3d9.dll", false).unwrap();
+        assert_eq!(
+            fs::read(dir.path().join("d3d9.dll")).unwrap(),
+            b"custom disabled"
         );
     }
 

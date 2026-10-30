@@ -16,6 +16,7 @@ globalThis.__hotfixApi = {
 };
 registerHooks({ resolve(specifier, context, next) {
   if (specifier === "react") return { shortCircuit: true, url: "data:text/javascript,export const useSyncExternalStore=(subscribe,getSnapshot)=>getSnapshot();export const useState=()=>{throw new Error('React state is not used in this test');};" };
+  if (specifier === "@/lib/serverLifecycle") return { shortCircuit: true, url: new URL("../src/lib/serverLifecycle.ts", import.meta.url).href };
   if (specifier === "@/lib/api") return { shortCircuit: true, url: "data:text/javascript,export const api=globalThis.__hotfixApi;export const asUiError=e=>({human:{code:'unknown'},technical:e.message});" };
   if (specifier === "@tauri-apps/api/event") return { shortCircuit: true, url: "data:text/javascript,export const listen=async()=>()=>{};" };
   if (specifier === "./serverUpdateStatus" && context.parentURL?.endsWith("/serverUpdate.ts")) return { shortCircuit: true, url: new URL("../src/lib/serverUpdateStatus.ts", import.meta.url).href };

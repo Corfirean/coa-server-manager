@@ -64,6 +64,21 @@ def stop_all(config):
                 result = self.launch('stop-all', self.shutdown_fixture(console_error=error))
                 self.assertEqual(result['launcher']['calls'], ['console', 'terminate', 'wait', 'wait', 'mysql-shutdown'])
 
+    def test_force_stop_terminates_only_the_owned_world_before_mysql(self):
+        body = self.shutdown_fixture(console_error=None)
+        body = body.replace("return world if name == 'world' else None", "return world if name == 'world' and 'terminate' not in calls else None")
+        result = self.launch('force-stop-all', body)
+        self.assertEqual(result['launcher']['calls'], ['terminate', 'wait', 'mysql-shutdown'])
+
+    def test_force_stop_rejects_foreign_or_reused_pids_and_a_world_that_stays_alive(self):
+        for options, message in [({'foreign': True}, 'ownership could not be verified'),
+                                 ({'same': False}, 'ownership could not be verified'),
+                                 ({'stopped': False}, 'database was left running')]:
+            with self.subTest(options=options):
+                with self.assertRaisesRegex(Exception, message):
+                    self.launch('force-stop-all', self.shutdown_fixture(**options))
+                self.assertNotIn('mysql-shutdown', self.launcher['calls'])
+
     def test_healthy_console_keeps_graceful_shutdown(self):
         result = self.launch('stop-all', self.shutdown_fixture(console_error=None))
         self.assertEqual(result['launcher']['calls'], ['console', 'wait', 'mysql-shutdown'])
@@ -128,6 +143,9 @@ def wait_ready(name, port, seconds=180):
         time.sleep(0.5)
     raise RuntimeError('world is still starting')
 def start_mysql(): pass
+def settings(): return {{}}
+def process(name): return {{'pid': 1}}
+def ra(command, config): return 'server info ready'
 def main():
     wait_ready('world', 1, {requested})
     wait_ready('world', 2, {requested})
@@ -135,6 +153,40 @@ def main():
         with patch('time.monotonic', side_effect=lambda: clock[0]), patch('time.sleep', side_effect=sleep):
             result = self.launch('start-all', body)
         return clock[0], result['launcher']['calls']
+
+    def test_open_ports_do_not_finish_startup_until_commands_are_processed(self):
+        clock = [0.0]
+        def sleep(seconds): clock[0] += seconds
+        body = """
+import time
+calls=[]
+def wait_ready(*args): pass
+def start_mysql(): pass
+def settings(): return {}
+def process(name): return {'pid': 1}
+def ra(command, config):
+    calls.append(command)
+    if time.monotonic() < 5: raise TimeoutError('main loop is loading')
+    return 'ready'
+def main():
+    wait_ready('world',1)
+    wait_ready('world',2)
+"""
+        with patch('time.monotonic', side_effect=lambda: clock[0]), patch('time.sleep', side_effect=sleep):
+            result=self.launch('start-all',body)
+        self.assertEqual(clock[0],5)
+        self.assertEqual(set(result['launcher']['calls']),{'server info'})
+
+    def test_world_death_after_ports_open_is_a_startup_failure(self):
+        body="""
+def wait_ready(*args): pass
+def start_mysql(): pass
+def settings(): return {}
+def process(name): return None
+def main(): pass
+"""
+        with self.assertRaisesRegex(RuntimeError,'stopped before its console accepted'):
+            self.launch('start-world',body)
 
     def test_legacy_coa_world_waits_for_both_ports_after_three_minutes(self):
         elapsed, calls = self.world_start()

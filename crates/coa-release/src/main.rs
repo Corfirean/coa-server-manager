@@ -94,8 +94,9 @@ fn run() -> Result<(), String> {
             .map_err(e)?;
         }
         "qualify-install" => {
-            let report = coa_core::release_schema::qualify_install(
+            let report = coa_core::release_schema::qualify_install_against(
                 &PathBuf::from(need(&a, "package")?),
+                Some(&PathBuf::from(need(&a, "update")?)),
                 &PathBuf::from(need(&a, "fixture")?),
                 coa_core::signing::EMBEDDED_PUBLIC_KEY,
             )

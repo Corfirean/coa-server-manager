@@ -1066,6 +1066,23 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "registry.realmStoppedHint": "El reino está detenido. Inicia el servidor para que los jugadores entren y se registren las sesiones de personajes.",
   "access.portableEnabled": "Permitir personajes portátiles",
   "access.portableEnabledHint": "Los jugadores pueden usar en este reino sus personajes guardados en Manager.",
+  "settings.publicServers": "Permitir consultar servidores públicos",
+  "settings.publicServersHint": "Si se desactiva, el gestor no solicita listas ni detalles de servidores públicos. Si se activa, carga la lista con Actualizar.",
+  "browse.disabled": "La consulta de servidores públicos está desactivada. Actívala en los ajustes para cargar el catálogo.",
+
+  "client.graphics.dxvk": "Usar gráficos compatibles (desactivar DXVK)",
+  "client.graphics.enhancements": "Desactivar mejoras gráficas adicionales",
+  "client.graphics.hint": "Cierra el juego antes de cambiar estos ajustes. Las actualizaciones mantienen desactivados los componentes gráficos elegidos.",
+  "settings.closeToTray": "Minimizar a la bandeja al cerrar la ventana",
+  "settings.closeToTrayHint": "Si se desactiva, cerrar la ventana sale del gestor. Volver a iniciarlo abre la ventana existente si ya está en ejecución.",
+
+  "overview.bots": "+ {n} bots",
+
+  "stop.force": "Forzar detención",
+  "stop.forceTitle": "¿Forzar la detención de este servidor?",
+  "stop.forceWarning": "Puede perderse el progreso sin guardar. Solo se detendrán los procesos verificados de este servidor. La base de datos seguirá activa hasta que se detengan todos los mundos.",
+  "stop.cancel": "Cancelar",
+
 };
 
 export default es;

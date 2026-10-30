@@ -29,6 +29,12 @@ export {};
   (window as any).__TAURI_INTERNALS__ = {
     transformCallback: (cb: unknown)=>cb, unregisterCallback(){}, convertFileSrc:(x: unknown)=>x,
     invoke: async (cmd: string, args?: any)=>{
+      if(cmd==="close_to_tray") return localStorage.getItem("demo-close-tray")==="1";
+      if(cmd==="set_close_to_tray"){localStorage.setItem("demo-close-tray",args.enabled?"1":"0");return;}
+      if(cmd==="client_graphics") return JSON.parse(localStorage.getItem("demo-graphics")??'{"dxvk_disabled":false,"enhancements_disabled":false}');
+      if(cmd==="client_set_graphics"){const g=JSON.parse(localStorage.getItem("demo-graphics")??'{"dxvk_disabled":false,"enhancements_disabled":false}');g[args.name==="d3d9.dll"?"dxvk_disabled":"enhancements_disabled"]=args.disabled;localStorage.setItem("demo-graphics",JSON.stringify(g));return g;}
+      if(cmd==="browse_enabled") return localStorage.getItem("demo-browse-enabled") !== "0";
+      if(cmd==="browse_set_enabled"){localStorage.setItem("demo-browse-enabled", args.enabled ? "1" : "0");return;}
       if(cmd==="open_link") return null;
       if(cmd==="pending_update") return null;
       if(cmd==="plugin:app|version") return "0.8.2";
@@ -47,6 +53,7 @@ export {};
       if(cmd==="add_server"){added=true;return {id:"1",name:"CoA-Repack",path:report.path};}
       if(cmd==="server_status"){const s=running?"running":"stopped";return {observed:{mysql:svc("mysql",3307,s),auth:svc("auth",3724,s),world:svc("world",8085,s),secondary_world:simultaneous?svc("world-secondary",8086,s):null,reborn_world:withReborn?svc("world-reborn",8087,s):null},busy:false,path_exists:true};}
       if(cmd==="start_server"){await new Promise((r: any)=>setTimeout(r,1500));running=true;return {ok:true,exit_code:0,code:null,human:null,output:""};}
+      if(cmd==="force_stop_server"){running=false;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd==="stop_server"){await new Promise((r: any)=>setTimeout(r,1500));running=false;return {ok:true,exit_code:0,code:null,human:null,output:""};}
       if(cmd.startsWith("plugin:dialog")) return "C:\\games\\CoA-Repack";
       if(cmd==="get_settings"){const sc=args?.scope==="server"?serverSchema:botsSchema;return {scope:args?.scope,categories:sc.categories,settings:(sc.settings as any[]).map(x=>({...x,options:x.options??[],value:x.default,is_default:true,present:true,problem:null,drift:false})),unknown_keys:3,drift_keys:[],files:[]};}

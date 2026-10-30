@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+mod browse_preferences;
 mod docker_install;
+mod window_preferences;
 
 use coa_core::backup::{self, Kind, RecoveryPoint, Trigger, VerifyReport};
 use coa_core::config::{self, Scope, SettingsView};
@@ -301,10 +303,39 @@ fn installation_source(custom: Option<String>) -> Result<Source> {
             .ok()
             .filter(|value| !value.trim().is_empty())
     });
+    select_installation_source(custom, || update_source(None))
+}
+
+fn select_installation_source(
+    custom: Option<String>,
+    latest: impl FnOnce() -> Result<Source>,
+) -> Result<Source> {
     if custom.is_some() {
         return Ok(package_source(custom));
     }
-    Ok(Source::Installation(Box::new(update_source(None)?)))
+    Ok(Source::Installation(Box::new(latest()?)))
+}
+
+#[cfg(test)]
+mod installation_source_tests {
+    use super::*;
+
+    #[test]
+    fn fresh_install_uses_the_selected_current_release_full_image() {
+        let source = select_installation_source(None, || {
+            Ok(Source::Url("https://example.test/releases/current".into()))
+        }).unwrap();
+        assert!(matches!(source, Source::Installation(inner)
+            if matches!(*inner, Source::Url(ref url) if url.ends_with("/current"))));
+    }
+
+    #[test]
+    fn unavailable_current_release_does_not_fall_back_to_an_old_base() {
+        let result = select_installation_source(None, || {
+            Err(Error::PackageNotPublished("current unavailable".into()))
+        });
+        assert!(matches!(result, Err(Error::PackageNotPublished(_))));
+    }
 }
 
 #[derive(Serialize)]
@@ -622,7 +653,10 @@ async fn start_server(
                     && coa_core::friends::load(&meta).mode != coa_core::friends::Mode::Local
                 {
                     let extra = coa_core::realms::state(&root)?.extra_world_ports();
-                    if let Err(e) = coa_core::firewall::ensure_rules_with_extra(&layout::read_ports(&root), &extra) {
+                    if let Err(e) = coa_core::firewall::ensure_rules_with_extra(
+                        &layout::read_ports(&root),
+                        &extra,
+                    ) {
                         tracing::warn!("firewall rules for the running worlds were not added: {e}");
                     }
                 }
@@ -632,6 +666,16 @@ async fn start_server(
         }
     }
     Ok(out)
+}
+
+#[tauri::command]
+async fn force_stop_server(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<DriverOutcome, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || driver::force_stop(&root)).await
 }
 
 #[tauri::command]
@@ -1040,14 +1084,10 @@ async fn create_account(
     password: String,
     administrator: bool,
 ) -> std::result::Result<(), UiError> {
+    let _guard = BusyGuard::acquire(&state, &id)?;
     let root = path_of(&state, &id)?;
     blocking(move || {
-        coa_core::ra::validate_account(&username, &password)?;
-        let mut ra = Ra::connect(&root)?;
-        ra.create_account(&username, &password)?;
-        if administrator {
-            ra.make_administrator(&username)?;
-        }
+        coa_core::accounts::create(&root, &username, &password, administrator)?;
         tracing::info!(%username, administrator, "account created");
         Ok(())
     })
@@ -1998,6 +2038,34 @@ fn client_of(root: &std::path::Path) -> Result<(PathBuf, InstallMeta, Option<Pat
 }
 
 #[tauri::command]
+fn client_graphics(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::client_graphics::Graphics, UiError> {
+    Ok(coa_core::client_graphics::status(
+        &client_context(&state, &id)?.require()?,
+    )?)
+}
+
+#[tauri::command]
+fn client_set_graphics(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    disabled: bool,
+) -> std::result::Result<coa_core::client_graphics::Graphics, UiError> {
+    let job = state.client_cancel.lock().unwrap();
+    if job.is_some() {
+        return Err(Error::Invalid("Wait for the client operation to finish.".into()).into());
+    }
+    Ok(coa_core::client_graphics::set(
+        &client_context(&state, &id)?.require()?,
+        &name,
+        disabled,
+    )?)
+}
+
+#[tauri::command]
 fn client_info(
     state: State<'_, AppState>,
     id: String,
@@ -2492,7 +2560,7 @@ async fn report_context(
         .into_iter()
         .flatten()
         .collect::<Vec<String>>()
-        .join(" · ");
+        .join(" В· ");
         Ok(ReportContext {
             manager_version: coa_core::MANAGER_VERSION.to_string(),
             windows: windows_version(),
@@ -2792,29 +2860,66 @@ async fn console_command(
     .await
 }
 
+#[tauri::command]
+fn manager_installing(enabled: bool) {
+    QUIT_REQUESTED.store(enabled, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn close_manager(app: AppHandle) -> std::result::Result<(), UiError> {
+    if window_preferences::close_to_tray(&data_dir()).unwrap_or(false) {
+        QUIT_REQUESTED.store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Some(window) = app.get_webview_window("main") {
+            window.hide().map_err(|e| Error::Invalid(e.to_string()))?;
+        }
+    } else {
+        QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+        app.exit(0);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn close_to_tray() -> std::result::Result<bool, UiError> {
+    Ok(window_preferences::close_to_tray(&data_dir())?)
+}
+
+#[tauri::command]
+fn set_close_to_tray(enabled: bool) -> std::result::Result<(), UiError> {
+    Ok(window_preferences::save(&data_dir(), enabled)?)
+}
+
+fn show_main_window(app: &AppHandle) {
+    let handle = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window("main") {
+            let result = window
+                .unminimize()
+                .and_then(|_| window.show())
+                .and_then(|_| window.set_focus());
+            if let Err(error) = result {
+                tracing::error!(%error, "Could not restore the Manager window");
+            }
+        } else {
+            tracing::error!("The Manager main window is missing");
+        }
+    }) {
+        tracing::error!(%error, "Could not schedule Manager window restoration");
+    }
+}
+
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
-    // Crash safety: recover any unfinished client realmlist overrides from previous abnormal termination
-    let _ = coa_core::client::revert_realmlist_override(&dir);
-    let portable = start_portable(&dir);
-    let (control, host_control) = control_cmds::start(&dir, portable.clone());
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            show_main_window(app)
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState {
-            registry: Registry::at(dir.join("installs.json")),
-            busy: Mutex::new(HashSet::new()),
-            install_cancel: Mutex::new(None),
-            client_cancel: Mutex::new(None),
-            portable,
-            realm_registry: start_realm_registry(&dir),
-            control,
-            host_control,
-        })
         .invoke_handler(tauri::generate_handler![
             release_history,
             default_install_dir,
@@ -2828,6 +2933,7 @@ pub fn run() {
             server_status,
             start_server,
             stop_server,
+            force_stop_server,
             get_settings,
             save_settings,
             list_presets,
@@ -2892,6 +2998,8 @@ pub fn run() {
             remote_connection,
             remote_connect,
             client_info,
+            client_graphics,
+            client_set_graphics,
             set_client,
             client_realmlist,
             client_install_addon,
@@ -2932,6 +3040,12 @@ pub fn run() {
             portable_launch,
             registry_status,
             portable_preflight_remote,
+            manager_installing,
+            close_manager,
+            close_to_tray,
+            set_close_to_tray,
+            browse_enabled,
+            browse_set_enabled,
             browse_list,
             browse_detail,
             module_catalog,
@@ -2952,18 +3066,43 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                if window.label() != "main" {
+                    return;
+                }
+                if window_preferences::close_to_tray(&data_dir()).unwrap_or(false) {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        tracing::warn!(%error, "Could not hide the Manager window");
+                    }
+                } else {
+                    QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
             }
         })
         .setup(|app| {
+            let dir = data_dir();
+            // Crash safety: recover any unfinished client realmlist overrides from previous abnormal termination
+            let _ = coa_core::client::revert_realmlist_override(&dir);
+            let portable = start_portable(&dir);
+            let (control, host_control) = control_cmds::start(&dir, portable.clone());
+            app.manage(AppState {
+                registry: Registry::at(dir.join("installs.json")),
+                busy: Mutex::new(HashSet::new()),
+                install_cancel: Mutex::new(None),
+                client_cancel: Mutex::new(None),
+                portable,
+                realm_registry: start_realm_registry(&dir),
+                control,
+                host_control,
+            });
+
             #[cfg(desktop)]
             {
                 use tauri::menu::{Menu, MenuItem};
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-                use tauri::Manager;
 
-                let show = MenuItem::with_id(app, "show", "Open CoA Server Manager", true, None::<&str>)?;
+                let show =
+                    MenuItem::with_id(app, "show", "Open CoA Server Manager", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show, &quit])?;
 
@@ -2973,11 +3112,7 @@ pub fn run() {
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
+                            show_main_window(app);
                         }
                         "quit" => {
                             QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -2993,11 +3128,7 @@ pub fn run() {
                         } = event
                         {
                             let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
+                            show_main_window(app);
                         }
                     });
 
@@ -3057,12 +3188,23 @@ async fn portable_preflight_remote(
 }
 
 fn browse_client() -> std::result::Result<coa_core::realm_registry::BrowseClient, UiError> {
+    browse_preferences::require_enabled(&data_dir())?;
     let settings = coa_core::realm_registry::settings::load(&data_dir().join("registry"))?;
     let url = std::env::var("COA_REGISTRY_URL")
         .ok()
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| settings.effective_url().to_string());
     Ok(coa_core::realm_registry::BrowseClient::new(&url)?)
+}
+
+#[tauri::command]
+fn browse_enabled() -> std::result::Result<bool, UiError> {
+    Ok(browse_preferences::enabled(&data_dir())?)
+}
+
+#[tauri::command]
+fn browse_set_enabled(enabled: bool) -> std::result::Result<(), UiError> {
+    Ok(browse_preferences::save(&data_dir(), enabled)?)
 }
 
 fn browse_error(e: coa_core::realm_registry::ClientError) -> UiError {

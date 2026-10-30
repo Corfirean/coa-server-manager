@@ -214,11 +214,13 @@ fn run(
 struct StreamWorker {
     tx: Sender<TunnelMsg>,
     reset_on_drop: bool,
+    shutdown: Arc<TcpStream>,
 }
 
 impl Drop for StreamWorker {
     fn drop(&mut self) {
         if self.reset_on_drop {
+            let _ = self.shutdown.shutdown(std::net::Shutdown::Both);
             let _ = self.tx.send(TunnelMsg::Reset { stream_id: 0 });
         }
     }
@@ -388,6 +390,8 @@ fn session(
                             };
                             match TcpStream::connect(("127.0.0.1", local_port)) {
                                 Ok(tcp) => {
+                                    let tcp = Arc::new(tcp);
+                                    let shutdown = tcp.clone();
                                     let (stream_tx, stream_rx) = channel::<TunnelMsg>();
                                     let ws_tx = ws_out_tx.clone();
 
@@ -398,6 +402,7 @@ fn session(
                                         StreamWorker {
                                             tx: stream_tx,
                                             reset_on_drop: true,
+                                            shutdown,
                                         },
                                     );
 
@@ -456,19 +461,20 @@ fn session(
 
 fn spawn_local_tcp_bridge(
     stream_id: u32,
-    mut tcp: TcpStream,
+    tcp: Arc<TcpStream>,
     from_tunnel: Receiver<TunnelMsg>,
     to_tunnel: Sender<TunnelMsg>,
 ) {
     let _ = tcp.set_nonblocking(false);
     let _ = tcp.set_nodelay(true);
-    let mut tcp_read = tcp.try_clone().expect("tcp clone");
+    let tcp_read = tcp.clone();
     let to_tunnel_read = to_tunnel.clone();
 
     // Local TCP read -> to tunnel
     std::thread::Builder::new()
         .name(format!("relay-stream-{stream_id}-read"))
         .spawn(move || {
+            let mut tcp_read = tcp_read.as_ref();
             let mut buf = [0u8; 16384];
             loop {
                 match tcp_read.read(&mut buf) {
@@ -498,11 +504,12 @@ fn spawn_local_tcp_bridge(
     std::thread::Builder::new()
         .name(format!("relay-stream-{stream_id}-write"))
         .spawn(move || {
+            let mut tcp_write = tcp.as_ref();
             while let Ok(msg) = from_tunnel.recv() {
                 match msg {
                     TunnelMsg::Data { chunk, .. } => {
                         if let Ok(data) = base64::engine::general_purpose::STANDARD.decode(&chunk) {
-                            if tcp.write_all(&data).is_err() {
+                            if tcp_write.write_all(&data).is_err() {
                                 break;
                             }
                         }
@@ -608,22 +615,71 @@ mod tests {
     }
 
     #[test]
-    fn dropping_a_tunnel_closes_its_local_tcp_stream() {
+    fn local_tunnel_exchanges_data_in_both_directions_before_reset() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let tcp = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let tcp = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+        let shutdown = tcp.clone();
         let (mut peer, _) = listener.accept().unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
         let (tx, rx) = channel();
-        let (out, _) = channel();
-        spawn_local_tcp_bridge(7, tcp, rx, out);
-        drop(StreamWorker {
+        let (out, replies) = channel();
+        spawn_local_tcp_bridge(8, tcp, rx, out);
+        let worker = StreamWorker {
             tx,
             reset_on_drop: true,
-        });
-        match peer.read(&mut [0u8; 1]) {
-            Ok(0) => {},
-            Err(error) if matches!(error.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => {},
-            other => panic!("The abandoned relay stream must close, got {other:?}"),
+            shutdown,
+        };
+        worker
+            .tx
+            .send(TunnelMsg::Data {
+                stream_id: 8,
+                chunk: base64::engine::general_purpose::STANDARD.encode(b"request"),
+            })
+            .unwrap();
+        let mut request = [0; 7];
+        peer.read_exact(&mut request).unwrap();
+        assert_eq!(&request, b"request");
+        peer.write_all(b"response").unwrap();
+        let mut response = Vec::new();
+        while response.len() < 8 {
+            match replies.recv_timeout(Duration::from_secs(3)).unwrap() {
+                TunnelMsg::Data { chunk, .. } => response.extend(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(chunk)
+                        .unwrap(),
+                ),
+                other => panic!("Expected the local reply, got {other:?}"),
+            }
+        }
+        assert_eq!(response, b"response");
+        drop(worker);
+    }
+
+    #[test]
+    fn dropping_a_tunnel_closes_its_local_tcp_stream() {
+        for _ in 0..32 {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let tcp = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+            let shutdown = tcp.clone();
+            let (mut peer, _) = listener.accept().unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let (tx, rx) = channel();
+            let (out, _) = channel();
+            spawn_local_tcp_bridge(7, tcp, rx, out);
+            drop(StreamWorker {
+                tx,
+                reset_on_drop: true,
+                shutdown,
+            });
+            match peer.read(&mut [0u8; 1]) {
+                Ok(0) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                other => panic!("The abandoned relay stream must close, got {other:?}"),
+            }
         }
     }
 }
