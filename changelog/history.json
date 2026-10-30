@@ -167,6 +167,7 @@
     "Corfirean/coa-server-manager:20261030-playerbots-overview-count.md",
     "Corfirean/coa-server-manager:20261030-public-server-browsing-control.md",
     "Corfirean/coa-server-manager:20261030-stop-does-not-trigger-auto-restart.md",
+    "Corfirean/coa-server-manager:20261030-update-history-target-cache.md",
     "Corfirean/coa-server-manager:20261030-wait-for-world-console-readiness.md",
     "Corfirean/coa-server-manager:20261030-window-lifecycle.md"
   ],
@@ -856,6 +857,17 @@
       ],
       "commit": "642da8fdc1a0165aea74fbd1ab1b46933fc7e589",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.4...v0.9.5"
+    },
+    {
+      "tag": "v0.9.7",
+      "version": "0.9.7",
+      "date": "2026-10-30",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.7",
+      "notes": [
+        "Show available update notes even when release history is cached"
+      ],
+      "commit": "ba5816e3aea471d5b870e5f0db0b03920c071ed3",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.5...v0.9.7"
     }
   ]
 }

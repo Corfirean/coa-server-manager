@@ -8,6 +8,12 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.7 — 2026-10-30
+
+- Show available update notes even when release history is cached.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.7) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.5...v0.9.7)
+
 ## 0.9.5 — 2026-10-30
 
 - Account creation verifies a lost console reply against the requested login.
