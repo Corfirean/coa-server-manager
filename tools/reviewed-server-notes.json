@@ -1,0 +1,12 @@
+{
+  "core": "8b6bbd8610cd672d2823f40909f1c7ee95a83371",
+  "bots": "4f6cf99e6bf509ae2b178e993d1170cc7fe0cb0c",
+  "squid": "fa4cfd31997367b3e574a2b89b858c4669ff53fb",
+  "notes": [
+    "Prevent crashes while players update Apex Hunt quest markers on different maps",
+    "Thin Human and Leper Troll characters retain their starting data after updates",
+    "Companions avoid rejected names and recover from forced rename login failures",
+    "Updated SQUID Playerbots to 2.8.2",
+    "Updated the reviewed CoA upstream snapshot"
+  ]
+}

@@ -26,3 +26,8 @@ latest bundled record of each component to have every translation.
 Manager 0.9.5 prepares all five translations of the ten reviewed stabilization notes and
 three server stabilization notes before their release. The bundled snapshot includes server
 0.261029.85 from the pinned commit above. Pending notes do not fabricate published records.
+
+The reviewed upcoming server record is tested from tools/reviewed-server-notes.json,
+bound to the exact core, companions and SQUID source commits. This includes the
+SQUID 2.8.2 update note. The plan is not a published history record. Manager 0.9.7
+carries these translations; the unpublished 0.9.6 installer is retained as an older candidate.

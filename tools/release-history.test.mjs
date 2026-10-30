@@ -25,3 +25,11 @@ test("latest published Manager and server records have complete translations in 
     }
   }
 });
+
+test("reviewed upcoming server notes have all five translations before publication", () => {
+  const planned = JSON.parse(readFileSync(new URL("./reviewed-server-notes.json", import.meta.url)));
+  const translations = JSON.parse(readFileSync(new URL("../src/data/latest-note-translations.json", import.meta.url)));
+  for (const locale of ["ru", "de", "fr", "es", "zh"]) {
+    assert.equal(localizeNotes(planned.notes, translations.server[locale]).fallback, false, `reviewed server/${locale}`);
+  }
+});
