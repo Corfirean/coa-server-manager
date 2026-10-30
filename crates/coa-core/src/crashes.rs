@@ -24,17 +24,25 @@ pub struct CrashItem {
 
 /// Lists recent crash reports from `Core/Crashes`, sorted newest first.
 pub fn list(root: &Path, limit: usize) -> Result<Vec<CrashItem>> {
-    let dir = root.join("Core/Crashes");
+    let mut roots = vec![root.to_path_buf()];
+    roots.extend(crate::multiworld::Tree::ALL.map(|tree| crate::multiworld::tree_root(root, tree)));
     let mut files: Vec<(PathBuf, SystemTime)> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("txt") {
-                let mtime = entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(SystemTime::UNIX_EPOCH);
-                files.push((path, mtime));
+    for world_root in roots {
+        let entries = match fs::read_dir(world_root.join("Core/Crashes")) {
+            Ok(entries) => Some(entries),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.into()),
+        };
+        if let Some(entries) = entries {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("txt") {
+                    let mtime = entry
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(SystemTime::UNIX_EPOCH);
+                    files.push((path, mtime));
+                }
             }
         }
     }
@@ -43,8 +51,12 @@ pub fn list(root: &Path, limit: usize) -> Result<Vec<CrashItem>> {
 
     let mut items = Vec::new();
     for (path, mtime) in files {
-        if let Ok(content) = fs::read_to_string(&path) {
-            let item = parse_crash_content(&path, mtime, &content);
+        if let Ok(bytes) = fs::read(&path) {
+            let content = String::from_utf8_lossy(&bytes);
+            let mut item = parse_crash_content(&path, mtime, &content);
+            if let Ok(relative) = path.strip_prefix(root) {
+                item.id = relative.to_string_lossy().replace('\\', "/");
+            }
             items.push(item);
         }
     }
@@ -236,6 +248,49 @@ fn explain(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovers_native_ansi_reports_and_ignores_dump_files() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(list(root.path(), 10).unwrap().is_empty());
+        fs::create_dir_all(root.path().join("Core/Crashes")).unwrap();
+        fs::write(
+            root.path().join("Core/Crashes/report.txt"),
+            b"Exception code: C0000005 \xff\r\n",
+        )
+        .unwrap();
+        fs::write(root.path().join("Core/Crashes/report.dmp"), b"binary").unwrap();
+        let reports = list(root.path(), 10).unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].exception_code.as_deref(), Some("C0000005"));
+    }
+
+    #[test]
+    fn discovers_reports_from_all_worlds_without_filename_collisions() {
+        let root = tempfile::tempdir().unwrap();
+        for relative in [
+            "Core/Crashes",
+            ".realms/secondary/Core/Crashes",
+            ".realms/reborn/Core/Crashes",
+        ] {
+            fs::create_dir_all(root.path().join(relative)).unwrap();
+            fs::write(
+                root.path().join(relative).join("same.txt"),
+                b"Exception code: C0000005",
+            )
+            .unwrap();
+        }
+        let reports = list(root.path(), 10).unwrap();
+        assert_eq!(reports.len(), 3);
+        assert_eq!(
+            reports
+                .iter()
+                .map(|r| &r.id)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
+    }
 
     #[test]
     fn parses_assertion_report() {

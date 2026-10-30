@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Download, Power, FolderOpen, Wrench, Languages } from "lucide-react";
 import { useI18n } from "@/i18n";
+import { WindowSettings } from "./WindowSettings";
+import { PublicServerSettings } from "./PublicServerSettings";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { Card } from "@/components/ui/card";
 import { useServerUpdate } from "@/lib/serverUpdate";
@@ -50,6 +52,6 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; s
     <div hidden={section !== "startup"} className="max-w-3xl"><RealmStartupSettings serverId={serverId} /><AutoRestartSettings serverId={serverId} /></div>
     <div hidden={section !== "client"} className="max-w-3xl"><ClientCard serverId={serverId} /><GameDataCard serverId={serverId} /></div>
     <div hidden={section !== "service"} className="max-w-3xl"><DiagnosticsCard serverId={serverId} /><RepairCard serverId={serverId} /><RemoveServerCard serverId={serverId} path={path} onForget={onForget} /></div>
-    <div hidden={section !== "interface"} className="max-w-3xl"><Card className="mt-6 p-6"><h2 className="font-semibold">{t("settings.language")}</h2><p className="mt-1 text-sm text-muted">{t("settings.languageHint")}</p><LanguagePicker className="mt-4" /></Card></div>
+    <div hidden={section !== "interface"} className="max-w-3xl"><Card className="mt-6 p-6"><h2 className="font-semibold">{t("settings.language")}</h2><p className="mt-1 text-sm text-muted">{t("settings.languageHint")}</p><LanguagePicker className="mt-4" /></Card><WindowSettings /><PublicServerSettings /></div>
   </div>;
 }

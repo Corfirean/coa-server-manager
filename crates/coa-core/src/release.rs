@@ -21,22 +21,33 @@ pub struct SqlFile {
     pub sha256: String,
 }
 
-fn sql_in(dir: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = fs::read_dir(dir)
-        .map(|rd| {
-            rd.flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().map(|e| e == "sql").unwrap_or(false))
-                .collect()
-        })
-        .unwrap_or_default();
-    v.sort();
-    v
+fn entries(dir: &Path) -> Result<Vec<fs::DirEntry>> {
+    match fs::read_dir(dir) {
+        Ok(rd) => Ok(rd.collect::<std::io::Result<Vec<_>>>()?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn sql_in(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths: Vec<_> = entries(dir)?
+        .into_iter()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
+        .collect();
+    paths.sort();
+    Ok(paths)
 }
 
 /// The order in which files were first added to the repository (a pending script may rely on a table a module
 /// created earlier). Files git does not know come last, in name order.
-fn introduction_rank(repo: &Path, pathspecs: &[&str]) -> std::collections::HashMap<String, usize> {
+fn introduction_rank(
+    repo: &Path,
+    pathspecs: &[&str],
+) -> Result<std::collections::HashMap<String, usize>> {
+    if !repo.join(".git").exists() {
+        return Ok(Default::default());
+    }
     let mut args = vec![
         "log",
         "--full-history",
@@ -48,18 +59,22 @@ fn introduction_rank(repo: &Path, pathspecs: &[&str]) -> std::collections::HashM
         "--",
     ];
     args.extend_from_slice(pathspecs);
-    let out = Command::new("git").current_dir(repo).args(&args).output();
-    let mut rank = std::collections::HashMap::new();
-    if let Ok(o) = out {
-        for (i, line) in String::from_utf8_lossy(&o.stdout)
-            .lines()
-            .filter(|l| l.ends_with(".sql"))
-            .enumerate()
-        {
-            rank.entry(line.to_string()).or_insert(i);
-        }
+    let out = Command::new("git").current_dir(repo).args(&args).output()?;
+    if !out.status.success() {
+        return Err(Error::Invalid(format!(
+            "Cannot establish SQL migration order: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )));
     }
-    rank
+    let mut rank = std::collections::HashMap::new();
+    for (i, line) in String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|line| line.ends_with(".sql"))
+        .enumerate()
+    {
+        rank.entry(line.to_string()).or_insert(i);
+    }
+    Ok(rank)
 }
 
 /// Incremental SQL of a core checkout. Installation-only module bases must never be replayed on a live database.
@@ -91,7 +106,7 @@ fn collect_core_sql_mode(core: &Path, include_base: bool) -> Result<Vec<SqlFile>
         ("world", ["db_world", "pending_db_world"]),
     ] {
         for d in dirs {
-            for f in sql_in(&core.join("data/sql/updates").join(d)) {
+            for f in sql_in(&core.join("data/sql/updates").join(d))? {
                 let stem = f.file_stem().unwrap().to_string_lossy().into_owned();
                 let rel = format!(
                     "data/sql/updates/{d}/{}",
@@ -101,8 +116,8 @@ fn collect_core_sql_mode(core: &Path, include_base: bool) -> Result<Vec<SqlFile>
             }
         }
     }
-    if let Ok(rd) = fs::read_dir(core.join("modules")) {
-        let mut mods: Vec<_> = rd.flatten().collect();
+    {
+        let mut mods = entries(&core.join("modules"))?;
         mods.sort_by_key(|e| e.file_name());
         for m in mods {
             let name = m.file_name().to_string_lossy().into_owned();
@@ -110,7 +125,7 @@ fn collect_core_sql_mode(core: &Path, include_base: bool) -> Result<Vec<SqlFile>
             for kind in ["auth", "characters", "world"] {
                 let base = m.path().join(format!("data/sql/db-{kind}"));
                 for f in if include_base {
-                    sql_in(&base.join("base"))
+                    sql_in(&base.join("base"))?
                 } else {
                     vec![]
                 } {
@@ -121,7 +136,7 @@ fn collect_core_sql_mode(core: &Path, include_base: bool) -> Result<Vec<SqlFile>
                     );
                     push(kind, format!("mod_{mname}__base__{stem}"), f, rel)?;
                 }
-                for f in sql_in(&base) {
+                for f in sql_in(&base)? {
                     let stem = f.file_stem().unwrap().to_string_lossy().into_owned();
                     let rel = format!(
                         "modules/{name}/data/sql/db-{kind}/{}",
@@ -132,7 +147,7 @@ fn collect_core_sql_mode(core: &Path, include_base: bool) -> Result<Vec<SqlFile>
             }
         }
     }
-    let rank = introduction_rank(core, &["data/sql/updates", "modules"]);
+    let rank = introduction_rank(core, &["data/sql/updates", "modules"])?;
     out.sort_by_key(|f| rank.get(&f.origin).copied().unwrap_or(usize::MAX));
     Ok(out)
 }
@@ -155,7 +170,7 @@ pub fn export_baseline(server: &Path, out: &Path) -> Result<Vec<(String, u64)>> 
 /// SQL a bots module checkout ships for the characters database (its `dist/sql`).
 pub fn collect_bots_sql(bots: &Path) -> Result<Vec<SqlFile>> {
     let mut out = Vec::new();
-    for f in sql_in(&bots.join("dist/sql")) {
+    for f in sql_in(&bots.join("dist/sql"))? {
         let stem = f.file_stem().unwrap().to_string_lossy().into_owned();
         out.push(SqlFile {
             db: "characters".into(),
@@ -362,6 +377,30 @@ mod tests {
         let p = root.join(rel);
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, c).unwrap();
+    }
+
+    #[test]
+    fn sql_collection_rejects_broken_history_in_a_git_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), ".git", "gitdir: missing-history");
+        write(dir.path(), "data/sql/updates/db_world/one.sql", "SELECT 1;");
+        assert!(collect_core_sql(dir.path())
+            .unwrap_err()
+            .to_string()
+            .contains("migration order"));
+    }
+
+    #[test]
+    fn sql_collection_rejects_unreadable_directories_instead_of_omitting_migrations() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "data/sql/updates/db_world", "not a directory");
+        assert!(collect_core_sql(dir.path()).is_err());
+        let bots = tempfile::tempdir().unwrap();
+        write(bots.path(), "dist/sql", "not a directory");
+        assert!(collect_bots_sql(bots.path()).is_err());
+        let modules = tempfile::tempdir().unwrap();
+        write(modules.path(), "modules", "not a directory");
+        assert!(collect_core_sql(modules.path()).is_err());
     }
 
     #[test]

@@ -1277,6 +1277,22 @@ const en = {
   "access.relay": "Relay",
   "access.relayUp": "Game relay connected",
   "access.relayDown": "Game relay disconnected",
+  "settings.publicServers": "Allow public server browsing",
+  "settings.publicServersHint": "When disabled, the Manager does not request public server lists or details. When enabled, load the list with Refresh.",
+  "browse.disabled": "Public server browsing is disabled. Enable it in Settings to load the catalog.",
+  "client.graphics.dxvk": "Use compatibility graphics (disable DXVK)",
+  "client.graphics.enhancements": "Disable additional graphics enhancements",
+  "client.graphics.hint": "Close the game before changing these settings. Disabled renderers stay disabled during client updates.",
+  "settings.closeToTray": "Minimize to tray when closing the window",
+  "settings.closeToTrayHint": "When off, closing the window exits the Manager. Launching it again opens the existing window if it is already running.",
+
+  "overview.bots": "+ {n} bots",
+
+  "stop.force": "Force stop",
+  "stop.forceTitle": "Force-stop this server?",
+  "stop.forceWarning": "Unsaved player progress may be lost. Only verified processes belonging to this server will be stopped. The database will remain running until every world has stopped.",
+  "stop.cancel": "Cancel",
+
 } as const;
 
 export default en;

@@ -11,10 +11,11 @@ const stubs = {
   "@/lib/api": `export const api={}; export const asUiError=e=>e;`,
   "@/lib/utils": `export const cn=(...s)=>s.filter(Boolean).join(' '); export const formatBytes=String; export const formatUptime=String;`,
   "@/i18n": `export const useT=()=>k=>k; export const useHuman=()=>h=>h;`,
-  "@/lib/serverUpdate": `export const applyServerUpdate=async()=>false; export const useServerUpdate=()=>globalThis.__overviewUpdate;`,
+  "@/lib/serverUpdate": `export const serverUpdateBlocksRestart=()=>false; export const applyServerUpdate=async()=>false; export const useServerUpdate=()=>globalThis.__overviewUpdate;`,
   "@/lib/clientJob": `export const dismissClientJob=()=>{}; export const startClientUpdate=()=>{}; export const stopClientJob=()=>{}; export const syncClient=()=>{}; export const useClientJob=()=>({phase:'idle'});`,
   "@/lib/clientUpdate": `export const checkClient=()=>{}; export const useClientStatus=()=>({status:null});`,
   "@/lib/autoRestartPrefs": `export const useAutoRestart=()=>[false,()=>{}];`,
+  "./ForceStopDialog": `export const ForceStopDialog=()=>null;`,
   "@/screens/PublishCard": `export const ListingChip=()=>null;`,
   "@/screens/PublishDialog": `export const PublishRealmDialog=()=>null;`,
   "@/lib/registry": `export const useRegistryStatus=()=>({status:null});`,
@@ -28,6 +29,8 @@ const bundle = await rolldown({
   external: (id, importer) => id === "react/jsx-runtime" || id === "lucide-react" || (id === "react" && !importer?.endsWith("Overview.tsx")),
   plugins: [{ name: "overview-test",
     resolveId(id, importer) {
+      if (id === "./ForceStopDialog") return "\0" + id;
+      if (id === "@/lib/serverLifecycle") return fileURLToPath(new URL("../src/lib/serverLifecycle.ts", import.meta.url));
       if (id === "@/components/ui/split-button") return fileURLToPath(new URL("../src/components/ui/split-button.tsx", import.meta.url));
       if (id.startsWith("@/") || (id === "react" && importer?.endsWith("Overview.tsx"))) return "\0" + id;
     },

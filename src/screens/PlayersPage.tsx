@@ -36,12 +36,12 @@ export function PlayersPage({ serverId }: { serverId: string }) {
     try {
       await api.createAccount(serverId, username, password, admin);
       setDone(username);
-      setCreated((n) => n + 1);
       setUsername("");
       setPassword("");
     } catch (e) {
       setError(asUiError(e));
     } finally {
+      setCreated((n) => n + 1);
       setBusy(false);
     }
   }

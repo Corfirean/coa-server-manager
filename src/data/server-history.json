@@ -1164,6 +1164,139 @@
         "portable-characters"
       ],
       "compare": "https://github.com/Corfirean/coa-server-build/compare/server-0.261026.81...server-0.261028.83"
+    },
+    {
+      "tag": "server-0.261029.85",
+      "version": "0.261029.85",
+      "date": "2026-10-29",
+      "url": "https://github.com/Corfirean/coa-server-build/releases/tag/server-0.261029.85",
+      "notes": [
+        "Dungeon scaling preserves the level differences between creatures",
+        "Server includes newer upstream class, quest and dungeon updates",
+        "Interactive World Map displays allied bots, guild tasks and events",
+        "Normal Classic dungeons retain their authored damage at full party size",
+        "Database startup allows time for slower hard drives",
+        "Updated the reviewed CoA upstream snapshot"
+      ],
+      "snapshot": "386ef2183cb286cd50d9b966ab184a6dd743b08889bd92af65be6f295a60c25c",
+      "components": {
+        "upstream": {
+          "repository": "jealous-sound/azerothcore-wotlk-coa",
+          "ref": "783f87fc5d271192c56f71a4e48ff5b3111f4c00",
+          "sha": "783f87fc5d271192c56f71a4e48ff5b3111f4c00"
+        },
+        "core": {
+          "repository": "Corfirean/azerothcore-wotlk-coa",
+          "ref": "084c26dde98099f6329b85f3bfda2df9e107b180",
+          "sha": "084c26dde98099f6329b85f3bfda2df9e107b180"
+        },
+        "bots": {
+          "repository": "Corfirean/mod-coa-playerbots",
+          "ref": "16555af2303b870751d27d287ce3ce8088b9e933",
+          "sha": "16555af2303b870751d27d287ce3ce8088b9e933"
+        },
+        "scaling": {
+          "repository": "Corfirean/mod-coa-content-scaling",
+          "ref": "0898a3e976677cde470a60ba4e6f9bb9d0fe5e2c",
+          "sha": "0898a3e976677cde470a60ba4e6f9bb9d0fe5e2c"
+        },
+        "manager": {
+          "repository": "Corfirean/coa-server-manager",
+          "ref": "c004b90c54fa358b3037c56b093cf019dfcf02b8",
+          "sha": "c004b90c54fa358b3037c56b093cf019dfcf02b8"
+        },
+        "races": {
+          "repository": "ilusixn/azerothcore-wotlk-coa",
+          "ref": "coa-custom-1.9.2",
+          "sha": "31bd63d309b8b0fb4f1a4d9b793a343b8ac36f1e",
+          "assets": [
+            {
+              "name": "CoA-Custom-1.9.2-Client-1.zip",
+              "size": 1513021586,
+              "digest": "sha256:a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-1.zip"
+            },
+            {
+              "name": "CoA-Custom-1.9.2-Client-2.zip",
+              "size": 1198283005,
+              "digest": "sha256:ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-2.zip"
+            },
+            {
+              "name": "CoA-Custom-1.9.2-Client-3.zip",
+              "size": 1678829573,
+              "digest": "sha256:907e267f0ee7038807e626c3c1eca5e12db6c88b747137a23c5fb52eaa1a358e",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-3.zip"
+            },
+            {
+              "name": "CoA-Custom-1.9.2-Client-4.zip",
+              "size": 502385128,
+              "digest": "sha256:e0bd87172af989fa50a8e2b08ba4321c72b6265047482f051a1db3b80d55bcaa",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-4.zip"
+            },
+            {
+              "name": "CoA-Custom-1.9.2-Client-5.zip",
+              "size": 168079711,
+              "digest": "sha256:73364ad1b58c6342641a848a3b20a835472834f600416606be1470386774ca78",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-5.zip"
+            },
+            {
+              "name": "CoA-Custom-1.9.2-Server.zip",
+              "size": 53004560,
+              "digest": "sha256:b893813573a4d3f6a0003c1f174582d3def997f37b402cbca44d53055d2fc1d2",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Server.zip"
+            },
+            {
+              "name": "INSTALL-GUIDE.txt",
+              "size": 3006,
+              "digest": "sha256:f17e97fafa3225901d1caf8c3b8141293f98fbfb8c9243c0c4717278c60146aa",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/INSTALL-GUIDE.txt"
+            },
+            {
+              "name": "PATCH-NOTES-1.9.2.txt",
+              "size": 2822,
+              "digest": "sha256:f2fd4693ba181959a572d3fb10a0050e9ff6c4f735b3ab0019c7d16712db28cb",
+              "url": "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/PATCH-NOTES-1.9.2.txt"
+            }
+          ]
+        },
+        "squid": {
+          "repository": "Zyth45/mod-playerbots",
+          "ref": "v2.7",
+          "sha": "272c350b0d8c045ca04a790de4b5b2f0cef531ef"
+        },
+        "build": {
+          "repository": "Corfirean/coa-server-build",
+          "ref": "3f7eb2b3b67d621259baf12c9a6fbcf23f791bb1",
+          "sha": "3f7eb2b3b67d621259baf12c9a6fbcf23f791bb1"
+        },
+        "navigation": {
+          "repository": "Corfirean/azerothcore-wotlk-coa",
+          "ref": "8b44099f480af0b69c6dfc697e4d388e865e9ffc",
+          "sha": "8b44099f480af0b69c6dfc697e4d388e865e9ffc",
+          "sourceRelease": "navigation-20261012",
+          "manifestSha256": "7f28600735f115792e79a5e8d1c8d78a83a8f5ed14a090c6d87268e49c2bb683",
+          "archiveSha256": "aa1347a095f85af44b4f592270a0e9314954801fda4578f0147f847e32c24a60",
+          "assets": [
+            {
+              "name": "navigation.zip.001",
+              "size": 1500000000,
+              "sha256": "e3a93903fc8155ee0d92db399ec426769c360bef87c44c07beb7e21cfd892c18",
+              "url": "https://github.com/Corfirean/coa-server-build/releases/download/navigation-20261012/navigation.zip.001"
+            },
+            {
+              "name": "navigation.zip.002",
+              "size": 1377006470,
+              "sha256": "c1af26ba7f83676278613076c357c4da0a11cfa6ae1ff00003479057c4864471",
+              "url": "https://github.com/Corfirean/coa-server-build/releases/download/navigation-20261012/navigation.zip.002"
+            }
+          ]
+        }
+      },
+      "experimentalFeatures": [
+        "portable-characters"
+      ],
+      "compare": "https://github.com/Corfirean/coa-server-build/compare/server-0.261028.83...server-0.261029.85"
     }
   ]
 }

@@ -80,6 +80,60 @@ fn upper(name: &str) -> Result<String> {
     Ok(name.to_ascii_uppercase())
 }
 
+pub fn create(root: &Path, name: &str, password: &str, administrator: bool) -> Result<()> {
+    validate_account(name, password)?;
+    let name = name.to_ascii_uppercase();
+    let db = Db::from_repack(root, Account::Admin)?;
+    if db
+        .query(&format!(
+            "SELECT COUNT(*) FROM acore_auth.account WHERE username='{name}';"
+        ))?
+        .trim()
+        != "0"
+    {
+        return Err(Error::Invalid("That account name is already taken.".into()));
+    }
+    let mut ra = Ra::connect(root)?;
+    ra.performance().map_err(|error| Error::Invalid(format!("The server console is not ready for account creation. No create command was sent. {error}")))?;
+    let confirmed = ra.create_account(&name, password);
+    if let Err(error) = confirmed {
+        let stored = db.query(&format!(
+            "SELECT HEX(salt), HEX(verifier) FROM acore_auth.account WHERE username='{name}';"
+        ))?;
+        if !matches_credentials(&stored, &name, password) {
+            return Err(Error::Invalid(format!("Account creation was not confirmed. Refresh the account list before retrying. {error}")));
+        }
+        if administrator {
+            ra = Ra::connect(root).map_err(|error| Error::Invalid(format!("The account was created, but administrator access was not confirmed. Refresh the account list and check its access level. {error}")))?;
+        }
+    }
+    if administrator {
+        if let Err(error) = ra.make_administrator(&name) {
+            let access = db.query(&format!("SELECT COUNT(*) FROM acore_auth.account_access WHERE id=(SELECT id FROM acore_auth.account WHERE username='{name}') AND gmlevel=3 AND RealmID=-1;"))?;
+            if access.trim() != "1" {
+                return Err(Error::Invalid(format!("The account was created, but administrator access was not confirmed. Refresh the account list and check its access level. {error}")));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn matches_credentials(stored: &str, name: &str, password: &str) -> bool {
+    let Some((salt, verifier)) = stored.trim().split_once('\t') else {
+        return false;
+    };
+    let Ok(salt) = hex::decode(salt) else {
+        return false;
+    };
+    let Ok(salt): std::result::Result<[u8; 32], _> = salt.try_into() else {
+        return false;
+    };
+    let Ok(verifier) = hex::decode(verifier) else {
+        return false;
+    };
+    verifier.as_slice() == crate::srp6::verifier(name, password, &salt)
+}
+
 /// Give the account a new name. Needs the world console (the new password is what makes the login work again) and an
 /// account that is not logged in. The old name is put back if anything goes wrong.
 pub fn rename(root: &Path, ra: &mut Ra, old: &str, new: &str, password: &str) -> Result<()> {
@@ -164,6 +218,19 @@ pub fn delete(root: &Path, ra: &mut Ra, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lost_reply_requires_the_exact_requested_credentials() {
+        let salt = [42; 32];
+        let verifier = crate::srp6::verifier("NewPlayer", "Password77", &salt);
+        let stored = format!("{}\t{}\n", hex::encode(salt), hex::encode(verifier));
+        assert!(matches_credentials(&stored, "NEWPLAYER", "password77"));
+        assert!(!matches_credentials(&stored, "NEWPLAYER", "wrongpass"));
+        assert!(!matches_credentials(&stored, "OTHERPLAYER", "Password77"));
+        for value in ["", "NULL\tNULL", "00\t00", "malformed"] {
+            assert!(!matches_credentials(value, "NewPlayer", "Password77"));
+        }
+    }
 
     #[test]
     fn rows_from_the_client_become_accounts() {

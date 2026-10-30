@@ -103,7 +103,69 @@ pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
     run_inner(root, Verb::StartAll, true)
 }
 
+pub fn force_stop(root: &Path) -> Result<DriverOutcome> {
+    if crate::docker::is_docker(root) {
+        return Err(Error::Invalid(
+            "Forced shutdown is only available for Windows repacks.".into(),
+        ));
+    }
+    for tree in crate::multiworld::Tree::ALL {
+        let path = crate::multiworld::tree_root(root, tree);
+        if crate::multiworld::tree_running(root, tree)
+            || !crate::process::find_by_exe(&path.join("Core/worldserver.exe")).is_empty()
+        {
+            let child = fsx::ensure_within(root, &path)?;
+            let out = run_inner_mode(&child, Verb::StopAll, false, true)?;
+            if !out.ok || crate::multiworld::tree_running(root, tree) {
+                return Err(Error::Invalid(format!(
+                    "An extra world could not stop; the shared database was left running. {}",
+                    out.output
+                )));
+            }
+        }
+    }
+    run_inner_mode(root, Verb::StopAll, false, true)
+}
+
+fn recover_world_for_forced_stop(root: &Path) -> Result<()> {
+    let worlds = crate::process::find_by_exe(&root.join("Core/worldserver.exe"));
+    if worlds.len() > 1 {
+        return Err(Error::Invalid(
+            "More than one world process belongs to this folder; its database was left running."
+                .into(),
+        ));
+    }
+    if let Some(world) = worlds.first() {
+        if !crate::process::is_alive(world) {
+            return Err(Error::Invalid(
+                "The world process identity changed; retry the stop.".into(),
+            ));
+        }
+        if crate::process::read_state_record(root, "world")
+            .is_none_or(|saved| !saved.same_as(world))
+        {
+            let record = root.join(".state/world.json");
+            let previous = root.join(".state/world-before-forced-stop-recovery.json");
+            if record.is_file() && !previous.exists() {
+                fsx::atomic_write(&previous, &std::fs::read(&record)?)?;
+            }
+            fsx::atomic_write_json(&record, world)?;
+            tracing::warn!(pid = world.pid, root = %root.display(), "Recovered owned world identity before an explicitly requested forced stop");
+        }
+    }
+    Ok(())
+}
+
 fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverOutcome> {
+    run_inner_mode(root, verb, validating_update, false)
+}
+
+fn run_inner_mode(
+    root: &Path,
+    verb: Verb,
+    validating_update: bool,
+    force: bool,
+) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
     let _update_lock = if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
         Some(crate::update::operation_lock_for(
@@ -124,7 +186,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         prepare_headless_world(&root, verb)?;
         return crate::docker::run(&root, verb);
     }
-    if verb == Verb::StopAll {
+    if verb == Verb::StopAll && !force {
         crate::multiworld::stop(&root)?;
     }
     if verb == Verb::StartAll {
@@ -167,12 +229,15 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     if matches!(verb, Verb::StopAll | Verb::StartMysql | Verb::StartAll) {
         recover_mysql_launcher_state(&root, verb != Verb::StopAll)?;
     }
+    if force {
+        recover_world_for_forced_stop(&root)?;
+    }
     let mut cmd = Command::new(&python);
     cmd.arg("-B")
         .arg("-c")
         .arg(LAUNCH_SCRIPT)
         .arg(&script)
-        .arg(verb.arg())
+        .arg(if force { "force-stop-all" } else { verb.arg() })
         .current_dir(&root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -278,6 +343,9 @@ fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
     if !matches!(verb, Verb::StartAll | Verb::StartWorld) {
         return Ok(());
     }
+    std::fs::create_dir_all(root.join("Core/Crashes"))?;
+    let probe = tempfile::NamedTempFile::new_in(root.join("Core/Crashes"))?;
+    probe.close()?;
     for relative in [
         "Settings/worldserver.conf.template",
         "Core/configs/worldserver.conf",
@@ -575,6 +643,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let root = folder.path();
         prepare_headless_world(root, Verb::StartAll).unwrap();
+        assert!(root.join("Core/Crashes").is_dir());
         std::fs::create_dir_all(root.join("Core/configs")).unwrap();
         let path = root.join("Core/configs/worldserver.conf");
         for original in [

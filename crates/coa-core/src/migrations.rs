@@ -307,6 +307,51 @@ pub struct Item {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Audit {
+    pub total: usize,
+    pub applied: usize,
+    pub checksum_verified: usize,
+    pub legacy_unknown: usize,
+}
+
+pub fn inventory_sha256(list: &[Migration]) -> Result<String> {
+    let inventory: Vec<_> = list
+        .iter()
+        .map(|m| (&m.db, &m.id, &m.sha256, &m.compatible_sha256, m.destructive))
+        .collect();
+    Ok(fsx::sha256_bytes(&serde_json::to_vec(&inventory)?))
+}
+
+pub fn audit_applied(store: &dyn Store, list: &[Migration]) -> Result<Audit> {
+    let rows = store.load_readonly()?;
+    check_history(&rows, list)?;
+    let mut audit = Audit {
+        total: list.len(),
+        applied: 0,
+        checksum_verified: 0,
+        legacy_unknown: 0,
+    };
+    for migration in list {
+        let row = recorded(&rows, migration)
+            .filter(|r| r.status == Status::Applied)
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "Release migration {} ({}) is not recorded as applied.",
+                    migration.id, migration.db
+                ))
+            })?;
+        audit.applied += 1;
+        if row.sha256 == "0".repeat(64) {
+            audit.legacy_unknown += 1;
+        } else {
+            audit.checksum_verified += 1;
+        }
+    }
+    Ok(audit)
+}
+
 pub fn status(store: &dyn Store, list: &[Migration]) -> Result<Vec<Item>> {
     let rows = store.load()?;
     Ok(list
@@ -358,7 +403,7 @@ fn preserve_auth_history(store: &dyn Store, rows: &[LedgerRow], list: &[Migratio
 }
 
 /// Migrations that were published with different bytes but have the same effect, so a server that applied either
-/// version accepts the other. The Wildcard table repair went out as `c1d8…` (0.261005.0, 0.261006.1) and as `9e4a…`
+/// version accepts the other. The Wildcard table repair went out as `c1d8вЂ¦` (0.261005.0, 0.261006.1) and as `9e4aвЂ¦`
 /// (0.261005.22, 0.261007.24); the packages carry no list of compatible versions, so the Manager knows this pair.
 const SAME_EFFECT: &[(&str, &[&str])] = &[(
     "manager_repair__20261005_missing_wildcard_tables",
@@ -665,6 +710,61 @@ mod tests {
             self.ran.borrow_mut().push(name);
             Ok(())
         }
+    }
+
+    #[test]
+    fn qualification_inventory_digest_matches_release_pipeline_encoding() {
+        let list = vec![Migration {
+            id: "one".into(),
+            db: "world".into(),
+            sha256: "a".repeat(64),
+            compatible_sha256: vec![],
+            destructive: false,
+        }];
+        assert_eq!(
+            inventory_sha256(&list).unwrap(),
+            "b35e45f666304500e69ff352f83103910075ace998afb7915b548765b8c30703"
+        );
+    }
+
+    #[test]
+    fn qualification_rejects_missing_interrupted_failed_and_changed_history() {
+        let (_dir, list) = setup(&[("world", "qualification_probe", "SELECT 1;")]);
+        let store = Mem::default();
+        assert!(audit_applied(&store, &list).is_err());
+        for status in [Status::Running, Status::Failed, Status::Pending] {
+            store
+                .put(&LedgerRow {
+                    db: "world".into(),
+                    id: list[0].id.clone(),
+                    sha256: list[0].sha256.clone(),
+                    status,
+                    error: None,
+                    baseline: false,
+                })
+                .unwrap();
+            assert!(audit_applied(&store, &list).is_err());
+        }
+        store
+            .put(&LedgerRow {
+                db: "world".into(),
+                id: list[0].id.clone(),
+                sha256: "a".repeat(64),
+                status: Status::Applied,
+                error: None,
+                baseline: false,
+            })
+            .unwrap();
+        assert!(audit_applied(&store, &list).is_err());
+        store.rows.borrow_mut()[0].sha256 = list[0].sha256.clone();
+        assert_eq!(audit_applied(&store, &list).unwrap().checksum_verified, 1);
+        store.rows.borrow_mut()[0].sha256 = "0".repeat(64);
+        let audit = audit_applied(&store, &list).unwrap();
+        assert_eq!(
+            (audit.applied, audit.checksum_verified, audit.legacy_unknown),
+            (1, 0, 1)
+        );
+        assert!(store.ran.borrow().is_empty());
     }
 
     fn setup(files: &[(&str, &str, &str)]) -> (tempfile::TempDir, Vec<Migration>) {

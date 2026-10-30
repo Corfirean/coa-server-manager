@@ -1,3 +1,6 @@
+import { ForceStopDialog } from "./ForceStopDialog";
+import { serverLifecycle } from "@/lib/serverLifecycle";
+import { serverUpdateBlocksRestart } from "@/lib/serverUpdate";
 import { dismissClientJob, startClientUpdate, stopClientJob, syncClient, useClientJob } from "@/lib/clientJob";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2, X } from "lucide-react";
@@ -91,6 +94,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   }, [bothWorlds, server.id]);
   const [action, setAction] = useState<Action>(null);
   const [realmBusy, setRealmBusy] = useState(false);
+  const [stopFailed, setStopFailed] = useState(false);
+  const [confirmForce, setConfirmForce] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [pop, setPop] = useState<Population | null>(null);
@@ -131,8 +136,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   const [crashLoopPaused, setCrashLoopPaused] = useState(false);
   const [crashRestartNotice, setCrashRestartNotice] = useState<string | null>(null);
 
-  const userStoppedRef = useRef(false);
-  const wasWorldRunningRef = useRef(false);
+  const lifecycle = serverLifecycle(server.id);
   const actionRef = useRef<Action>(null);
   const crashTimestampsRef = useRef<number[]>([]);
   const pollRef = useRef<() => Promise<void>>(undefined);
@@ -168,10 +172,9 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
   const run = useCallback(
     async (kind: Exclude<Action, null>) => {
-      if (kind === "stopping") {
-        userStoppedRef.current = true;
-      } else {
-        userStoppedRef.current = false;
+      setStopFailed(false);
+      lifecycle.request(kind);
+      if (kind !== "stopping") {
         setCrashLoopPaused(false);
         setCrashRestartNotice(null);
       }
@@ -181,8 +184,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       actionRef.current = kind;
       try {
         if (kind !== "starting") {
-          const out = await api.stop(server.id);
-          if (!out.ok) throw { human: out.human, technical: out.output };
+          const out = await api.stop(server.id).catch(e => { setStopFailed(true); throw e; });
+          if (!out.ok) { setStopFailed(true); throw { human: out.human, technical: out.output }; }
         }
         if (kind !== "stopping") {
           setAction("starting");
@@ -194,6 +197,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         const ui = asUiError(e);
         setFailure({ human: ui.human ?? asUiError(String(e)).human, technical: ui.technical });
       } finally {
+        lifecycle.complete(kind);
         setAction(null);
         actionRef.current = null;
         void pollRef.current?.();
@@ -202,24 +206,30 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
     [server.id],
   );
 
+  async function forceStop() {
+    setConfirmForce(false); setFailure(null); setShowDetails(false); setStopFailed(false);
+    lifecycle.request("stopping"); setAction("stopping"); actionRef.current = "stopping";
+    try {
+      const out = await api.forceStop(server.id);
+      if (!out.ok) throw { human: out.human, technical: out.output };
+    } catch (e) { setStopFailed(true); setFailure(asUiError(e)); }
+    finally { lifecycle.complete("stopping"); setAction(null); actionRef.current = null; void pollRef.current?.(); }
+  }
+
   const poll = useCallback(async () => {
     try {
       const s = await api.status(server.id);
       if (alive.current) setStatus(s);
       const isWorldRunning = s.observed.world.state === "running";
       if (isWorldRunning) {
-        wasWorldRunningRef.current = true;
-        userStoppedRef.current = false;
+        lifecycle.observe(true, actionRef.current !== null, serverUpdateBlocksRestart(server.id));
         const p = await api.population(server.id).catch(() => null);
         if (alive.current) setPop(p);
       } else {
         if (alive.current) setPop(null);
         if (
-          wasWorldRunningRef.current &&
-          !userStoppedRef.current &&
-          actionRef.current === null
+          lifecycle.observe(false, actionRef.current !== null, serverUpdateBlocksRestart(server.id))
         ) {
-          wasWorldRunningRef.current = false;
           setHasCrashHistory(true);
           const now = Date.now();
           const recent = crashTimestampsRef.current.filter((ts) => now - ts < 180000);
@@ -401,7 +411,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           </div>
           <div>
             <dt className="text-muted">{t("overview.players")}</dt>
-            <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{companions && pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.companions", { n: pop.bots_online })}</span> : null}</dd>
+            <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.bots", { n: pop.bots_online })}</span> : null}</dd>
           </div>
         </dl>
         {companions && startBots !== undefined && (
@@ -620,6 +630,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         <Card className="mt-4 border-bad/40 p-5" role="alert">
           <p className="font-medium text-bad">{human(visibleFailure.human).title}</p>
           <p className="mt-1 text-sm text-muted">{human(visibleFailure.human).message}</p>
+          {anyUp && (stopFailed || /still stopping|could not be stopped|Stop the server before updating/i.test(visibleFailure.technical)) && <Button className="mt-3" size="sm" variant="secondary" disabled={transitioning || upd.applying} onClick={() => setConfirmForce(true)}>{t("stop.force")}</Button>}
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={() => setShowDetails((v) => !v)}>
               {showDetails ? t("common.hideDetails") : t("common.viewDetails")}
@@ -650,6 +661,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       )}
 
       {publishing && <PublishRealmDialog realm={publishing} onClose={() => setPublishing(null)} />}
+      {confirmForce && <ForceStopDialog onCancel={() => setConfirmForce(false)} onConfirm={() => void forceStop()} />}
       {showCrashModal && (
         <CrashHistoryModal
           serverId={server.id}

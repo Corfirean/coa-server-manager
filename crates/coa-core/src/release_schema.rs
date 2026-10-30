@@ -96,7 +96,7 @@ pub fn qualify_upgrade(
         pkgsource::fetch_manifest(&pkgsource::Source::Dir(base.into()), trusted_key)?;
     let (source_manifest, source_bytes) =
         pkgsource::fetch_manifest(&pkgsource::Source::Dir(source.into()), trusted_key)?;
-    let (candidate_manifest, _) =
+    let (candidate_manifest, candidate_bytes) =
         pkgsource::fetch_manifest(&pkgsource::Source::Dir(candidate.into()), trusted_key)?;
     if candidate_manifest.kind != Kind::Update
         || !matches!(source_manifest.kind, Kind::Base | Kind::Update)
@@ -149,6 +149,7 @@ pub fn qualify_upgrade(
         }
         env.ensure_stopped()
     };
+    let mut migration_audit = None;
     install::with_scratch_ports(fixture, || {
         if source_manifest.kind == Kind::Update {
             apply(source)?;
@@ -157,6 +158,7 @@ pub fn qualify_upgrade(
         let user_bytes = b"Qualification.UserSetting = 7391\r\n";
         fsx::atomic_write(&user_file, user_bytes)?;
         apply(candidate)?;
+        migration_audit = Some(audit_migrations(fixture, &candidate_manifest.migrations)?);
         if std::fs::read(&user_file)?.as_slice() != user_bytes {
             return Err(Error::Invalid(
                 "The update changed a user configuration file.".into(),
@@ -175,9 +177,10 @@ pub fn qualify_upgrade(
     })?;
     Ok(serde_json::json!({
         "schema": 1, "result": "passed", "fromVersion": source_manifest.version,
-        "toVersion": candidate_manifest.version, "fromManifestSha256": fsx::sha256_bytes(&source_bytes),
+        "toVersion": candidate_manifest.version, "toManifestSha256": fsx::sha256_bytes(&candidate_bytes),
+        "migrationInventorySha256": migrations::inventory_sha256(&candidate_manifest.migrations)?, "migrations": migration_audit, "fromManifestSha256": fsx::sha256_bytes(&source_bytes),
         "fromSchemaSha256": source_manifest.files.iter().find(|file| file.path == schema_check::CONTRACT).map(|file| &file.sha256),
-        "checks": ["manager-transaction", "recovery-backed-database-update", "database-schema", "private-auth-world-startup", "existing-identities", "user-file-preservation"],
+        "checks": ["legacy-race-start-data", "migration-ledger", "manager-transaction", "recovery-backed-database-update", "database-schema", "private-auth-world-startup", "existing-identities", "user-file-preservation"],
     }))
 }
 
@@ -239,6 +242,15 @@ pub fn qualify_install(
     fixture: &Path,
     trusted_key: &str,
 ) -> Result<serde_json::Value> {
+    qualify_install_against(package, None, fixture, trusted_key)
+}
+
+pub fn qualify_install_against(
+    package: &Path,
+    update: Option<&Path>,
+    fixture: &Path,
+    trusted_key: &str,
+) -> Result<serde_json::Value> {
     use crate::update::Env;
     if !cfg!(windows)
         || fixture.exists()
@@ -254,6 +266,21 @@ pub fn qualify_install(
     let package = fsx::canonicalize_lenient(package)?;
     let (manifest, bytes) =
         pkgsource::fetch_manifest(&pkgsource::Source::Dir(package.clone()), trusted_key)?;
+    let expected_update = update
+        .map(|path| pkgsource::fetch_manifest(&pkgsource::Source::Dir(path.into()), trusted_key))
+        .transpose()?;
+    if let Some((expected, _)) = &expected_update {
+        if expected.kind != Kind::Update
+            || expected.version != manifest.version
+            || expected.core.commit != manifest.core.commit
+            || expected.bots.as_ref().and_then(|b| b.commit.as_ref())
+                != manifest.bots.as_ref().and_then(|b| b.commit.as_ref())
+        {
+            return Err(Error::Invalid(
+                "Clean installation image does not match the selected release.".into(),
+            ));
+        }
+    }
     let registry_dir = tempfile::tempdir()?;
     let registry = crate::registry::Registry::at(registry_dir.path().join("registry.json"));
     let installed = install::install_base(
@@ -280,11 +307,82 @@ pub fn qualify_install(
             "Clean installation did not finish at the packaged release.".into(),
         ));
     }
+    let migration_audit = expected_update
+        .as_ref()
+        .map(|(expected, _)| audit_migrations(&fixture, &expected.migrations))
+        .transpose()?;
+    env.ensure_stopped()?;
+    crate::mysql_snapshot::stop(&fixture)?;
+    let inventory = expected_update
+        .as_ref()
+        .map(|(expected, _)| migrations::inventory_sha256(&expected.migrations))
+        .transpose()?;
+    let mut checks = vec![
+        "clean-install",
+        "signed-full-package",
+        "credential-rotation",
+        "schema-contract",
+        "private-auth-world-startup",
+    ];
+    if expected_update.is_some() {
+        checks.push("migration-ledger");
+        checks.push("legacy-race-start-data");
+    }
     Ok(
         serde_json::json!({ "schema": 1, "result": "passed", "version": installed.version,
         "manifestSha256": fsx::sha256_bytes(&bytes),
-        "checks": ["clean-install", "signed-full-package", "credential-rotation", "schema-contract", "private-auth-world-startup"] }),
+        "checks": checks, "migrationInventorySha256": inventory, "migrations": migration_audit }),
     )
+}
+
+fn audit_migrations(
+    root: &Path,
+    list: &[Migration],
+) -> Result<std::collections::BTreeMap<String, migrations::Audit>> {
+    install::with_scratch_ports(root, || {
+        backup::with_database(root, |db| {
+            crate::realms::state(root)?
+                .modes()
+                .into_iter()
+                .map(|mode| {
+                    if mode == crate::realms::Mode::Coa {
+                        let rows = db
+                            .clone()
+                            .for_realm(mode)
+                            .query("SELECT race,class FROM acore_world.playercreateinfo;")?;
+                        let missing = missing_legacy_starts(&rows);
+                        if !missing.is_empty() {
+                            return Err(Error::Invalid(format!(
+                                "Release is missing legacy race starting data: {}",
+                                missing.join(", ")
+                            )));
+                        }
+                    }
+                    Ok((
+                        mode.name().to_string(),
+                        migrations::audit_applied(&db.clone().for_realm(mode), list)?,
+                    ))
+                })
+                .collect()
+        })
+    })
+}
+
+fn missing_legacy_starts(rows: &str) -> Vec<String> {
+    let pairs: std::collections::BTreeSet<(u32, u32)> = rows
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter_map(|(race, class)| Some((race.parse().ok()?, class.parse().ok()?)))
+        .collect();
+    let mut missing = Vec::new();
+    for (race, parent) in [(33, 1), (45, 8)] {
+        for &(source, class) in &pairs {
+            if source == parent && !pairs.contains(&(race, class)) {
+                missing.push(format!("race {race} / class {class}"));
+            }
+        }
+    }
+    missing
 }
 
 pub fn collect(core: &Path, bots: Option<&Path>, repairs: Option<&Path>) -> Result<Vec<SqlFile>> {
@@ -616,6 +714,56 @@ mod tests {
     use super::*;
     use base64::{engine::general_purpose::STANDARD, Engine};
     use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    #[ignore = "Requires the disposable current-release installation audit fixture"]
+    fn real_current_image_is_blocked_until_legacy_start_data_is_restored() {
+        let root = std::path::PathBuf::from(std::env::var_os("COA_RELEASE_AUDIT_FIXTURE").unwrap());
+        assert_eq!(
+            root.file_name().unwrap(),
+            "coa-schema-fixture-latest-install-audit-20261030"
+        );
+        assert!(root.join(".release-schema-fixture").is_file());
+        assert!(!root.join("legacy-release-gate-probe-started").exists());
+        fsx::atomic_write(
+            &root.join("legacy-release-gate-probe-started"),
+            b"disposable regression test",
+        )
+        .unwrap();
+        let candidate =
+            std::path::PathBuf::from(std::env::var_os("COA_RELEASE_AUDIT_PACKAGE").unwrap());
+        let (manifest, _) = pkgsource::fetch_manifest(
+            &pkgsource::Source::Dir(candidate),
+            crate::signing::EMBEDDED_PUBLIC_KEY,
+        )
+        .unwrap();
+        let failure = audit_migrations(&root, &manifest.migrations).unwrap_err();
+        assert!(failure.to_string().contains("race 33 / class 12"));
+        assert!(failure.to_string().contains("race 45 / class 30"));
+        println!("PASS: signed current image is blocked for missing legacy starts despite a complete migration ledger");
+        let sql =
+            fs::read_to_string(std::env::var_os("COA_RELEASE_AUDIT_CORRECTION").unwrap()).unwrap();
+        install::with_scratch_ports(&root, || backup::with_database(&root, |db| {
+            let before = db.query("SELECT * FROM acore_characters.characters ORDER BY guid;")?;
+            db.query(&format!("USE acore_world;\n{sql}"))?;
+            let once = db.query("SELECT * FROM acore_world.playercreateinfo WHERE race IN (33,45) ORDER BY race,class;")?;
+            db.query(&format!("USE acore_world;\n{sql}"))?;
+            assert_eq!(once, db.query("SELECT * FROM acore_world.playercreateinfo WHERE race IN (33,45) ORDER BY race,class;")?);
+            assert_eq!(before, db.query("SELECT * FROM acore_characters.characters ORDER BY guid;")?);
+            Ok(())
+        })).unwrap();
+        let audits = audit_migrations(&root, &manifest.migrations).unwrap();
+        println!("PASS: corrected data passes the release gate; characters unchanged; correction idempotent; audit={}", serde_json::to_string(&audits).unwrap());
+    }
+
+    #[test]
+    fn release_rejects_missing_legacy_starts_even_without_existing_characters() {
+        assert_eq!(
+            missing_legacy_starts("1\t12\n8\t30\n"),
+            ["race 33 / class 12", "race 45 / class 30"]
+        );
+        assert!(missing_legacy_starts("1\t12\n8\t30\n33\t12\n45\t30\n").is_empty());
+    }
 
     #[test]
     #[ignore = "Requires a composed disposable installation image"]
