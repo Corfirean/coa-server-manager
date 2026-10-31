@@ -215,6 +215,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                 </div>
                 <p className="mt-1.5 line-clamp-2 text-sm text-muted">{m.description[locale] ?? m.description.en}</p>
                 {m.compatibility === "unsupported" && <p className="mt-2 text-xs text-warn">{t("realm.unsupported")}</p>}
+                {m.compatibility === "requires-squid" && <p className="mt-2 text-xs text-warn">{t("mod.requiresSquid")}</p>}
                 {m.compatibility === "experimental" && <p className="mt-2 text-xs text-warn">{t("realm.experimental")}</p>}
               </div>
               {m.installed && m.switchable && (
@@ -230,7 +231,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                   <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", m.enabled ? "left-[22px]" : "left-0.5")} />
                 </button>
               )}
-              {m.installed && !m.switchable && m.status !== "soon" && m.compatibility !== "unsupported" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
+              {m.installed && !m.switchable && m.status !== "soon" && m.compatibility !== "unsupported" && m.compatibility !== "requires-squid" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>}
               {!m.installed && m.status !== "soon" && <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>}
             </div>
             {toggling === m.id && <p role="status" className="flex items-center gap-2 text-sm text-gold"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />{t("mod.switching")}</p>}

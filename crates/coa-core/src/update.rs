@@ -1888,6 +1888,10 @@ impl RepackEnv<'_> {
         };
         let result = (|| -> Result<()> {
             crate::update_isolation::begin(self.root, self.meta_dir)?;
+            let database = crate::driver::run(self.root, crate::driver::Verb::StartMysql)?;
+            if !database.ok {
+                return Err(Error::Invalid(crate::driver::startup_failure(self.root, &database)));
+            }
             use crate::process::{observe, ServiceState};
             let identities = crate::backup::with_database(self.root, |db| {
                 if check_schema {

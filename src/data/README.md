@@ -2,8 +2,8 @@
 
 The Manager feed is imported from the canonical `changelog/history.json`. The
 server snapshot in this directory is copied from `Corfirean/coa-server-build`
-commit `15687243bd3f4d60dfedf70b938b6076c1bd6393`, path
-`changelog/history.json`, on 2026-10-30. Only schema, component, repository and
+commit `e91ae8af4e506c9b8461c7eed6731945a34c3ad8`, path
+`changelog/history.json`, on 2026-10-31. Only schema, component, repository and
 releases are retained. Do not independently edit historical records here.
 
 At runtime the native read-only command fetches the fixed canonical URL, bounds
@@ -31,3 +31,8 @@ The reviewed upcoming server record is tested from tools/reviewed-server-notes.j
 bound to the exact core, companions and SQUID source commits. This includes the
 SQUID 2.8.2 update note. The plan is not a published history record. Manager 0.9.7
 carries these translations; the unpublished 0.9.6 installer is retained as an older candidate.
+
+Manager 0.9.8 preparation refreshes the bundled server history through 0.261030.90.
+The two reviewed upcoming records are in `tools/reviewed-manager-notes.json` and
+`tools/reviewed-server-notes.json`; every new note has all five translations.
+These files describe preparation and do not add unpublished releases to canonical history.

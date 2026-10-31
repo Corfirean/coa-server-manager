@@ -1,12 +1,16 @@
 {
-  "core": "8b6bbd8610cd672d2823f40909f1c7ee95a83371",
+  "core": "66380c78147cbd01e22361df1df54dc87b0f1701",
   "bots": "4f6cf99e6bf509ae2b178e993d1170cc7fe0cb0c",
   "squid": "fa4cfd31997367b3e574a2b89b858c4669ff53fb",
   "notes": [
-    "Prevent crashes while players update Apex Hunt quest markers on different maps",
-    "Thin Human and Leper Troll characters retain their starting data after updates",
-    "Companions avoid rejected names and recover from forced rename login failures",
-    "Updated SQUID Playerbots to 2.8.2",
-    "Updated the reviewed CoA upstream snapshot"
-  ]
+    "Server launchers accept configuration paths in folders with spaces",
+    "Database restarts recover from ownerless Windows port entries",
+    "Concurrent server actions wait briefly and identify the action still running",
+    "Dungeon Clear is available as an optional extension for SQUID bots",
+    "Server validation skips creating and logging in SQUID bots",
+    "Startup and shutdown keep bounded diagnostics of launcher stages",
+    "Updated the reviewed CoA upstream snapshot",
+    "Database shutdown succeeds when MySQL closes its connection before replying"
+  ],
+  "dungeon-clear": "9a9d09cf512e0a883af9cda6973445b81c123b13"
 }

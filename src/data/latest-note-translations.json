@@ -31,7 +31,12 @@
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Ручная остановка и остановка для обновления не вызывают перезапуск после сбоя",
       "Server startup waits for a responsive console before reporting success": "Запуск сервера ожидает ответа консоли перед сообщением об успехе",
       "Restore the existing Manager window when launching it again": "Повторный запуск открывает уже существующее окно менеджера",
-      "Show available update notes even when release history is cached": "Показывать изменения доступного обновления даже при сохранённой истории"
+      "Show available update notes even when release history is cached": "Показывать изменения доступного обновления даже при сохранённой истории",
+      "Update checks temporarily suspend bot population and restore your configuration": "Проверка обновления временно приостанавливает загрузку ботов и восстанавливает ваши настройки",
+      "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear можно включить при активных SQUID bots",
+      "Update validation keeps MySQL running between compatible checks": "При проверке обновления MySQL продолжает работать между совместимыми проверками",
+      "Choose normal logs, errors only or no server logs in maintenance settings": "Выбирайте обычные логи, только ошибки или отключение логов в настройках обслуживания",
+      "Diagnostic exports include launcher stages and lock owner records": "В архив диагностики входят этапы лаунчера и записи о владельцах блокировок"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -64,7 +69,12 @@
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Bewusstes Stoppen und Herunterfahren für Updates lösen keinen Absturzneustart aus",
       "Server startup waits for a responsive console before reporting success": "Der Serverstart wartet vor der Erfolgsmeldung auf eine reagierende Konsole",
       "Restore the existing Manager window when launching it again": "Erneutes Starten stellt das vorhandene Manager-Fenster wieder her",
-      "Show available update notes even when release history is cached": "Änderungen verfügbarer Updates auch bei zwischengespeichertem Verlauf anzeigen"
+      "Show available update notes even when release history is cached": "Änderungen verfügbarer Updates auch bei zwischengespeichertem Verlauf anzeigen",
+      "Update checks temporarily suspend bot population and restore your configuration": "Update-Prüfungen setzen die Bot-Population vorübergehend aus und stellen Ihre Konfiguration wieder her",
+      "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear lässt sich bei aktiven SQUID-Bots einschalten",
+      "Update validation keeps MySQL running between compatible checks": "Bei der Update-Validierung bleibt MySQL zwischen kompatiblen Prüfungen aktiv",
+      "Choose normal logs, errors only or no server logs in maintenance settings": "In den Wartungseinstellungen normale Protokolle, nur Fehler oder keine Serverprotokolle wählen",
+      "Diagnostic exports include launcher stages and lock owner records": "Diagnoseexporte enthalten Launcher-Schritte und aufgezeichnete Sperrbesitzer"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -97,7 +107,12 @@
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Les arrêts volontaires et ceux des mises à jour ne déclenchent plus de redémarrage après plantage",
       "Server startup waits for a responsive console before reporting success": "Le démarrage du serveur attend une console réactive avant d’annoncer sa réussite",
       "Restore the existing Manager window when launching it again": "Un nouveau lancement restaure la fenêtre existante du gestionnaire",
-      "Show available update notes even when release history is cached": "Afficher les changements des mises à jour disponibles même si l’historique est en cache"
+      "Show available update notes even when release history is cached": "Afficher les changements des mises à jour disponibles même si l’historique est en cache",
+      "Update checks temporarily suspend bot population and restore your configuration": "Les vérifications de mise à jour suspendent temporairement la population des bots et restaurent votre configuration",
+      "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear peut être activé lorsque les bots SQUID sont actifs",
+      "Update validation keeps MySQL running between compatible checks": "La validation des mises à jour garde MySQL actif entre les vérifications compatibles",
+      "Choose normal logs, errors only or no server logs in maintenance settings": "Choisissez les journaux normaux, les erreurs uniquement ou aucun journal dans les paramètres de maintenance",
+      "Diagnostic exports include launcher stages and lock owner records": "Les exports de diagnostic incluent les étapes de lancement et les propriétaires des verrous"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -130,7 +145,12 @@
       "Keep deliberate stops and update shutdowns from triggering crash restart": "Las paradas voluntarias y las de actualización no activan el reinicio por fallo",
       "Server startup waits for a responsive console before reporting success": "El arranque del servidor espera a que responda la consola antes de indicar que ha terminado",
       "Restore the existing Manager window when launching it again": "Al volver a iniciar el gestor se restaura su ventana existente",
-      "Show available update notes even when release history is cached": "Mostrar los cambios de las actualizaciones disponibles aunque el historial esté en caché"
+      "Show available update notes even when release history is cached": "Mostrar los cambios de las actualizaciones disponibles aunque el historial esté en caché",
+      "Update checks temporarily suspend bot population and restore your configuration": "Las comprobaciones de actualización suspenden temporalmente la población de bots y restauran tu configuración",
+      "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear se puede activar cuando los bots SQUID están activos",
+      "Update validation keeps MySQL running between compatible checks": "La validación de actualizaciones mantiene MySQL activo entre comprobaciones compatibles",
+      "Choose normal logs, errors only or no server logs in maintenance settings": "Elige registros normales, solo errores o ningún registro en los ajustes de mantenimiento",
+      "Diagnostic exports include launcher stages and lock owner records": "Los archivos de diagnóstico incluyen las etapas del lanzador y los propietarios de bloqueos"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -163,7 +183,12 @@
       "Keep deliberate stops and update shutdowns from triggering crash restart": "主动停止及更新时关闭不会触发崩溃自动重启",
       "Server startup waits for a responsive console before reporting success": "服务器启动会等待控制台响应后再报告成功",
       "Restore the existing Manager window when launching it again": "再次启动时恢复已有的管理器窗口",
-      "Show available update notes even when release history is cached": "即使历史记录已缓存，也显示可用更新的说明"
+      "Show available update notes even when release history is cached": "即使历史记录已缓存，也显示可用更新的说明",
+      "Update checks temporarily suspend bot population and restore your configuration": "更新检查会暂时停止生成和登录机器人，并恢复您的配置",
+      "Dungeon Clear can be enabled when SQUID bots are active": "启用 SQUID 机器人后即可开启 Dungeon Clear",
+      "Update validation keeps MySQL running between compatible checks": "更新验证会在兼容的检查步骤之间保持 MySQL 运行",
+      "Choose normal logs, errors only or no server logs in maintenance settings": "在维护设置中选择普通日志、仅错误或关闭服务器日志",
+      "Diagnostic exports include launcher stages and lock owner records": "诊断导出包含启动器阶段和锁所属进程记录"
     }
   },
   "server": {
@@ -205,7 +230,14 @@
       "Thin Human and Leper Troll characters retain their starting data after updates": "Персонажи Thin Human и Leper Troll сохраняют стартовые данные после обновлений",
       "Companions avoid rejected names and recover from forced rename login failures": "Компаньоны получают допустимые имена и восстанавливают вход при требовании переименования",
       "Updated the reviewed CoA upstream snapshot": "Обновлена проверенная версия исходников CoA",
-      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots обновлён до версии 2.8.2"
+      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots обновлён до версии 2.8.2",
+      "Server launchers accept configuration paths in folders with spaces": "Сервер запускается с конфигурацией из папок с пробелами в пути",
+      "Database restarts recover from ownerless Windows port entries": "Перезапуск базы корректно обрабатывает записи портов Windows без владельца",
+      "Concurrent server actions wait briefly and identify the action still running": "Одновременные действия с сервером ожидают завершения текущего и показывают, что ещё выполняется",
+      "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear доступен как дополнительный модуль для SQUID bots",
+      "Server validation skips creating and logging in SQUID bots": "При проверке сервера аккаунты SQUID bots не создаются и боты не входят в мир",
+      "Startup and shutdown keep bounded diagnostics of launcher stages": "При запуске и остановке сохраняется ограниченная по объёму диагностика этапов лаунчера",
+      "Database shutdown succeeds when MySQL closes its connection before replying": "Остановка базы завершается успешно, если MySQL закрыл соединение до отправки ответа"
     },
     "de": {
       "Restrict new characters by custom race without changing existing characters": "Neue Charaktere nach zusätzlichem Volk beschränken, ohne bestehende Charaktere zu ändern",
@@ -245,7 +277,14 @@
       "Thin Human and Leper Troll characters retain their starting data after updates": "Charaktere der Völker Thin Human und Leper Troll behalten ihre Startdaten nach Updates",
       "Companions avoid rejected names and recover from forced rename login failures": "Begleiter vermeiden unzulässige Namen und können sich nach erzwungener Umbenennung wieder anmelden",
       "Updated the reviewed CoA upstream snapshot": "Geprüften CoA-Upstream-Stand aktualisiert",
-      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots auf Version 2.8.2 aktualisiert"
+      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots auf Version 2.8.2 aktualisiert",
+      "Server launchers accept configuration paths in folders with spaces": "Serverstarter akzeptieren Konfigurationspfade in Ordnern mit Leerzeichen",
+      "Database restarts recover from ownerless Windows port entries": "Datenbank-Neustarts behandeln Windows-Porteinträge ohne Besitzer korrekt",
+      "Concurrent server actions wait briefly and identify the action still running": "Gleichzeitige Serveraktionen warten kurz und zeigen die noch laufende Aktion an",
+      "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear ist als optionale Erweiterung für SQUID-Bots verfügbar",
+      "Server validation skips creating and logging in SQUID bots": "Die Servervalidierung überspringt das Erstellen und Anmelden von SQUID-Bots",
+      "Startup and shutdown keep bounded diagnostics of launcher stages": "Start und Herunterfahren speichern begrenzte Diagnosedaten der Launcher-Schritte",
+      "Database shutdown succeeds when MySQL closes its connection before replying": "Das Herunterfahren der Datenbank gelingt auch, wenn MySQL die Verbindung vor der Antwort schließt"
     },
     "fr": {
       "Restrict new characters by custom race without changing existing characters": "Restreignez les races supplémentaires des nouveaux personnages sans modifier les personnages existants",
@@ -285,7 +324,14 @@
       "Thin Human and Leper Troll characters retain their starting data after updates": "Les personnages Thin Human et Leper Troll conservent leurs données de départ après les mises à jour",
       "Companions avoid rejected names and recover from forced rename login failures": "Les compagnons évitent les noms refusés et récupèrent leur connexion après un renommage imposé",
       "Updated the reviewed CoA upstream snapshot": "Version amont vérifiée de CoA mise à jour",
-      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots mis à jour vers la version 2.8.2"
+      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots mis à jour vers la version 2.8.2",
+      "Server launchers accept configuration paths in folders with spaces": "Le lancement du serveur accepte les chemins de configuration contenant des espaces",
+      "Database restarts recover from ownerless Windows port entries": "Les redémarrages de la base gèrent les entrées de port Windows sans propriétaire",
+      "Concurrent server actions wait briefly and identify the action still running": "Les actions simultanées du serveur attendent brièvement et indiquent celle encore en cours",
+      "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear est disponible comme extension facultative pour les bots SQUID",
+      "Server validation skips creating and logging in SQUID bots": "La validation du serveur ignore la création et la connexion des bots SQUID",
+      "Startup and shutdown keep bounded diagnostics of launcher stages": "Le démarrage et l’arrêt conservent un diagnostic limité des étapes de lancement",
+      "Database shutdown succeeds when MySQL closes its connection before replying": "L’arrêt de la base réussit même si MySQL ferme la connexion avant de répondre"
     },
     "es": {
       "Restrict new characters by custom race without changing existing characters": "Restringe las razas adicionales de personajes nuevos sin modificar los existentes",
@@ -325,7 +371,14 @@
       "Thin Human and Leper Troll characters retain their starting data after updates": "Los personajes Thin Human y Leper Troll conservan sus datos iniciales tras actualizar",
       "Companions avoid rejected names and recover from forced rename login failures": "Los compañeros evitan nombres rechazados y recuperan el acceso tras un cambio de nombre obligatorio",
       "Updated the reviewed CoA upstream snapshot": "Actualizada la versión revisada del código original de CoA",
-      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots actualizado a la versión 2.8.2"
+      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots actualizado a la versión 2.8.2",
+      "Server launchers accept configuration paths in folders with spaces": "El servidor acepta rutas de configuración en carpetas con espacios",
+      "Database restarts recover from ownerless Windows port entries": "Los reinicios de la base de datos gestionan las entradas de puertos de Windows sin propietario",
+      "Concurrent server actions wait briefly and identify the action still running": "Las acciones simultáneas del servidor esperan brevemente e identifican la que sigue en curso",
+      "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear está disponible como extensión opcional para los bots SQUID",
+      "Server validation skips creating and logging in SQUID bots": "La validación del servidor omite la creación y conexión de bots SQUID",
+      "Startup and shutdown keep bounded diagnostics of launcher stages": "El inicio y la parada guardan diagnósticos limitados de las etapas del lanzador",
+      "Database shutdown succeeds when MySQL closes its connection before replying": "La parada de la base de datos se completa aunque MySQL cierre la conexión antes de responder"
     },
     "zh": {
       "Restrict new characters by custom race without changing existing characters": "限制新角色可选的自定义种族，不影响现有角色",
@@ -365,7 +418,14 @@
       "Thin Human and Leper Troll characters retain their starting data after updates": "Thin Human 和 Leper Troll 角色在更新后保留初始数据",
       "Companions avoid rejected names and recover from forced rename login failures": "同伴避免使用被拒绝的名称，并修复强制改名导致的登录失败",
       "Updated the reviewed CoA upstream snapshot": "更新已审核的 CoA 上游版本",
-      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots 已更新至 2.8.2"
+      "Updated SQUID Playerbots to 2.8.2": "SQUID Playerbots 已更新至 2.8.2",
+      "Server launchers accept configuration paths in folders with spaces": "服务器启动器支持包含空格的配置文件路径",
+      "Database restarts recover from ownerless Windows port entries": "数据库重启可正确处理 Windows 中无所属进程的端口记录",
+      "Concurrent server actions wait briefly and identify the action still running": "并发服务器操作会短暂等待，并显示仍在执行的操作",
+      "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear 现可作为 SQUID 机器人的可选扩展",
+      "Server validation skips creating and logging in SQUID bots": "服务器验证会跳过 SQUID 机器人的创建和登录",
+      "Startup and shutdown keep bounded diagnostics of launcher stages": "启动和关闭时会保留大小受限的启动器阶段诊断日志",
+      "Database shutdown succeeds when MySQL closes its connection before replying": "即使 MySQL 在回复前关闭连接，数据库关闭操作也能正确完成"
     }
   }
 }

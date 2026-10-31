@@ -33,3 +33,11 @@ test("reviewed upcoming server notes have all five translations before publicati
     assert.equal(localizeNotes(planned.notes, translations.server[locale]).fallback, false, `reviewed server/${locale}`);
   }
 });
+
+test("reviewed upcoming Manager notes have all five translations before publication", () => {
+  const planned = JSON.parse(readFileSync(new URL("./reviewed-manager-notes.json", import.meta.url)));
+  const translations = JSON.parse(readFileSync(new URL("../src/data/latest-note-translations.json", import.meta.url)));
+  for (const locale of ["ru", "de", "fr", "es", "zh"]) {
+    assert.equal(localizeNotes(planned.notes, translations.manager[locale]).fallback, false, `reviewed manager/${locale}`);
+  }
+});

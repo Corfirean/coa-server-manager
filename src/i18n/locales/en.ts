@@ -1293,6 +1293,14 @@ const en = {
   "stop.forceWarning": "Unsaved player progress may be lost. Only verified processes belonging to this server will be stopped. The database will remain running until every world has stopped.",
   "stop.cancel": "Cancel",
 
+  "serverLogs.title": "Server logs",
+  "serverLogs.description": "Choose logging for the game world and login server. Changes apply after a server restart. Previous configuration is saved in configuration snapshots.",
+  "serverLogs.normal": "Normal",
+  "serverLogs.errors": "Errors only",
+  "serverLogs.off": "Off",
+  "serverLogs.saved": "Saved. Restart the server to apply.",
+  "mod.requiresSquid": "Enable SQUID bots to use Dungeon Clear.",
+  "mod.requiresSquid": "Enable SQUID bots to use Dungeon Clear.",
 } as const;
 
 export default en;

@@ -197,7 +197,13 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                         .and_then(|c| c.get(&e.enable_key).map(truthy))
                         .unwrap_or(e.default_on)
             };
-            let blocked = wildcard && matches!(e.id.as_str(), "companions" | "playerbots");
+            let dependency_missing = e.id == "dungeon-clear"
+                && entry_in(cat, "playerbots")
+                    .and_then(|entry| bot_enabled(root, &entry))
+                    .map(|enabled| !enabled)
+                    .unwrap_or(true);
+            let blocked = dependency_missing
+                || (wildcard && matches!(e.id.as_str(), "companions" | "playerbots" | "dungeon-clear"));
             let version = if e.id == "playerbots" {
                 crate::squid::release(root).map(|release| {
                     [
@@ -228,7 +234,9 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             };
             ModuleView {
                 version,
-                compatibility: if blocked {
+                compatibility: if dependency_missing {
+                    "requires-squid"
+                } else if blocked {
                     "unsupported"
                 } else if wildcard && e.id != "client-compat" {
                     "experimental"
@@ -296,7 +304,7 @@ fn require_bot_server_stopped(root: &Path) -> Result<()> {
 pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     let _update_lock = crate::update::operation_lock(meta)?;
     crate::update::ensure_recovered(meta)?;
-    let _lock = if matches!(id, "companions" | "playerbots") {
+    let _lock = if matches!(id, "companions" | "playerbots" | "dungeon-clear") {
         require_bot_server_stopped(root)?;
         fs::create_dir_all(root.join(".state"))?;
         let lock = fs::OpenOptions::new()
@@ -317,6 +325,9 @@ pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     };
     if on {
         crate::realms::guard_module(root, id)?;
+        if id == "dungeon-clear" {
+            crate::realms::guard_module(root, "playerbots")?;
+        }
     }
     if id == "custom-races" {
         if let Ok(meta_content) = fs::read_to_string(meta.join("install.json")) {
@@ -379,6 +390,9 @@ pub fn ensure_bot_exclusivity(root: &Path) -> Result<()> {
 
 fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     let e = entry_in(cat, id)?;
+    if on && id == "dungeon-clear" && !bot_enabled(root, &entry_in(cat, "playerbots")?)? {
+        return Err(Error::Invalid("Enable SQUID bots before enabling Dungeon Clear.".into()));
+    }
     if !e.switchable || e.enable_key.is_empty() {
         return Err(Error::Invalid("This part cannot be switched off.".into()));
     }
@@ -391,6 +405,15 @@ fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -
         if let Some(other) = cat.iter().find(|e| e.id == other) {
             if bot_enabled(root, other)? {
                 return Err(Error::BotModulesConflict);
+            }
+        }
+    }
+    if (id == "playerbots" && !on) || (id == "companions" && on) {
+        if let Some(dependency) = cat.iter().find(|entry| entry.id == "dungeon-clear") {
+            if dir(root).join(&dependency.conf).exists()
+                || dir(root).join(format!("{}.dist", dependency.conf)).exists()
+            {
+                set_enabled_in(cat, root, meta, "dungeon-clear", false)?;
             }
         }
     }
@@ -816,6 +839,27 @@ mod tests {
                 .value,
             "42"
         );
+    }
+
+    #[test]
+    fn dungeon_clear_requires_squid_and_stays_off_after_squid_is_reenabled() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path();
+        fs::create_dir_all(dir(root)).unwrap();
+        fs::write(dir(root).join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
+        fs::write(dir(root).join("mod_coa_playerbots.conf"), "CoaBots.Enable = 0\n").unwrap();
+        let dungeon = dir(root).join("mod_dungeon_clear.conf");
+        fs::write(&dungeon, "DungeonClear.Enable = 0\n").unwrap();
+        let cat = catalog();
+        assert!(set_enabled_in(&cat, root, root, "dungeon-clear", true).is_err());
+        assert!(!list_in(&cat, root).iter().find(|entry| entry.id == "dungeon-clear").unwrap().switchable);
+        set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
+        set_enabled_in(&cat, root, root, "dungeon-clear", true).unwrap();
+        assert!(read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
+        set_enabled_in(&cat, root, root, "playerbots", false).unwrap();
+        assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
+        set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
+        assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
     }
 
     #[test]
