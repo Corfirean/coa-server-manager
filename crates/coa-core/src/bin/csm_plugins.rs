@@ -218,8 +218,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "reconcile_squid" => {
             let char_schema = if args.len() >= 4 { &args[3] } else { "acore_characters" };
-            let dummy_query: Option<&fn(&str) -> Result<String, coa_core::error::Error>> = None;
-            let audit = plugins::reconcile_squid_migrations(server, char_schema, dummy_query)?;
+            let port_str = std::env::var("MYSQL_PORT").unwrap_or_else(|_| "3417".into());
+            let user = std::env::var("MYSQL_USER").unwrap_or_else(|_| "root".into());
+            let pass = std::env::var("MYSQL_PWD").unwrap_or_default();
+            let mysql_exe = std::env::var("MYSQL_EXE").unwrap_or_else(|_| "mysql".into());
+
+            let query_fn = |sql: &str| -> Result<String, coa_core::error::Error> {
+                let mut cmd = std::process::Command::new(&mysql_exe);
+                cmd.args(["-h", "127.0.0.1", "-P", &port_str, "-u", &user, "-e", sql]);
+                if !pass.is_empty() {
+                    cmd.env("MYSQL_PWD", &pass);
+                }
+                let out = cmd.output().map_err(coa_core::error::Error::Io)?;
+                if !out.status.success() {
+                    return Err(coa_core::error::Error::Invalid(String::from_utf8_lossy(&out.stderr).into_owned()));
+                }
+                Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+            };
+            let audit = plugins::reconcile_squid_migrations(server, char_schema, Some(&query_fn))?;
             println!("SQUID Reconciliation: status={:?}, applied={}", audit.db_status, audit.effective_applied);
         }
         "list" => {
