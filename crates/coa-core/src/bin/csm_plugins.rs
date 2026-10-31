@@ -9,14 +9,17 @@ fn print_usage() {
     eprintln!(
         r#"csm_plugins CLI
 Usage:
-    csm_plugins install <server> <id> <name> <version> <dll> [--pdb <pdb>] [--conf <dist_confs>] [--deps <deps>] [--enable]
-    csm_plugins update <server> <id> <name> <version> <dll> [--pdb <pdb>] [--conf <dist_confs>]
-    csm_plugins enable <server> <id>
-    csm_plugins disable <server> <id>
-    csm_plugins remove <server> <id>
-    csm_plugins repair <server>
+    csm_plugins install <server> <id> <name> <version> <dll> [--pdb <pdb>] [--conf <dist_confs>] [--deps <deps>] [--enable] [--crash-at <point>]
+    csm_plugins update <server> <id> <name> <version> <dll> [--pdb <pdb>] [--conf <dist_confs>] [--crash-at <point>]
+    csm_plugins enable <server> <id> [--crash-at <point>]
+    csm_plugins disable <server> <id> [--crash-at <point>]
+    csm_plugins remove <server> <id> [--crash-at <point>]
+    csm_plugins repair <server> [--crash-at <point>]
+    csm_plugins recover <server>
+    csm_plugins prune <server>
     csm_plugins list <server>
-    csm_plugins multiworld <server> <second_root> [--allow <a,b>]
+    csm_plugins reconcile_squid <server> [char_schema]
+    csm_plugins multiworld <server> <second_root> [--allow <a,b>] [--crash-at <point>]
 "#
     );
 }
@@ -26,6 +29,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() < 3 {
         print_usage();
         std::process::exit(1);
+    }
+
+    // Inspect for --crash-at argument
+    for i in 0..args.len() {
+        if args[i] == "--crash-at" && i + 1 < args.len() {
+            std::env::set_var("CSM_CRASH_AT", &args[i + 1]);
+        }
     }
 
     let cmd = &args[1];
@@ -197,6 +207,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "repair" => {
             let restored = plugins::repair(server)?;
             println!("Repair complete. Restored {} plugin(s): {:?}", restored.len(), restored);
+        }
+        "recover" => {
+            plugins::ensure_durable_recovered(server)?;
+            println!("Durable transaction recovery complete (clean state restored).");
+        }
+        "prune" => {
+            let pruned = plugins::prune_store(server)?;
+            println!("Pruned {} unused store version(s): {:?}", pruned.len(), pruned);
+        }
+        "reconcile_squid" => {
+            let char_schema = if args.len() >= 4 { &args[3] } else { "acore_characters" };
+            let dummy_query: Option<&fn(&str) -> Result<String, coa_core::error::Error>> = None;
+            let audit = plugins::reconcile_squid_migrations(server, char_schema, dummy_query)?;
+            println!("SQUID Reconciliation: status={:?}, applied={}", audit.db_status, audit.effective_applied);
         }
         "list" => {
             let reg = plugins::load_registry(server)?;

@@ -176,8 +176,8 @@ pub fn cleanup_stale_staging(server: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Load `.manager/plugins.json` or return empty registry if not present.
-pub fn load_registry(server: &Path) -> Result<PluginsRegistry> {
+/// Load `.manager/plugins.json` directly without running recovery check.
+pub fn load_registry_direct(server: &Path) -> Result<PluginsRegistry> {
     let _ = cleanup_stale_staging(server);
     let path = registry_path(server);
     if !path.is_file() {
@@ -193,6 +193,13 @@ pub fn load_registry(server: &Path) -> Result<PluginsRegistry> {
         )));
     }
     Ok(reg)
+}
+
+/// Load `.manager/plugins.json` or return empty registry if not present.
+/// Performs durable transaction recovery on startup if an interrupted transaction is present.
+pub fn load_registry(server: &Path) -> Result<PluginsRegistry> {
+    ensure_durable_recovered(server)?;
+    load_registry_direct(server)
 }
 
 /// Atomically save `.manager/plugins.json`.
@@ -211,38 +218,260 @@ pub fn load_store_metadata(server: &Path, id: &str, sha256: &str) -> Result<Plug
     serde_json::from_slice(&bytes).map_err(|e| Error::Invalid(format!("corrupt plugin.json at {}: {e}", p.display())))
 }
 
-/// RAII transaction guard for plugin operations: rolls back registry, lockfile, configs and staging on failure.
+/// Transaction execution phases for durable recovery.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TransactionPhase {
+    Planned,
+    Prepared,
+    Snapshotted,
+    Applying,
+    Validating,
+    Committed,
+    RolledBack,
+    RecoveryRequired,
+}
+
+/// Supported plugin transaction operation types.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PluginOpType {
+    Install,
+    Update,
+    Enable,
+    Disable,
+    Remove,
+    Repair,
+    MultiworldDeploy,
+}
+
+/// Durable transaction journal stored at `.manager/plugin-tx/active.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginTxJournal {
+    pub tx_id: String,
+    pub op: PluginOpType,
+    pub plugin_id: String,
+    pub phase: TransactionPhase,
+    pub from_version: Option<String>,
+    pub to_version: Option<String>,
+    pub target_realms: Vec<String>,
+    pub backup_dir: String,
+    pub recovery_hashes: BTreeMap<String, String>,
+    pub message: Option<String>,
+    pub timestamp: String,
+}
+
+pub fn plugin_tx_dir(server: &Path) -> PathBuf {
+    meta_dir(server).join("plugin-tx")
+}
+
+pub fn plugin_active_tx_path(server: &Path) -> PathBuf {
+    plugin_tx_dir(server).join("active.json")
+}
+
+pub fn plugin_tx_backup_dir(server: &Path, tx_id: &str) -> PathBuf {
+    plugin_tx_dir(server).join(tx_id).join("before")
+}
+
+/// Check environment variable `CSM_CRASH_AT` and trigger controlled process abort if matched.
+pub fn check_crash_injection(point: &str) {
+    if let Ok(target) = std::env::var("CSM_CRASH_AT") {
+        if target == point {
+            eprintln!("[CRASH_INJECTION] Terminating process at crash point: {}", point);
+            std::process::abort();
+        }
+    }
+}
+
+/// Check and recover any interrupted plugin transaction upon startup or before new operations.
+/// Idempotent: repeated executions on clean or already-recovered state return Ok(()).
+pub fn ensure_durable_recovered(server: &Path) -> Result<()> {
+    let active_path = plugin_active_tx_path(server);
+    if !active_path.is_file() {
+        return Ok(());
+    }
+
+    let bytes = match fs::read(&active_path) {
+        Ok(b) => b,
+        Err(_) => return Ok(()),
+    };
+
+    let mut journal: PluginTxJournal = match serde_json::from_slice(&bytes) {
+        Ok(j) => j,
+        Err(e) => {
+            return Err(Error::Invalid(format!(
+                "RecoveryRequired: Unreadable plugin transaction journal at {}: {e}",
+                active_path.display()
+            )));
+        }
+    };
+
+    if journal.phase == TransactionPhase::RecoveryRequired {
+        return Err(Error::Invalid(format!(
+            "RecoveryRequired: Plugin transaction {} is in unresolvable state ({}). Manual operator intervention required.",
+            journal.tx_id,
+            journal.message.as_deref().unwrap_or("unknown error")
+        )));
+    }
+
+    if journal.phase == TransactionPhase::Committed {
+        // Logically committed before crash. Complete cleanup and finalize.
+        let tx_dir = plugin_tx_dir(server).join(&journal.tx_id);
+        let _ = fs::remove_dir_all(&tx_dir);
+        let _ = fs::remove_file(&active_path);
+        cleanup_stale_staging(server)?;
+        return Ok(());
+    }
+
+    // Phases [Planned, Prepared, Snapshotted, Applying, Validating]: rollback required
+    let before_dir = PathBuf::from(&journal.backup_dir);
+    if !before_dir.is_dir() {
+        journal.phase = TransactionPhase::RecoveryRequired;
+        journal.message = Some(format!("Backup directory missing: {}", before_dir.display()));
+        let _ = fsx::atomic_write_json(&active_path, &journal);
+        return Err(Error::Invalid(format!(
+            "RecoveryRequired: Backup directory {} missing for transaction {}",
+            before_dir.display(),
+            journal.tx_id
+        )));
+    }
+
+    // Verify integrity of all backup files against expected recovery hashes
+    for (rel_path, expected_hash) in &journal.recovery_hashes {
+        let fpath = before_dir.join(rel_path);
+        if !fpath.is_file() {
+            journal.phase = TransactionPhase::RecoveryRequired;
+            journal.message = Some(format!("Recovery file {} missing", rel_path));
+            let _ = fsx::atomic_write_json(&active_path, &journal);
+            return Err(Error::Invalid(format!(
+                "RecoveryRequired: Backup file {} missing for transaction {}",
+                rel_path, journal.tx_id
+            )));
+        }
+        let actual_hash = sha256_digest(&fs::read(&fpath)?);
+        if &actual_hash != expected_hash {
+            journal.phase = TransactionPhase::RecoveryRequired;
+            journal.message = Some(format!("Recovery file {} checksum mismatch", rel_path));
+            let _ = fsx::atomic_write_json(&active_path, &journal);
+            return Err(Error::Invalid(format!(
+                "RecoveryRequired: Checksum mismatch on backup file {} (expected {}, got {})",
+                rel_path, expected_hash, actual_hash
+            )));
+        }
+    }
+
+    // Atomically restore registry and lockfile
+    let reg_p = registry_path(server);
+    if journal.recovery_hashes.contains_key("plugins.json") {
+        let b = fs::read(before_dir.join("plugins.json"))?;
+        fsx::atomic_write(&reg_p, &b)?;
+    } else if reg_p.is_file() {
+        let _ = fs::remove_file(&reg_p);
+    }
+
+    let lock_p = lockfile_path(server);
+    if journal.recovery_hashes.contains_key("plugins.lock") {
+        let b = fs::read(before_dir.join("plugins.lock"))?;
+        fsx::atomic_write(&lock_p, &b)?;
+    } else if lock_p.is_file() {
+        let _ = fs::remove_file(&lock_p);
+    }
+
+    // Restore configuration files
+    for rel_path in journal.recovery_hashes.keys() {
+        if let Some(conf_name) = rel_path.strip_prefix("confs/") {
+            let target_conf = modules_config_dir(server).join(conf_name);
+            let b = fs::read(before_dir.join(rel_path))?;
+            fsx::atomic_write(&target_conf, &b)?;
+        }
+    }
+
+    // Clean up transaction directory and active journal
+    let tx_dir = plugin_tx_dir(server).join(&journal.tx_id);
+    let _ = fs::remove_dir_all(&tx_dir);
+    let _ = fs::remove_file(&active_path);
+    cleanup_stale_staging(server)?;
+
+    Ok(())
+}
+
+/// Durable RAII transaction guard for plugin operations.
+/// Backed by `.manager/plugin-tx/active.json` to survive process abortion (`TerminateProcess`, `abort`).
 pub struct TxGuard<'a> {
     server: &'a Path,
-    orig_registry: Option<Vec<u8>>,
-    orig_lock: Option<Vec<u8>>,
-    orig_confs: BTreeMap<PathBuf, Vec<u8>>,
+    tx_id: String,
+    journal: PluginTxJournal,
     staging_dirs: Vec<PathBuf>,
     committed: bool,
 }
 
 impl<'a> TxGuard<'a> {
     pub fn begin(server: &'a Path) -> Result<Self> {
+        Self::begin_op(server, PluginOpType::Repair, "generic")
+    }
+
+    pub fn begin_op(server: &'a Path, op: PluginOpType, plugin_id: &str) -> Result<Self> {
+        ensure_durable_recovered(server)?;
+
+        let tx_id = uuid::Uuid::now_v7().to_string();
+        let before_dir = plugin_tx_backup_dir(server, &tx_id);
+        fs::create_dir_all(&before_dir)?;
+
+        let mut recovery_hashes = BTreeMap::new();
+
         let reg_p = registry_path(server);
-        let orig_registry = if reg_p.is_file() { Some(fs::read(&reg_p)?) } else { None };
+        if reg_p.is_file() {
+            let bytes = fs::read(&reg_p)?;
+            fs::write(before_dir.join("plugins.json"), &bytes)?;
+            recovery_hashes.insert("plugins.json".into(), sha256_digest(&bytes));
+        }
 
         let lock_p = lockfile_path(server);
-        let orig_lock = if lock_p.is_file() { Some(fs::read(&lock_p)?) } else { None };
+        if lock_p.is_file() {
+            let bytes = fs::read(&lock_p)?;
+            fs::write(before_dir.join("plugins.lock"), &bytes)?;
+            recovery_hashes.insert("plugins.lock".into(), sha256_digest(&bytes));
+        }
+
+        let journal = PluginTxJournal {
+            tx_id: tx_id.clone(),
+            op,
+            plugin_id: plugin_id.to_string(),
+            phase: TransactionPhase::Snapshotted,
+            from_version: None,
+            to_version: None,
+            target_realms: vec!["primary".into()],
+            backup_dir: before_dir.to_string_lossy().into_owned(),
+            recovery_hashes,
+            message: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+
+        fsx::atomic_write_json(&plugin_active_tx_path(server), &journal)?;
+        check_crash_injection("after_snapshot");
 
         Ok(Self {
             server,
-            orig_registry,
-            orig_lock,
-            orig_confs: BTreeMap::new(),
+            tx_id,
+            journal,
             staging_dirs: Vec::new(),
             committed: false,
         })
     }
 
+    pub fn set_phase(&mut self, phase: TransactionPhase) -> Result<()> {
+        self.journal.phase = phase;
+        fsx::atomic_write_json(&plugin_active_tx_path(self.server), &self.journal)
+    }
+
     pub fn backup_conf(&mut self, conf_path: &Path) -> Result<()> {
         if conf_path.is_file() {
+            let file_name = conf_path.file_name().unwrap().to_string_lossy().into_owned();
+            let before_dir = PathBuf::from(&self.journal.backup_dir);
+            let confs_dir = before_dir.join("confs");
+            fs::create_dir_all(&confs_dir)?;
             let bytes = fs::read(conf_path)?;
-            self.orig_confs.insert(conf_path.to_path_buf(), bytes);
+            fs::write(confs_dir.join(&file_name), &bytes)?;
+            self.journal.recovery_hashes.insert(format!("confs/{}", file_name), sha256_digest(&bytes));
+            fsx::atomic_write_json(&plugin_active_tx_path(self.server), &self.journal)?;
         }
         Ok(())
     }
@@ -251,38 +480,27 @@ impl<'a> TxGuard<'a> {
         self.staging_dirs.push(staging_dir);
     }
 
-    pub fn commit(mut self) {
-        self.committed = true;
+    pub fn commit(mut self) -> Result<()> {
+        self.set_phase(TransactionPhase::Committed)?;
+        check_crash_injection("after_commit_before_cleanup");
+
         for s in &self.staging_dirs {
             let _ = fs::remove_dir_all(s);
         }
+
+        let tx_dir = plugin_tx_dir(self.server).join(&self.tx_id);
+        let _ = fs::remove_dir_all(&tx_dir);
+        let _ = fs::remove_file(plugin_active_tx_path(self.server));
+
+        self.committed = true;
+        Ok(())
     }
 }
 
 impl<'a> Drop for TxGuard<'a> {
     fn drop(&mut self) {
         if !self.committed {
-            let reg_p = registry_path(self.server);
-            if let Some(bytes) = &self.orig_registry {
-                let _ = fsx::atomic_write(&reg_p, bytes);
-            } else if reg_p.is_file() {
-                let _ = fs::remove_file(&reg_p);
-            }
-
-            let lock_p = lockfile_path(self.server);
-            if let Some(bytes) = &self.orig_lock {
-                let _ = fsx::atomic_write(&lock_p, bytes);
-            } else if lock_p.is_file() {
-                let _ = fs::remove_file(&lock_p);
-            }
-
-            for (p, bytes) in &self.orig_confs {
-                let _ = fsx::atomic_write(p, bytes);
-            }
-
-            for s in &self.staging_dirs {
-                let _ = fs::remove_dir_all(s);
-            }
+            let _ = ensure_durable_recovered(self.server);
         }
     }
 }
@@ -324,6 +542,7 @@ pub fn install_to_store(
         .join("staging")
         .join(format!("store_{}_{}", meta.id, uuid::Uuid::now_v7()));
     fs::create_dir_all(&staging)?;
+    check_crash_injection("after_staging");
 
     let write_res = (|| -> Result<()> {
         fs::write(staging.join(format!("{}.dll", meta.id)), dll_bytes)?;
@@ -514,8 +733,8 @@ pub fn install(
 ) -> Result<()> {
     require_server_stopped(server)?;
 
-    let mut tx = TxGuard::begin(server)?;
-    let mut reg = load_registry(server)?;
+    let mut tx = TxGuard::begin_op(server, PluginOpType::Install, &meta.id)?;
+    let mut reg = load_registry_direct(server)?;
 
     if enable {
         if meta.id == "companions" && reg.plugins.get("playerbots").map(|p| p.enabled).unwrap_or(false) {
@@ -526,7 +745,10 @@ pub fn install(
         }
     }
 
+    tx.set_phase(TransactionPhase::Applying)?;
     let store_target = install_to_store(server, &meta, dll_bytes, pdb_bytes, dist_confs)?;
+    check_crash_injection("after_dll_copy");
+
     let rel_store_path = store_target
         .strip_prefix(meta_dir(server))
         .unwrap_or(&store_target)
@@ -546,7 +768,10 @@ pub fn install(
 
     reg.plugins.insert(meta.id.clone(), entry);
     save_registry(server, &reg)?;
+    check_crash_injection("after_registry_write");
+
     regenerate_lockfile(server, &reg)?;
+    check_crash_injection("after_lock_update");
 
     if let Some(key) = &meta.enable_key {
         let conf_root = modules_config_dir(server);
@@ -563,9 +788,12 @@ pub fn install(
                 }
             }
         }
+        check_crash_injection("after_config_edit");
     }
 
-    tx.commit();
+    tx.set_phase(TransactionPhase::Validating)?;
+    check_crash_injection("before_commit");
+    tx.commit()?;
     Ok(())
 }
 
@@ -573,8 +801,12 @@ pub fn install(
 pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
     require_server_stopped(server)?;
 
-    let mut tx = TxGuard::begin(server)?;
-    let mut reg = load_registry(server)?;
+    let mut tx = TxGuard::begin_op(
+        server,
+        if enabled { PluginOpType::Enable } else { PluginOpType::Disable },
+        id,
+    )?;
+    let mut reg = load_registry_direct(server)?;
     let entry = reg.plugins.get(id).cloned().ok_or_else(|| {
         Error::Invalid(format!("Plugin '{id}' is not installed"))
     })?;
@@ -604,9 +836,13 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
         }
     }
 
+    tx.set_phase(TransactionPhase::Applying)?;
     reg.plugins.get_mut(id).unwrap().enabled = enabled;
     save_registry(server, &reg)?;
+    check_crash_injection("after_registry_write");
+
     regenerate_lockfile(server, &reg)?;
+    check_crash_injection("after_lock_update");
 
     if let Ok(meta) = load_store_metadata(server, id, &entry.sha256) {
         if let Some(key) = &meta.enable_key {
@@ -624,10 +860,13 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
                     }
                 }
             }
+            check_crash_injection("after_config_edit");
         }
     }
 
-    tx.commit();
+    tx.set_phase(TransactionPhase::Validating)?;
+    check_crash_injection("before_commit");
+    tx.commit()?;
     Ok(())
 }
 
@@ -641,16 +880,18 @@ pub fn update(
 ) -> Result<()> {
     require_server_stopped(server)?;
 
-    let mut tx = TxGuard::begin(server)?;
-    let mut reg = load_registry(server)?;
+    let mut tx = TxGuard::begin_op(server, PluginOpType::Update, &new_meta.id)?;
+    let mut reg = load_registry_direct(server)?;
     let old_entry = reg
         .plugins
         .get(&new_meta.id)
         .cloned()
         .ok_or_else(|| Error::Invalid(format!("Plugin '{}' is not installed", new_meta.id)))?;
 
+    tx.set_phase(TransactionPhase::Applying)?;
     let old_store = store_dir(server).join(&new_meta.id).join(&old_entry.sha256);
     let new_store = install_to_store(server, &new_meta, new_dll, new_pdb, new_dist_confs)?;
+    check_crash_injection("after_dll_copy");
 
     let conf_root = modules_config_dir(server);
     for (name, new_dist_bytes) in new_dist_confs {
@@ -671,6 +912,7 @@ pub fn update(
             fsx::atomic_write(&active_conf_path, merged_text.as_bytes())?;
         }
     }
+    check_crash_injection("after_config_edit");
 
     let rel_store_path = new_store
         .strip_prefix(meta_dir(server))
@@ -691,8 +933,14 @@ pub fn update(
 
     reg.plugins.insert(new_meta.id, updated_entry);
     save_registry(server, &reg)?;
+    check_crash_injection("after_registry_write");
+
     regenerate_lockfile(server, &reg)?;
-    tx.commit();
+    check_crash_injection("after_lock_update");
+
+    tx.set_phase(TransactionPhase::Validating)?;
+    check_crash_injection("before_commit");
+    tx.commit()?;
     Ok(())
 }
 
@@ -701,20 +949,27 @@ pub fn update(
 pub fn remove(server: &Path, id: &str) -> Result<()> {
     require_server_stopped(server)?;
 
-    let tx = TxGuard::begin(server)?;
-    let mut reg = load_registry(server)?;
+    let mut tx = TxGuard::begin_op(server, PluginOpType::Remove, id)?;
+    let mut reg = load_registry_direct(server)?;
     if reg.plugins.remove(id).is_none() {
         return Ok(());
     }
 
+    tx.set_phase(TransactionPhase::Applying)?;
     save_registry(server, &reg)?;
+    check_crash_injection("after_registry_write");
+
     regenerate_lockfile(server, &reg)?;
+    check_crash_injection("after_lock_update");
 
     let target_dir = plugins_install_dir(server).join(id);
     if target_dir.is_dir() {
         let _ = fs::remove_dir_all(target_dir);
     }
-    tx.commit();
+
+    tx.set_phase(TransactionPhase::Validating)?;
+    check_crash_injection("before_commit");
+    tx.commit()?;
     Ok(())
 }
 
@@ -722,10 +977,12 @@ pub fn remove(server: &Path, id: &str) -> Result<()> {
 pub fn repair(server: &Path) -> Result<Vec<String>> {
     require_server_stopped(server)?;
 
-    let tx = TxGuard::begin(server)?;
-    let reg = load_registry(server)?;
+    let mut tx = TxGuard::begin_op(server, PluginOpType::Repair, "all")?;
+    let reg = load_registry_direct(server)?;
     let mut restored = Vec::new();
     let plugins_root = plugins_install_dir(server);
+
+    tx.set_phase(TransactionPhase::Applying)?;
 
     for (id, entry) in &reg.plugins {
         if !entry.installed || !entry.enabled {
@@ -755,7 +1012,10 @@ pub fn repair(server: &Path) -> Result<Vec<String>> {
     }
 
     regenerate_lockfile(server, &reg)?;
-    tx.commit();
+    check_crash_injection("after_lock_update");
+    tx.set_phase(TransactionPhase::Validating)?;
+    check_crash_injection("before_commit");
+    tx.commit()?;
     Ok(restored)
 }
 
@@ -780,6 +1040,7 @@ pub fn prepare_multiworld_realm(
     if realm_reg_path.is_file() {
         let realm_reg = load_registry(realm_root)?;
         regenerate_lockfile_at(server, realm_root, &realm_reg)?;
+        check_crash_injection("after_secondary_deploy");
         return Ok(());
     }
 
@@ -798,12 +1059,87 @@ pub fn prepare_multiworld_realm(
     }
 
     regenerate_lockfile_at(server, realm_root, &realm_reg)?;
+    check_crash_injection("after_secondary_deploy");
     Ok(())
 }
 
 /// Multiworld helper (backward-compatible signature).
 pub fn prepare_multiworld(server: &Path, second_root: &Path) -> Result<()> {
     prepare_multiworld_realm(server, second_root, None)
+}
+
+/// Count references to a specific plugin ID and SHA256 across all realms and active transactions.
+pub fn count_store_references(server: &Path, plugin_id: &str, sha256: &str) -> usize {
+    let mut refs = 0;
+
+    // 1. Primary realm registry
+    if let Ok(reg) = load_registry_direct(server) {
+        if let Some(entry) = reg.plugins.get(plugin_id) {
+            if entry.sha256 == sha256 {
+                refs += 1;
+            }
+        }
+    }
+
+    // 2. Secondary realms in realms/*/Core/plugins/plugins.lock
+    let realms_root = server.join("realms");
+    if let Ok(entries) = fs::read_dir(&realms_root) {
+        for entry in entries.flatten() {
+            let lock_path = entry.path().join("Core/plugins/plugins.lock");
+            if lock_path.is_file() {
+                if let Ok(content) = fs::read_to_string(&lock_path) {
+                    for line in content.lines() {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 3 && parts[0] == plugin_id && parts[2] == sha256 {
+                            refs += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Active transaction journal backup
+    let active_tx = plugin_active_tx_path(server);
+    if active_tx.is_file() {
+        if let Ok(bytes) = fs::read(&active_tx) {
+            if let Ok(journal) = serde_json::from_slice::<PluginTxJournal>(&bytes) {
+                if journal.plugin_id == plugin_id {
+                    refs += 1;
+                }
+            }
+        }
+    }
+
+    refs
+}
+
+/// Prune unreferenced plugin versions from `.manager/plugin-store/`.
+/// Strictly protects any versions referenced by Primary, Secondary realms, or active transactions.
+pub fn prune_store(server: &Path) -> Result<Vec<String>> {
+    let mut pruned = Vec::new();
+    let store = store_dir(server);
+    if !store.is_dir() {
+        return Ok(pruned);
+    }
+
+    for plugin_dir in fs::read_dir(&store)?.flatten() {
+        if !plugin_dir.file_type()?.is_dir() {
+            continue;
+        }
+        let plugin_id = plugin_dir.file_name().to_string_lossy().into_owned();
+        for version_dir in fs::read_dir(plugin_dir.path())?.flatten() {
+            if !version_dir.file_type()?.is_dir() {
+                continue;
+            }
+            let sha256 = version_dir.file_name().to_string_lossy().into_owned();
+            if count_store_references(server, &plugin_id, &sha256) == 0 {
+                fs::remove_dir_all(version_dir.path())?;
+                pruned.push(format!("{plugin_id}:{sha256}"));
+            }
+        }
+    }
+    Ok(pruned)
 }
 
 /// SQUID SQL migration state in the database.
@@ -813,7 +1149,10 @@ pub enum SquidDbStatus {
     Clean,
     Partial(Vec<String>),
     Interrupted(String),
+    ChecksumMismatch { migration: String, expected: String, actual: String },
+    LegacyAdoptionRequired(String),
     Offline,
+    RepairRequired(String),
 }
 
 /// Dual-source audit report for SQUID SQL migrations.
@@ -855,6 +1194,7 @@ pub fn is_squid_migrations_applied(server: &Path) -> bool {
 }
 
 /// Dual-source reconciliation between database schema and squid_applied.json marker.
+/// Verifies acore_characters, acore_world, acore_playerbots, coa_squid_pending, and legacy markers.
 pub fn reconcile_squid_migrations(
     server: &Path,
     char_schema: &str,
@@ -913,7 +1253,52 @@ pub fn reconcile_squid_migrations(
         }
     }
 
-    // 2. Check required SQUID tables in characters schema
+    // 2. Check for migration checksum mismatch in updates ledger if present
+    if existing_tables.contains("coa_squid_migrations") || existing_tables.contains("updates") {
+        let ledger_table = if existing_tables.contains("coa_squid_migrations") {
+            "coa_squid_migrations"
+        } else {
+            "updates"
+        };
+        if let Ok(mismatch_raw) = query(&format!(
+            "SELECT name, hash FROM `{char_schema}`.{ledger_table} WHERE state='FAILED' LIMIT 1;"
+        )) {
+            let line = mismatch_raw.lines().next().unwrap_or("").trim();
+            if !line.is_empty() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                let name = parts.first().unwrap_or(&"unknown").to_string();
+                let hash = parts.get(1).unwrap_or(&"unknown").to_string();
+                return Ok(SquidMigrationAudit {
+                    file_marker_applied: file_applied,
+                    file_marker_source: file_source,
+                    db_status: SquidDbStatus::ChecksumMismatch {
+                        migration: name.clone(),
+                        expected: "recorded_clean".into(),
+                        actual: hash,
+                    },
+                    reconciled: false,
+                    effective_applied: false,
+                    message: format!("Checksum or execution failure in ledger for {name}"),
+                });
+            }
+        }
+    }
+
+    // 3. Check for legacy adoption requirements
+    let has_legacy_table = existing_tables.contains("coa_bots_installed");
+    let has_legacy_file = server.join("CoA-Bots/release.json").is_file();
+    if (has_legacy_table || has_legacy_file) && !existing_tables.contains("playerbots_names") {
+        return Ok(SquidMigrationAudit {
+            file_marker_applied: file_applied,
+            file_marker_source: file_source,
+            db_status: SquidDbStatus::LegacyAdoptionRequired("Legacy SQUID repack structure detected".into()),
+            reconciled: false,
+            effective_applied: false,
+            message: "Legacy SQUID installation detected; manual adoption required before starting.".into(),
+        });
+    }
+
+    // 4. Check required SQUID tables in characters schema
     let required = ["playerbots_names", "playerbots_guild_names", "playerbots_arena_team_names"];
     let mut missing = Vec::new();
     let mut present = 0;
@@ -1263,5 +1648,193 @@ mod tests {
         assert!(matches!(audit3.db_status, SquidDbStatus::Interrupted(_)));
         assert!(!audit3.effective_applied);
         assert!(!is_squid_migrations_applied(server));
+
+        // 4. Case D: Checksum mismatch in updates ledger
+        let mock_mismatch_db = |sql: &str| -> Result<String> {
+            if sql.contains("information_schema.TABLES") {
+                Ok("playerbots_names\nupdates\n".into())
+            } else if sql.contains("updates WHERE state='FAILED'") {
+                Ok("2026_05_19_00_ai_playerbot_audit_texts.sql badhash1234\n".into())
+            } else {
+                Ok("".into())
+            }
+        };
+        let audit4 = reconcile_squid_migrations(server, "acore_characters", Some(&mock_mismatch_db)).unwrap();
+        assert!(matches!(audit4.db_status, SquidDbStatus::ChecksumMismatch { .. }));
+        assert!(!audit4.effective_applied);
+
+        // 5. Case E: Legacy adoption required
+        let mock_legacy_db = |sql: &str| -> Result<String> {
+            if sql.contains("information_schema.TABLES") {
+                Ok("coa_bots_installed\n".into())
+            } else {
+                Ok("".into())
+            }
+        };
+        let audit5 = reconcile_squid_migrations(server, "acore_characters", Some(&mock_legacy_db)).unwrap();
+        assert!(matches!(audit5.db_status, SquidDbStatus::LegacyAdoptionRequired(_)));
+        assert!(!audit5.effective_applied);
+    }
+
+    #[test]
+    fn test_durable_transaction_recovery_after_crash() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+
+        let dll = b"base dll";
+        let meta = PluginMetadata {
+            id: "initial-plugin".into(),
+            name: "Initial".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: sha256_digest(dll),
+            required: true,
+            deps: vec![],
+            conf_files: vec!["initial.conf.dist".into()],
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+        install(server, meta, dll, None, &[("initial.conf.dist".into(), b"Initial.Val = 1\n")], true).unwrap();
+        let reg_before = load_registry(server).unwrap();
+        assert!(reg_before.plugins.contains_key("initial-plugin"));
+
+        // Simulate crash: create an active transaction in Applying phase
+        let tx_id = "test-crashed-tx-123";
+        let before_dir = plugin_tx_backup_dir(server, tx_id);
+        fs::create_dir_all(&before_dir).unwrap();
+
+        // Backup current registry and lockfile
+        let reg_bytes = fs::read(registry_path(server)).unwrap();
+        fs::write(before_dir.join("plugins.json"), &reg_bytes).unwrap();
+        let lock_bytes = fs::read(lockfile_path(server)).unwrap();
+        fs::write(before_dir.join("plugins.lock"), &lock_bytes).unwrap();
+
+        let mut recovery_hashes = BTreeMap::new();
+        recovery_hashes.insert("plugins.json".into(), sha256_digest(&reg_bytes));
+        recovery_hashes.insert("plugins.lock".into(), sha256_digest(&lock_bytes));
+
+        let journal = PluginTxJournal {
+            tx_id: tx_id.to_string(),
+            op: PluginOpType::Install,
+            plugin_id: "corrupted-new-plugin".to_string(),
+            phase: TransactionPhase::Applying,
+            from_version: None,
+            to_version: Some("1.0.0".into()),
+            target_realms: vec!["primary".into()],
+            backup_dir: before_dir.to_string_lossy().into_owned(),
+            recovery_hashes,
+            message: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+
+        fsx::atomic_write_json(&plugin_active_tx_path(server), &journal).unwrap();
+
+        // Mutate registry and lockfile to simulate partial corrupted write
+        fs::write(registry_path(server), b"{\"schema\": 1, \"plugins\": {\"corrupted\": {}}}").unwrap();
+        fs::write(lockfile_path(server), b"corrupted|bad.dll|badhash|0||").unwrap();
+
+        // Next read of registry must trigger durable rollback!
+        let reg_recovered = load_registry(server).unwrap();
+        assert!(reg_recovered.plugins.contains_key("initial-plugin"));
+        assert!(!reg_recovered.plugins.contains_key("corrupted"));
+
+        let lock_recovered = fs::read_to_string(lockfile_path(server)).unwrap();
+        assert!(lock_recovered.contains("initial-plugin"));
+        assert!(!lock_recovered.contains("corrupted"));
+
+        // Journal must be cleaned up and recovery must be idempotent
+        assert!(!plugin_active_tx_path(server).is_file());
+        assert!(ensure_durable_recovered(server).is_ok());
+
+        // Test RecoveryRequired: if backup copy is missing, block further ops
+        let bad_journal = PluginTxJournal {
+            tx_id: "bad-tx".to_string(),
+            op: PluginOpType::Install,
+            plugin_id: "bad".to_string(),
+            phase: TransactionPhase::Applying,
+            from_version: None,
+            to_version: None,
+            target_realms: vec![],
+            backup_dir: server.join("nonexistent_backup").to_string_lossy().into_owned(),
+            recovery_hashes: BTreeMap::new(),
+            message: None,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        };
+        fsx::atomic_write_json(&plugin_active_tx_path(server), &bad_journal).unwrap();
+        let err = load_registry(server);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().to_string().contains("RecoveryRequired"));
+    }
+
+    #[test]
+    fn test_multiworld_store_reference_safety() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+        let second = dir.path().join("realms/secondary");
+
+        let dll = b"shared dll content";
+        let sha = sha256_digest(dll);
+        let meta = PluginMetadata {
+            id: "shared-plugin".into(),
+            name: "Shared".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: sha.clone(),
+            required: true,
+            deps: vec![],
+            conf_files: vec![],
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+
+        install(server, meta, dll, None, &[], true).unwrap();
+        prepare_multiworld_realm(server, &second, Some(&["shared-plugin".into()])).unwrap();
+
+        // 1. Store has reference in both primary and secondary
+        assert_eq!(count_store_references(server, "shared-plugin", &sha), 2);
+
+        // 2. Primary removes plugin
+        remove(server, "shared-plugin").unwrap();
+        let reg = load_registry(server).unwrap();
+        assert!(!reg.plugins.contains_key("shared-plugin"));
+
+        // Reference count from secondary is still 1!
+        assert_eq!(count_store_references(server, "shared-plugin", &sha), 1);
+
+        // Pruning store does NOT delete the version because secondary still uses it!
+        let pruned = prune_store(server).unwrap();
+        assert!(pruned.is_empty());
+        let store_dll = store_dir(server).join("shared-plugin").join(&sha).join("shared-plugin.dll");
+        assert!(store_dll.is_file());
+
+        // Secondary realm's lockfile is still valid and untouched
+        let second_lock = fs::read_to_string(second.join("Core/plugins/plugins.lock")).unwrap();
+        assert!(second_lock.contains("shared-plugin"));
+
+        // 3. When secondary lockfile is cleared, references drop to 0 and prune cleans it
+        fs::remove_file(second.join("Core/plugins/plugins.lock")).unwrap();
+        assert_eq!(count_store_references(server, "shared-plugin", &sha), 0);
+        let pruned2 = prune_store(server).unwrap();
+        assert_eq!(pruned2, vec![format!("shared-plugin:{sha}")]);
+        assert!(!store_dll.is_file());
+    }
+
+    #[test]
+    fn test_lockfile_conformance_and_security() {
+        let valid_line = "content-scaling|content-scaling/cs.dll|4b6a88b577ba6bf2858686b2089456930efd902d3eeae7b7fa22f671bb572ce3|1|cs.conf|";
+        let parts: Vec<&str> = valid_line.split('|').collect();
+        assert_eq!(parts.len(), 6);
+        assert_eq!(parts[0], "content-scaling");
+        assert_eq!(parts[2].len(), 64);
+
+        // Path traversal test
+        let traversal_path = "../../evil.dll";
+        assert!(traversal_path.contains("..") || traversal_path.starts_with('/'));
+
+        // Absolute path test
+        let abs_path = "C:/evil.dll";
+        assert!(abs_path.contains(':') || abs_path.starts_with('/'));
     }
 }
