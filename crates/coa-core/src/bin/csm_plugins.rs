@@ -1,21 +1,22 @@
-//! CLI tool for CoA Server Manager plugin operations (testing and automation).
+//! CLI tool for CoA Server Manager plugin operations (testing, qualification and automation).
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use coa_core::plugins::{
-    self, PluginMetadata,
-};
+use coa_core::plugins::{self, PluginMetadata};
 
 fn print_usage() {
     eprintln!(
         r#"csm_plugins CLI
 Usage:
     csm_plugins install <server> <id> <name> <version> <dll> [--pdb <pdb>] [--conf <dist_confs>] [--deps <deps>] [--enable]
+    csm_plugins update <server> <id> <name> <version> <dll> [--pdb <pdb>] [--conf <dist_confs>]
     csm_plugins enable <server> <id>
     csm_plugins disable <server> <id>
+    csm_plugins remove <server> <id>
     csm_plugins repair <server>
     csm_plugins list <server>
+    csm_plugins multiworld <server> <second_root> [--allow <a,b>]
 "#
     );
 }
@@ -104,6 +105,68 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             plugins::install(server, meta, &dll_bytes, pdb_bytes.as_deref(), &dist_refs, enable)?;
             println!("Installed plugin '{}' successfully (enabled: {})", id, enable);
         }
+        "update" => {
+            if args.len() < 7 {
+                eprintln!("Usage: update <server> <id> <name> <version> <dll> [--pdb <pdb>] [--conf <dist_confs>]");
+                std::process::exit(1);
+            }
+            let id = &args[3];
+            let name = &args[4];
+            let version = &args[5];
+            let dll_path = Path::new(&args[6]);
+            let dll_bytes = fs::read(dll_path)?;
+            let digest = plugins::sha256_digest(&dll_bytes);
+
+            let mut pdb_bytes = None;
+            let mut conf_list = Vec::new();
+
+            let mut i = 7;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--pdb" => {
+                        i += 1;
+                        if i < args.len() {
+                            pdb_bytes = Some(fs::read(&args[i])?);
+                        }
+                    }
+                    "--conf" => {
+                        i += 1;
+                        if i < args.len() {
+                            for item in args[i].split(',') {
+                                if !item.is_empty() {
+                                    let p = Path::new(item);
+                                    let file_name = p.file_name().unwrap().to_string_lossy().into_owned();
+                                    let bytes = fs::read(p)?;
+                                    conf_list.push((file_name, bytes));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            let conf_names: Vec<String> = conf_list.iter().map(|(n, _)| n.clone()).collect();
+            let dist_refs: Vec<(String, &[u8])> = conf_list.iter().map(|(n, b)| (n.clone(), b.as_slice())).collect();
+
+            let meta = PluginMetadata {
+                id: id.clone(),
+                name: name.clone(),
+                version: version.clone(),
+                description: BTreeMap::new(),
+                sha256: digest,
+                required: true,
+                deps: vec![],
+                conf_files: conf_names,
+                enable_key: None,
+                status: Some("release".into()),
+                icon: None,
+            };
+
+            plugins::update(server, meta, &dll_bytes, pdb_bytes.as_deref(), &dist_refs)?;
+            println!("Updated plugin '{}' to version {} successfully", id, version);
+        }
         "enable" => {
             if args.len() < 4 {
                 eprintln!("Usage: enable <server> <id>");
@@ -122,6 +185,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             plugins::set_enabled(server, id, false)?;
             println!("Disabled plugin '{}' successfully", id);
         }
+        "remove" => {
+            if args.len() < 4 {
+                eprintln!("Usage: remove <server> <id>");
+                std::process::exit(1);
+            }
+            let id = &args[3];
+            plugins::remove(server, id)?;
+            println!("Removed plugin '{}' successfully", id);
+        }
         "repair" => {
             let restored = plugins::repair(server)?;
             println!("Repair complete. Restored {} plugin(s): {:?}", restored.len(), restored);
@@ -135,6 +207,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     id, p.enabled, p.version, p.sha256
                 );
             }
+        }
+        "multiworld" => {
+            if args.len() < 4 {
+                eprintln!("Usage: multiworld <server> <second_root> [--allow <a,b>]");
+                std::process::exit(1);
+            }
+            let second_root = Path::new(&args[3]);
+            let mut allowlist = None;
+            if args.len() >= 6 && args[4] == "--allow" {
+                allowlist = Some(args[5].split(',').filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>());
+            }
+            plugins::prepare_multiworld_realm(server, second_root, allowlist.as_deref())?;
+            println!("Prepared multiworld realm at {} successfully", second_root.display());
         }
         _ => {
             eprintln!("Unknown command: {}", cmd);

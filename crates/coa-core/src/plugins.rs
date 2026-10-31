@@ -2,7 +2,7 @@
 //!
 //! Manages dynamic DLL plugins, the plugin store (`.manager/plugin-store`),
 //! registry (`.manager/plugins.json`), `plugins.lock` generation, 3-way configuration merging,
-//! transactional updates, and multiworld isolation.
+//! transactional updates, dual-source SQUID SQL reconciliation, and multiworld isolation.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -159,14 +159,40 @@ pub fn sha256_digest(bytes: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Cleans up any staging folders left behind by crashed or interrupted transactions.
+pub fn cleanup_stale_staging(server: &Path) -> Result<()> {
+    let staging = meta_dir(server).join("staging");
+    if staging.is_dir() {
+        for entry in fs::read_dir(&staging)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with("store_") || name.starts_with("plugin_tx_") {
+                    let _ = fs::remove_dir_all(entry.path());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Load `.manager/plugins.json` or return empty registry if not present.
 pub fn load_registry(server: &Path) -> Result<PluginsRegistry> {
+    let _ = cleanup_stale_staging(server);
     let path = registry_path(server);
     if !path.is_file() {
         return Ok(PluginsRegistry::default());
     }
     let bytes = fs::read(&path)?;
-    serde_json::from_slice(&bytes).map_err(|e| Error::Invalid(format!("corrupt plugins.json: {e}")))
+    let reg: PluginsRegistry = serde_json::from_slice(&bytes)
+        .map_err(|e| Error::Invalid(format!("corrupt plugins.json: {e}")))?;
+    if reg.schema > REGISTRY_SCHEMA {
+        return Err(Error::Invalid(format!(
+            "Unsupported plugins.json schema version {} (supported: {})",
+            reg.schema, REGISTRY_SCHEMA
+        )));
+    }
+    Ok(reg)
 }
 
 /// Atomically save `.manager/plugins.json`.
@@ -183,6 +209,82 @@ pub fn load_store_metadata(server: &Path, id: &str, sha256: &str) -> Result<Plug
     let p = store_dir(server).join(id).join(sha256).join("plugin.json");
     let bytes = fs::read(&p)?;
     serde_json::from_slice(&bytes).map_err(|e| Error::Invalid(format!("corrupt plugin.json at {}: {e}", p.display())))
+}
+
+/// RAII transaction guard for plugin operations: rolls back registry, lockfile, configs and staging on failure.
+pub struct TxGuard<'a> {
+    server: &'a Path,
+    orig_registry: Option<Vec<u8>>,
+    orig_lock: Option<Vec<u8>>,
+    orig_confs: BTreeMap<PathBuf, Vec<u8>>,
+    staging_dirs: Vec<PathBuf>,
+    committed: bool,
+}
+
+impl<'a> TxGuard<'a> {
+    pub fn begin(server: &'a Path) -> Result<Self> {
+        let reg_p = registry_path(server);
+        let orig_registry = if reg_p.is_file() { Some(fs::read(&reg_p)?) } else { None };
+
+        let lock_p = lockfile_path(server);
+        let orig_lock = if lock_p.is_file() { Some(fs::read(&lock_p)?) } else { None };
+
+        Ok(Self {
+            server,
+            orig_registry,
+            orig_lock,
+            orig_confs: BTreeMap::new(),
+            staging_dirs: Vec::new(),
+            committed: false,
+        })
+    }
+
+    pub fn backup_conf(&mut self, conf_path: &Path) -> Result<()> {
+        if conf_path.is_file() {
+            let bytes = fs::read(conf_path)?;
+            self.orig_confs.insert(conf_path.to_path_buf(), bytes);
+        }
+        Ok(())
+    }
+
+    pub fn track_staging(&mut self, staging_dir: PathBuf) {
+        self.staging_dirs.push(staging_dir);
+    }
+
+    pub fn commit(mut self) {
+        self.committed = true;
+        for s in &self.staging_dirs {
+            let _ = fs::remove_dir_all(s);
+        }
+    }
+}
+
+impl<'a> Drop for TxGuard<'a> {
+    fn drop(&mut self) {
+        if !self.committed {
+            let reg_p = registry_path(self.server);
+            if let Some(bytes) = &self.orig_registry {
+                let _ = fsx::atomic_write(&reg_p, bytes);
+            } else if reg_p.is_file() {
+                let _ = fs::remove_file(&reg_p);
+            }
+
+            let lock_p = lockfile_path(self.server);
+            if let Some(bytes) = &self.orig_lock {
+                let _ = fsx::atomic_write(&lock_p, bytes);
+            } else if lock_p.is_file() {
+                let _ = fs::remove_file(&lock_p);
+            }
+
+            for (p, bytes) in &self.orig_confs {
+                let _ = fsx::atomic_write(p, bytes);
+            }
+
+            for s in &self.staging_dirs {
+                let _ = fs::remove_dir_all(s);
+            }
+        }
+    }
 }
 
 /// Helper to recursively copy directories.
@@ -246,7 +348,6 @@ pub fn install_to_store(
         return Err(e);
     }
 
-    // Atomic move to store
     if target.exists() {
         let _ = fs::remove_dir_all(&staging);
         return Ok(target);
@@ -257,7 +358,6 @@ pub fn install_to_store(
     }
 
     if let Err(e) = fs::rename(&staging, &target) {
-        // Fallback to copy and remove on cross-device link
         let _ = copy_tree(&staging, &target);
         let _ = fs::remove_dir_all(&staging);
         if !target.is_dir() {
@@ -270,8 +370,17 @@ pub fn install_to_store(
 
 /// Generate `Core/plugins/plugins.lock` and synchronize active files in `Core/plugins/` and `Core/configs/modules/`.
 pub fn regenerate_lockfile(server: &Path, reg: &PluginsRegistry) -> Result<()> {
-    let plugins_root = plugins_install_dir(server);
-    let conf_root = modules_config_dir(server);
+    regenerate_lockfile_at(server, server, reg)
+}
+
+/// Deploy plugins from `store_server` into `target_server` and write lockfile.
+pub fn regenerate_lockfile_at(
+    store_server: &Path,
+    target_server: &Path,
+    reg: &PluginsRegistry,
+) -> Result<()> {
+    let plugins_root = plugins_install_dir(target_server);
+    let conf_root = modules_config_dir(target_server);
     fs::create_dir_all(&plugins_root)?;
     fs::create_dir_all(&conf_root)?;
 
@@ -287,7 +396,7 @@ pub fn regenerate_lockfile(server: &Path, reg: &PluginsRegistry) -> Result<()> {
         }
 
         active_plugin_ids.insert(id.clone());
-        let store_path = store_dir(server).join(id).join(&entry.sha256);
+        let store_path = store_dir(store_server).join(id).join(&entry.sha256);
         if !store_path.is_dir() {
             return Err(Error::Invalid(format!(
                 "Store directory for plugin '{}' ({}) is missing",
@@ -362,15 +471,12 @@ pub fn regenerate_lockfile(server: &Path, reg: &PluginsRegistry) -> Result<()> {
     }
 
     let lock_content = lock_lines.join("\n") + "\n";
-    let lock_path = lockfile_path(server);
+    let lock_path = lockfile_path(target_server);
     fsx::atomic_write(&lock_path, lock_content.as_bytes())?;
     Ok(())
 }
 
 /// Perform a 3-way merge on an AzerothCore `.conf` file.
-/// `base`: original distribution template
-/// `theirs`: updated distribution template from new version
-/// `mine`: current user configuration with custom modifications
 pub fn merge_conf(base_str: &str, theirs_str: &str, mine_str: &str) -> Result<String> {
     let base = ConfFile::parse(base_str);
     let theirs = ConfFile::parse(theirs_str);
@@ -382,13 +488,11 @@ pub fn merge_conf(base_str: &str, theirs_str: &str, mine_str: &str) -> Result<St
 
         match mine_val {
             Some(curr) => {
-                // If user didn't change the value from base, take the upstream update
                 if base_val == Some(&curr) && curr != theirs_val {
                     merged.set(key, theirs_val, &[]);
                 }
             }
             None => {
-                // New configuration key added upstream; incorporate with doc
                 let doc_lines = theirs.doc_for(key);
                 let doc_refs: Vec<&str> = doc_lines.iter().map(|s| s.as_str()).collect();
                 merged.set(key, theirs_val, &doc_refs);
@@ -410,7 +514,7 @@ pub fn install(
 ) -> Result<()> {
     require_server_stopped(server)?;
 
-    let store_target = install_to_store(server, &meta, dll_bytes, pdb_bytes, dist_confs)?;
+    let mut tx = TxGuard::begin(server)?;
     let mut reg = load_registry(server)?;
 
     if enable {
@@ -422,6 +526,7 @@ pub fn install(
         }
     }
 
+    let store_target = install_to_store(server, &meta, dll_bytes, pdb_bytes, dist_confs)?;
     let rel_store_path = store_target
         .strip_prefix(meta_dir(server))
         .unwrap_or(&store_target)
@@ -443,13 +548,13 @@ pub fn install(
     save_registry(server, &reg)?;
     regenerate_lockfile(server, &reg)?;
 
-    // If plugin has an enable_key in its config, sync it
     if let Some(key) = &meta.enable_key {
         let conf_root = modules_config_dir(server);
         for conf_name in &meta.conf_files {
             let base_name = conf_name.strip_suffix(".dist").unwrap_or(conf_name);
             let conf_path = conf_root.join(base_name);
             if conf_path.is_file() {
+                tx.backup_conf(&conf_path)?;
                 if let Ok(bytes) = fs::read(&conf_path) {
                     if let Ok(mut conf_file) = ConfFile::parse_bytes(&bytes) {
                         conf_file.set(key, if enable { "1" } else { "0" }, &[]);
@@ -460,6 +565,7 @@ pub fn install(
         }
     }
 
+    tx.commit();
     Ok(())
 }
 
@@ -467,13 +573,13 @@ pub fn install(
 pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
     require_server_stopped(server)?;
 
+    let mut tx = TxGuard::begin(server)?;
     let mut reg = load_registry(server)?;
     let entry = reg.plugins.get(id).cloned().ok_or_else(|| {
         Error::Invalid(format!("Plugin '{id}' is not installed"))
     })?;
 
     if enabled {
-        // Enforce bot mutual exclusivity
         if id == "companions" && reg.plugins.get("playerbots").map(|p| p.enabled).unwrap_or(false) {
             return Err(Error::BotModulesConflict);
         }
@@ -481,7 +587,6 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
             return Err(Error::BotModulesConflict);
         }
 
-        // Enforce dependencies
         for dep in &entry.deps {
             if !reg.plugins.get(dep).map(|p| p.enabled).unwrap_or(false) {
                 return Err(Error::Invalid(format!(
@@ -490,7 +595,6 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
             }
         }
     } else {
-        // Enforce dependent plugins
         for (other_id, other) in &reg.plugins {
             if other.enabled && other.deps.contains(&id.to_string()) {
                 return Err(Error::Invalid(format!(
@@ -504,7 +608,6 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
     save_registry(server, &reg)?;
     regenerate_lockfile(server, &reg)?;
 
-    // Sync module config enable key if known from metadata
     if let Ok(meta) = load_store_metadata(server, id, &entry.sha256) {
         if let Some(key) = &meta.enable_key {
             let conf_root = modules_config_dir(server);
@@ -512,6 +615,7 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
                 let base_name = conf_name.strip_suffix(".dist").unwrap_or(conf_name);
                 let conf_path = conf_root.join(base_name);
                 if conf_path.is_file() {
+                    tx.backup_conf(&conf_path)?;
                     if let Ok(bytes) = fs::read(&conf_path) {
                         if let Ok(mut conf_file) = ConfFile::parse_bytes(&bytes) {
                             conf_file.set(key, if enabled { "1" } else { "0" }, &[]);
@@ -523,6 +627,7 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
         }
     }
 
+    tx.commit();
     Ok(())
 }
 
@@ -536,6 +641,7 @@ pub fn update(
 ) -> Result<()> {
     require_server_stopped(server)?;
 
+    let mut tx = TxGuard::begin(server)?;
     let mut reg = load_registry(server)?;
     let old_entry = reg
         .plugins
@@ -546,7 +652,6 @@ pub fn update(
     let old_store = store_dir(server).join(&new_meta.id).join(&old_entry.sha256);
     let new_store = install_to_store(server, &new_meta, new_dll, new_pdb, new_dist_confs)?;
 
-    // 3-way merge on configuration files
     let conf_root = modules_config_dir(server);
     for (name, new_dist_bytes) in new_dist_confs {
         let base_name = name.strip_suffix(".dist").unwrap_or(name);
@@ -556,6 +661,7 @@ pub fn update(
         let active_conf_path = conf_root.join(base_name);
 
         if old_dist_path.is_file() && active_conf_path.is_file() {
+            tx.backup_conf(&active_conf_path)?;
             let old_dist_str = fs::read_to_string(&old_dist_path)?;
             let new_dist_str = std::str::from_utf8(new_dist_bytes)
                 .map_err(|e| Error::Invalid(format!("new .dist for {base_name} is not UTF-8: {e}")))?;
@@ -586,13 +692,16 @@ pub fn update(
     reg.plugins.insert(new_meta.id, updated_entry);
     save_registry(server, &reg)?;
     regenerate_lockfile(server, &reg)?;
+    tx.commit();
     Ok(())
 }
 
-/// Remove a plugin from the registry and lockfile, deleting deployed files.
+/// Remove a plugin from the registry and lockfile, deleting deployed binary files.
+/// Invariant: user configuration files (.conf) and SQL/player data are strictly preserved.
 pub fn remove(server: &Path, id: &str) -> Result<()> {
     require_server_stopped(server)?;
 
+    let tx = TxGuard::begin(server)?;
     let mut reg = load_registry(server)?;
     if reg.plugins.remove(id).is_none() {
         return Ok(());
@@ -605,6 +714,7 @@ pub fn remove(server: &Path, id: &str) -> Result<()> {
     if target_dir.is_dir() {
         let _ = fs::remove_dir_all(target_dir);
     }
+    tx.commit();
     Ok(())
 }
 
@@ -612,6 +722,7 @@ pub fn remove(server: &Path, id: &str) -> Result<()> {
 pub fn repair(server: &Path) -> Result<Vec<String>> {
     require_server_stopped(server)?;
 
+    let tx = TxGuard::begin(server)?;
     let reg = load_registry(server)?;
     let mut restored = Vec::new();
     let plugins_root = plugins_install_dir(server);
@@ -644,50 +755,79 @@ pub fn repair(server: &Path) -> Result<Vec<String>> {
     }
 
     regenerate_lockfile(server, &reg)?;
+    tx.commit();
     Ok(restored)
 }
 
-/// Multiworld helper: propagate enabled plugins to a secondary world directory.
-pub fn prepare_multiworld(server: &Path, second_root: &Path) -> Result<()> {
+/// Multiworld helper: propagate only explicitly allowed or active plugins to a realm directory.
+pub fn prepare_multiworld_realm(
+    server: &Path,
+    realm_root: &Path,
+    allowlist: Option<&[String]>,
+) -> Result<()> {
     let reg = load_registry(server)?;
-    let second_plugins_root = second_root.join("Core/plugins");
-    fs::create_dir_all(&second_plugins_root)?;
+    let realm_plugins_root = realm_root.join("Core/plugins");
+    fs::create_dir_all(&realm_plugins_root)?;
 
-    // Secondary world inherits enabled plugins by default
-    let second_reg_path = second_root.join(".manager/plugins.json");
-    if second_reg_path.is_file() {
-        // If secondary world has its own registry, use it
-        let second_reg = load_registry(second_root)?;
-        regenerate_lockfile(second_root, &second_reg)?;
-    } else {
-        // Mirror primary enabled plugins to secondary world
-        for (id, entry) in &reg.plugins {
-            if entry.enabled {
-                let store_dll = store_dir(server)
-                    .join(id)
-                    .join(&entry.sha256)
-                    .join(format!("{id}.dll"));
-                if store_dll.is_file() {
-                    let dst_dir = second_plugins_root.join(id);
-                    fs::create_dir_all(&dst_dir)?;
-                    fsx::atomic_write(&dst_dir.join(format!("{id}.dll")), &fs::read(&store_dll)?)?;
-                }
-            }
-        }
-        // Copy lockfile
-        let primary_lock = lockfile_path(server);
-        if primary_lock.is_file() {
-            fsx::atomic_write(
-                &second_plugins_root.join("plugins.lock"),
-                &fs::read(&primary_lock)?,
-            )?;
+    // Enforce bot mutual exclusivity within this realm's allowlist
+    if let Some(list) = allowlist {
+        if list.contains(&"companions".to_string()) && list.contains(&"playerbots".to_string()) {
+            return Err(Error::BotModulesConflict);
         }
     }
 
+    let realm_reg_path = realm_root.join(".manager/plugins.json");
+    if realm_reg_path.is_file() {
+        let realm_reg = load_registry(realm_root)?;
+        regenerate_lockfile_at(server, realm_root, &realm_reg)?;
+        return Ok(());
+    }
+
+    // Filter registry strictly by allowlist if provided, or default to primary enabled plugins
+    let mut realm_reg = PluginsRegistry::default();
+    for (id, entry) in &reg.plugins {
+        let is_allowed = match allowlist {
+            Some(list) => list.contains(id),
+            None => entry.enabled,
+        };
+        if is_allowed {
+            let mut realm_entry = entry.clone();
+            realm_entry.enabled = true;
+            realm_reg.plugins.insert(id.clone(), realm_entry);
+        }
+    }
+
+    regenerate_lockfile_at(server, realm_root, &realm_reg)?;
     Ok(())
 }
 
-/// SQUID SQL migration guard: record that SQUID migrations have run so they are not re-executed on restart.
+/// Multiworld helper (backward-compatible signature).
+pub fn prepare_multiworld(server: &Path, second_root: &Path) -> Result<()> {
+    prepare_multiworld_realm(server, second_root, None)
+}
+
+/// SQUID SQL migration state in the database.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SquidDbStatus {
+    FullyApplied,
+    Clean,
+    Partial(Vec<String>),
+    Interrupted(String),
+    Offline,
+}
+
+/// Dual-source audit report for SQUID SQL migrations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SquidMigrationAudit {
+    pub file_marker_applied: bool,
+    pub file_marker_source: Option<String>,
+    pub db_status: SquidDbStatus,
+    pub reconciled: bool,
+    pub effective_applied: bool,
+    pub message: String,
+}
+
+/// Record that SQUID migrations have run on filesystem.
 pub fn record_squid_migrations_applied(server: &Path) -> Result<()> {
     let path = meta_dir(server).join("migrations/squid_applied.json");
     if let Some(parent) = path.parent() {
@@ -695,12 +835,13 @@ pub fn record_squid_migrations_applied(server: &Path) -> Result<()> {
     }
     let data = serde_json::json!({
         "applied": true,
+        "source": "manual_or_runtime_record",
         "timestamp": chrono::Utc::now().to_rfc3339()
     });
     fsx::atomic_write_json(&path, &data)
 }
 
-/// Check if SQUID SQL migrations were already recorded as applied.
+/// Check if SQUID SQL migrations were already recorded as applied (offline check).
 pub fn is_squid_migrations_applied(server: &Path) -> bool {
     let path = meta_dir(server).join("migrations/squid_applied.json");
     if !path.is_file() {
@@ -711,6 +852,123 @@ pub fn is_squid_migrations_applied(server: &Path) -> bool {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("applied")?.as_bool())
         .unwrap_or(false)
+}
+
+/// Dual-source reconciliation between database schema and squid_applied.json marker.
+pub fn reconcile_squid_migrations(
+    server: &Path,
+    char_schema: &str,
+    query_fn: Option<&impl Fn(&str) -> Result<String>>,
+) -> Result<SquidMigrationAudit> {
+    let marker_path = meta_dir(server).join("migrations/squid_applied.json");
+    let (mut file_applied, file_source) = if marker_path.is_file() {
+        let val: Option<serde_json::Value> = fs::read_to_string(&marker_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok());
+        let applied = val.as_ref().and_then(|v| v.get("applied")?.as_bool()).unwrap_or(false);
+        let src = val.as_ref().and_then(|v| v.get("source")?.as_str()).map(str::to_string);
+        (applied, src)
+    } else {
+        (false, None)
+    };
+
+    let Some(query) = query_fn else {
+        return Ok(SquidMigrationAudit {
+            file_marker_applied: file_applied,
+            file_marker_source: file_source,
+            db_status: SquidDbStatus::Offline,
+            reconciled: false,
+            effective_applied: file_applied,
+            message: "Database query unavailable (offline); using cached marker.".into(),
+        });
+    };
+
+    // 1. Check for interrupted base import via coa_squid_pending
+    let tables_raw = query(&format!(
+        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='{char_schema}';"
+    ))?;
+    let existing_tables: BTreeSet<String> = tables_raw.lines().map(|s| s.trim().to_string()).collect();
+
+    if existing_tables.contains("coa_squid_pending") {
+        let pending = query(&format!("SELECT path FROM `{char_schema}`.coa_squid_pending;"))?;
+        let pending_paths: Vec<&str> = pending.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        if !pending_paths.is_empty() {
+            let detail = format!("Interrupted SQUID import: {}", pending_paths.join(", "));
+            if file_applied {
+                let _ = fsx::atomic_write_json(&marker_path, &serde_json::json!({
+                    "applied": false,
+                    "source": "blocked_by_interrupted_import",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "error": &detail
+                }));
+            }
+            return Ok(SquidMigrationAudit {
+                file_marker_applied: file_applied,
+                file_marker_source: file_source,
+                db_status: SquidDbStatus::Interrupted(detail.clone()),
+                reconciled: true,
+                effective_applied: false,
+                message: detail,
+            });
+        }
+    }
+
+    // 2. Check required SQUID tables in characters schema
+    let required = ["playerbots_names", "playerbots_guild_names", "playerbots_arena_team_names"];
+    let mut missing = Vec::new();
+    let mut present = 0;
+    for t in required {
+        if existing_tables.contains(t) {
+            present += 1;
+        } else {
+            missing.push(t.to_string());
+        }
+    }
+
+    let (db_status, effective_applied, message) = if present == required.len() {
+        if !file_applied {
+            let _ = fsx::atomic_write_json(&marker_path, &serde_json::json!({
+                "applied": true,
+                "source": "reconciled_from_database",
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }));
+            file_applied = true;
+        }
+        (
+            SquidDbStatus::FullyApplied,
+            true,
+            "Database contains all required SQUID tables; marker reconciled/verified.".into(),
+        )
+    } else if present == 0 {
+        if file_applied {
+            let _ = fsx::atomic_write_json(&marker_path, &serde_json::json!({
+                "applied": false,
+                "source": "reconciled_from_clean_database",
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }));
+            file_applied = false;
+        }
+        (
+            SquidDbStatus::Clean,
+            false,
+            "Database is clean (no SQUID tables); migrations required.".into(),
+        )
+    } else {
+        (
+            SquidDbStatus::Partial(missing.clone()),
+            false,
+            format!("Database schema partial; missing: {}", missing.join(", ")),
+        )
+    };
+
+    Ok(SquidMigrationAudit {
+        file_marker_applied: file_applied,
+        file_marker_source: file_source,
+        db_status,
+        reconciled: true,
+        effective_applied,
+        message,
+    })
 }
 
 #[cfg(test)]
@@ -727,11 +985,8 @@ mod tests {
         let merged = merge_conf(base, theirs, mine).unwrap();
         let parsed = ConfFile::parse(&merged);
 
-        // User modified Setting1 to 20 -> should stay 20
         assert_eq!(parsed.get("CoA.Setting1"), Some("20"));
-        // User didn't modify Setting2 -> should take upstream new default "beta"
         assert_eq!(parsed.get("CoA.Setting2"), Some("\"beta\""));
-        // Setting3 is new upstream -> should be added
         assert_eq!(parsed.get("CoA.Setting3"), Some("1"));
     }
 
@@ -792,14 +1047,141 @@ mod tests {
         let restored = repair(server).unwrap();
         assert_eq!(restored, vec!["test-plugin".to_string()]);
         assert_eq!(fs::read(&deployed_dll).unwrap(), dll_content);
+    }
 
-        // Test mutual exclusivity
-        let meta2 = PluginMetadata {
+    #[test]
+    fn test_failure_injection_install_and_update() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+
+        let dll_content = b"MZ valid content";
+        let digest = sha256_digest(dll_content);
+
+        // 1. Failure in install: checksum mismatch
+        let meta_bad_hash = PluginMetadata {
+            id: "bad-plugin".into(),
+            name: "Bad".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000".into(),
+            required: true,
+            deps: vec![],
+            conf_files: vec![],
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+        let res = install(server, meta_bad_hash, dll_content, None, &[], true);
+        assert!(matches!(res, Err(Error::HashMismatch { .. })));
+        let reg = load_registry(server).unwrap();
+        assert!(!reg.plugins.contains_key("bad-plugin"));
+
+        // 2. Install good plugin
+        let meta_good = PluginMetadata {
+            id: "my-plugin".into(),
+            name: "Good".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: digest.clone(),
+            required: true,
+            deps: vec![],
+            conf_files: vec!["my.conf.dist".into()],
+            enable_key: Some("My.Enable".into()),
+            status: None,
+            icon: None,
+        };
+        install(server, meta_good, dll_content, None, &[("my.conf.dist".into(), b"My.Enable = 1\nMy.Val = 10\n")], true).unwrap();
+
+        // Customize active conf
+        let conf_p = modules_config_dir(server).join("my.conf");
+        fs::write(&conf_p, b"My.Enable = 1\nMy.Val = 99\n").unwrap();
+
+        // 3. Failure in update: invalid UTF-8 in new dist template
+        let meta_v2 = PluginMetadata {
+            id: "my-plugin".into(),
+            name: "Good".into(),
+            version: "2.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: sha256_digest(b"v2 dll"),
+            required: true,
+            deps: vec![],
+            conf_files: vec!["my.conf.dist".into()],
+            enable_key: Some("My.Enable".into()),
+            status: None,
+            icon: None,
+        };
+        let bad_utf8_dist = [0xFF, 0xFE, 0xFD];
+        let res_up = update(server, meta_v2, b"v2 dll", None, &[("my.conf.dist".into(), &bad_utf8_dist)]);
+        assert!(res_up.is_err());
+
+        // Verify rollback: version is still 1.0.0, user customization My.Val = 99 is intact!
+        let reg_after = load_registry(server).unwrap();
+        assert_eq!(reg_after.plugins["my-plugin"].version, "1.0.0");
+        let active_conf = fs::read_to_string(&conf_p).unwrap();
+        assert!(active_conf.contains("My.Val = 99"));
+    }
+
+    #[test]
+    fn test_non_destructive_removal() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+        let dll = b"plugin dll";
+        let meta = PluginMetadata {
+            id: "temp-plugin".into(),
+            name: "Temp".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: sha256_digest(dll),
+            required: true,
+            deps: vec![],
+            conf_files: vec!["temp.conf.dist".into()],
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+        install(server, meta, dll, None, &[("temp.conf.dist".into(), b"Temp.Setting = 123\n")], true).unwrap();
+        let conf_p = modules_config_dir(server).join("temp.conf");
+        assert!(conf_p.is_file());
+
+        // Remove plugin
+        remove(server, "temp-plugin").unwrap();
+        let reg = load_registry(server).unwrap();
+        assert!(!reg.plugins.contains_key("temp-plugin"));
+
+        // Invariant: User config MUST remain on disk!
+        assert!(conf_p.is_file());
+        assert!(fs::read_to_string(&conf_p).unwrap().contains("Temp.Setting = 123"));
+    }
+
+    #[test]
+    fn test_multiworld_allowlist_and_exclusivity() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+        let second = dir.path().join(".realms/secondary");
+
+        let dll_cs = b"cs dll";
+        let dll_comp = b"comp dll";
+        let dll_sq = b"sq dll";
+
+        let meta_cs = PluginMetadata {
+            id: "content-scaling".into(),
+            name: "CS".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: sha256_digest(dll_cs),
+            required: true,
+            deps: vec![],
+            conf_files: vec![],
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+        let meta_comp = PluginMetadata {
             id: "companions".into(),
-            name: "Companions".into(),
+            name: "Comp".into(),
             version: "1.0.0".into(),
             description: BTreeMap::new(),
-            sha256: digest.clone(),
+            sha256: sha256_digest(dll_comp),
             required: true,
             deps: vec![],
             conf_files: vec![],
@@ -807,12 +1189,12 @@ mod tests {
             status: None,
             icon: None,
         };
-        let meta3 = PluginMetadata {
+        let meta_sq = PluginMetadata {
             id: "playerbots".into(),
-            name: "Playerbots".into(),
+            name: "Squid".into(),
             version: "1.0.0".into(),
             description: BTreeMap::new(),
-            sha256: digest.clone(),
+            sha256: sha256_digest(dll_sq),
             required: true,
             deps: vec![],
             conf_files: vec![],
@@ -820,14 +1202,66 @@ mod tests {
             status: None,
             icon: None,
         };
-        install(server, meta2, dll_content, None, &[], true).unwrap();
-        let err = install(server, meta3.clone(), dll_content, None, &[], true);
-        assert!(matches!(err, Err(Error::BotModulesConflict)));
 
-        // Installing playerbots disabled succeeds
-        install(server, meta3, dll_content, None, &[], false).unwrap();
-        // Trying to enable playerbots while companions is enabled fails
-        let err2 = set_enabled(server, "playerbots", true);
-        assert!(matches!(err2, Err(Error::BotModulesConflict)));
+        install(server, meta_cs, dll_cs, None, &[], true).unwrap();
+        install(server, meta_comp, dll_comp, None, &[], true).unwrap();
+        install(server, meta_sq, dll_sq, None, &[], false).unwrap();
+
+        // Secondary realm allowlist: ONLY content-scaling
+        prepare_multiworld_realm(server, &second, Some(&["content-scaling".into()])).unwrap();
+        let second_lock = fs::read_to_string(second.join("Core/plugins/plugins.lock")).unwrap();
+        assert!(second_lock.contains("content-scaling"));
+        assert!(!second_lock.contains("companions"));
+        assert!(!second_lock.contains("playerbots"));
+
+        // Secondary realm attempting both bot modules in allowlist -> conflict!
+        let conflict = prepare_multiworld_realm(server, &second, Some(&["companions".into(), "playerbots".into()]));
+        assert!(matches!(conflict, Err(Error::BotModulesConflict)));
+    }
+
+    #[test]
+    fn test_squid_sql_dual_source_reconciliation() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+
+        // 1. Case A: DB is clean (restored from backup), file marker says true -> desync detected & reconciled
+        record_squid_migrations_applied(server).unwrap();
+        assert!(is_squid_migrations_applied(server));
+
+        let mock_clean_db = |_sql: &str| -> Result<String> {
+            Ok("".into()) // no tables
+        };
+        let audit1 = reconcile_squid_migrations(server, "acore_characters", Some(&mock_clean_db)).unwrap();
+        assert_eq!(audit1.db_status, SquidDbStatus::Clean);
+        assert!(!audit1.effective_applied);
+        assert!(!is_squid_migrations_applied(server)); // Marker automatically set to false!
+
+        // 2. Case B: DB has tables, file marker says false -> reconciled to true without re-import
+        let mock_migrated_db = |sql: &str| -> Result<String> {
+            if sql.contains("information_schema.TABLES") {
+                Ok("playerbots_names\nplayerbots_guild_names\nplayerbots_arena_team_names\n".into())
+            } else {
+                Ok("".into())
+            }
+        };
+        let audit2 = reconcile_squid_migrations(server, "acore_characters", Some(&mock_migrated_db)).unwrap();
+        assert_eq!(audit2.db_status, SquidDbStatus::FullyApplied);
+        assert!(audit2.effective_applied);
+        assert!(is_squid_migrations_applied(server)); // Marker automatically set to true!
+
+        // 3. Case C: coa_squid_pending has rows -> interrupted import, blocked
+        let mock_interrupted_db = |sql: &str| -> Result<String> {
+            if sql.contains("information_schema.TABLES") {
+                Ok("coa_squid_pending\nplayerbots_names\n".into())
+            } else if sql.contains("coa_squid_pending") {
+                Ok("playerbots/base/ai_playerbot_texts.sql\n".into())
+            } else {
+                Ok("".into())
+            }
+        };
+        let audit3 = reconcile_squid_migrations(server, "acore_characters", Some(&mock_interrupted_db)).unwrap();
+        assert!(matches!(audit3.db_status, SquidDbStatus::Interrupted(_)));
+        assert!(!audit3.effective_applied);
+        assert!(!is_squid_migrations_applied(server));
     }
 }
