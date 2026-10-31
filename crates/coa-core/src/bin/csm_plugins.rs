@@ -271,11 +271,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                println!("=== Module Compatibility Report ===");
+                println!("=== Module Compatibility Report v0.2 ===");
                 println!("Repository: {}", report.repository_name);
                 println!("Commit    : {}", report.commit);
-                println!("License   : {}", report.license);
+                println!("License   : {}", report.license_info.primary_license);
+                if let Some(ref lf) = report.license_info.license_file {
+                    println!("License File: {}", lf);
+                }
+                if !report.license_info.vendored_licenses.is_empty() {
+                    println!("Vendored Licenses: {:?}", report.license_info.vendored_licenses);
+                }
                 println!("Verdict   : {:?}", report.classification);
+                println!("Status L0-L6: static={}, compile={}, link={}, contract={}, boot={}, gameplay={}, teardown={}",
+                    report.verification_status.l0_static,
+                    report.verification_status.l1_compile,
+                    report.verification_status.l2_link,
+                    report.verification_status.l3_contract,
+                    report.verification_status.l4_engine_boot,
+                    report.verification_status.l5_gameplay,
+                    report.verification_status.l6_teardown);
                 println!("Hooks ({}):", report.hooks.len());
                 for h in &report.hooks {
                     println!("  - {} : {} ({}:{})", h.class_name, h.script_type, h.file, h.line);
