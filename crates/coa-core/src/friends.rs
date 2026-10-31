@@ -168,12 +168,16 @@ pub fn apply_realm_address(root: &Path, host: &str) -> Result<()> {
         return Err(Error::Invalid("That address is not valid.".into()));
     }
     let db = Db::from_repack(root, Account::Admin)?;
-    let realm = crate::realms::state(root)?.active.realm_id();
-    let where_realms = if crate::realms::state(root)?.simultaneous {
-        "id IN (1,2)".into()
-    } else {
-        format!("id={realm}")
-    };
+    let state = crate::realms::state(root)?;
+    let mut ids = vec![state.active];
+    ids.extend(state.extra_modes());
+    let where_realms = format!(
+        "id IN ({})",
+        ids.iter()
+            .map(|m| m.realm_id().to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
     db.query(&format!(
         "UPDATE acore_auth.realmlist SET address='{host}' WHERE {where_realms};"
     ))?;

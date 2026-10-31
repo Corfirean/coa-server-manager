@@ -72,15 +72,15 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   const human = useHuman();
   const [status, setStatus] = useState<StatusView | null>(null);
   // With both worlds started together, each realm gets its own card; the first realm owns the database and auth.
-  const [realms, setRealms] = useState<{ first: string; second: string } | null>(null);
-  const bothWorlds = !!status?.observed.secondary_world;
+  const [realms, setRealms] = useState<{ first: string; second: string; reborn: string } | null>(null);
+  const bothWorlds = !!status?.observed.secondary_world || !!status?.observed.reborn_world;
   useEffect(() => {
     if (!bothWorlds) { setRealms(null); return; }
     let alive = true;
     void api.realmProfiles(server.id).then((r) => {
       if (!alive) return;
       const name = (m: "coa" | "wildcard" | "reborn") => (m === "coa" ? "Conquest of Azeroth" : m === "reborn" ? "Warcraft Reborn" : "Wildcard");
-      setRealms({ first: name(r.active), second: name(r.active === "coa" ? "wildcard" : "coa") });
+      setRealms({ first: name(r.active), second: name(r.active === "coa" ? "wildcard" : "coa"), reborn: name("reborn") });
     }).catch(() => { if (alive) setRealms(null); });
     return () => { alive = false; };
   }, [bothWorlds, server.id]);
@@ -292,8 +292,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
     );
   }
 
-  const { mysql, auth, world, secondary_world } = status.observed;
-  const all = [mysql, auth, world, ...(secondary_world ? [secondary_world] : [])];
+  const { mysql, auth, world, secondary_world, reborn_world } = status.observed;
+  const all = [mysql, auth, world, ...(secondary_world ? [secondary_world] : []), ...(reborn_world ? [reborn_world] : [])];
   const running = all.every((s) => s.state === "running");
   const anyUp = all.some((s) => s.state !== "stopped");
   const transitioning = action !== null || status.busy || realmBusy;
@@ -580,6 +580,28 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           <dl className="mt-4 text-sm">
             <dt className="text-muted">{t("overview.uptime")}</dt>
             <dd className="mt-0.5 text-lg">{secondary_world.state === "running" ? formatUptime(secondary_world.uptime_secs) : "—"}</dd>
+          </dl>
+          <p className="mt-3 text-xs text-muted">{t("realm.bothRunning")}</p>
+        </Card>
+      )}
+
+      {reborn_world && (
+        <Card className="mt-4 p-7">
+          <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.reborn} · ${t("overview.server")}` : t("realm.rebornWorld")}</div>
+          <div
+            className={cn("flex items-center gap-3 text-3xl font-semibold", reborn_world.state === "running" ? "text-ok" : reborn_world.state === "starting" || transitioning ? "text-warn" : "text-muted")}
+            role="status"
+            aria-live="polite"
+          >
+            <span aria-hidden className={cn("h-3 w-3 rounded-full", reborn_world.state === "running" ? "bg-ok" : reborn_world.state === "starting" || transitioning ? "bg-warn" : "bg-muted/50")} />
+            {reborn_world.state === "running" ? t("status.online") : reborn_world.state === "starting" ? t("status.starting") : t("status.offline")}
+          </div>
+          <div className="mt-5 divide-y divide-line border-y border-line">
+            <Row label={t("overview.world")} s={reborn_world} />
+          </div>
+          <dl className="mt-4 text-sm">
+            <dt className="text-muted">{t("overview.uptime")}</dt>
+            <dd className="mt-0.5 text-lg">{reborn_world.state === "running" ? formatUptime(reborn_world.uptime_secs) : "—"}</dd>
           </dl>
           <p className="mt-3 text-xs text-muted">{t("realm.bothRunning")}</p>
         </Card>
