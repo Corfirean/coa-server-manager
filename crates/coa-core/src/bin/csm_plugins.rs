@@ -20,6 +20,7 @@ Usage:
     csm_plugins list <server>
     csm_plugins reconcile_squid <server> [char_schema]
     csm_plugins multiworld <server> <second_root> [--allow <a,b>] [--crash-at <point>]
+    csm_plugins analyze <local_repository_path> [--json]
 "#
     );
 }
@@ -262,6 +263,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             plugins::prepare_multiworld_realm(server, second_root, allowlist.as_deref())?;
             println!("Prepared multiworld realm at {} successfully", second_root.display());
+        }
+        "analyze" => {
+            let repo_path = Path::new(&args[2]);
+            let as_json = args.iter().any(|a| a == "--json");
+            let report = coa_core::analyzer::analyze_repository(repo_path)?;
+            if as_json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("=== Module Compatibility Report ===");
+                println!("Repository: {}", report.repository_name);
+                println!("Commit    : {}", report.commit);
+                println!("License   : {}", report.license);
+                println!("Verdict   : {:?}", report.classification);
+                println!("Hooks ({}):", report.hooks.len());
+                for h in &report.hooks {
+                    println!("  - {} : {} ({}:{})", h.class_name, h.script_type, h.file, h.line);
+                }
+                println!("SQL Files ({}):", report.sql_files.len());
+                for s in &report.sql_files {
+                    println!("  - {} [schema: {}] (create={}, alter={}, lines={})", s.file, s.target_schema, s.has_create_table, s.has_alter_table, s.line_count);
+                }
+                println!("Findings ({}):", report.findings.len());
+                for f in &report.findings {
+                    println!("  [{:?}] {} (at {}:{}): {}", f.severity, f.rule_id, f.file, f.line, f.explanation);
+                    println!("     Guidance: {}", f.recommended_action);
+                }
+                println!("Summary Reasons: {:?}", report.reasons);
+            }
         }
         _ => {
             eprintln!("Unknown command: {}", cmd);

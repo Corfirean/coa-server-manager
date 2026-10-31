@@ -9,6 +9,7 @@
 
 pub mod accounts;
 pub mod allsettings;
+pub mod analyzer;
 pub mod backup;
 pub mod channels;
 pub mod cleanbase;
