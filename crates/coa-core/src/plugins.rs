@@ -788,8 +788,8 @@ pub fn install(
                 }
             }
         }
-        check_crash_injection("after_config_edit");
     }
+    check_crash_injection("after_config_edit");
 
     tx.set_phase(TransactionPhase::Validating)?;
     check_crash_injection("before_commit");
@@ -860,9 +860,9 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
                     }
                 }
             }
-            check_crash_injection("after_config_edit");
         }
     }
+    check_crash_injection("after_config_edit");
 
     tx.set_phase(TransactionPhase::Validating)?;
     check_crash_injection("before_commit");
