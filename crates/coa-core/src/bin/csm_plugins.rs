@@ -226,8 +226,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let query_fn = |sql: &str| -> Result<String, coa_core::error::Error> {
                 let mut cmd = std::process::Command::new(&mysql_exe);
                 cmd.args(["-h", "127.0.0.1", "-P", &port_str, "-u", &user, "-e", sql]);
-                if !pass.is_empty() {
+                if !pass.is_empty() && pass != "trap" {
                     cmd.env("MYSQL_PWD", &pass);
+                } else {
+                    cmd.env_remove("MYSQL_PWD");
                 }
                 let out = cmd.output().map_err(coa_core::error::Error::Io)?;
                 if !out.status.success() {
