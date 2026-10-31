@@ -306,6 +306,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Summary Reasons: {:?}", report.reasons);
             }
         }
+        "generate-adapter" => {
+            let repo_path = Path::new(&args[2]);
+            let res = coa_core::analyzer::generate_adapter(repo_path)?;
+            match res {
+                coa_core::analyzer::AdapterGenerationResult::Success { canonical_loader, adapter_source, delegated_count } => {
+                    println!("Canonical Master Loader: {} (delegates to {} scripts)", canonical_loader, delegated_count);
+                    if let Some(pos) = args.iter().position(|a| a == "--output") {
+                        if pos + 1 < args.len() {
+                            let out_path = Path::new(&args[pos + 1]);
+                            if let Some(p) = out_path.parent() {
+                                std::fs::create_dir_all(p)?;
+                            }
+                            std::fs::write(out_path, &adapter_source)?;
+                            println!("Adapter successfully written to: {}", out_path.display());
+                        }
+                    } else {
+                        println!("--- Generated Adapter Source ---");
+                        println!("{}", adapter_source);
+                    }
+                }
+                coa_core::analyzer::AdapterGenerationResult::ManualAdapterRequired { reason, candidate_loaders } => {
+                    eprintln!("MANUAL_ADAPTER_REQUIRED: {}", reason);
+                    eprintln!("Candidate Loaders: {:?}", candidate_loaders);
+                    std::process::exit(1);
+                }
+                coa_core::analyzer::AdapterGenerationResult::NoLoaderFound => {
+                    eprintln!("NO_LOADER_FOUND: Unable to discover any Add*Scripts() functions.");
+                    std::process::exit(1);
+                }
+            }
+        }
         _ => {
             eprintln!("Unknown command: {}", cmd);
             print_usage();

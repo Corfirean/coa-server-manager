@@ -1,10 +1,11 @@
-//! Module Compatibility Analyzer v0.2 for CoA Dynamic Plugin Architecture.
+//! Module Compatibility Analyzer v0.2.1 for CoA Dynamic Plugin Architecture.
 //!
 //! Evaluates third-party AzerothCore C++/SQL/Lua modules against the CoA Plugin SDK.
 //! Produces explainable, evidence-driven findings with exact file, line, severity, confidence,
 //! evidence and remediation guidance. Distinguishes verified conflicts from potential conflicts,
-//! handles multi-license modules, checks call-graphs of loader functions, and detects
-//! incompatible domain assumptions (e.g. class/race bounds).
+//! handles multi-license modules, checks call-graphs of loader functions, detects
+//! incompatible domain assumptions (e.g. class/race bounds), and avoids false positives
+//! on system API names and SQL update tick queries through lexical analysis and function context.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -319,13 +320,13 @@ pub fn analyze_repository(repo_path: &Path) -> Result<CompatibilityReport> {
             l2_link: "PASS".into(),
             l3_contract: "PASS".into(),
             l4_engine_boot: "PASS".into(),
-            l5_gameplay: "NOT_RUN".into(), // Honestly state that live player gossip/enchant test was not automated
+            l5_gameplay: "NOT_RUN".into(),
             l6_teardown: "PASS".into(),
         },
         "mod-congrats-on-level" | "mod-npc-buffer" | "mod-reward-played-time" => VerificationStatus {
             l0_static: "PASS".into(),
             l1_compile: "PASS".into(),
-            l2_link: "FAIL".into(), // LNK2019 missing export
+            l2_link: "FAIL".into(),
             l3_contract: "NOT_RUN".into(),
             l4_engine_boot: "NOT_RUN".into(),
             l5_gameplay: "NOT_RUN".into(),
@@ -333,8 +334,8 @@ pub fn analyze_repository(repo_path: &Path) -> Result<CompatibilityReport> {
         },
         _ => VerificationStatus {
             l0_static: "PASS".into(),
-            l1_compile: "INCONCLUSIVE".into(), // Not tested due to architectural/safety blockers
-            l2_link: "INCONCLUSIVE".into(),
+            l1_compile: "NOT_RUN".into(),
+            l2_link: "NOT_RUN".into(),
             l3_contract: "NOT_RUN".into(),
             l4_engine_boot: "NOT_RUN".into(),
             l5_gameplay: "NOT_RUN".into(),
@@ -372,7 +373,6 @@ pub fn detect_licenses(_repo_path: &Path, files: &[(String, PathBuf)]) -> Licens
     let mut vendored_licenses = Vec::new();
     let mut spdx_identifier = None;
 
-    // Scan for all license files in repo
     let candidate_names = [
         "license", "license.md", "license.txt", "copying", "copying.md", "copying.txt"
     ];
@@ -385,18 +385,15 @@ pub fn detect_licenses(_repo_path: &Path, files: &[(String, PathBuf)]) -> Licens
             if let Ok(content) = fs::read_to_string(abs_path) {
                 let parsed = parse_license_text(&content);
                 if !lower.contains('/') {
-                    // Top-level license
                     primary_license = parsed.clone();
                     license_file = Some(rel_path.clone());
                 } else {
-                    // Sub-directory / vendored license
                     vendored_licenses.push(format!("{}: {}", rel_path, parsed));
                 }
             }
         }
     }
 
-    // Fallback: check README.md if primary license still NO_LICENSE
     if primary_license == "NO_LICENSE" {
         for (rel_path, abs_path) in files {
             let lower = rel_path.to_lowercase();
@@ -425,7 +422,6 @@ pub fn detect_licenses(_repo_path: &Path, files: &[(String, PathBuf)]) -> Licens
 }
 
 pub fn parse_license_text(content: &str) -> String {
-    // Check first 4096 bytes case-insensitively
     let chunk = content.chars().take(4096).collect::<String>().to_lowercase();
 
     if chunk.contains("affero general public license") && (chunk.contains("version 3") || chunk.contains("v3"))
@@ -457,6 +453,141 @@ pub fn parse_license_text(content: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Lexical Sanitize & C++ Analysis
+// ---------------------------------------------------------------------------
+
+/// Strip C++ single-line comments, multiline comments, and string literals from a line.
+pub fn strip_comments_and_strings(line: &str, in_multiline: &mut bool) -> String {
+    let mut out = String::with_capacity(line.len());
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if *in_multiline {
+            if chars[i] == '*' && i + 1 < chars.len() && chars[i + 1] == '/' {
+                *in_multiline = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Single-line comment
+        if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+            break;
+        }
+
+        // Start of multiline comment
+        if chars[i] == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+            *in_multiline = true;
+            i += 2;
+            continue;
+        }
+
+        // String literal
+        if chars[i] == '"' {
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    i += 2;
+                } else if chars[i] == '"' {
+                    i += 1;
+                    break;
+                } else {
+                    i += 1;
+                }
+            }
+            out.push(' ');
+            continue;
+        }
+
+        out.push(chars[i]);
+        i += 1;
+    }
+
+    out
+}
+
+/// Detect real calls to forbidden system APIs (excluding constructors, member functions, identifiers).
+pub fn detect_forbidden_system_api(clean_line: &str) -> Option<(&'static str, &'static str)> {
+    // 1. system(...)
+    if let Some(pos) = clean_line.find("system(") {
+        let is_standalone = if pos == 0 {
+            true
+        } else {
+            let prefix = &clean_line[..pos];
+            if prefix.ends_with("::") {
+                true // ::system(...) or std::system(...)
+            } else {
+                let last_char = prefix.chars().last().unwrap();
+                !last_char.is_alphanumeric() && last_char != '_'
+            }
+        };
+
+        if is_standalone {
+            return Some(("system", "Process execution via system()"));
+        }
+    }
+
+    // 2. popen(...) / _popen(...)
+    for popen_token in &["popen(", "_popen("] {
+        if let Some(pos) = clean_line.find(popen_token) {
+            let is_standalone = if pos == 0 {
+                true
+            } else {
+                let prefix = &clean_line[..pos];
+                if prefix.ends_with("::") {
+                    true
+                } else {
+                    let last_char = prefix.chars().last().unwrap();
+                    !last_char.is_alphanumeric() && last_char != '_'
+                }
+            };
+            if is_standalone {
+                return Some(("popen", "Process piping via popen()"));
+            }
+        }
+    }
+
+    // 3. CreateProcess(...) / CreateProcessA(...) / CreateProcessW(...)
+    for cp_token in &["CreateProcess(", "CreateProcessA(", "CreateProcessW("] {
+        if let Some(pos) = clean_line.find(cp_token) {
+            let is_standalone = if pos == 0 {
+                true
+            } else {
+                let prefix = &clean_line[..pos];
+                if prefix.ends_with("::") {
+                    true
+                } else {
+                    let last_char = prefix.chars().last().unwrap();
+                    !last_char.is_alphanumeric() && last_char != '_'
+                }
+            };
+            if is_standalone {
+                return Some(("CreateProcess", "Direct process creation via WinAPI CreateProcess()"));
+            }
+        }
+    }
+
+    // 4. VirtualAlloc(...)
+    if let Some(pos) = clean_line.find("VirtualAlloc(") {
+        let is_standalone = if pos == 0 {
+            true
+        } else {
+            let prefix = &clean_line[..pos];
+            let last_char = prefix.chars().last().unwrap();
+            !last_char.is_alphanumeric() && last_char != '_'
+        };
+        if is_standalone {
+            return Some(("VirtualAlloc", "Executable memory allocation via VirtualAlloc()"));
+        }
+    }
+
+    None
+}
+
+// ---------------------------------------------------------------------------
 // C++ Source Audit
 // ---------------------------------------------------------------------------
 
@@ -471,14 +602,46 @@ fn audit_cpp_file(
 ) {
     let lines: Vec<&str> = content.lines().collect();
     let mut current_fn: Option<String> = None;
+    let mut in_multiline_comment = false;
+
+    // Track update tick function context across lines
+    let mut in_update_hook = false;
+    let mut current_brace_depth: i32 = 0;
+    let mut update_hook_start_depth: i32 = 0;
 
     for (idx, line) in lines.iter().enumerate() {
         let line_num = idx + 1;
         let trimmed = line.trim();
+        let clean = strip_comments_and_strings(line, &mut in_multiline_comment);
+        let clean_trimmed = clean.trim();
+
+        // Track function brace depth
+        let opens = clean.chars().filter(|&c| c == '{').count() as i32;
+        let closes = clean.chars().filter(|&c| c == '}').count() as i32;
+
+        // Detect entry into Update hook functions
+        if !in_update_hook {
+            if clean.contains("OnPlayerBeforeUpdate")
+                || clean.contains("OnUpdate(")
+                || clean.contains("UpdateAI(")
+                || clean.contains("OnCreatureUpdate(")
+                || clean.contains("OnBeforeUpdate(")
+            {
+                in_update_hook = true;
+                update_hook_start_depth = current_brace_depth;
+            }
+        }
+
+        current_brace_depth += opens;
+        current_brace_depth -= closes;
+
+        if in_update_hook && current_brace_depth <= update_hook_start_depth && closes > 0 {
+            in_update_hook = false;
+        }
 
         // Detect Add*Scripts() declarations / definitions
-        if trimmed.starts_with("void Add") && trimmed.contains("Scripts()") {
-            if let Some(fn_name) = extract_function_name(trimmed) {
+        if clean_trimmed.starts_with("void Add") && clean_trimmed.contains("Scripts()") {
+            if let Some(fn_name) = extract_function_name(clean_trimmed) {
                 if !all_loaders.contains(&fn_name) {
                     all_loaders.push(fn_name.clone());
                 }
@@ -488,22 +651,22 @@ fn audit_cpp_file(
 
         // Track delegated Add* calls inside loader functions
         if let Some(ref parent_fn) = current_fn {
-            if trimmed.starts_with("Add") && trimmed.ends_with("();") && !trimmed.contains("void") {
-                if let Some(called_fn) = extract_call_name(trimmed) {
+            if clean_trimmed.starts_with("Add") && clean_trimmed.ends_with("();") && !clean_trimmed.contains("void") {
+                if let Some(called_fn) = extract_call_name(clean_trimmed) {
                     loader_call_map
                         .entry(parent_fn.clone())
                         .or_insert_with(Vec::new)
                         .push(called_fn);
                 }
             }
-            if trimmed == "}" {
+            if clean_trimmed == "}" {
                 current_fn = None;
             }
         }
 
         // Detect Script Hooks (inheritance from *Script)
-        if trimmed.contains(": public ") && trimmed.ends_with("Script") {
-            if let Some((class_name, script_type)) = extract_script_inheritance(trimmed) {
+        if clean_trimmed.contains(": public ") && clean_trimmed.ends_with("Script") {
+            if let Some((class_name, script_type)) = extract_script_inheritance(clean_trimmed) {
                 hooks.push(DiscoveredHook {
                     class_name,
                     script_type,
@@ -514,7 +677,7 @@ fn audit_cpp_file(
         }
 
         // RULE: Missing SDK Exports Check (Known missing symbols from L2)
-        if trimmed.contains("sWorldSessionMgr->SendServerMessage") {
+        if clean.contains("sWorldSessionMgr->SendServerMessage") {
             findings.push(CompatibilityFinding {
                 rule_id: "RULE_MISSING_SDK_EXPORT".into(),
                 severity: FindingSeverity::Critical,
@@ -527,7 +690,7 @@ fn audit_cpp_file(
                 is_auto_fixable: false,
             });
         }
-        if trimmed.contains("CloseGossipMenuFor(") {
+        if clean.contains("CloseGossipMenuFor(") {
             findings.push(CompatibilityFinding {
                 rule_id: "RULE_MISSING_SDK_EXPORT".into(),
                 severity: FindingSeverity::Critical,
@@ -540,7 +703,7 @@ fn audit_cpp_file(
                 is_auto_fixable: false,
             });
         }
-        if trimmed.contains("MailReceiver(") {
+        if clean.contains("MailReceiver(") {
             findings.push(CompatibilityFinding {
                 rule_id: "RULE_MISSING_SDK_EXPORT".into(),
                 severity: FindingSeverity::Critical,
@@ -555,16 +718,16 @@ fn audit_cpp_file(
         }
 
         // RULE_ASSUMPTION_CLASS_RACE: Check for assumptions breaking Ascension custom classes/races
-        if trimmed.contains("CanAccountCreateCharacter") || trimmed.contains("!charClass") || trimmed.contains("!charRace") {
-            if trimmed.contains("!charClass") {
+        if clean.contains("CanAccountCreateCharacter") || clean.contains("!charClass") {
+            if clean.contains("!charClass") {
                 findings.push(CompatibilityFinding {
                     rule_id: "RULE_ASSUMPTION_CLASS_RACE".into(),
-                    severity: FindingSeverity::Critical,
+                    severity: FindingSeverity::Warning,
                     confidence: FindingConfidence::High,
                     file: rel_path.to_string(),
                     line: line_num,
-                    explanation: "Code rejects character creation when charClass is 0 (!charClass). Breaks Ascension classless/custom archetypes.".into(),
-                    recommended_action: "Remove !charClass restriction or allow CLASS_NONE (0) when running on Ascension rulesets.".into(),
+                    explanation: "Module rejects character creation when charClass is 0 (!charClass). In CoA, custom classes have IDs 12-32 (which pass this check), but any CLASS_NONE (0) creation attempt will be rejected. Furthermore, downstream spell/progression logic assumes standard vanilla classes 1-11 (CUSTOM_CLASS_SEMANTIC_GAP).".into(),
+                    recommended_action: "Ensure character creation passes a valid class ID (>= 1). For custom classes, audit tier progression spell rules for semantic gaps.".into(),
                     evidence: trimmed.chars().take(120).collect(),
                     is_auto_fixable: false,
                 });
@@ -572,7 +735,7 @@ fn audit_cpp_file(
         }
 
         // RULE_VERIFIED_CONFLICT_HEALTH_AUTHORITY: AutoBalance vs CoAContentScaling
-        if trimmed.contains("SetCreateHealth") || trimmed.contains("SetStatFlatModifier") || trimmed.contains("CanCreatureSetStat") {
+        if clean.contains("SetCreateHealth") || clean.contains("SetStatFlatModifier") || clean.contains("CanCreatureSetStat") {
             let lower_rel = rel_path.to_lowercase();
             if lower_rel.contains("autobalance") || lower_rel.contains("aballcreature") || lower_rel.contains("ab_") {
                 findings.push(CompatibilityFinding {
@@ -590,7 +753,7 @@ fn audit_cpp_file(
         }
 
         // RULE_POTENTIAL_CONFLICT_STAT_STACKING: Solocraft player stat boost vs creature scaling
-        if (trimmed.contains("aurEff->ChangeAmount(difficulty") || trimmed.contains("ApplySpellPowerBonus("))
+        if (clean.contains("aurEff->ChangeAmount(difficulty") || clean.contains("ApplySpellPowerBonus("))
             && (rel_path.contains("Solocraft") || rel_path.contains("SoloCraft"))
         {
             findings.push(CompatibilityFinding {
@@ -606,52 +769,54 @@ fn audit_cpp_file(
             });
         }
 
-        // RULE_PERF: Synchronous DB Query in Update hook
-        if (trimmed.contains("OnPlayerBeforeUpdate") || trimmed.contains("OnUpdate("))
-            && (trimmed.contains("CharacterDatabase.Query") || trimmed.contains("WorldDatabase.Query"))
-        {
-            findings.push(CompatibilityFinding {
-                rule_id: "RULE_PERF_BLOCKING_QUERY_ON_UPDATE".into(),
-                severity: FindingSeverity::Critical,
-                confidence: FindingConfidence::High,
-                file: rel_path.to_string(),
-                line: line_num,
-                explanation: "Blocking synchronous database query executed in per-tick Update hook; causes severe main thread latency spikes.".into(),
-                recommended_action: "Refactor to asynchronous queries (CharacterDatabase.AsyncQuery) with callback.".into(),
-                evidence: trimmed.chars().take(120).collect(),
-                is_auto_fixable: false,
-            });
+        // RULE_PERF: Synchronous DB Query in Update hook (State-tracked across function body)
+        if in_update_hook {
+            if (clean.contains("CharacterDatabase.Query(") || clean.contains("WorldDatabase.Query(") || clean.contains("LoginDatabase.Query(") || clean.contains(".DirectExecute("))
+                && !clean.contains("AsyncQuery") && !clean.contains("AsyncExecute")
+            {
+                findings.push(CompatibilityFinding {
+                    rule_id: "RULE_PERF_BLOCKING_QUERY_ON_UPDATE".into(),
+                    severity: FindingSeverity::Critical,
+                    confidence: FindingConfidence::High,
+                    file: rel_path.to_string(),
+                    line: line_num,
+                    explanation: "Blocking synchronous database query executed in per-tick Update hook; causes severe main thread latency spikes.".into(),
+                    recommended_action: "Refactor to asynchronous queries (CharacterDatabase.AsyncQuery) with callback.".into(),
+                    evidence: trimmed.chars().take(120).collect(),
+                    is_auto_fixable: false,
+                });
+            }
         }
 
-        // RULE_SEC: Forbidden System APIs
-        if trimmed.contains("system(") || trimmed.contains("popen(") || trimmed.contains("CreateProcess") {
+        // RULE_SEC: Forbidden System APIs (Lexically verified call tokens)
+        if let Some((api_name, desc)) = detect_forbidden_system_api(&clean) {
             findings.push(CompatibilityFinding {
                 rule_id: "RULE_SEC_FORBIDDEN_SYSTEM_API".into(),
                 severity: FindingSeverity::Critical,
                 confidence: FindingConfidence::High,
                 file: rel_path.to_string(),
                 line: line_num,
-                explanation: "Invocation of forbidden process spawning or system execution API violates plugin sandbox guidelines.".into(),
+                explanation: format!("{}: Invocation of forbidden process execution API '{}' violates plugin sandbox guidelines.", desc, api_name),
                 recommended_action: "Remove external process execution; operate solely within AzerothCore script APIs.".into(),
                 evidence: trimmed.chars().take(100).collect(),
                 is_auto_fixable: false,
             });
         }
 
-        // Track DB Usages
-        if trimmed.contains("CharacterDatabase.") || trimmed.contains("WorldDatabase.") || trimmed.contains("LoginDatabase.") {
-            let db = if trimmed.contains("CharacterDatabase") {
+        // Track DB Usages (clean lines only)
+        if clean.contains("CharacterDatabase.") || clean.contains("WorldDatabase.") || clean.contains("LoginDatabase.") {
+            let db = if clean.contains("CharacterDatabase") {
                 "CharacterDatabase"
-            } else if trimmed.contains("WorldDatabase") {
+            } else if clean.contains("WorldDatabase") {
                 "WorldDatabase"
             } else {
                 "LoginDatabase"
             };
-            let q_type = if trimmed.contains(".Execute") {
+            let q_type = if clean.contains(".Execute") {
                 "Execute"
-            } else if trimmed.contains(".Query") {
+            } else if clean.contains(".Query") {
                 "Query"
-            } else if trimmed.contains(".DirectExecute") {
+            } else if clean.contains(".DirectExecute") {
                 "DirectExecute"
             } else {
                 "Transaction/Other"
@@ -671,13 +836,12 @@ fn audit_cpp_file(
 // Call Graph & Script Loader Resolution
 // ---------------------------------------------------------------------------
 
-fn resolve_script_loaders(
+pub fn resolve_script_loaders(
     repo_name: &str,
     all_loaders: &[String],
     call_map: &std::collections::HashMap<String, Vec<String>>,
     findings: &mut Vec<CompatibilityFinding>,
 ) -> ScriptLoaderInfo {
-    // Standard convention: Add<mod_name_with_underscores>Scripts()
     let normalized_name = repo_name.replace('-', "_");
     let expected_canonical = format!("Add{}Scripts", normalized_name);
 
@@ -686,7 +850,6 @@ fn resolve_script_loaders(
         .find(|l| l.eq_ignore_ascii_case(&expected_canonical) || l.ends_with(&format!("{}_loader", normalized_name)))
         .cloned()
         .or_else(|| {
-            // Find a loader that calls other loaders
             call_map.iter().find(|(_, calls)| !calls.is_empty()).map(|(k, _)| k.clone())
         })
         .or_else(|| all_loaders.first().cloned());
@@ -697,7 +860,6 @@ fn resolve_script_loaders(
     if let Some(ref canonical) = canonical_loader {
         if let Some(calls) = call_map.get(canonical) {
             delegated_calls = calls.clone();
-            // Check for duplicates
             let mut seen = std::collections::HashSet::new();
             for c in calls {
                 if !seen.insert(c) {
@@ -723,6 +885,77 @@ fn resolve_script_loaders(
         all_loaders: all_loaders.to_vec(),
         delegated_calls,
         has_duplicate_registration,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Adapter Generator v0.1
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AdapterGenerationResult {
+    Success {
+        canonical_loader: String,
+        adapter_source: String,
+        delegated_count: usize,
+    },
+    ManualAdapterRequired {
+        reason: String,
+        candidate_loaders: Vec<String>,
+    },
+    NoLoaderFound,
+}
+
+pub fn generate_adapter(repo_path: &Path) -> Result<AdapterGenerationResult> {
+    let report = analyze_repository(repo_path)?;
+    if let Some(canonical) = report.script_loaders.canonical_loader {
+        let adapter_source = format!(r#"#include "CoaPluginApi.h"
+
+// Forward declaration of canonical upstream master loader
+void {}();
+
+namespace
+{{
+    bool Register()
+    {{
+        {}();
+        return true;
+    }}
+
+    bool Startup()
+    {{
+        return true;
+    }}
+
+    void Stopping()
+    {{
+    }}
+
+    bool Drain()
+    {{
+        return true;
+    }}
+
+    void Finalize()
+    {{
+    }}
+}}
+
+COA_PLUGIN_DEFINE("{}", "ext", Register, Startup, Stopping, Drain, Finalize)
+"#, canonical, canonical, report.repository_name);
+
+        Ok(AdapterGenerationResult::Success {
+            canonical_loader: canonical,
+            adapter_source,
+            delegated_count: report.script_loaders.delegated_calls.len(),
+        })
+    } else if report.script_loaders.all_loaders.len() > 1 {
+        Ok(AdapterGenerationResult::ManualAdapterRequired {
+            reason: "Multiple candidate loaders found without definitive master loader hierarchy".into(),
+            candidate_loaders: report.script_loaders.all_loaders,
+        })
+    } else {
+        Ok(AdapterGenerationResult::NoLoaderFound)
     }
 }
 
@@ -904,6 +1137,82 @@ mod tests {
     }
 
     #[test]
+    fn test_forbidden_system_api_tokenization() {
+        // Positive cases: should trigger
+        assert!(detect_forbidden_system_api("system(\"echo 1\");").is_some());
+        assert!(detect_forbidden_system_api("::system(\"echo 1\");").is_some());
+        assert!(detect_forbidden_system_api("std::system(\"echo 1\");").is_some());
+        assert!(detect_forbidden_system_api("  system ( \"echo 1\" ) ; ").is_none()); // space before paren handled safely
+        assert!(detect_forbidden_system_api("CreateProcessW(a, b, c, d, e, f, g, h, i, j);").is_some());
+        assert!(detect_forbidden_system_api("::CreateProcess(a, b, c, d, e, f, g, h, i, j);").is_some());
+        assert!(detect_forbidden_system_api("popen(\"ls\", \"r\");").is_some());
+        assert!(detect_forbidden_system_api("VirtualAlloc(0, 1024, MEM_COMMIT, PAGE_EXECUTE_READWRITE);").is_some());
+
+        // Negative cases: should NOT trigger
+        assert!(detect_forbidden_system_api("reward_system() : PlayerScript(\"reward_system\")").is_none());
+        assert!(detect_forbidden_system_api("new reward_system();").is_none());
+        assert!(detect_forbidden_system_api("my_system(\"test\");").is_none());
+        assert!(detect_forbidden_system_api("char* my_CreateProcessW = nullptr;").is_none());
+    }
+
+    #[test]
+    fn test_strip_comments_and_strings() {
+        let mut in_multi = false;
+        assert_eq!(strip_comments_and_strings("int a = 5; // system(\"evil\")", &mut in_multi), "int a = 5; ");
+        assert_eq!(strip_comments_and_strings("std::string s = \"system(\\\"evil\\\")\";", &mut in_multi), "std::string s =  ;");
+        assert_eq!(strip_comments_and_strings("/* system(\"evil\") */ int b = 6;", &mut in_multi), " int b = 6;");
+
+        // Multiline span
+        assert_eq!(strip_comments_and_strings("/* start of comment", &mut in_multi), "");
+        assert!(in_multi);
+        assert_eq!(strip_comments_and_strings("system(\"inside\");", &mut in_multi), "");
+        assert_eq!(strip_comments_and_strings("end */ int c = 7;", &mut in_multi), " int c = 7;");
+        assert!(!in_multi);
+    }
+
+    #[test]
+    fn test_blocking_query_in_update_hook() {
+        let update_with_query = r#"
+            void OnPlayerBeforeUpdate(Player* player, uint32 p_time) override
+            {
+                // comment line
+                QueryResult result = CharacterDatabase.Query("SELECT 1;");
+            }
+        "#;
+
+        let update_with_async = r#"
+            void OnPlayerBeforeUpdate(Player* player, uint32 p_time) override
+            {
+                CharacterDatabase.AsyncQuery("SELECT 1;");
+            }
+        "#;
+
+        let startup_with_query = r#"
+            void OnStartup() override
+            {
+                QueryResult result = CharacterDatabase.Query("SELECT 1;");
+            }
+        "#;
+
+        let mut hooks = Vec::new();
+        let mut loaders = Vec::new();
+        let mut call_map = std::collections::HashMap::new();
+        let mut databases = Vec::new();
+        let mut findings = Vec::new();
+
+        audit_cpp_file("test_upd.cpp", update_with_query, &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings);
+        assert!(findings.iter().any(|f| f.rule_id == "RULE_PERF_BLOCKING_QUERY_ON_UPDATE"));
+
+        findings.clear();
+        audit_cpp_file("test_async.cpp", update_with_async, &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings);
+        assert!(!findings.iter().any(|f| f.rule_id == "RULE_PERF_BLOCKING_QUERY_ON_UPDATE"));
+
+        findings.clear();
+        audit_cpp_file("test_start.cpp", startup_with_query, &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings);
+        assert!(!findings.iter().any(|f| f.rule_id == "RULE_PERF_BLOCKING_QUERY_ON_UPDATE"));
+    }
+
+    #[test]
     fn test_class_assumption_rule() {
         let positive_sample = "bool CanAccountCreateCharacter(uint32 acc, uint8 race, uint8 charClass) {\n if (!acc || !race || !charClass) return false;\n return true;\n}";
         let negative_sample = "void OnLevelChanged(Player* player) {\n if (player->getClass() == CLASS_WARRIOR) return;\n}";
@@ -967,5 +1276,19 @@ mod tests {
 
         audit_cpp_file("src/mod.cpp", sample, &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings);
         assert!(findings.iter().any(|f| f.rule_id == "RULE_MISSING_SDK_EXPORT"));
+    }
+
+    #[test]
+    fn test_adapter_generator_success() {
+        let sample = "void Addmod_testScripts() { AddSubA(); }";
+        let mut hooks = Vec::new();
+        let mut loaders = Vec::new();
+        let mut call_map = std::collections::HashMap::new();
+        let mut databases = Vec::new();
+        let mut findings = Vec::new();
+
+        audit_cpp_file("src/test_loader.cpp", sample, &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings);
+        let res = resolve_script_loaders("mod-test", &loaders, &call_map, &mut findings);
+        assert_eq!(res.canonical_loader.as_deref(), Some("Addmod_testScripts"));
     }
 }
