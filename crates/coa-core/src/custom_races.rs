@@ -5,7 +5,7 @@
 //! into the player's WoW client directory.
 
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -153,7 +153,10 @@ pub fn sync_bot_races_config(root: &Path, allow_custom_races: bool) -> Result<()
                     let clean = value.trim().trim_matches(['"', '\'']);
                     let owned = String::from_utf8_lossy(&bytes)
                         .contains("CoA Custom: races new random bots never get")
-                        && matches!(clean, EXCLUDED_BOT_RACES_RECOMMENDED | EXCLUDED_BOT_RACES_EXPERIMENTAL);
+                        && matches!(
+                            clean,
+                            EXCLUDED_BOT_RACES_RECOMMENDED | EXCLUDED_BOT_RACES_EXPERIMENTAL
+                        );
                     if !owned {
                         continue;
                     }
@@ -662,134 +665,147 @@ fn stage_root_asset(staging: &Path, relative: &str, reader: &mut impl Read) -> R
     Ok(relative.to_string())
 }
 
-fn verify_archive(path: &Path, filename: &str) -> Result<()> {
-    let expected = match filename {
-        "CoA-Custom-1.9.2-Client-1.zip" => {
-            "a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568"
-        }
-        "CoA-Custom-1.9.2-Client-2.zip" => {
-            "ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e"
-        }
-        "CoA-Custom-1.9.2-Client-3.zip" => {
-            "907e267f0ee7038807e626c3c1eca5e12db6c88b747137a23c5fb52eaa1a358e"
-        }
-        "CoA-Custom-1.9.2-Client-4.zip" => {
-            "e0bd87172af989fa50a8e2b08ba4321c72b6265047482f051a1db3b80d55bcaa"
-        }
-        "CoA-Custom-1.9.2-Client-5.zip" => {
-            "73364ad1b58c6342641a848a3b20a835472834f600416606be1470386774ca78"
-        }
+fn archive_job(filename: &str, url: &str, cache: &Path) -> Result<crate::download::Job> {
+    let (size, sha256) = match filename {
+        "CoA-Custom-1.9.2-Client-1.zip" => (
+            1_513_021_586,
+            "a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568",
+        ),
+        "CoA-Custom-1.9.2-Client-2.zip" => (
+            1_198_283_005,
+            "ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e",
+        ),
+        "CoA-Custom-1.9.2-Client-3.zip" => (
+            1_678_829_573,
+            "907e267f0ee7038807e626c3c1eca5e12db6c88b747137a23c5fb52eaa1a358e",
+        ),
+        "CoA-Custom-1.9.2-Client-4.zip" => (
+            502_385_128,
+            "e0bd87172af989fa50a8e2b08ba4321c72b6265047482f051a1db3b80d55bcaa",
+        ),
+        "CoA-Custom-1.9.2-Client-5.zip" => (
+            168_079_711,
+            "73364ad1b58c6342641a848a3b20a835472834f600416606be1470386774ca78",
+        ),
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
-    if fsx::sha256_file(path)? != expected {
+    Ok(crate::download::Job {
+        url: url.into(),
+        dest: cache.join(filename),
+        sha256: sha256.into(),
+        size,
+    })
+}
+
+fn archive_matches(path: &Path, job: &crate::download::Job) -> bool {
+    path.metadata()
+        .is_ok_and(|m| m.is_file() && m.len() == job.size)
+        && fsx::sha256_file(path).is_ok_and(|hash| hash.eq_ignore_ascii_case(&job.sha256))
+}
+
+#[cfg(test)]
+fn verify_archive(path: &Path, filename: &str) -> Result<()> {
+    let job = archive_job(filename, "", Path::new(""))?;
+    if !archive_matches(path, &job) {
         return Err(Error::Invalid(format!(
-            "Custom races archive {filename} failed verification. Remove it and try again."
+            "Custom races archive {filename} failed verification."
         )));
     }
     Ok(())
 }
 
-/// Locate an archive locally in Downloads or cache, or download it from GitHub.
+/// User-owned Downloads files are read-only candidates. Only the Manager's cache is repaired.
+fn resolve_archive_with(
+    transport: &dyn crate::download::Transport,
+    job: &crate::download::Job,
+    downloads: Option<&Path>,
+    cancel: &Cancel,
+    progress: &dyn Fn(crate::download::Progress),
+) -> Result<PathBuf> {
+    if cancel.is_set() {
+        return Err(Error::Invalid("Download cancelled.".into()));
+    }
+    if let Some(downloads) = downloads {
+        let candidate = downloads.join(job.dest.file_name().unwrap_or_default());
+        if archive_matches(&candidate, job) {
+            tracing::info!(path = %candidate.display(), "using verified archive in Downloads");
+            progress(crate::download::Progress {
+                downloaded: job.size,
+                total: job.size,
+                bytes_per_sec: 0,
+            });
+            return Ok(candidate);
+        }
+        if candidate.exists() {
+            tracing::warn!(path = %candidate.display(), "ignoring incomplete or unverified archive in Downloads");
+        }
+    }
+
+    let cache = job
+        .dest
+        .parent()
+        .ok_or_else(|| Error::Invalid("Missing archive cache directory.".into()))?;
+    fs::create_dir_all(cache)?;
+    // Different installations share this cache; never append to or replace another active download.
+    use fs4::fs_std::FileExt;
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(suffix(&job.dest, "lock"))?;
+    if !lock.try_lock_exclusive()? {
+        return Err(Error::Invalid("Another custom races download is using this archive. Wait for it to finish, then retry.".into()));
+    }
+    if job.dest.is_file() {
+        if archive_matches(&job.dest, job) {
+            progress(crate::download::Progress {
+                downloaded: job.size,
+                total: job.size,
+                bytes_per_sec: 0,
+            });
+            return Ok(job.dest.clone());
+        }
+        tracing::warn!(path = %job.dest.display(), "removing unverified Manager archive cache; downloading again");
+        fs::remove_file(&job.dest)?;
+    }
+    // The shared downloader resumes .part files and verifies the complete archive before promotion.
+    // A stale/corrupt prefix may only be detectable after resume: retry once from scratch in that case.
+    match crate::download::fetch_with(transport, job, cancel, progress) {
+        Err(Error::HashMismatch { .. }) if !cancel.is_set() => {
+            tracing::warn!(path = %job.dest.display(), "archive verification failed; retrying a clean download");
+            crate::download::fetch_with(transport, job, cancel, progress)?;
+        }
+        result => result?,
+    }
+    Ok(job.dest.clone())
+}
+
+/// Locate a verified archive or resume downloading it into the Manager's cache.
 fn resolve_or_download_archive(
     filename: &str,
     url: &str,
-    client: &reqwest::blocking::Client,
+    transport: &dyn crate::download::Transport,
     cancel: &Cancel,
     report: &dyn Fn(&str, f32),
     base_percent: f32,
     percent_slice: f32,
 ) -> Result<PathBuf> {
-    // 1. Check user Downloads folder
-    if let Some(userprofile) = std::env::var_os("USERPROFILE") {
-        let downloads = PathBuf::from(userprofile).join("Downloads");
-        let candidate = downloads.join(filename);
-        if candidate.is_file() {
-            if let Ok(meta) = candidate.metadata() {
-                if meta.len() > 1000 {
-                    tracing::info!(path = %candidate.display(), "using existing archive in Downloads");
-                    verify_archive(&candidate, filename)?;
-                    return Ok(candidate);
-                }
-            }
-        }
-    }
-
-    // 2. Check temp / cache directory
-    let cache_dir = std::env::temp_dir().join("coa-client-races");
-    fs::create_dir_all(&cache_dir)?;
-    let target = cache_dir.join(filename);
-    if target.is_file() {
-        if let Ok(meta) = target.metadata() {
-            if meta.len() > 1000 {
-                verify_archive(&target, filename)?;
-                return Ok(target);
-            }
-        }
-    }
-
-    // 3. Download from GitHub Releases
-    report(&format!("Downloading {filename}..."), base_percent);
-    let part_path = cache_dir.join(format!("{filename}.part"));
-
-    let resp = client
-        .get(url)
-        .send()
-        .map_err(|e| Error::NetworkUnreachable(format!("Could not reach download server: {e}")))?;
-
-    if !resp.status().is_success() {
-        return Err(Error::NetworkUnreachable(format!(
-            "Download failed with status {} for {url}",
-            resp.status()
-        )));
-    }
-
-    let total_bytes = resp.content_length().unwrap_or(0);
-    let mut downloaded = 0u64;
-    let mut src = resp;
-    let mut dst = File::create(&part_path)?;
-
-    let mut buf = [0u8; 64 * 1024];
-    let mut last_report = std::time::Instant::now();
-
-    loop {
-        if cancel.is_set() {
-            let _ = fs::remove_file(&part_path);
-            return Err(Error::Invalid("Operation cancelled.".into()));
-        }
-
-        let n = src
-            .read(&mut buf)
-            .map_err(|e| Error::NetworkUnreachable(format!("Download interrupted: {e}")))?;
-        if n == 0 {
-            break;
-        }
-
-        dst.write_all(&buf[..n])?;
-        downloaded += n as u64;
-
-        if last_report.elapsed() > std::time::Duration::from_millis(200) {
-            let ratio = if total_bytes > 0 {
-                (downloaded as f32 / total_bytes as f32).clamp(0.0, 1.0)
-            } else {
-                0.5
-            };
-            report(
-                &format!(
-                    "Downloading {filename} ({:.1} MB)...",
-                    downloaded as f64 / 1_048_576.0
-                ),
-                base_percent + ratio * percent_slice,
-            );
-            last_report = std::time::Instant::now();
-        }
-    }
-
-    dst.flush()?;
-    drop(dst);
-
-    verify_archive(&part_path, filename)?;
-    fs::rename(&part_path, &target)?;
-    Ok(target)
+    // Report before hashing existing files: otherwise checking a large archive looks like no operation.
+    report(&format!("Checking {filename}..."), base_percent);
+    let cache = std::env::temp_dir().join("coa-client-races");
+    let downloads = std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("Downloads"));
+    let job = archive_job(filename, url, &cache)?;
+    resolve_archive_with(transport, &job, downloads.as_deref(), cancel, &|p| {
+        let ratio = p.downloaded as f32 / p.total.max(1) as f32;
+        report(
+            &format!(
+                "Downloading {filename} ({:.1} MB)...",
+                p.downloaded as f64 / 1_048_576.0
+            ),
+            base_percent + ratio.clamp(0.0, 1.0) * percent_slice,
+        );
+    })
 }
 
 /// Download (if needed) and extract custom races client assets into the target WoW client.
@@ -818,11 +834,7 @@ pub fn install_client_patches(
     fs::create_dir_all(&data_dir)?;
 
     // 2. Resolve/download archives (0.05 .. 0.50)
-    let http = reqwest::blocking::Client::builder()
-        .user_agent(concat!("CoA-Server-Manager/", env!("CARGO_PKG_VERSION")))
-        .timeout(std::time::Duration::from_secs(600))
-        .build()
-        .map_err(|e| Error::Invalid(format!("Cannot prepare downloader: {e}")))?;
+    let http = crate::download::HttpTransport::with_total_timeout(600)?;
 
     let mut resolved_archives = Vec::new();
     let n_archives = ARCHIVES.len() as f32;
@@ -1113,7 +1125,9 @@ mod tests {
             serde_json::from_str(include_str!("custom_races_hashes_1_9_1.json")).unwrap();
         let files = patch_files(temp.path()).unwrap();
         assert_eq!(files.len(), old.len());
-        assert!(files.iter().all(|file| old.get(&file.path) == Some(&file.sha256)));
+        assert!(files
+            .iter()
+            .all(|file| old.get(&file.path) == Some(&file.sha256)));
         assert!(!files.iter().any(|file| file.path.contains("CoAQuestSafe")));
     }
 
@@ -1571,11 +1585,179 @@ mod tests {
         );
     }
 
+    struct ArchiveTransport {
+        body: Vec<u8>,
+        ranges: std::sync::Mutex<Vec<u64>>,
+    }
+
+    impl crate::download::Transport for ArchiveTransport {
+        fn get(&self, _: &str, from: u64) -> std::result::Result<crate::download::Reply, String> {
+            self.ranges.lock().unwrap().push(from);
+            Ok(crate::download::Reply {
+                status: if from == 0 { 200 } else { 206 },
+                content_range: (from > 0)
+                    .then(|| format!("bytes {from}-{}/{}", self.body.len() - 1, self.body.len())),
+                body: Box::new(io::Cursor::new(self.body[from as usize..].to_vec())),
+            })
+        }
+    }
+
+    fn archive_fixture(root: &Path) -> (crate::download::Job, ArchiveTransport) {
+        use sha2::{Digest, Sha256};
+        let body = b"verified archive bytes for recovery tests".to_vec();
+        let job = crate::download::Job {
+            url: "https://example.invalid/patch.zip".into(),
+            dest: root.join("cache/patch.zip"),
+            sha256: hex::encode(Sha256::digest(&body)),
+            size: body.len() as u64,
+        };
+        fs::create_dir_all(job.dest.parent().unwrap()).unwrap();
+        (
+            job,
+            ArchiveTransport {
+                body,
+                ranges: Default::default(),
+            },
+        )
+    }
+
     #[test]
-    fn corrupt_downloads_are_rejected() {
-        let temp = tempfile::NamedTempFile::new().unwrap();
-        fs::write(temp.path(), b"corrupt archive").unwrap();
-        assert!(verify_archive(temp.path(), ARCHIVES[0].0).is_err());
+    fn download_uses_verified_user_archive_without_network() {
+        let temp = tempfile::tempdir().unwrap();
+        let (job, transport) = archive_fixture(temp.path());
+        let downloads = temp.path().join("Downloads");
+        fs::create_dir(&downloads).unwrap();
+        let archive = downloads.join("patch.zip");
+        fs::write(&archive, &transport.body).unwrap();
+        let path = resolve_archive_with(
+            &transport,
+            &job,
+            Some(&downloads),
+            &Cancel::default(),
+            &|_| {},
+        )
+        .unwrap();
+        assert_eq!(path, archive);
+        assert!(transport.ranges.lock().unwrap().is_empty());
+        assert!(!job.dest.exists());
+    }
+
+    #[test]
+    fn download_skips_bad_user_archive_and_repairs_bad_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let (job, transport) = archive_fixture(temp.path());
+        let downloads = temp.path().join("Downloads");
+        fs::create_dir(&downloads).unwrap();
+        let bad = vec![b'x'; transport.body.len()];
+        fs::write(downloads.join("patch.zip"), &bad).unwrap();
+        fs::write(downloads.join("patch.zip.part"), b"user browser download").unwrap();
+        fs::write(&job.dest, &bad).unwrap();
+        let path = resolve_archive_with(
+            &transport,
+            &job,
+            Some(&downloads),
+            &Cancel::default(),
+            &|_| {},
+        )
+        .unwrap();
+        assert_eq!(path, job.dest);
+        assert_eq!(fs::read(&path).unwrap(), transport.body);
+        assert_eq!(fs::read(downloads.join("patch.zip")).unwrap(), bad);
+        assert_eq!(
+            fs::read(downloads.join("patch.zip.part")).unwrap(),
+            b"user browser download"
+        );
+        assert_eq!(*transport.ranges.lock().unwrap(), vec![0]);
+    }
+
+    #[test]
+    fn download_resumes_leftover_part_and_verifies_complete_archive() {
+        let temp = tempfile::tempdir().unwrap();
+        let (job, transport) = archive_fixture(temp.path());
+        let part = suffix(&job.dest, "part");
+        fs::write(&part, &transport.body[..9]).unwrap();
+        resolve_archive_with(&transport, &job, None, &Cancel::default(), &|_| {}).unwrap();
+        assert_eq!(*transport.ranges.lock().unwrap(), vec![9]);
+        assert_eq!(fs::read(&job.dest).unwrap(), transport.body);
+        assert!(!part.exists());
+    }
+
+    #[test]
+    fn download_reuses_good_cache_even_when_user_archive_is_incomplete() {
+        let temp = tempfile::tempdir().unwrap();
+        let (job, transport) = archive_fixture(temp.path());
+        let downloads = temp.path().join("Downloads");
+        fs::create_dir(&downloads).unwrap();
+        fs::write(downloads.join("patch.zip"), b"incomplete").unwrap();
+        fs::write(&job.dest, &transport.body).unwrap();
+        let path = resolve_archive_with(
+            &transport,
+            &job,
+            Some(&downloads),
+            &Cancel::default(),
+            &|_| {},
+        )
+        .unwrap();
+        assert_eq!(path, job.dest);
+        assert!(transport.ranges.lock().unwrap().is_empty());
+        assert_eq!(
+            fs::read(downloads.join("patch.zip")).unwrap(),
+            b"incomplete"
+        );
+    }
+
+    #[test]
+    fn download_restarts_once_when_resumed_prefix_is_corrupt() {
+        let temp = tempfile::tempdir().unwrap();
+        let (job, transport) = archive_fixture(temp.path());
+        fs::write(suffix(&job.dest, "part"), b"bad").unwrap();
+        resolve_archive_with(&transport, &job, None, &Cancel::default(), &|_| {}).unwrap();
+        assert_eq!(*transport.ranges.lock().unwrap(), vec![3, 0]);
+        assert_eq!(fs::read(&job.dest).unwrap(), transport.body);
+    }
+
+    #[test]
+    fn download_promotes_completed_part_without_redownloading() {
+        let temp = tempfile::tempdir().unwrap();
+        let (job, transport) = archive_fixture(temp.path());
+        fs::write(suffix(&job.dest, "part"), &transport.body).unwrap();
+        resolve_archive_with(&transport, &job, None, &Cancel::default(), &|_| {}).unwrap();
+        assert!(transport.ranges.lock().unwrap().is_empty());
+        assert_eq!(fs::read(&job.dest).unwrap(), transport.body);
+    }
+
+    #[test]
+    fn download_stops_after_one_clean_retry_if_server_bytes_are_invalid() {
+        let temp = tempfile::tempdir().unwrap();
+        let (job, mut transport) = archive_fixture(temp.path());
+        transport.body.fill(b'x');
+        let result = resolve_archive_with(&transport, &job, None, &Cancel::default(), &|_| {});
+        assert!(matches!(result, Err(Error::HashMismatch { .. })));
+        assert_eq!(*transport.ranges.lock().unwrap(), vec![0, 0]);
+        assert!(!job.dest.exists());
+        assert!(!suffix(&job.dest, "part").exists());
+    }
+
+    #[test]
+    fn download_does_not_modify_an_archive_owned_by_another_download() {
+        use fs4::fs_std::FileExt;
+        let temp = tempfile::tempdir().unwrap();
+        let (job, transport) = archive_fixture(temp.path());
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(suffix(&job.dest, "lock"))
+            .unwrap();
+        lock.try_lock_exclusive().unwrap();
+        fs::write(suffix(&job.dest, "part"), b"active download").unwrap();
+        assert!(resolve_archive_with(&transport, &job, None, &Cancel::default(), &|_| {}).is_err());
+        assert_eq!(
+            fs::read(suffix(&job.dest, "part")).unwrap(),
+            b"active download"
+        );
+        assert!(transport.ranges.lock().unwrap().is_empty());
     }
 
     #[test]
