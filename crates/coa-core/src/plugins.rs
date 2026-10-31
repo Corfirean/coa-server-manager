@@ -1,0 +1,833 @@
+//! Dynamic Plugin Architecture (FV1) for CoA Server Manager.
+//!
+//! Manages dynamic DLL plugins, the plugin store (`.manager/plugin-store`),
+//! registry (`.manager/plugins.json`), `plugins.lock` generation, 3-way configuration merging,
+//! transactional updates, and multiworld isolation.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+use crate::config::parser::ConfFile;
+use crate::error::{Error, Result};
+use crate::fsx;
+
+pub const REGISTRY_SCHEMA: u32 = 1;
+
+/// Metadata describing a plugin package ready to be placed into the store.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginMetadata {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub description: BTreeMap<String, String>,
+    pub sha256: String,
+    #[serde(default = "yes")]
+    pub required: bool,
+    #[serde(default)]
+    pub deps: Vec<String>,
+    #[serde(default)]
+    pub conf_files: Vec<String>,
+    #[serde(default)]
+    pub enable_key: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// An entry in `.manager/plugins.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginEntry {
+    pub installed: bool,
+    pub enabled: bool,
+    pub version: String,
+    pub sha256: String,
+    pub store_path: String,
+    pub conf_files: Vec<String>,
+    #[serde(default)]
+    pub deps: Vec<String>,
+    #[serde(default = "yes")]
+    pub required: bool,
+}
+
+/// The root registry document in `.manager/plugins.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginsRegistry {
+    pub schema: u32,
+    pub plugins: BTreeMap<String, PluginEntry>,
+}
+
+impl Default for PluginsRegistry {
+    fn default() -> Self {
+        Self {
+            schema: REGISTRY_SCHEMA,
+            plugins: BTreeMap::new(),
+        }
+    }
+}
+
+/// View of a plugin suitable for the CSM UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginView {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: BTreeMap<String, String>,
+    pub installed: bool,
+    pub enabled: bool,
+    pub update_available: bool,
+    pub latest_version: Option<String>,
+    pub deps: Vec<String>,
+    pub conf_files: Vec<String>,
+    pub status: String,
+    pub icon: String,
+}
+
+/// Resolve the metadata directory (`.manager` or `<server>.manager`).
+pub fn meta_dir(server: &Path) -> PathBuf {
+    let dot = server.join(".manager");
+    if dot.is_dir() {
+        return dot;
+    }
+    if let Ok(dir) = crate::registry::metadata_dir_for(server) {
+        if dir.is_dir() {
+            return dir;
+        }
+    }
+    dot
+}
+
+/// Root of the immutable plugin store: `<meta_dir>/plugin-store`.
+pub fn store_dir(server: &Path) -> PathBuf {
+    meta_dir(server).join("plugin-store")
+}
+
+/// Path to `.manager/plugins.json`.
+pub fn registry_path(server: &Path) -> PathBuf {
+    meta_dir(server).join("plugins.json")
+}
+
+/// Path where `worldserver.exe` expects `plugins/`.
+pub fn plugins_install_dir(server: &Path) -> PathBuf {
+    if server.join("Core").is_dir() {
+        server.join("Core/plugins")
+    } else {
+        server.join("plugins")
+    }
+}
+
+/// Path to `plugins.lock`.
+pub fn lockfile_path(server: &Path) -> PathBuf {
+    plugins_install_dir(server).join("plugins.lock")
+}
+
+/// Directory for module configs (`Core/configs/modules` or `configs/modules`).
+pub fn modules_config_dir(server: &Path) -> PathBuf {
+    if server.join("Core/configs/modules").is_dir() || server.join("Core").is_dir() {
+        server.join("Core/configs/modules")
+    } else {
+        server.join("configs/modules")
+    }
+}
+
+/// Check that the worldserver is not running before modifying plugins.
+pub fn require_server_stopped(server: &Path) -> Result<()> {
+    let observed = crate::process::observe(server, &crate::layout::read_ports(server));
+    if observed.world.state != crate::process::ServiceState::Stopped
+        || crate::multiworld::is_running(server)
+    {
+        return Err(Error::Invalid(
+            "Stop the server before modifying plugins or their enabled state.".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Calculate SHA256 of bytes.
+pub fn sha256_digest(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+/// Load `.manager/plugins.json` or return empty registry if not present.
+pub fn load_registry(server: &Path) -> Result<PluginsRegistry> {
+    let path = registry_path(server);
+    if !path.is_file() {
+        return Ok(PluginsRegistry::default());
+    }
+    let bytes = fs::read(&path)?;
+    serde_json::from_slice(&bytes).map_err(|e| Error::Invalid(format!("corrupt plugins.json: {e}")))
+}
+
+/// Atomically save `.manager/plugins.json`.
+pub fn save_registry(server: &Path, reg: &PluginsRegistry) -> Result<()> {
+    let meta = meta_dir(server);
+    fs::create_dir_all(&meta)?;
+    let path = registry_path(server);
+    let bytes = serde_json::to_vec_pretty(reg)?;
+    fsx::atomic_write(&path, &bytes)
+}
+
+/// Read a plugin's metadata from the store given its ID and SHA256.
+pub fn load_store_metadata(server: &Path, id: &str, sha256: &str) -> Result<PluginMetadata> {
+    let p = store_dir(server).join(id).join(sha256).join("plugin.json");
+    let bytes = fs::read(&p)?;
+    serde_json::from_slice(&bytes).map_err(|e| Error::Invalid(format!("corrupt plugin.json at {}: {e}", p.display())))
+}
+
+/// Helper to recursively copy directories.
+pub fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
+/// Copy and register a plugin into `.manager/plugin-store/<id>/<sha256>/`.
+pub fn install_to_store(
+    server: &Path,
+    meta: &PluginMetadata,
+    dll_bytes: &[u8],
+    pdb_bytes: Option<&[u8]>,
+    dist_confs: &[(String, &[u8])],
+) -> Result<PathBuf> {
+    let digest = sha256_digest(dll_bytes);
+    if digest != meta.sha256 {
+        return Err(Error::HashMismatch {
+            path: format!("{}.dll", meta.id),
+            expected: meta.sha256.clone(),
+            actual: digest,
+        });
+    }
+
+    let target = store_dir(server).join(&meta.id).join(&digest);
+    let staging = meta_dir(server)
+        .join("staging")
+        .join(format!("store_{}_{}", meta.id, uuid::Uuid::now_v7()));
+    fs::create_dir_all(&staging)?;
+
+    let write_res = (|| -> Result<()> {
+        fs::write(staging.join(format!("{}.dll", meta.id)), dll_bytes)?;
+        if let Some(pdb) = pdb_bytes {
+            fs::write(staging.join(format!("{}.pdb", meta.id)), pdb)?;
+        }
+        for (name, conf_bytes) in dist_confs {
+            let conf_name = if name.ends_with(".dist") {
+                name.clone()
+            } else {
+                format!("{name}.dist")
+            };
+            fs::write(staging.join(&conf_name), conf_bytes)?;
+        }
+        let meta_bytes = serde_json::to_vec_pretty(meta)?;
+        fs::write(staging.join("plugin.json"), meta_bytes)?;
+        Ok(())
+    })();
+
+    if let Err(e) = write_res {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(e);
+    }
+
+    // Atomic move to store
+    if target.exists() {
+        let _ = fs::remove_dir_all(&staging);
+        return Ok(target);
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    if let Err(e) = fs::rename(&staging, &target) {
+        // Fallback to copy and remove on cross-device link
+        let _ = copy_tree(&staging, &target);
+        let _ = fs::remove_dir_all(&staging);
+        if !target.is_dir() {
+            return Err(Error::Io(e));
+        }
+    }
+
+    Ok(target)
+}
+
+/// Generate `Core/plugins/plugins.lock` and synchronize active files in `Core/plugins/` and `Core/configs/modules/`.
+pub fn regenerate_lockfile(server: &Path, reg: &PluginsRegistry) -> Result<()> {
+    let plugins_root = plugins_install_dir(server);
+    let conf_root = modules_config_dir(server);
+    fs::create_dir_all(&plugins_root)?;
+    fs::create_dir_all(&conf_root)?;
+
+    let mut lock_lines = vec![
+        "# written by CoA Server Manager: id|path|sha256|required|confs|deps".to_string(),
+    ];
+
+    let mut active_plugin_ids = BTreeSet::new();
+
+    for (id, entry) in &reg.plugins {
+        if !entry.installed || !entry.enabled {
+            continue;
+        }
+
+        active_plugin_ids.insert(id.clone());
+        let store_path = store_dir(server).join(id).join(&entry.sha256);
+        if !store_path.is_dir() {
+            return Err(Error::Invalid(format!(
+                "Store directory for plugin '{}' ({}) is missing",
+                id, entry.sha256
+            )));
+        }
+
+        // Deploy plugin DLL and PDB into plugins/<id>/
+        let target_dir = plugins_root.join(id);
+        fs::create_dir_all(&target_dir)?;
+
+        let dll_name = format!("{id}.dll");
+        let src_dll = store_path.join(&dll_name);
+        let dst_dll = target_dir.join(&dll_name);
+        if !src_dll.is_file() {
+            return Err(Error::Invalid(format!(
+                "Source DLL missing in store: {}",
+                src_dll.display()
+            )));
+        }
+        fsx::atomic_write(&dst_dll, &fs::read(&src_dll)?)?;
+
+        let pdb_name = format!("{id}.pdb");
+        let src_pdb = store_path.join(&pdb_name);
+        if src_pdb.is_file() {
+            let dst_pdb = target_dir.join(&pdb_name);
+            fsx::atomic_write(&dst_pdb, &fs::read(&src_pdb)?)?;
+        }
+
+        // Deploy conf.dist and ensure active .conf exists
+        let mut deployed_conf_names = Vec::new();
+        for conf_entry in &entry.conf_files {
+            let base_name = conf_entry.strip_suffix(".dist").unwrap_or(conf_entry);
+            let dist_name = format!("{base_name}.dist");
+            let src_dist = store_path.join(&dist_name);
+            let dst_dist = conf_root.join(&dist_name);
+            let dst_conf = conf_root.join(base_name);
+
+            if src_dist.is_file() {
+                let dist_bytes = fs::read(&src_dist)?;
+                fsx::atomic_write(&dst_dist, &dist_bytes)?;
+                if !dst_conf.is_file() {
+                    fsx::atomic_write(&dst_conf, &dist_bytes)?;
+                }
+            }
+            deployed_conf_names.push(base_name.to_string());
+        }
+
+        let rel_dll_path = format!("{id}/{dll_name}");
+        let req_str = if entry.required { "1" } else { "0" };
+        let confs_str = deployed_conf_names.join(",");
+        let deps_str = entry.deps.join(",");
+
+        lock_lines.push(format!(
+            "{id}|{rel_dll_path}|{}|{req_str}|{confs_str}|{deps_str}",
+            entry.sha256
+        ));
+    }
+
+    // Clean up directories in plugins/ for uninstalled plugins
+    if let Ok(entries) = fs::read_dir(&plugins_root) {
+        for e in entries.flatten() {
+            if let Ok(ft) = e.file_type() {
+                if ft.is_dir() {
+                    let dir_name = e.file_name().to_string_lossy().into_owned();
+                    if !active_plugin_ids.contains(&dir_name) {
+                        let _ = fs::remove_dir_all(e.path());
+                    }
+                }
+            }
+        }
+    }
+
+    let lock_content = lock_lines.join("\n") + "\n";
+    let lock_path = lockfile_path(server);
+    fsx::atomic_write(&lock_path, lock_content.as_bytes())?;
+    Ok(())
+}
+
+/// Perform a 3-way merge on an AzerothCore `.conf` file.
+/// `base`: original distribution template
+/// `theirs`: updated distribution template from new version
+/// `mine`: current user configuration with custom modifications
+pub fn merge_conf(base_str: &str, theirs_str: &str, mine_str: &str) -> Result<String> {
+    let base = ConfFile::parse(base_str);
+    let theirs = ConfFile::parse(theirs_str);
+    let mut merged = ConfFile::parse(mine_str);
+
+    for (key, theirs_val) in theirs.entries() {
+        let base_val = base.get(key);
+        let mine_val = merged.get(key).map(|s| s.to_string());
+
+        match mine_val {
+            Some(curr) => {
+                // If user didn't change the value from base, take the upstream update
+                if base_val == Some(&curr) && curr != theirs_val {
+                    merged.set(key, theirs_val, &[]);
+                }
+            }
+            None => {
+                // New configuration key added upstream; incorporate with doc
+                let doc_lines = theirs.doc_for(key);
+                let doc_refs: Vec<&str> = doc_lines.iter().map(|s| s.as_str()).collect();
+                merged.set(key, theirs_val, &doc_refs);
+            }
+        }
+    }
+
+    Ok(merged.to_text())
+}
+
+/// Install a plugin into the store, update the registry, and optionally enable it.
+pub fn install(
+    server: &Path,
+    meta: PluginMetadata,
+    dll_bytes: &[u8],
+    pdb_bytes: Option<&[u8]>,
+    dist_confs: &[(String, &[u8])],
+    enable: bool,
+) -> Result<()> {
+    require_server_stopped(server)?;
+
+    let store_target = install_to_store(server, &meta, dll_bytes, pdb_bytes, dist_confs)?;
+    let mut reg = load_registry(server)?;
+
+    if enable {
+        if meta.id == "companions" && reg.plugins.get("playerbots").map(|p| p.enabled).unwrap_or(false) {
+            return Err(Error::BotModulesConflict);
+        }
+        if meta.id == "playerbots" && reg.plugins.get("companions").map(|p| p.enabled).unwrap_or(false) {
+            return Err(Error::BotModulesConflict);
+        }
+    }
+
+    let rel_store_path = store_target
+        .strip_prefix(meta_dir(server))
+        .unwrap_or(&store_target)
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    let entry = PluginEntry {
+        installed: true,
+        enabled: enable,
+        version: meta.version.clone(),
+        sha256: meta.sha256.clone(),
+        store_path: rel_store_path,
+        conf_files: meta.conf_files.clone(),
+        deps: meta.deps.clone(),
+        required: meta.required,
+    };
+
+    reg.plugins.insert(meta.id.clone(), entry);
+    save_registry(server, &reg)?;
+    regenerate_lockfile(server, &reg)?;
+
+    // If plugin has an enable_key in its config, sync it
+    if let Some(key) = &meta.enable_key {
+        let conf_root = modules_config_dir(server);
+        for conf_name in &meta.conf_files {
+            let base_name = conf_name.strip_suffix(".dist").unwrap_or(conf_name);
+            let conf_path = conf_root.join(base_name);
+            if conf_path.is_file() {
+                if let Ok(bytes) = fs::read(&conf_path) {
+                    if let Ok(mut conf_file) = ConfFile::parse_bytes(&bytes) {
+                        conf_file.set(key, if enable { "1" } else { "0" }, &[]);
+                        let _ = fsx::atomic_write(&conf_path, conf_file.to_text().as_bytes());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Enable or disable an installed plugin.
+pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
+    require_server_stopped(server)?;
+
+    let mut reg = load_registry(server)?;
+    let entry = reg.plugins.get(id).cloned().ok_or_else(|| {
+        Error::Invalid(format!("Plugin '{id}' is not installed"))
+    })?;
+
+    if enabled {
+        // Enforce bot mutual exclusivity
+        if id == "companions" && reg.plugins.get("playerbots").map(|p| p.enabled).unwrap_or(false) {
+            return Err(Error::BotModulesConflict);
+        }
+        if id == "playerbots" && reg.plugins.get("companions").map(|p| p.enabled).unwrap_or(false) {
+            return Err(Error::BotModulesConflict);
+        }
+
+        // Enforce dependencies
+        for dep in &entry.deps {
+            if !reg.plugins.get(dep).map(|p| p.enabled).unwrap_or(false) {
+                return Err(Error::Invalid(format!(
+                    "Cannot enable plugin '{id}': required dependency '{dep}' is not enabled"
+                )));
+            }
+        }
+    } else {
+        // Enforce dependent plugins
+        for (other_id, other) in &reg.plugins {
+            if other.enabled && other.deps.contains(&id.to_string()) {
+                return Err(Error::Invalid(format!(
+                    "Cannot disable plugin '{id}': plugin '{other_id}' depends on it"
+                )));
+            }
+        }
+    }
+
+    reg.plugins.get_mut(id).unwrap().enabled = enabled;
+    save_registry(server, &reg)?;
+    regenerate_lockfile(server, &reg)?;
+
+    // Sync module config enable key if known from metadata
+    if let Ok(meta) = load_store_metadata(server, id, &entry.sha256) {
+        if let Some(key) = &meta.enable_key {
+            let conf_root = modules_config_dir(server);
+            for conf_name in &meta.conf_files {
+                let base_name = conf_name.strip_suffix(".dist").unwrap_or(conf_name);
+                let conf_path = conf_root.join(base_name);
+                if conf_path.is_file() {
+                    if let Ok(bytes) = fs::read(&conf_path) {
+                        if let Ok(mut conf_file) = ConfFile::parse_bytes(&bytes) {
+                            conf_file.set(key, if enabled { "1" } else { "0" }, &[]);
+                            let _ = fsx::atomic_write(&conf_path, conf_file.to_text().as_bytes());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Update an installed plugin to a new version with 3-way configuration merge.
+pub fn update(
+    server: &Path,
+    new_meta: PluginMetadata,
+    new_dll: &[u8],
+    new_pdb: Option<&[u8]>,
+    new_dist_confs: &[(String, &[u8])],
+) -> Result<()> {
+    require_server_stopped(server)?;
+
+    let mut reg = load_registry(server)?;
+    let old_entry = reg
+        .plugins
+        .get(&new_meta.id)
+        .cloned()
+        .ok_or_else(|| Error::Invalid(format!("Plugin '{}' is not installed", new_meta.id)))?;
+
+    let old_store = store_dir(server).join(&new_meta.id).join(&old_entry.sha256);
+    let new_store = install_to_store(server, &new_meta, new_dll, new_pdb, new_dist_confs)?;
+
+    // 3-way merge on configuration files
+    let conf_root = modules_config_dir(server);
+    for (name, new_dist_bytes) in new_dist_confs {
+        let base_name = name.strip_suffix(".dist").unwrap_or(name);
+        let dist_name = format!("{base_name}.dist");
+
+        let old_dist_path = old_store.join(&dist_name);
+        let active_conf_path = conf_root.join(base_name);
+
+        if old_dist_path.is_file() && active_conf_path.is_file() {
+            let old_dist_str = fs::read_to_string(&old_dist_path)?;
+            let new_dist_str = std::str::from_utf8(new_dist_bytes)
+                .map_err(|e| Error::Invalid(format!("new .dist for {base_name} is not UTF-8: {e}")))?;
+            let active_conf_str = fs::read_to_string(&active_conf_path)?;
+
+            let merged_text = merge_conf(&old_dist_str, new_dist_str, &active_conf_str)?;
+            fsx::atomic_write(&active_conf_path, merged_text.as_bytes())?;
+        }
+    }
+
+    let rel_store_path = new_store
+        .strip_prefix(meta_dir(server))
+        .unwrap_or(&new_store)
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    let updated_entry = PluginEntry {
+        installed: true,
+        enabled: old_entry.enabled,
+        version: new_meta.version,
+        sha256: new_meta.sha256,
+        store_path: rel_store_path,
+        conf_files: new_meta.conf_files,
+        deps: new_meta.deps,
+        required: new_meta.required,
+    };
+
+    reg.plugins.insert(new_meta.id, updated_entry);
+    save_registry(server, &reg)?;
+    regenerate_lockfile(server, &reg)?;
+    Ok(())
+}
+
+/// Remove a plugin from the registry and lockfile, deleting deployed files.
+pub fn remove(server: &Path, id: &str) -> Result<()> {
+    require_server_stopped(server)?;
+
+    let mut reg = load_registry(server)?;
+    if reg.plugins.remove(id).is_none() {
+        return Ok(());
+    }
+
+    save_registry(server, &reg)?;
+    regenerate_lockfile(server, &reg)?;
+
+    let target_dir = plugins_install_dir(server).join(id);
+    if target_dir.is_dir() {
+        let _ = fs::remove_dir_all(target_dir);
+    }
+    Ok(())
+}
+
+/// Repair verification: checks deployed plugin SHA256 hashes against registry and restores from store if mismatch.
+pub fn repair(server: &Path) -> Result<Vec<String>> {
+    require_server_stopped(server)?;
+
+    let reg = load_registry(server)?;
+    let mut restored = Vec::new();
+    let plugins_root = plugins_install_dir(server);
+
+    for (id, entry) in &reg.plugins {
+        if !entry.installed || !entry.enabled {
+            continue;
+        }
+
+        let dll_path = plugins_root.join(id).join(format!("{id}.dll"));
+        let needs_restore = if !dll_path.is_file() {
+            true
+        } else {
+            let bytes = fs::read(&dll_path)?;
+            sha256_digest(&bytes) != entry.sha256
+        };
+
+        if needs_restore {
+            let store_dll = store_dir(server).join(id).join(&entry.sha256).join(format!("{id}.dll"));
+            if !store_dll.is_file() {
+                return Err(Error::Invalid(format!(
+                    "Store image for plugin '{id}' ({}) is missing; cannot repair",
+                    entry.sha256
+                )));
+            }
+            fs::create_dir_all(plugins_root.join(id))?;
+            fsx::atomic_write(&dll_path, &fs::read(&store_dll)?)?;
+            restored.push(id.clone());
+        }
+    }
+
+    regenerate_lockfile(server, &reg)?;
+    Ok(restored)
+}
+
+/// Multiworld helper: propagate enabled plugins to a secondary world directory.
+pub fn prepare_multiworld(server: &Path, second_root: &Path) -> Result<()> {
+    let reg = load_registry(server)?;
+    let second_plugins_root = second_root.join("Core/plugins");
+    fs::create_dir_all(&second_plugins_root)?;
+
+    // Secondary world inherits enabled plugins by default
+    let second_reg_path = second_root.join(".manager/plugins.json");
+    if second_reg_path.is_file() {
+        // If secondary world has its own registry, use it
+        let second_reg = load_registry(second_root)?;
+        regenerate_lockfile(second_root, &second_reg)?;
+    } else {
+        // Mirror primary enabled plugins to secondary world
+        for (id, entry) in &reg.plugins {
+            if entry.enabled {
+                let store_dll = store_dir(server)
+                    .join(id)
+                    .join(&entry.sha256)
+                    .join(format!("{id}.dll"));
+                if store_dll.is_file() {
+                    let dst_dir = second_plugins_root.join(id);
+                    fs::create_dir_all(&dst_dir)?;
+                    fsx::atomic_write(&dst_dir.join(format!("{id}.dll")), &fs::read(&store_dll)?)?;
+                }
+            }
+        }
+        // Copy lockfile
+        let primary_lock = lockfile_path(server);
+        if primary_lock.is_file() {
+            fsx::atomic_write(
+                &second_plugins_root.join("plugins.lock"),
+                &fs::read(&primary_lock)?,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+/// SQUID SQL migration guard: record that SQUID migrations have run so they are not re-executed on restart.
+pub fn record_squid_migrations_applied(server: &Path) -> Result<()> {
+    let path = meta_dir(server).join("migrations/squid_applied.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let data = serde_json::json!({
+        "applied": true,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    });
+    fsx::atomic_write_json(&path, &data)
+}
+
+/// Check if SQUID SQL migrations were already recorded as applied.
+pub fn is_squid_migrations_applied(server: &Path) -> bool {
+    let path = meta_dir(server).join("migrations/squid_applied.json");
+    if !path.is_file() {
+        return false;
+    }
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("applied")?.as_bool())
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_merge_conf_preserves_customizations() {
+        let base = "CoA.Setting1 = 10\nCoA.Setting2 = \"alpha\"\n";
+        let theirs = "CoA.Setting1 = 10\nCoA.Setting2 = \"beta\"\n# New option\nCoA.Setting3 = 1\n";
+        let mine = "CoA.Setting1 = 20\nCoA.Setting2 = \"alpha\"\n";
+
+        let merged = merge_conf(base, theirs, mine).unwrap();
+        let parsed = ConfFile::parse(&merged);
+
+        // User modified Setting1 to 20 -> should stay 20
+        assert_eq!(parsed.get("CoA.Setting1"), Some("20"));
+        // User didn't modify Setting2 -> should take upstream new default "beta"
+        assert_eq!(parsed.get("CoA.Setting2"), Some("\"beta\""));
+        // Setting3 is new upstream -> should be added
+        assert_eq!(parsed.get("CoA.Setting3"), Some("1"));
+    }
+
+    #[test]
+    fn test_plugin_lifecycle_atomic() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+
+        let dll_content = b"MZ fake dll";
+        let digest = sha256_digest(dll_content);
+        let meta = PluginMetadata {
+            id: "test-plugin".into(),
+            name: "Test Plugin".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: digest.clone(),
+            required: true,
+            deps: vec![],
+            conf_files: vec!["test.conf.dist".into()],
+            enable_key: Some("Test.Enable".into()),
+            status: Some("release".into()),
+            icon: Some("bot".into()),
+        };
+
+        install(
+            server,
+            meta.clone(),
+            dll_content,
+            None,
+            &[("test.conf.dist".into(), b"Test.Enable = 1\n")],
+            true,
+        )
+        .unwrap();
+
+        let reg = load_registry(server).unwrap();
+        assert!(reg.plugins.contains_key("test-plugin"));
+        assert!(reg.plugins["test-plugin"].enabled);
+
+        let lock = fs::read_to_string(lockfile_path(server)).unwrap();
+        assert!(lock.contains("test-plugin|test-plugin/test-plugin.dll"));
+
+        // Disable
+        set_enabled(server, "test-plugin", false).unwrap();
+        let reg = load_registry(server).unwrap();
+        assert!(!reg.plugins["test-plugin"].enabled);
+
+        let lock = fs::read_to_string(lockfile_path(server)).unwrap();
+        assert!(!lock.contains("test-plugin|test-plugin/test-plugin.dll"));
+
+        // Re-enable
+        set_enabled(server, "test-plugin", true).unwrap();
+        let reg = load_registry(server).unwrap();
+        assert!(reg.plugins["test-plugin"].enabled);
+
+        // Corrupt file and test repair
+        let deployed_dll = plugins_install_dir(server).join("test-plugin/test-plugin.dll");
+        fs::write(&deployed_dll, b"corrupted bytes").unwrap();
+        let restored = repair(server).unwrap();
+        assert_eq!(restored, vec!["test-plugin".to_string()]);
+        assert_eq!(fs::read(&deployed_dll).unwrap(), dll_content);
+
+        // Test mutual exclusivity
+        let meta2 = PluginMetadata {
+            id: "companions".into(),
+            name: "Companions".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: digest.clone(),
+            required: true,
+            deps: vec![],
+            conf_files: vec![],
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+        let meta3 = PluginMetadata {
+            id: "playerbots".into(),
+            name: "Playerbots".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: digest.clone(),
+            required: true,
+            deps: vec![],
+            conf_files: vec![],
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+        install(server, meta2, dll_content, None, &[], true).unwrap();
+        let err = install(server, meta3.clone(), dll_content, None, &[], true);
+        assert!(matches!(err, Err(Error::BotModulesConflict)));
+
+        // Installing playerbots disabled succeeds
+        install(server, meta3, dll_content, None, &[], false).unwrap();
+        // Trying to enable playerbots while companions is enabled fails
+        let err2 = set_enabled(server, "playerbots", true);
+        assert!(matches!(err2, Err(Error::BotModulesConflict)));
+    }
+}

@@ -173,6 +173,7 @@ fn installed_module_commits(root: &Path) -> BTreeMap<String, String> {
 
 fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     let installed_commits = installed_module_commits(root);
+    let plugin_reg = crate::plugins::load_registry(root).ok();
     let wildcard = crate::realms::state(root)
         .map(|s| s.active != crate::realms::Mode::Coa)
         .unwrap_or(true);
@@ -182,13 +183,16 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             let name = conf_name(root, &e);
             let conf = dir(root).join(&name);
             let dist = dir(root).join(format!("{name}.dist"));
-            let installed = conf.is_file() || dist.is_file();
+            let plugin_entry = plugin_reg.as_ref().and_then(|r| r.plugins.get(&e.id));
+            let installed = conf.is_file() || dist.is_file() || plugin_entry.is_some();
             let has_settings = installed
                 && settings_in(cat, root, &e.id)
                     .map(|settings| settings.iter().any(|s| s.key != e.enable_key))
                     .unwrap_or(false);
-            // the active file decides; without one the documented default is what the server will use
-            let enabled = if matches!(e.id.as_str(), "companions" | "playerbots") {
+            // the active file or plugin registry decides
+            let enabled = if let Some(p) = plugin_entry {
+                p.enabled
+            } else if matches!(e.id.as_str(), "companions" | "playerbots") {
                 bot_enabled(root, &e).unwrap_or(true)
             } else {
                 !e.switchable
@@ -198,7 +202,9 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                         .unwrap_or(e.default_on)
             };
             let blocked = wildcard && matches!(e.id.as_str(), "companions" | "playerbots");
-            let version = if e.id == "playerbots" {
+            let version = if let Some(p) = plugin_entry {
+                Some(p.version.clone())
+            } else if e.id == "playerbots" {
                 crate::squid::release(root).map(|release| {
                     [
                         release.tag,
@@ -296,7 +302,10 @@ fn require_bot_server_stopped(root: &Path) -> Result<()> {
 pub fn set_enabled(root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     let _update_lock = crate::update::operation_lock(meta)?;
     crate::update::ensure_recovered(meta)?;
-    let _lock = if matches!(id, "companions" | "playerbots") {
+    let is_dynamic_plugin = crate::plugins::load_registry(root)
+        .map(|r| r.plugins.contains_key(id))
+        .unwrap_or(false);
+    let _lock = if is_dynamic_plugin || matches!(id, "companions" | "playerbots") {
         require_bot_server_stopped(root)?;
         fs::create_dir_all(root.join(".state"))?;
         let lock = fs::OpenOptions::new()
@@ -408,6 +417,17 @@ fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -
         &["Changed by CoA Server Manager"],
     );
     fsx::atomic_write(&conf, file.to_text().as_bytes())?;
+
+    // If registered as a dynamic plugin, synchronize plugins.lock and plugin state
+    if let Ok(reg) = crate::plugins::load_registry(root) {
+        if reg.plugins.contains_key(id) {
+            let _ = crate::plugins::set_enabled(root, id, on);
+        }
+    }
+    if id == "playerbots" && on {
+        let _ = crate::plugins::record_squid_migrations_applied(root);
+    }
+
     tracing::info!(module = id, on, "module switched");
     Ok(())
 }

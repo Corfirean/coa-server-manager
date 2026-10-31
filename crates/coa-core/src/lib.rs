@@ -44,6 +44,7 @@ pub mod net;
 pub mod package;
 pub mod pkgsource;
 pub mod platform;
+pub mod plugins;
 pub mod population;
 pub mod portable;
 pub mod process;
