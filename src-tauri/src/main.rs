@@ -14,5 +14,5 @@ fn main() {
             std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", wv);
         }
     }
-    coa_server_manager_lib::run()
+    csm_modules_preview_lib::run()
 }

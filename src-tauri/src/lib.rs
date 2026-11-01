@@ -326,6 +326,17 @@ fn data_dir() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir);
     #[cfg(not(windows))]
     let base = unix_data_home(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"));
+    base.join("CSMModulesPreview")
+}
+
+#[allow(dead_code)]
+fn stable_data_dir() -> PathBuf {
+    #[cfg(windows)]
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    #[cfg(not(windows))]
+    let base = unix_data_home(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"));
     base.join("CoAServerManager")
 }
 
@@ -2783,6 +2794,181 @@ async fn analyze_github_module(
     .await
 }
 
+#[tauri::command]
+fn preview_toolchain_status() -> coa_core::build_engine::ToolchainStatus {
+    coa_core::build_engine::detect_toolchain()
+}
+
+#[tauri::command]
+async fn preview_register_test_realm(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> std::result::Result<ServerSummary, UiError> {
+    let target = path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\games\coa-work\plugin-spike\server-v03"));
+
+    if !target.join("worldserver.exe").is_file() && !target.join("Core/worldserver.exe").is_file() {
+        return Err(UiError::from(coa_core::Error::Invalid(format!(
+            "Target path '{}' does not contain a valid worldserver.exe",
+            target.display()
+        ))));
+    }
+
+    let id = "test-realm-v03".to_string();
+    state.registry.register(&id, &target)?;
+    Ok(summary(id, target))
+}
+
+#[tauri::command]
+async fn preview_build_module(
+    state: State<'_, AppState>,
+    realm_id: String,
+    source_url_or_path: String,
+) -> std::result::Result<coa_core::build_engine::BuildResult, UiError> {
+    if realm_id.is_empty() || realm_id.contains("..") || realm_id.contains('/') || realm_id.contains('\\') {
+        return Err(UiError::from(coa_core::Error::Invalid(format!(
+            "Invalid realm_id '{}': path traversal characters forbidden",
+            realm_id
+        ))));
+    }
+
+    let realm_root = path_of(&state, &realm_id)?;
+    let cache_dir = data_dir().join("github_cache");
+
+    blocking(move || {
+        let source_dir = if source_url_or_path.starts_with("http://") || source_url_or_path.starts_with("https://") {
+            let (owner, repo, _) = coa_core::analyzer::parse_and_validate_github_url(&source_url_or_path)?;
+            let repo_cache = cache_dir.join("github").join(&owner).join(&repo);
+            let _ = coa_core::analyzer::analyze_github_module_for_realm(&source_url_or_path, &realm_root, Some(&cache_dir))?;
+
+            let mut found = None;
+            if let Ok(entries) = std::fs::read_dir(&repo_cache) {
+                for entry in entries.flatten() {
+                    if entry.path().is_dir() && entry.path().join(".coa_tree_digest").is_file() {
+                        found = Some(entry.path());
+                        break;
+                    }
+                }
+            }
+            found.ok_or_else(|| coa_core::Error::Invalid("Failed to locate cached repository sources after intake".into()))?
+        } else {
+            let p = PathBuf::from(&source_url_or_path);
+            if !p.exists() {
+                return Err(coa_core::Error::Invalid(format!("Source path '{}' does not exist", p.display())));
+            }
+            p
+        };
+
+        coa_core::build_engine::build_module_from_source(&source_dir, &realm_root, None, None)
+            .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_install_module(
+    state: State<'_, AppState>,
+    realm_id: String,
+    module_id: String,
+    version: String,
+    apply_sql: bool,
+) -> std::result::Result<coa_core::preview::PreviewInstallResult, UiError> {
+    if realm_id.is_empty() || realm_id.contains("..") || realm_id.contains('/') || realm_id.contains('\\') {
+        return Err(UiError::from(coa_core::Error::Invalid(format!(
+            "Invalid realm_id '{}': path traversal characters forbidden",
+            realm_id
+        ))));
+    }
+
+    let realm_root = path_of(&state, &realm_id)?;
+
+    blocking(move || {
+        coa_core::preview::install_qualified_module(&realm_root, &module_id, &version, apply_sql, None)
+            .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_toggle_module(
+    state: State<'_, AppState>,
+    realm_id: String,
+    module_id: String,
+    enable: bool,
+) -> std::result::Result<String, UiError> {
+    let realm_root = path_of(&state, &realm_id)?;
+    blocking(move || {
+        coa_core::preview::toggle_preview_module(&realm_root, &module_id, enable)
+            .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_remove_module(
+    state: State<'_, AppState>,
+    realm_id: String,
+    module_id: String,
+) -> std::result::Result<String, UiError> {
+    let realm_root = path_of(&state, &realm_id)?;
+    blocking(move || {
+        coa_core::preview::remove_preview_module(&realm_root, &module_id)
+            .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_list_installed_plugins(
+    state: State<'_, AppState>,
+    realm_id: String,
+) -> std::result::Result<Vec<coa_core::preview::InstalledPreviewPluginView>, UiError> {
+    let realm_root = path_of(&state, &realm_id)?;
+    blocking(move || {
+        coa_core::preview::list_installed_preview_plugins(&realm_root)
+            .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_export_diagnostics(
+    state: State<'_, AppState>,
+    realm_id: Option<String>,
+) -> std::result::Result<String, UiError> {
+    let dir = data_dir();
+    let tc = coa_core::build_engine::detect_toolchain();
+    let export_path = dir.join("diagnostics_report.json");
+
+    let mut realms = Vec::new();
+    if let Ok(list) = state.registry.list() {
+        for (id, p) in list {
+            realms.push(serde_json::json!({
+                "id": id,
+                "path": p.display().to_string(),
+            }));
+        }
+    }
+
+    let report = serde_json::json!({
+        "app_title": "CSM Modules Preview",
+        "git_branch": "preview/modules",
+        "timestamp_utc": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+        "toolchain_status": tc,
+        "preview_data_dir": dir.display().to_string(),
+        "registered_realms": realms,
+        "active_realm_id": realm_id,
+        "security_note": "No passwords, connection strings, auth tokens or user secrets are included in this report."
+    });
+
+    let json_str = serde_json::to_string_pretty(&report)
+        .map_err(|e| UiError::from(coa_core::Error::Invalid(e.to_string())))?;
+    std::fs::write(&export_path, json_str)
+        .map_err(|e| UiError::from(coa_core::Error::Invalid(e.to_string())))?;
+    Ok(export_path.display().to_string())
+}
+
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn run() {
@@ -2792,12 +2978,19 @@ pub fn run() {
     let _ = coa_core::client::revert_realmlist_override(&dir);
     let portable = start_portable(&dir);
     let (control, host_control) = control_cmds::start(&dir, portable.clone());
+    let registry = Registry::at(dir.join("installs.json"));
+    if registry.list().map(|l| l.is_empty()).unwrap_or(true) {
+        let v03_path = PathBuf::from(r"C:\games\coa-work\plugin-spike\server-v03");
+        if v03_path.join("worldserver.exe").is_file() {
+            let _ = registry.register("test-realm-v03", &v03_path);
+        }
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(AppState {
-            registry: Registry::at(dir.join("installs.json")),
+            registry,
             busy: Mutex::new(HashSet::new()),
             install_cancel: Mutex::new(None),
             client_cancel: Mutex::new(None),
@@ -2807,6 +3000,14 @@ pub fn run() {
             host_control,
         })
         .invoke_handler(tauri::generate_handler![
+            preview_toolchain_status,
+            preview_register_test_realm,
+            preview_build_module,
+            preview_install_module,
+            preview_toggle_module,
+            preview_remove_module,
+            preview_list_installed_plugins,
+            preview_export_diagnostics,
             default_install_dir,
             game_data_folder,
             set_game_data_folder,

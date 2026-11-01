@@ -1,11 +1,11 @@
 [package]
-name = "coa-server-manager"
+name = "csm-modules-preview"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "coa_server_manager_lib"
+name = "csm_modules_preview_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

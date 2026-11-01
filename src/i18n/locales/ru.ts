@@ -60,6 +60,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "realm.recovery": "Переключение прервалось. Выберите реалм, чтобы восстановить сохранённые настройки.",
   "realm.unsupported": "Недоступен в Wildcard / Warcraft Reborn: классовые механики ещё не проверены.",
   "realm.experimental": "Экспериментально в Wildcard / Warcraft Reborn · игровая совместимость пока не проверена.",
+  "app.name": "CSM Modules Preview",
   "nav.overview": "Обзор",
   "nav.bots": "Боты",
   "nav.server": "Конфигурация сервера",

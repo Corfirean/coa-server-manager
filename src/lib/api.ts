@@ -291,6 +291,61 @@ export interface CompatibilityReport {
   recommended_actions: string[];
 }
 
+export interface ToolchainStatus {
+  msvc_available: boolean;
+  vcvars64_path?: string | null;
+  cmake_available: boolean;
+  cmake_path?: string | null;
+  ninja_available: boolean;
+  ninja_path?: string | null;
+  sdk_available: boolean;
+  sdk_dir?: string | null;
+  sdk_abi_fingerprint?: string | null;
+  ready: boolean;
+  diagnostic_message: string;
+}
+
+export interface BuildErrorDiagnostic {
+  file: string;
+  line: number;
+  error_code: string;
+  message: string;
+}
+
+export interface BuildResult {
+  success: boolean;
+  module_id: string;
+  module_name: string;
+  version: string;
+  package_path?: string | null;
+  dll_path?: string | null;
+  dll_sha256?: string | null;
+  abi_fingerprint?: string | null;
+  duration_seconds: number;
+  errors: BuildErrorDiagnostic[];
+  log_output: string[];
+  verification_status?: VerificationStatus | null;
+}
+
+export interface InstalledPreviewPlugin {
+  id: string;
+  name: string;
+  version: string;
+  enabled: boolean;
+  sha256: string;
+  store_path: string;
+  conf_files: string[];
+}
+
+export interface PreviewInstallResult {
+  success: boolean;
+  module_id: string;
+  enabled: boolean;
+  sql_applied: boolean;
+  message: string;
+  sql_plan?: any;
+}
+
 export interface ModuleSetting {
   key: string;
   value: string;
@@ -638,6 +693,20 @@ export const api = {
   consoleRisk: (command: string) => invoke<"normal" | "dangerous">("console_risk", { command }),
   consoleCommand: (id: string, command: string, confirmed: boolean) => invoke<string>("console_command", { id, command, confirmed }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
+  previewToolchainStatus: () => invoke<ToolchainStatus>("preview_toolchain_status"),
+  previewRegisterTestRealm: (path?: string) => invoke<ServerSummary>("preview_register_test_realm", { path: path ?? null }),
+  previewBuildModule: (realmId: string, sourceUrlOrPath: string) =>
+    invoke<BuildResult>("preview_build_module", { realmId, sourceUrlOrPath }),
+  previewInstallModule: (realmId: string, moduleId: string, version: string, applySql: boolean) =>
+    invoke<PreviewInstallResult>("preview_install_module", { realmId, moduleId, version, applySql }),
+  previewToggleModule: (realmId: string, moduleId: string, enable: boolean) =>
+    invoke<string>("preview_toggle_module", { realmId, moduleId, enable }),
+  previewRemoveModule: (realmId: string, moduleId: string) =>
+    invoke<string>("preview_remove_module", { realmId, moduleId }),
+  previewListInstalledPlugins: (realmId: string) =>
+    invoke<InstalledPreviewPlugin[]>("preview_list_installed_plugins", { realmId }),
+  previewExportDiagnostics: (realmId?: string) =>
+    invoke<string>("preview_export_diagnostics", { realmId: realmId ?? null }),
 };
 
 export function asUiError(e: unknown): UiError {

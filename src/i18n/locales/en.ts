@@ -57,7 +57,7 @@ const en = {
   "realm.recovery": "A realm switch was interrupted. Select a realm to recover the saved configuration.",
   "realm.unsupported": "Unavailable on Wildcard / Warcraft Reborn: class mechanics have not been validated.",
   "realm.experimental": "Experimental on Wildcard / Warcraft Reborn · gameplay compatibility is not yet verified.",
-  "app.name": "CoA Server Manager",
+  "app.name": "CSM Modules Preview",
 
   "nav.overview": "Overview",
   "nav.bots": "Bots",

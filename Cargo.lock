@@ -642,24 +642,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "coa-server-manager"
-version = "0.7.1"
-dependencies = [
- "coa-control-proto",
- "coa-core",
- "coa-registry-proto",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tracing",
-]
-
-[[package]]
 name = "combine"
 version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -786,6 +768,24 @@ dependencies = [
  "generic-array",
  "rand_core 0.6.4",
  "typenum",
+]
+
+[[package]]
+name = "csm-modules-preview"
+version = "0.7.1"
+dependencies = [
+ "coa-control-proto",
+ "coa-core",
+ "coa-registry-proto",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tracing",
 ]
 
 [[package]]

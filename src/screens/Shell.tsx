@@ -103,7 +103,10 @@ export function Shell(props: {
       <nav className="flex w-60 shrink-0 flex-col border-r border-line bg-[#0b0c0e] p-3" aria-label={t("nav.main")}>
         <div className="flex items-center gap-2 px-3 pb-4 pt-2 text-sm font-semibold tracking-wide text-gold">
           <img src={logo} alt="" aria-hidden className="h-7 w-7" />
-          {t("app.name")}
+          <div className="flex flex-col">
+            <span className="leading-tight">{t("app.name")}</span>
+            <span className="text-[10px] font-mono font-normal tracking-wider text-sky-400">PREVIEW EDITION</span>
+          </div>
         </div>
         <ul className="flex flex-col gap-0.5">
           {NAV.filter((n) => !hiddenPages.includes(n.id) && (n.id !== "dashboard" || botModule === "playerbots")).map(({ id, label, icon: Icon }) => (
