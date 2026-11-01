@@ -2760,6 +2760,29 @@ async fn console_command(
     .await
 }
 
+#[tauri::command]
+async fn analyze_github_module(
+    state: State<'_, AppState>,
+    url: String,
+    realm_id: String,
+) -> std::result::Result<coa_core::analyzer::CompatibilityReport, UiError> {
+    if realm_id.is_empty() || realm_id.contains("..") || realm_id.contains('/') || realm_id.contains('\\') {
+        return Err(UiError::from(coa_core::Error::Invalid(format!(
+            "Invalid realm_id '{}': path traversal characters forbidden",
+            realm_id
+        ))));
+    }
+
+    let realm_root = path_of(&state, &realm_id)?;
+    let cache_dir = data_dir().join("github_cache");
+
+    blocking(move || {
+        coa_core::analyzer::analyze_github_module_for_realm(&url, &realm_root, Some(&cache_dir))
+            .map_err(Into::into)
+    })
+    .await
+}
+
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn run() {
@@ -2823,6 +2846,7 @@ pub fn run() {
             realmlist_delete,
             realmlist_activate,
             modules_list,
+            analyze_github_module,
             realm_profiles,
             realm_select,
             realm_simultaneous,

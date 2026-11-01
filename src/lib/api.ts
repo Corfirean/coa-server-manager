@@ -229,6 +229,68 @@ export interface ModuleView {
   compatibility?: "compatible" | "experimental" | "unsupported";
 }
 
+export interface MultiDimensionalStatus {
+  build_status: string;
+  runtime_status: string;
+  gameplay_status: string;
+  db_status: string;
+  security_status: string;
+}
+
+export interface CompatibilityFinding {
+  rule_id: string;
+  severity: "Critical" | "Warning" | "Info";
+  confidence: "High" | "Medium" | "Low";
+  file: string;
+  line: number;
+  explanation: string;
+  recommended_action: string;
+  evidence: string;
+  is_auto_fixable: boolean;
+}
+
+export interface VerificationStatus {
+  l0_static: string;
+  l1_compile: string;
+  l2_link: string;
+  l3_contract: string;
+  l4_engine_boot: string;
+  l5_gameplay: string;
+  l6_teardown: string;
+}
+
+export interface CompatibilityReport {
+  repository_path: string;
+  repository_name: string;
+  commit: string;
+  license_info: {
+    primary_license: string;
+    license_file?: string | null;
+    vendored_licenses: string[];
+    spdx_identifier?: string | null;
+  };
+  classification: string;
+  verification_status: VerificationStatus;
+  multi_dimensional_status?: MultiDimensionalStatus | null;
+  tree_digest?: string | null;
+  cache_hit?: boolean | null;
+  sdk_fingerprint?: string | null;
+  hooks: Array<{ class_name: string; script_type: string; file: string; line: number }>;
+  script_loaders: {
+    canonical_loader?: string | null;
+    all_discovered_loaders: string[];
+    has_duplicate_registration: boolean;
+  };
+  databases: Array<{ database_type: string; operation: string; file: string; line: number }>;
+  sql_files: Array<{ file_path: string; statement_count: number; tables_referenced: string[]; has_schema_mutation: boolean }>;
+  core_patches: string[];
+  has_cmakelists: boolean;
+  has_entrypoint_adapter: boolean;
+  findings: CompatibilityFinding[];
+  reasons: string[];
+  recommended_actions: string[];
+}
+
 export interface ModuleSetting {
   key: string;
   value: string;
@@ -512,6 +574,8 @@ export const api = {
   realmlistDelete: (id: string, profileId: string) => invoke<void>("realmlist_delete", { id, profileId }),
   realmlistActivate: (id: string, profileId: string) => invoke<string[]>("realmlist_activate", { id, profileId }),
   modulesList: (id: string) => invoke<ModuleView[]>("modules_list", { id }),
+  analyzeGithubModule: (url: string, realmId: string) =>
+    invoke<CompatibilityReport>("analyze_github_module", { url, realmId }),
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
   pluginsRepair: (id: string) => invoke<string[]>("plugins_repair", { id }),
   moduleSettings: (id: string, module: string) => invoke<ModuleSetting[]>("module_settings", { id, module }),

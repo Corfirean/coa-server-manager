@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Bot, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
-import { api, asUiError, type CustomRacesClientStatus, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
+import { api, asUiError, type CompatibilityReport, type CustomRacesClientStatus, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -93,6 +93,35 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
   const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
   const [racesInstalling, setRacesInstalling] = useState(false);
   const [racesProgress, setRacesProgress] = useState<CustomRacesProgress | null>(null);
+  const [githubUrl, setGithubUrl] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [report, setReport] = useState<CompatibilityReport | null>(null);
+
+  async function runAnalysis() {
+    if (!githubUrl.trim()) return;
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const rep = await api.analyzeGithubModule(githubUrl.trim(), serverId);
+      setReport(rep);
+    } catch (e: unknown) {
+      setAnalysisError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  function exportReportJson() {
+    if (!report) return;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${report.repository_name}-compatibility-report.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   const loadRacesStatus = useCallback(async () => {
     try {
@@ -320,6 +349,152 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
           )}
           </Fragment>
         ))}
+      </div>
+
+      {/* Third-party GitHub Module Analyzer v0.3 */}
+      <div className="mt-8 border-t border-line/60 pt-6">
+        <div className="flex items-center gap-3">
+          <GithubMark className="h-6 w-6 text-gold" />
+          <h2 className="text-lg font-semibold">{locale === "ru" ? "Анализ сторонних модулей (GitHub)" : "Third-Party Module Analyzer (GitHub)"}</h2>
+        </div>
+        <p className="mt-1 text-sm text-muted">
+          {locale === "ru"
+            ? "Проверка совместимости C++/SQL модулей AzerothCore с CoA Plugin SDK v0.3. Безопасный статический аудит без выполнения кода."
+            : "Compatibility evaluation of AzerothCore C++/SQL modules against CoA Plugin SDK v0.3. Safe static audit without code execution."}
+        </p>
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <input
+            type="url"
+            value={githubUrl}
+            onChange={(e) => setGithubUrl(e.target.value)}
+            placeholder="https://github.com/azerothcore/mod-congrats-on-level"
+            className="flex-1 rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-gold"
+            disabled={analyzing}
+          />
+          <Button
+            variant="primary"
+            disabled={analyzing || !githubUrl.trim()}
+            onClick={() => void runAnalysis()}
+          >
+            {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {locale === "ru" ? "Анализировать модуль" : "Analyze Module"}
+          </Button>
+        </div>
+
+        {analysisError && (
+          <div className="mt-3 rounded-md border border-bad/40 bg-bad/10 p-3 text-sm text-bad" role="alert">
+            {analysisError}
+          </div>
+        )}
+
+        {report && (
+          <Card className="mt-5 border-gold/40 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold text-ink">{report.repository_name}</h3>
+                  <span className="rounded bg-white/10 px-2 py-0.5 font-mono text-xs text-muted">
+                    {report.commit.substring(0, 8)}
+                  </span>
+                  <span className="rounded-full border border-sky-400/40 bg-sky-400/10 px-2.5 py-0.5 text-xs font-medium text-sky-300">
+                    {report.license_info.primary_license}
+                  </span>
+                  {report.cache_hit !== undefined && report.cache_hit !== null && (
+                    <span className={cn("rounded px-2 py-0.5 text-xs font-mono", report.cache_hit ? "bg-ok/10 text-ok border border-ok/30" : "bg-white/10 text-muted")}>
+                      {report.cache_hit ? (locale === "ru" ? "КЭШ: ДА" : "CACHE: HIT") : (locale === "ru" ? "СКАЧАНО" : "FETCHED")}
+                    </span>
+                  )}
+                  {report.tree_digest && (
+                    <span className="rounded bg-white/5 px-2 py-0.5 font-mono text-[10px] text-muted/70" title={`Tree Digest: ${report.tree_digest}`}>
+                      SHA:{report.tree_digest.substring(0, 8)}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted font-mono">{report.repository_path}</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={exportReportJson}>
+                  {locale === "ru" ? "Экспорт JSON" : "Export JSON"}
+                </Button>
+                <div className="relative group">
+                  <Button size="sm" variant="primary" disabled className="opacity-50 cursor-not-allowed">
+                    {locale === "ru" ? "Установить" : "Install"}
+                  </Button>
+                  <div className="pointer-events-none absolute right-0 bottom-full mb-2 hidden w-64 rounded bg-black/90 p-2 text-xs text-zinc-300 shadow-xl group-hover:block">
+                    {locale === "ru"
+                      ? "Автоматическая сборка и установка сторонних модулей пока не поддерживаются. Доступен анализ совместимости."
+                      : "Automated build and installation of third-party modules are not yet supported. Compatibility analysis is available."}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Multi-dimensional Status Grid */}
+            {report.multi_dimensional_status && (
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5 text-center">
+                <div className="rounded border border-line bg-bg/50 p-2.5">
+                  <div className="text-xs text-muted">{locale === "ru" ? "Сборка" : "Build"}</div>
+                  <div className={cn("mt-1 text-xs font-semibold uppercase", report.multi_dimensional_status.build_status === "PASS" ? "text-ok" : report.multi_dimensional_status.build_status === "FAIL" ? "text-bad" : "text-warn")}>
+                    {report.multi_dimensional_status.build_status}
+                  </div>
+                </div>
+                <div className="rounded border border-line bg-bg/50 p-2.5">
+                  <div className="text-xs text-muted">{locale === "ru" ? "Рантайм" : "Runtime"}</div>
+                  <div className={cn("mt-1 text-xs font-semibold uppercase", report.multi_dimensional_status.runtime_status === "PASS" ? "text-ok" : report.multi_dimensional_status.runtime_status === "BLOCKED" ? "text-bad" : "text-muted")}>
+                    {report.multi_dimensional_status.runtime_status}
+                  </div>
+                </div>
+                <div className="rounded border border-line bg-bg/50 p-2.5">
+                  <div className="text-xs text-muted">{locale === "ru" ? "Геймплей" : "Gameplay"}</div>
+                  <div className={cn("mt-1 text-xs font-semibold uppercase", report.multi_dimensional_status.gameplay_status === "CLEAN" ? "text-ok" : report.multi_dimensional_status.gameplay_status === "VERIFIED_CONFLICT" ? "text-bad" : "text-warn")}>
+                    {report.multi_dimensional_status.gameplay_status}
+                  </div>
+                </div>
+                <div className="rounded border border-line bg-bg/50 p-2.5">
+                  <div className="text-xs text-muted">{locale === "ru" ? "База данных" : "Database"}</div>
+                  <div className={cn("mt-1 text-xs font-semibold uppercase", report.multi_dimensional_status.db_status === "CLEAN" ? "text-ok" : "text-warn")}>
+                    {report.multi_dimensional_status.db_status}
+                  </div>
+                </div>
+                <div className="rounded border border-line bg-bg/50 p-2.5">
+                  <div className="text-xs text-muted">{locale === "ru" ? "Безопасность" : "Security"}</div>
+                  <div className={cn("mt-1 text-xs font-semibold uppercase", (report.multi_dimensional_status.security_status === "SAFE" || report.multi_dimensional_status.security_status === "SOURCE_ANALYZED" || report.multi_dimensional_status.security_status === "REVIEWED_THIRD_PARTY" || report.multi_dimensional_status.security_status === "TRUSTED_OFFICIAL") ? "text-ok" : report.multi_dimensional_status.security_status === "KNOWN_UNSAFE" ? "text-bad" : "text-warn")}>
+                    {report.multi_dimensional_status.security_status}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Findings & Diagnostics */}
+            <div className="mt-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">
+                {locale === "ru" ? "Диагностические выводы" : "Diagnostic Findings"} ({report.findings.length})
+              </h4>
+              {report.findings.length === 0 ? (
+                <p className="mt-2 text-sm text-ok">
+                  {locale === "ru" ? "✓ Замечаний и конфликтов не обнаружено." : "✓ No compatibility findings or conflicts detected."}
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {report.findings.map((f, idx) => (
+                    <li key={idx} className="rounded border border-line/60 bg-black/20 p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={cn("font-medium", f.severity === "Critical" ? "text-bad" : f.severity === "Warning" ? "text-warn" : "text-sky-300")}>
+                          [{f.severity}] {f.rule_id}
+                        </span>
+                        <span className="font-mono text-muted">{f.file}:{f.line}</span>
+                      </div>
+                      <p className="mt-1 text-ink">{f.explanation}</p>
+                      <p className="mt-1 text-muted">→ {f.recommended_action}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );

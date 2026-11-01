@@ -49,6 +49,7 @@ pub mod plugins;
 pub mod population;
 pub mod portable;
 pub mod process;
+pub mod provenance;
 pub mod ra;
 pub mod realm_registry;
 pub mod realmlist;

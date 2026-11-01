@@ -21,6 +21,8 @@ Usage:
     csm_plugins reconcile_squid <server> [char_schema]
     csm_plugins multiworld <server> <second_root> [--allow <a,b>] [--crash-at <point>]
     csm_plugins analyze <local_repository_path> [--json]
+    csm_plugins analyze-github <url> [--cache-dir <dir>] [--contract <v02|v03>] [--json]
+    csm_plugins verify-artifact-provenance <worldserver_path> [--sdk-json <path>] [--json]
 "#
     );
 }
@@ -267,7 +269,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "analyze" => {
             let repo_path = Path::new(&args[2]);
             let as_json = args.iter().any(|a| a == "--json");
-            let report = coa_core::analyzer::analyze_repository(repo_path)?;
+            let contract = if args.iter().any(|a| a == "--sdk-v02") {
+                coa_core::analyzer::SdkExportContract::v02()
+            } else {
+                coa_core::analyzer::SdkExportContract::v03()
+            };
+            let report = coa_core::analyzer::analyze_repository_with_contract(repo_path, &contract)?;
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
@@ -306,6 +313,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Summary Reasons: {:?}", report.reasons);
             }
         }
+        "analyze-github" => {
+            let url = &args[2];
+            let mut cache_dir = None;
+            let mut json_out = false;
+
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--cache-dir" => {
+                        i += 1;
+                        if i < args.len() {
+                            cache_dir = Some(std::path::PathBuf::from(&args[i]));
+                        }
+                    }
+                    "--json" => {
+                        json_out = true;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            match coa_core::analyzer::analyze_github_repository(url, cache_dir.as_deref()) {
+                Ok(report) => {
+                    if json_out {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!("Repository: {}", report.repository_name);
+                        println!("Classification: {:?}", report.classification);
+                        println!("License: {}", report.license_info.primary_license);
+                        println!("Cache Hit: {:?}", report.cache_hit);
+                        println!("Tree Digest: {:?}", report.tree_digest);
+                        println!("Commit: {:?}", report.commit);
+                        println!("Loaders: {:?}", report.script_loaders);
+                        println!("Hooks: {}", report.hooks.len());
+                        println!("SQL Files: {}", report.sql_files.len());
+                        println!("Findings: {}", report.findings.len());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("ERROR: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         "generate-adapter" => {
             let repo_path = Path::new(&args[2]);
             let res = coa_core::analyzer::generate_adapter(repo_path)?;
@@ -333,6 +385,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 coa_core::analyzer::AdapterGenerationResult::NoLoaderFound => {
                     eprintln!("NO_LOADER_FOUND: Unable to discover any Add*Scripts() functions.");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "verify-artifact-provenance" => {
+            let exe_path = Path::new(&args[2]);
+            let mut sdk_json = None;
+            let mut json_out = false;
+
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--sdk-json" => {
+                        i += 1;
+                        if i < args.len() {
+                            sdk_json = Some(Path::new(&args[i]));
+                        }
+                    }
+                    "--json" => {
+                        json_out = true;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            match coa_core::provenance::verify_worldserver_provenance(exe_path, sdk_json) {
+                Ok(rec) => {
+                    if json_out {
+                        println!("{}", serde_json::to_string_pretty(&rec)?);
+                    } else {
+                        println!("Artifact: {}", rec.file_path);
+                        println!("SHA-256:  {}", rec.file_sha256);
+                        println!("Arch:     {}", rec.machine_architecture);
+                        println!("Exports:  {}", rec.total_export_count);
+                        println!("Embedded ABI: {:?}", rec.embedded_abi_fingerprint);
+                        println!("Status:   {}", rec.provenance_status);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("ERROR: {}", e);
                     std::process::exit(1);
                 }
             }
