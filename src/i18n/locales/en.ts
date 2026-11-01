@@ -1300,7 +1300,6 @@ const en = {
   "serverLogs.off": "Off",
   "serverLogs.saved": "Saved. Restart the server to apply.",
   "mod.requiresSquid": "Enable SQUID bots to use Dungeon Clear.",
-  "mod.requiresSquid": "Enable SQUID bots to use Dungeon Clear.",
 } as const;
 
 export default en;
