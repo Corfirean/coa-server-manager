@@ -8,6 +8,16 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.8 — 2026-11-01
+
+- Dungeon Clear can be enabled when SQUID bots are active.
+- Diagnostic exports include launcher stages and lock owner records.
+- Choose normal logs, errors only or no server logs in maintenance settings.
+- Update checks temporarily suspend bot population and restore your configuration.
+- Update validation keeps MySQL running between compatible checks.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.8) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.7...v0.9.8)
+
 ## 0.9.7 — 2026-10-30
 
 - Show available update notes even when release history is cached.

@@ -169,7 +169,12 @@
     "Corfirean/coa-server-manager:20261030-stop-does-not-trigger-auto-restart.md",
     "Corfirean/coa-server-manager:20261030-update-history-target-cache.md",
     "Corfirean/coa-server-manager:20261030-wait-for-world-console-readiness.md",
-    "Corfirean/coa-server-manager:20261030-window-lifecycle.md"
+    "Corfirean/coa-server-manager:20261030-window-lifecycle.md",
+    "Corfirean/coa-server-manager:20261031-dungeon-clear-dependency.md",
+    "Corfirean/coa-server-manager:20261031-launcher-diagnostics-export.md",
+    "Corfirean/coa-server-manager:20261031-server-logging-controls.md",
+    "Corfirean/coa-server-manager:20261031-validation-bot-population.md",
+    "Corfirean/coa-server-manager:20261031-validation-mysql-reuse.md"
   ],
   "releases": [
     {
@@ -868,6 +873,21 @@
       ],
       "commit": "ba5816e3aea471d5b870e5f0db0b03920c071ed3",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.5...v0.9.7"
+    },
+    {
+      "tag": "v0.9.8",
+      "version": "0.9.8",
+      "date": "2026-11-01",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.8",
+      "notes": [
+        "Dungeon Clear can be enabled when SQUID bots are active",
+        "Diagnostic exports include launcher stages and lock owner records",
+        "Choose normal logs, errors only or no server logs in maintenance settings",
+        "Update checks temporarily suspend bot population and restore your configuration",
+        "Update validation keeps MySQL running between compatible checks"
+      ],
+      "commit": "076fba185c4d96d74f7258d6ca0cae6a4ae4a613",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.7...v0.9.8"
     }
   ]
 }
