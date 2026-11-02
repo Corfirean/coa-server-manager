@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 /**
@@ -44,27 +44,9 @@ export function setAutoUpdate(on: boolean) {
   listeners.forEach((l) => l());
 }
 
-/** Look for a new version. With `download` it also fetches the installer so it is ready to install on exit. */
-export async function lookForUpdate(opts: { download: boolean }): Promise<void> {
-  if (state.phase === "checking" || state.phase === "downloading" || state.phase === "installing") return;
-  set({ phase: "checking", error: undefined, percent: null });
-  try {
-    const u = await check();
-    if (!u) {
-      update = null;
-      set({ phase: "current", version: undefined });
-      return;
-    }
-    update = u;
-    set({ version: u.version, notes: u.body ?? undefined });
-    if (!opts.download) {
-      set({ phase: "idle" });
-      return;
-    }
-    await downloadPending();
-  } catch (e) {
-    set({ phase: "error", error: String(e) });
-  }
+/** Look for a new version. Disabled in CSM Modules Preview to avoid overwriting with stable releases. */
+export async function lookForUpdate(_opts: { download: boolean }): Promise<void> {
+  set({ phase: "current", version: undefined });
 }
 
 async function downloadPending(): Promise<void> {
