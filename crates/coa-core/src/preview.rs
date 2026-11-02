@@ -33,6 +33,7 @@ pub struct SqlReviewPlan {
 pub struct PreviewInstallResult {
     pub success: bool,
     pub module_id: String,
+    pub display_name: String,
     pub enabled: bool,
     pub sql_applied: bool,
     pub message: String,
@@ -48,6 +49,8 @@ pub struct InstalledPreviewPluginView {
     pub sha256: String,
     pub store_path: String,
     pub conf_files: Vec<String>,
+    #[serde(default)]
+    pub source_commit: Option<String>,
 }
 
 /// Lists all dynamically installed plugins for a realm from .manager/plugins.json.
@@ -55,14 +58,56 @@ pub fn list_installed_preview_plugins(realm_root: &Path) -> Result<Vec<Installed
     let reg = load_registry(realm_root)?;
     let mut views = Vec::new();
     for (id, entry) in reg.plugins {
+        let mut display_name = id.clone();
+        let mut source_commit = None;
+
+        // Attempt to read display_name or metadata from plugin.json in store
+        let store_dir = realm_root.join(".manager").join(&entry.store_path);
+        let plugin_json_path = store_dir.join("plugin.json");
+        if plugin_json_path.is_file() {
+            if let Ok(content) = fs::read_to_string(&plugin_json_path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(dn) = val.get("display_name").and_then(|v| v.as_str()) {
+                        display_name = dn.to_string();
+                    } else if let Some(n) = val.get("name").and_then(|v| v.as_str()) {
+                        if n.len() != 40 || !n.chars().all(|c| c.is_ascii_hexdigit()) {
+                            display_name = n.to_string();
+                        }
+                    }
+                    if let Some(sc) = val.get("source_commit").and_then(|v| v.as_str()) {
+                        source_commit = Some(sc.to_string());
+                    }
+                }
+            }
+        }
+
+        // If still a 40-char SHA, resolve via known configs or loader
+        if display_name.len() == 40 && display_name.chars().all(|c| c.is_ascii_hexdigit()) {
+            source_commit = Some(display_name.clone());
+            if entry.conf_files.iter().any(|c| c.contains("npc_buffer")) {
+                display_name = "NPC Buffer".to_string();
+            } else if entry.conf_files.iter().any(|c| c.contains("ah_bot") || c.contains("ahbot")) {
+                display_name = "Auction House Bot".to_string();
+            } else if entry.conf_files.iter().any(|c| c.contains("enchanter")) {
+                display_name = "NPC Enchanter".to_string();
+            } else if entry.conf_files.iter().any(|c| c.contains("congrats")) {
+                display_name = "Congrats On Level".to_string();
+            } else if entry.conf_files.iter().any(|c| c.contains("reward_played_time")) {
+                display_name = "Reward Played Time".to_string();
+            } else {
+                display_name = format!("Module ({})", &display_name[..8]);
+            }
+        }
+
         views.push(InstalledPreviewPluginView {
-            id: id.clone(),
-            name: id,
+            id,
+            name: display_name,
             version: entry.version,
             enabled: entry.enabled,
             sha256: entry.sha256,
             store_path: entry.store_path,
             conf_files: entry.conf_files,
+            source_commit,
         });
     }
     Ok(views)
@@ -119,6 +164,7 @@ pub fn install_qualified_module(
             return Ok(PreviewInstallResult {
                 success: false,
                 module_id: module_id.to_string(),
+                display_name: module_id.to_string(),
                 enabled: false,
                 sql_applied: false,
                 message: "SQL Review required before activating module. User confirmation needed.".into(),
@@ -143,6 +189,23 @@ pub fn install_qualified_module(
     hasher.update(&dll_bytes);
     let sha256 = format!("{:x}", hasher.finalize());
 
+    // Resolve human-readable display_name from plugin.json if available
+    let plugin_json_path = store_dir.join("plugin.json");
+    let mut display_name = module_id.to_string();
+    if plugin_json_path.is_file() {
+        if let Ok(content) = fs::read_to_string(&plugin_json_path) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(dn) = val.get("display_name").and_then(|v| v.as_str()) {
+                    display_name = dn.to_string();
+                } else if let Some(n) = val.get("name").and_then(|v| v.as_str()) {
+                    if n.len() != 40 || !n.chars().all(|c| c.is_ascii_hexdigit()) {
+                        display_name = n.to_string();
+                    }
+                }
+            }
+        }
+    }
+
     // Collect dist confs
     let mut dist_confs = Vec::new();
     if let Ok(entries) = fs::read_dir(&store_dir) {
@@ -159,7 +222,7 @@ pub fn install_qualified_module(
 
     let meta = PluginMetadata {
         id: module_id.to_string(),
-        name: module_id.to_string(),
+        name: display_name.clone(),
         version: version.to_string(),
         description: BTreeMap::new(),
         sha256,
@@ -179,9 +242,10 @@ pub fn install_qualified_module(
     Ok(PreviewInstallResult {
         success: true,
         module_id: module_id.to_string(),
+        display_name: display_name.clone(),
         enabled: true,
         sql_applied: apply_sql,
-        message: format!("Plugin '{}' v{} installed and enabled successfully in test realm.", module_id, version),
+        message: format!("Plugin '{}' v{} installed and enabled successfully in test realm.", display_name, version),
         sql_plan: None,
     })
 }

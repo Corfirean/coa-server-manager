@@ -47,6 +47,8 @@ pub struct BuildErrorDiagnostic {
     pub line: u32,
     pub error_code: String,
     pub message: String,
+    pub explanation: Option<String>,
+    pub resolution: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +64,9 @@ pub struct BuildResult {
     pub success: bool,
     pub module_id: String,
     pub module_name: String,
+    pub display_name: String,
     pub version: String,
+    pub source_commit: Option<String>,
     pub package_path: Option<String>,
     pub dll_path: Option<String>,
     pub dll_sha256: Option<String>,
@@ -183,6 +187,101 @@ pub fn sanitize_module_name(name: &str) -> String {
         .collect()
 }
 
+/// Decodes compiler / linker stdout/stderr bytes, ensuring valid UTF-8 without mojibake.
+pub fn decode_msvc_output(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(bytes.len());
+    for &b in bytes {
+        if b < 0x80 {
+            out.push(b as char);
+        } else if (0x80..=0xAF).contains(&b) {
+            // CP866: А..п
+            if let Some(c) = char::from_u32(0x0410 + (b - 0x80) as u32) {
+                out.push(c);
+            } else {
+                out.push('?');
+            }
+        } else if (0xE0..=0xEF).contains(&b) {
+            // CP866: р..я
+            if let Some(c) = char::from_u32(0x0440 + (b - 0xE0) as u32) {
+                out.push(c);
+            } else {
+                out.push('?');
+            }
+        } else if b == 0xF0 {
+            out.push('Ё');
+        } else if b == 0xF1 {
+            out.push('ё');
+        } else if (0xC0..=0xFF).contains(&b) {
+            // CP1251: А..я
+            if let Some(c) = char::from_u32(0x0410 + (b - 0xC0) as u32) {
+                out.push(c);
+            } else {
+                out.push('?');
+            }
+        } else {
+            out.push('?');
+        }
+    }
+    out
+}
+
+/// Resolves a canonical module identity, readable display name, and optional commit SHA.
+pub fn resolve_module_identity(source_dir: &Path) -> (String, String, Option<String>) {
+    let raw_name = source_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "custom_module".into());
+
+    let (canonical_raw, commit_sha) = if raw_name.len() == 40 && raw_name.chars().all(|c| c.is_ascii_hexdigit()) {
+        let repo_dir = source_dir.parent();
+        let repo_name = repo_dir
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| raw_name.clone());
+        (repo_name, Some(raw_name))
+    } else {
+        (raw_name, None)
+    };
+
+    let module_id = canonical_raw.trim_start_matches("mod-").replace('_', "-");
+
+    let display_name = match module_id.as_str() {
+        "npc-buffer" => "NPC Buffer".to_string(),
+        "ah-bot" => "Auction House Bot".to_string(),
+        "guildhouse" => "Guildhouse".to_string(),
+        "congrats-on-level" => "Congrats on Level".to_string(),
+        "npc-enchanter" => "NPC Enchanter".to_string(),
+        "reward-played-time" => "Reward Played Time".to_string(),
+        "transmog" => "Transmog".to_string(),
+        "solocraft" => "Solocraft".to_string(),
+        "autobalance" => "AutoBalance".to_string(),
+        "individual-progression" => "Individual Progression".to_string(),
+        "ale" => "AzerothCore Lua Engine (ALE)".to_string(),
+        "coa-playerbots" | "playerbots" | "companions" => "CoA Companions".to_string(),
+        "squid-playerbots" | "squid" => "SQUID's Playerbots".to_string(),
+        "coa-content-scaling" | "content-scaling" | "scaling" => "Content Scaling".to_string(),
+        "custom-races" => "Custom Races".to_string(),
+        "timeistime" => "TimeIsTime".to_string(),
+        other => {
+            other.split('-')
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+    };
+
+    (module_id, display_name, commit_sha)
+}
+
 /// Parses MSVC compiler and linker error messages from stdout/stderr.
 fn parse_msvc_errors(logs: &[String]) -> Vec<BuildErrorDiagnostic> {
     let mut diagnostics = Vec::new();
@@ -206,21 +305,60 @@ fn parse_msvc_errors(logs: &[String]) -> Vec<BuildErrorDiagnostic> {
 
                 let error_code = right.split(':').next().unwrap_or("").trim().to_string();
                 let msg = right.split(':').skip(1).collect::<Vec<&str>>().join(":").trim().to_string();
+                let clean_msg = if msg.is_empty() { right.to_string() } else { msg };
 
                 diagnostics.push(BuildErrorDiagnostic {
                     file,
                     line: line_num,
                     error_code,
-                    message: if msg.is_empty() { right.to_string() } else { msg },
+                    message: clean_msg,
+                    explanation: None,
+                    resolution: None,
                 });
             }
-        } else if line.contains(": error LNK") || line.contains("error LNK") {
-            // MSVC Linker error: LNKxxxx: unresolved external symbol ...
+        } else if line.contains("error LNK") {
+            let code = if line.contains("LNK2019") {
+                "LNK2019"
+            } else if line.contains("LNK2001") {
+                "LNK2001"
+            } else if line.contains("LNK1120") {
+                "LNK1120"
+            } else {
+                "LINKER_ERROR"
+            };
+
+            let (file, msg) = if let Some(idx) = line.find(" : error ") {
+                (line[..idx].trim().to_string(), line[idx + 9..].trim().to_string())
+            } else {
+                ("linker".to_string(), line.trim().to_string())
+            };
+
+            let (explanation, resolution) = if msg.contains("Player::~Player") || msg.contains("??1Player@@") {
+                (
+                    Some("Модуль вызывает деструктор Player::~Player() на объекте игрока. В SDK v0.3.2 этот экспорт добавлен.".to_string()),
+                    Some("Обновите SDK до v0.3.2 или используйте Host PlayerServices.".to_string()),
+                )
+            } else if msg.contains("OnAuctionSuccessful") || msg.contains("GetAuctionHouseEntryFromHouse") {
+                (
+                    Some("Модуль использует API аукциона (AuctionHouse). В SDK v0.3.2 эти экспорты добавлены.".to_string()),
+                    Some("Обновите SDK до v0.3.2.".to_string()),
+                )
+            } else if msg.contains("GameObject") || msg.contains("Creature") || msg.contains("SaveToDB") || msg.contains("DeleteFromDB") || msg.contains("AddObjectToRemoveList") || msg.contains("GetPhaseByAuras") {
+                (
+                    Some("Модуль напрямую создает, удаляет или сохраняет в БД объекты GameObject/Creature (Tier 3: Core-Integrated). Прямое управление памятью ядра не поддерживается динамическими DLL.".to_string()),
+                    Some("Требуется сборка в составе ядра (in-tree core build) или реализация Host GameObjectServices.".to_string()),
+                )
+            } else {
+                (None, None)
+            };
+
             diagnostics.push(BuildErrorDiagnostic {
-                file: "linker".into(),
+                file,
                 line: 0,
-                error_code: "LINKER_ERROR".into(),
-                message: line.trim().to_string(),
+                error_code: code.to_string(),
+                message: msg,
+                explanation,
+                resolution,
             });
         }
     }
@@ -263,11 +401,10 @@ pub fn build_module_from_source(
     let ninja = toolchain.ninja_path.unwrap();
     let sdk_dir = toolchain.sdk_dir.unwrap();
 
+    let (module_id, display_name, source_commit) = resolve_module_identity(module_source_dir);
     let raw_module_name = module_source_dir.file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "custom_module".into());
-
-    let module_id = raw_module_name.trim_start_matches("mod-").replace('_', "-");
+        .unwrap_or_else(|| module_id.clone());
     let safe_target_name = format!("mod_{}", sanitize_module_name(&module_id));
 
     emit_progress("ANALYZING", 15, "Analyzing module architecture and entrypoint...", None);
@@ -349,7 +486,7 @@ pub fn build_module_from_source(
         }
     }
 
-    // 3. Write controlled CMakeLists.txt
+    // 3. Write controlled CMakeLists.txt (eliminating D9025 /Zi vs /Z7 conflict)
     let sources_block = staged_cpp_paths.iter().map(|s| format!("  \"{}\"", s)).collect::<Vec<_>>().join("\n");
     let includes_block = include_dirs.iter().map(|s| format!("  \"{}\"", s)).collect::<Vec<_>>().join("\n");
     let cmake_sdk_path = sdk_dir.replace('\\', "/");
@@ -357,6 +494,9 @@ pub fn build_module_from_source(
     let controlled_cmake = format!(r#"cmake_minimum_required(VERSION 3.22)
 project(coa_plugin_{safe_target_name} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
+
+string(REPLACE "/Zi" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${{CMAKE_CXX_FLAGS_RELWITHDEBINFO}}")
+string(REPLACE "-Zi" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${{CMAKE_CXX_FLAGS_RELWITHDEBINFO}}")
 
 find_package(CoAPluginSDK REQUIRED CONFIG PATHS "{cmake_sdk_path}")
 
@@ -370,10 +510,12 @@ target_include_directories({safe_target_name} PRIVATE
 
     fs::write(staging_dir.join("CMakeLists.txt"), &controlled_cmake)?;
 
-    // 4. Create batch runner executing MSVC + CMake + Ninja
+    // 4. Create batch runner executing MSVC + CMake + Ninja with clean English UTF-8 output
     let ninja_dir = Path::new(&ninja).parent().unwrap_or(Path::new("")).to_string_lossy();
     let runner_bat = staging_dir.join("run_build.bat");
     let runner_content = format!(r#"@echo off
+set "VSLANG=1033"
+chcp 65001 > nul
 call "{vcvars64}" > nul 2>&1
 if errorlevel 1 exit /b 101
 set "PATH={ninja_dir};%PATH%"
@@ -395,8 +537,8 @@ if errorlevel 1 exit /b 103
     let (exit_code, stdout, stderr) = match output {
         Ok(out) => (
             out.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&out.stdout).to_string(),
-            String::from_utf8_lossy(&out.stderr).to_string(),
+            decode_msvc_output(&out.stdout),
+            decode_msvc_output(&out.stderr),
         ),
         Err(e) => {
             return Err(Error::Invalid(format!("[PROCESS_ERROR] Failed to run MSVC build runner: {}", e)));
@@ -422,7 +564,9 @@ if errorlevel 1 exit /b 103
             success: false,
             module_id,
             module_name: raw_module_name,
+            display_name,
             version: "1.0.0".into(),
+            source_commit,
             package_path: None,
             dll_path: None,
             dll_sha256: None,
@@ -499,8 +643,9 @@ if errorlevel 1 exit /b 103
     let manifest_content = serde_json::json!({
         "schema_version": "v0.3.2",
         "id": module_id,
-        "name": raw_module_name,
+        "name": display_name,
         "version": version,
+        "source_commit": source_commit,
         "dll_file": target_dll_name,
         "dll_sha256": dll_sha256,
         "abi_fingerprint": host_abi_fingerprint,
@@ -528,7 +673,9 @@ if errorlevel 1 exit /b 103
         success: true,
         module_id,
         module_name: raw_module_name,
+        display_name,
         version: version.into(),
+        source_commit,
         package_path: Some(store_dir.to_string_lossy().into_owned()),
         dll_path: Some(target_dll_path.to_string_lossy().into_owned()),
         dll_sha256: Some(dll_sha256),
@@ -624,5 +771,37 @@ mod tests {
 
             let _ = fs::remove_dir_all(&staging);
         }
+    }
+
+    #[test]
+    fn test_controlled_build_ah_bot() {
+        let lab_dir = Path::new("C:/games/coa-work/module-compat-lab");
+        let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
+
+        let mod_dir = lab_dir.join("mod-ah-bot");
+        if !mod_dir.exists() || !realm_root.join("worldserver.exe").is_file() {
+            return;
+        }
+
+        let staging = std::env::temp_dir().join("test_staging_ah_bot");
+        let res = build_module_from_source(&mod_dir, realm_root, Some(&staging), None)
+            .unwrap_or_else(|e| panic!("Build failed for mod-ah-bot: {}", e));
+
+        assert!(res.success, "Build of mod-ah-bot must succeed without linker errors. Errors: {:?}", res.errors);
+        assert_eq!(res.module_id, "ah-bot");
+        assert_eq!(res.display_name, "Auction House Bot");
+        assert!(res.dll_sha256.is_some());
+        assert!(res.package_path.is_some());
+
+        let dll_p = PathBuf::from(res.dll_path.unwrap());
+        assert!(dll_p.is_file(), "DLL for ah-bot must exist");
+
+        let dll_bytes = fs::read(&dll_p).unwrap();
+        let (machine, is_dll, exports, _) = parse_pe_exports(&dll_bytes).unwrap();
+        assert!(is_dll);
+        assert_eq!(machine, "AMD64 (x86_64)");
+        assert!(exports.iter().any(|e| e.decorated_name == "CoaPluginQuery"));
+
+        let _ = fs::remove_dir_all(&staging);
     }
 }

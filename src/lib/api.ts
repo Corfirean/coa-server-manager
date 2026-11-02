@@ -309,13 +309,17 @@ export interface BuildErrorDiagnostic {
   file: string;
   line: number;
   error_code: string;
+  symbol?: string | null;
   message: string;
+  actionable_resolution?: string | null;
 }
 
 export interface BuildResult {
   success: boolean;
   module_id: string;
   module_name: string;
+  display_name?: string;
+  source_commit?: string | null;
   version: string;
   package_path?: string | null;
   dll_path?: string | null;
@@ -335,11 +339,13 @@ export interface InstalledPreviewPlugin {
   sha256: string;
   store_path: string;
   conf_files: string[];
+  source_commit?: string;
 }
 
 export interface PreviewInstallResult {
   success: boolean;
   module_id: string;
+  display_name?: string;
   enabled: boolean;
   sql_applied: boolean;
   message: string;

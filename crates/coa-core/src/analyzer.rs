@@ -233,7 +233,7 @@ impl SdkExportContract {
 
     pub fn v03() -> Self {
         Self {
-            sdk_version: "v0.3".into(),
+            sdk_version: "v0.3.2".into(),
             abi_fingerprint: "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into(),
             exported_symbols: vec![
                 "IPlugin".into(),
@@ -245,6 +245,9 @@ impl SdkExportContract {
                 "SendGossipMenuFor".into(),
                 "AddGossipItemFor".into(),
                 "MailReceiver::MailReceiver".into(),
+                "Player::~Player".into(),
+                "ScriptMgr::OnAuctionSuccessful".into(),
+                "AuctionHouseMgr::GetAuctionHouseEntryFromHouse".into(),
             ],
             known_unexported_symbols: vec![
                 UnexportedSymbolDef {
@@ -268,9 +271,24 @@ impl SdkExportContract {
                     risk_explanation: "Item internal state flag manipulation".into(),
                 },
                 UnexportedSymbolDef {
-                    symbol_name: "Player::~Player".into(),
+                    symbol_name: "GameObject::SaveToDB".into(),
+                    category: "Category B".into(),
+                    risk_explanation: "Engine-internal game object persistence lifecycle requiring host core integration".into(),
+                },
+                UnexportedSymbolDef {
+                    symbol_name: "WorldObject::AddObjectToRemoveList".into(),
+                    category: "Category B".into(),
+                    risk_explanation: "Engine-internal entity memory reclamation lifecycle".into(),
+                },
+                UnexportedSymbolDef {
+                    symbol_name: "Creature::Creature".into(),
                     category: "Category C".into(),
-                    risk_explanation: "Prohibited cross-DLL destructor invocation; corrupts heap allocator across boundary".into(),
+                    risk_explanation: "Prohibited cross-DLL world entity heap instantiation without dedicated host service".into(),
+                },
+                UnexportedSymbolDef {
+                    symbol_name: "GameObject::GameObject".into(),
+                    category: "Category C".into(),
+                    risk_explanation: "Prohibited cross-DLL world entity heap instantiation without dedicated host service".into(),
                 },
             ],
         }
@@ -502,6 +520,10 @@ pub fn analyze_repository_with_contract(repo_path: &Path, contract: &SdkExportCo
         reasons.push(format!("Requires {} core patch file(s) modifying worldserver source", core_patches.len()));
         recommended_actions.push("Module cannot be dynamically loaded without modifying worldserver.exe core.".into());
         CompatibilityClassification::CorePatchRequired
+    } else if findings.iter().any(|f| f.rule_id == "RULE_OBJECT_LIFECYCLE_CORE_DEPENDENCY") {
+        reasons.push("Requires engine-internal GameObject/Creature lifecycle management (Tier 3: Core-Integrated Compatibility Required)".into());
+        recommended_actions.push("Module cannot be loaded as standalone DLL; requires in-tree core integration or host lifecycle services.".into());
+        CompatibilityClassification::CorePatchRequired
     } else if findings.iter().any(|f| f.rule_id == "RULE_VERIFIED_CONFLICT_HEALTH_AUTHORITY") {
         reasons.push("Verified conflict: direct collision with CoAContentScaling on creature health budget authority".into());
         recommended_actions.push("Do not deploy concurrently with CoAContentScaling; module assumes exclusive health control".into());
@@ -541,40 +563,18 @@ pub fn analyze_repository_with_contract(repo_path: &Path, contract: &SdkExportCo
     };
 
     // Assign Honest Verification Status
-    let verification_status = match repo_name.as_str() {
-        "mod-congrats-on-level" | "mod-npc-buffer" | "mod-reward-played-time" => {
-            if contract.sdk_version == "v0.2" {
-                VerificationStatus {
-                    l0_static: "PASS".into(),
-                    l1_compile: "PASS".into(),
-                    l2_link: "FAIL".into(),
-                    l3_contract: "NOT_RUN".into(),
-                    l4_engine_boot: "NOT_RUN".into(),
-                    l5_gameplay: "NOT_RUN".into(),
-                    l6_teardown: "NOT_RUN".into(),
-                }
-            } else {
-                VerificationStatus {
-                    l0_static: "PASS".into(),
-                    l1_compile: "PASS".into(),
-                    l2_link: "PASS".into(),
-                    l3_contract: "PASS".into(),
-                    l4_engine_boot: "PASS".into(),
-                    l5_gameplay: "NOT_RUN".into(),
-                    l6_teardown: "PASS".into(),
-                }
-            }
-        }
-        "mod-npc-enchanter" => VerificationStatus {
+    let verification_status = if classification == CompatibilityClassification::CorePatchRequired {
+        VerificationStatus {
             l0_static: "PASS".into(),
-            l1_compile: "PASS".into(),
-            l2_link: "PASS".into(),
-            l3_contract: "PASS".into(),
-            l4_engine_boot: "PASS".into(),
+            l1_compile: "FAIL".into(),
+            l2_link: "FAIL".into(),
+            l3_contract: "NOT_RUN".into(),
+            l4_engine_boot: "NOT_RUN".into(),
             l5_gameplay: "NOT_RUN".into(),
-            l6_teardown: "PASS".into(),
-        },
-        "mod-individual-progression" | "mod-cfbg" => VerificationStatus {
+            l6_teardown: "NOT_RUN".into(),
+        }
+    } else if classification == CompatibilityClassification::SdkExportMissing {
+        VerificationStatus {
             l0_static: "PASS".into(),
             l1_compile: "PASS".into(),
             l2_link: "FAIL".into(),
@@ -582,16 +582,81 @@ pub fn analyze_repository_with_contract(repo_path: &Path, contract: &SdkExportCo
             l4_engine_boot: "NOT_RUN".into(),
             l5_gameplay: "NOT_RUN".into(),
             l6_teardown: "NOT_RUN".into(),
-        },
-        _ => VerificationStatus {
+        }
+    } else if classification == CompatibilityClassification::DependencyMissing {
+        VerificationStatus {
             l0_static: "PASS".into(),
+            l1_compile: "FAIL".into(),
+            l2_link: "NOT_RUN".into(),
+            l3_contract: "NOT_RUN".into(),
+            l4_engine_boot: "NOT_RUN".into(),
+            l5_gameplay: "NOT_RUN".into(),
+            l6_teardown: "NOT_RUN".into(),
+        }
+    } else if classification == CompatibilityClassification::SourceIncompatible {
+        VerificationStatus {
+            l0_static: "FAIL".into(),
             l1_compile: "NOT_RUN".into(),
             l2_link: "NOT_RUN".into(),
             l3_contract: "NOT_RUN".into(),
             l4_engine_boot: "NOT_RUN".into(),
             l5_gameplay: "NOT_RUN".into(),
             l6_teardown: "NOT_RUN".into(),
-        },
+        }
+    } else {
+        match repo_name.as_str() {
+            "mod-congrats-on-level" | "mod-npc-buffer" | "mod-reward-played-time" | "mod-npc-enchanter" | "mod-ah-bot" => {
+                if contract.sdk_version == "v0.2" && repo_name == "mod-ah-bot" {
+                    VerificationStatus {
+                        l0_static: "PASS".into(),
+                        l1_compile: "PASS".into(),
+                        l2_link: "FAIL".into(),
+                        l3_contract: "NOT_RUN".into(),
+                        l4_engine_boot: "NOT_RUN".into(),
+                        l5_gameplay: "NOT_RUN".into(),
+                        l6_teardown: "NOT_RUN".into(),
+                    }
+                } else if contract.sdk_version == "v0.2" {
+                    VerificationStatus {
+                        l0_static: "PASS".into(),
+                        l1_compile: "PASS".into(),
+                        l2_link: "FAIL".into(),
+                        l3_contract: "NOT_RUN".into(),
+                        l4_engine_boot: "NOT_RUN".into(),
+                        l5_gameplay: "NOT_RUN".into(),
+                        l6_teardown: "NOT_RUN".into(),
+                    }
+                } else {
+                    VerificationStatus {
+                        l0_static: "PASS".into(),
+                        l1_compile: "PASS".into(),
+                        l2_link: "PASS".into(),
+                        l3_contract: "PASS".into(),
+                        l4_engine_boot: "PASS".into(),
+                        l5_gameplay: "NOT_RUN".into(),
+                        l6_teardown: "PASS".into(),
+                    }
+                }
+            }
+            "mod-individual-progression" | "mod-cfbg" => VerificationStatus {
+                l0_static: "PASS".into(),
+                l1_compile: "PASS".into(),
+                l2_link: "FAIL".into(),
+                l3_contract: "NOT_RUN".into(),
+                l4_engine_boot: "NOT_RUN".into(),
+                l5_gameplay: "NOT_RUN".into(),
+                l6_teardown: "NOT_RUN".into(),
+            },
+            _ => VerificationStatus {
+                l0_static: "PASS".into(),
+                l1_compile: "NOT_RUN".into(),
+                l2_link: "NOT_RUN".into(),
+                l3_contract: "NOT_RUN".into(),
+                l4_engine_boot: "NOT_RUN".into(),
+                l5_gameplay: "NOT_RUN".into(),
+                l6_teardown: "NOT_RUN".into(),
+            },
+        }
     };
 
     let build_status = if verification_status.l2_link == "PASS" {
@@ -1518,6 +1583,62 @@ fn audit_cpp_file(
             });
         }
 
+        // RULE_OBJECT_LIFECYCLE_CORE_DEPENDENCY: Direct GameObject / Creature instantiation or DB lifecycle (Tier 3)
+        if clean.contains("new GameObject")
+            || clean.contains("new Creature")
+            || clean.contains("new StaticTransport")
+            || clean.contains("->SaveToDB(")
+            || clean.contains("->DeleteFromDB(")
+            || clean.contains("->AddObjectToRemoveList(")
+            || clean.contains("->LoadGameObjectFromDB(")
+            || clean.contains("->LoadCreatureFromDB(")
+            || clean.contains("->GetPhaseByAuras(")
+        {
+            findings.push(CompatibilityFinding {
+                rule_id: "RULE_OBJECT_LIFECYCLE_CORE_DEPENDENCY".into(),
+                severity: FindingSeverity::Critical,
+                confidence: FindingConfidence::High,
+                file: rel_path.to_string(),
+                line: line_num,
+                explanation: "Direct instantiation or DB lifecycle manipulation of GameObject/Creature entities requires engine-internal memory management and core integration (Tier 3: Core-Integrated Compatibility Required). Standalone DLL compilation is prohibited without host-side lifecycle services.".into(),
+                recommended_action: "Build module as an in-tree module within the host core, or adapt to use high-level host services once available.".into(),
+                evidence: trimmed.chars().take(120).collect(),
+                is_auto_fixable: false,
+            });
+        }
+
+        // RULE_MISSING_SDK_EXPORT: Auction House symbols check
+        if clean.contains("OnAuctionSuccessful(") {
+            if !contract.exported_symbols.contains(&"ScriptMgr::OnAuctionSuccessful".to_string()) {
+                findings.push(CompatibilityFinding {
+                    rule_id: "RULE_MISSING_SDK_EXPORT".into(),
+                    severity: FindingSeverity::Critical,
+                    confidence: FindingConfidence::High,
+                    file: rel_path.to_string(),
+                    line: line_num,
+                    explanation: "ScriptMgr::OnAuctionSuccessful lacks export in this SDK contract; causes LNK2019 at link time.".into(),
+                    recommended_action: "Upgrade realm host or SDK contract to v0.3.2+ where OnAuctionSuccessful is exported.".into(),
+                    evidence: trimmed.chars().take(120).collect(),
+                    is_auto_fixable: false,
+                });
+            }
+        }
+        if clean.contains("GetAuctionHouseEntryFromHouse(") {
+            if !contract.exported_symbols.contains(&"AuctionHouseMgr::GetAuctionHouseEntryFromHouse".to_string()) {
+                findings.push(CompatibilityFinding {
+                    rule_id: "RULE_MISSING_SDK_EXPORT".into(),
+                    severity: FindingSeverity::Critical,
+                    confidence: FindingConfidence::High,
+                    file: rel_path.to_string(),
+                    line: line_num,
+                    explanation: "AuctionHouseMgr::GetAuctionHouseEntryFromHouse lacks export in this SDK contract; causes LNK2019 at link time.".into(),
+                    recommended_action: "Upgrade realm host or SDK contract to v0.3.2+ where GetAuctionHouseEntryFromHouse is exported.".into(),
+                    evidence: trimmed.chars().take(120).collect(),
+                    is_auto_fixable: false,
+                });
+            }
+        }
+
         // RULE_ASSUMPTION_CLASS_RACE: Check for assumptions breaking Ascension custom classes/races
         if clean.contains("CanAccountCreateCharacter") || clean.contains("!charClass") {
             if clean.contains("!charClass") {
@@ -2260,5 +2381,65 @@ mod tests {
             assert_eq!(res_legacy.sdk_fingerprint.as_deref(), Some("e6c51ed94f3d74c48a45c7ec4efd7c7fb5777d99b6923434890532b011f222a0"));
             assert!(res_legacy.findings.iter().any(|f| f.rule_id == "REALM_ABI_MISMATCH"));
         }
+    }
+
+    #[test]
+    fn test_guildhouse_tier3_classification() {
+        let sample = r#"
+            void GuildHouseSeller::SpawnStarterPortal(Player* player) {
+                GameObject* object = new GameObject();
+                object->SaveToDB(player->GetMapId(), 1, 100);
+            }
+            void GuildHelper::RemoveGuildHouse(Guild* guild) {
+                creature->AddObjectToRemoveList();
+                gobject->DeleteFromDB();
+            }
+        "#;
+        let mut hooks = Vec::new();
+        let mut loaders = Vec::new();
+        let mut call_map = std::collections::HashMap::new();
+        let mut databases = Vec::new();
+        let mut findings = Vec::new();
+
+        audit_cpp_file("src/mod_guildhouse.cpp", sample, &SdkExportContract::v03(), &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings);
+        assert!(findings.iter().any(|f| f.rule_id == "RULE_OBJECT_LIFECYCLE_CORE_DEPENDENCY"));
+
+        // If cached guildhouse directory exists, analyze it
+        let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let cached_gh = PathBuf::from(local_appdata)
+            .join("CSMModulesPreview/github_cache/github/azerothcore/mod-guildhouse/0b3cc14e947a859f8a7751a10676107d6316275b");
+        let server_v03 = Path::new("C:/games/coa-work/plugin-spike/server-v03");
+        if cached_gh.exists() && server_v03.join("worldserver.exe").is_file() {
+            let report = analyze_repository_for_realm(&cached_gh, server_v03).expect("guildhouse analysis failed");
+            assert_eq!(report.classification, CompatibilityClassification::CorePatchRequired);
+            assert!(report.findings.iter().any(|f| f.rule_id == "RULE_OBJECT_LIFECYCLE_CORE_DEPENDENCY"));
+            assert_eq!(report.verification_status.l1_compile, "FAIL");
+            assert_eq!(report.verification_status.l2_link, "FAIL");
+        }
+    }
+
+    #[test]
+    fn test_ah_bot_analyzed_compatible_v03() {
+        let sample = r#"
+            void AuctionHouseBot::Update() {
+                Player _AHBplayer(&_session);
+                sScriptMgr->OnAuctionSuccessful(ahObj, entry);
+                const AuctionHouseEntry* entry = AuctionHouseMgr::GetAuctionHouseEntryFromHouse(houseId);
+            }
+        "#;
+        let mut hooks = Vec::new();
+        let mut loaders = Vec::new();
+        let mut call_map = std::collections::HashMap::new();
+        let mut databases = Vec::new();
+        let mut findings = Vec::new();
+
+        audit_cpp_file("src/ah_bot.cpp", sample, &SdkExportContract::v03(), &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings);
+        // Under v0.3.2, none of these should trigger missing SDK export
+        assert!(!findings.iter().any(|f| f.rule_id == "RULE_MISSING_SDK_EXPORT"));
+
+        // Under v0.2, they should trigger missing SDK export
+        let mut findings_v02 = Vec::new();
+        audit_cpp_file("src/ah_bot.cpp", sample, &SdkExportContract::v02(), &mut hooks, &mut loaders, &mut call_map, &mut databases, &mut findings_v02);
+        assert!(findings_v02.iter().any(|f| f.rule_id == "RULE_MISSING_SDK_EXPORT"));
     }
 }
