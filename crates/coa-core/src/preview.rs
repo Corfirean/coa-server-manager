@@ -220,6 +220,22 @@ pub fn install_qualified_module(
         }
     }
 
+    if display_name.len() == 40 && display_name.chars().all(|c| c.is_ascii_hexdigit()) {
+        if dist_confs.iter().any(|(n, _)| n.contains("npc_buffer")) {
+            display_name = "NPC Buffer".to_string();
+        } else if dist_confs.iter().any(|(n, _)| n.contains("ah_bot") || n.contains("ahbot")) {
+            display_name = "Auction House Bot".to_string();
+        } else if dist_confs.iter().any(|(n, _)| n.contains("enchanter")) {
+            display_name = "NPC Enchanter".to_string();
+        } else if dist_confs.iter().any(|(n, _)| n.contains("congrats")) {
+            display_name = "Congrats On Level".to_string();
+        } else if dist_confs.iter().any(|(n, _)| n.contains("reward_played_time")) {
+            display_name = "Reward Played Time".to_string();
+        } else {
+            display_name = format!("Module ({})", &display_name[..8]);
+        }
+    }
+
     let meta = PluginMetadata {
         id: module_id.to_string(),
         name: display_name.clone(),

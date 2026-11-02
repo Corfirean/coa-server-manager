@@ -48,6 +48,7 @@ import { Card } from "@/components/ui/card";
 import { useHuman, useI18n, useSchemaText, type Key } from "@/i18n";
 import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField } from "@/lib/moduleSettings";
 import { AuctionTypes } from "@/screens/AuctionTypes";
+import { RaceAvailabilitySettings } from "@/screens/RaceAvailabilitySettings";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 /** The GitHub mark */
@@ -143,11 +144,27 @@ const OFFICIAL_IDS = new Set([
   "content-scaling",
   "tbc-content",
   "wotlk-content",
+  "ah-bot",
+  "npc-enchanter",
   "playerbots",
   "custom-races",
   "time-is-time",
   "client-compat",
 ]);
+
+function cleanModuleName(name: string, id: string): string {
+  if (name && (name.length !== 40 || !/^[0-9a-f]+$/i.test(name))) {
+    return name;
+  }
+  if (id === "npc-buffer" || id.includes("npc_buffer") || name.includes("npc_buffer")) return "NPC Buffer";
+  if (id === "ah-bot" || id.includes("ah_bot") || name.includes("ah_bot")) return "Auction House Bot";
+  if (id === "npc-enchanter" || id.includes("enchanter")) return "NPC Enchanter";
+  if (id === "congrats-on-level" || id.includes("congrats")) return "Congrats On Level";
+  if (id === "reward-played-time" || id.includes("reward_played")) return "Reward Played Time";
+  if (id === "solocraft" || id.includes("solocraft")) return "Solocraft";
+  if (id && id.length === 40 && /^[0-9a-f]+$/i.test(id)) return `Module (${id.slice(0, 8)})`;
+  return id || name;
+}
 
 const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
   // Official Core Modules
@@ -323,21 +340,22 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
   {
     id: "ah-bot",
     name: "Auction House Bot",
-    repo: "https://github.com/azerothcore/mod-ah-bot",
-    category: "economy",
+    repo: "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-ah-bot-plus",
+    category: "official",
     description: {
-      ru: "Автоматическое наполнение аукциона сбалансированными лотами предметов от имени виртуальных игроков.",
-      en: "Populates auction houses with realistic listings from virtual buyers and sellers.",
+      ru: "Наполняет аукцион реалистичными настраиваемыми лотами.",
+      en: "Fills the auction house with realistic, adjustable listings.",
     },
-    qualification: "LINK_VERIFIED",
-    tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L3 PASS (SDK v0.3.2+)",
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Успешно связывается с SDK v0.3.2 (добавлены экспорты Player::~Player, OnAuctionSuccessful, GetAuctionHouseEntryFromHouse).",
-      en: "Successfully links against SDK v0.3.2 after resolving Player destructor and auction manager exports.",
+      ru: "Встроенный официальный модуль аукциона виртуальных персонажей.",
+      en: "Built-in official virtual characters auction house module.",
     },
     sqlRequired: false,
     canInstall: true,
+    isOfficial: true,
     icon: "gavel",
   },
   {
@@ -364,20 +382,21 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     id: "npc-enchanter",
     name: "NPC Enchanter",
     repo: "https://github.com/azerothcore/mod-npc-enchanter",
-    category: "profession",
+    category: "official",
     description: {
-      ru: "NPC-зачарователь для наложения чар на оружие и броню за золото и реагенты.",
-      en: "NPC offering equipment enchanting services for gold and custom tokens.",
+      ru: "НПС, который зачаровывает ваше снаряжение.",
+      en: "An NPC that enchants your gear for you.",
     },
-    qualification: "INSTALL_VERIFIED",
-    tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L4 PASS, L6 PASS",
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Подтверждена сборка и установка. Для спавна NPC используется команда .npc add 601015.",
-      en: "Build and install verified. Spawn using command .npc add 601015.",
+      ru: "Встроенный официальный модуль зачарования экипировки у НПС.",
+      en: "Built-in official NPC equipment enchanting module.",
     },
-    sqlRequired: true,
+    sqlRequired: false,
     canInstall: true,
+    isOfficial: true,
     icon: "sparkles",
   },
   {
@@ -400,26 +419,7 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     canInstall: true,
     icon: "plug",
   },
-  {
-    id: "transmog",
-    name: "Transmogrification",
-    repo: "https://github.com/azerothcore/mod-transmog",
-    category: "utility",
-    description: {
-      ru: "Трансмогрификация экипировки персонажей в стиле современных дополнений WoW.",
-      en: "Modern retail-style equipment transmogrification system.",
-    },
-    qualification: "BUILT",
-    tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L2 PASS",
-    notes: {
-      ru: "Сборка C++20 с адаптером успешна.",
-      en: "C++20 compilation with adapter succeeds.",
-    },
-    sqlRequired: true,
-    canInstall: true,
-    icon: "plug",
-  },
+  
   {
     id: "solocraft",
     name: "Solocraft",
@@ -499,10 +499,17 @@ export function ModulesPage({
   // Action busy indicators
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
+  const [racesGuard, setRacesGuard] = useState<UnsavedChangesGuard | null>(null);
+
   useEffect(() => {
-    onRegisterGuard?.(guard);
+    const guards = [guard, racesGuard].filter((item): item is UnsavedChangesGuard => item !== null);
+    onRegisterGuard?.(guards.length ? {
+      isDirty: () => guards.some(item => item.isDirty()),
+      save: async () => { for (const item of guards) if (item.isDirty() && !await item.save()) return false; return true; },
+      discard: () => guards.forEach(item => item.discard()),
+    } : null);
     return () => onRegisterGuard?.(null);
-  }, [guard, onRegisterGuard]);
+  }, [guard, racesGuard, onRegisterGuard]);
 
   const loadToolchain = useCallback(async () => {
     try {
@@ -1112,7 +1119,7 @@ export function ModulesPage({
               </Card>
             )}
             {installedModules.map((m, i) => {
-              const isDynamic = !OFFICIAL_IDS.has(m.id) || installedPlugins.some((p) => p.id === m.id);
+              const isDynamic = !OFFICIAL_IDS.has(m.id) && (installedPlugins.some((p) => p.id === m.id) || m.id.length === 40);
               return (
                 <Fragment key={m.id}>
                   <Card
@@ -1124,9 +1131,9 @@ export function ModulesPage({
                   >
                     <div className="flex items-start gap-4">
                       <Tile icon={m.icon} off={!m.enabled || !m.installed || m.status === "soon"} />
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 pr-2">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <h3 className="font-semibold leading-tight text-ink">{m.name}</h3>
+                          <h3 className="font-semibold leading-tight text-ink truncate max-w-[220px] sm:max-w-[280px]" title={cleanModuleName(m.name, m.id)}>{cleanModuleName(m.name, m.id)}</h3>
                           {m.version && (
                             <span className="font-mono text-xs font-normal text-muted">{m.version}</span>
                           )}
@@ -1363,6 +1370,14 @@ export function ModulesPage({
                           onSaved={() => setChanged(true)}
                           onRegisterGuard={setGuard}
                         />
+                        {selectedModule.id === "custom-races" && (
+                          <RaceAvailabilitySettings
+                            serverId={serverId}
+                            blocked={racesInstalling || toggling !== null}
+                            onSaved={() => setChanged(true)}
+                            onRegisterGuard={setRacesGuard}
+                          />
+                        )}
                       </SettingsPanel>
                     )}
                 </Fragment>
@@ -1540,10 +1555,21 @@ export function ModulesPage({
                           size="sm"
                           variant="primary"
                           onClick={async () => {
-                            if (matchedModule) {
-                              await toggleOfficialModule(matchedModule);
-                              setOpenSettings(matchedModule.id);
+                            try {
+                              const mod = modules?.find((m) => m.id === item.id);
+                              if (mod && mod.enabled) {
+                                setOpenSettings(mod.id);
+                                setActiveTab("installed");
+                                return;
+                              }
+                              await api.moduleSetEnabled(serverId, item.id, true);
+                              setChanged(true);
+                              await load();
+                              setOpenSettings(item.id);
                               setActiveTab("installed");
+                              onChanged?.();
+                            } catch (e) {
+                              setError(asUiError(e));
                             }
                           }}
                           className="text-xs h-7 px-3"
@@ -1630,11 +1656,21 @@ export function ModulesPage({
                         const modId = selectedCatalogModule.id;
                         setSelectedCatalogModule(null);
                         if (isOff) {
-                          const m = modules?.find(x => x.id === modId);
-                          if (m) {
-                            await toggleOfficialModule(m);
-                            setOpenSettings(m.id);
+                          try {
+                            const m = modules?.find((x) => x.id === modId);
+                            if (m && m.enabled) {
+                              setOpenSettings(m.id);
+                              setActiveTab("installed");
+                              return;
+                            }
+                            await api.moduleSetEnabled(serverId, modId, true);
+                            setChanged(true);
+                            await load();
+                            setOpenSettings(modId);
                             setActiveTab("installed");
+                            onChanged?.();
+                          } catch (e) {
+                            setError(asUiError(e));
                           }
                         } else {
                           setGithubUrl(repo);

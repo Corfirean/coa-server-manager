@@ -53,6 +53,7 @@ pub mod preview;
 pub mod process;
 pub mod provenance;
 pub mod ra;
+pub mod race_availability;
 pub mod realm_registry;
 pub mod realmlist;
 pub mod realms;

@@ -302,10 +302,13 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     if let Some(ref reg) = plugin_reg {
         for (plugin_id, plugin_entry) in &reg.plugins {
             if !views.iter().any(|v| v.id == *plugin_id) {
-                let (display_name, desc_map) = if let Ok(meta) = crate::plugins::load_store_metadata(root, plugin_id, &plugin_entry.sha256) {
-                    (meta.name, meta.description)
+                let mut display_name = if let Ok(meta) = crate::plugins::load_store_metadata(root, plugin_id, &plugin_entry.sha256) {
+                    meta.name
                 } else {
-                    let name = if plugin_id.len() == 40 && plugin_id.chars().all(|c| c.is_ascii_hexdigit()) {
+                    String::new()
+                };
+                if display_name.is_empty() || (display_name.len() == 40 && display_name.chars().all(|c| c.is_ascii_hexdigit())) {
+                    display_name = if plugin_id.len() == 40 && plugin_id.chars().all(|c| c.is_ascii_hexdigit()) {
                         if plugin_entry.conf_files.iter().any(|c| c.contains("npc_buffer")) {
                             "NPC Buffer".to_string()
                         } else if plugin_entry.conf_files.iter().any(|c| c.contains("ah_bot") || c.contains("ahbot")) {
@@ -330,14 +333,18 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     } else if plugin_id == "reward-played-time" {
                         "Reward Played Time".to_string()
                     } else {
-                        plugin_id.clone()
+                        plugin_id.split('-').map(|s| {
+                            let mut c = s.chars();
+                            match c.next() {
+                                None => String::new(),
+                                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                            }
+                        }).collect::<Vec<_>>().join(" ")
                     };
-                    let mut desc = BTreeMap::new();
-                    desc.insert("ru".to_string(), format!("Динамический модуль {}", name));
-                    desc.insert("en".to_string(), format!("Dynamic module {}", name));
-                    (name, desc)
-                };
-
+                }
+                let mut desc_map = BTreeMap::new();
+                desc_map.insert("ru".to_string(), format!("Динамический модуль {}", display_name));
+                desc_map.insert("en".to_string(), format!("Dynamic module {}", display_name));
                 let has_settings = settings_in(cat, root, plugin_id).map(|s| !s.is_empty()).unwrap_or(false);
 
                 views.push(ModuleView {
@@ -716,6 +723,18 @@ fn save_settings_in(
                 "Use the module switch to turn this module on or off.".into(),
             ));
         }
+        if id == "time-is-time" {
+            let valid = match key.as_str() {
+                "TimeIsTime.Announce" => matches!(value, "0" | "1"),
+                "TimeIsTime.SpeedRate" => value.parse::<f32>().is_ok_and(|v| v.is_finite() && (0.0..=60.0).contains(&v)),
+                "TimeIsTime.TimeStart" => value.parse::<i32>().is_ok_and(|v| v >= 0),
+                "TimeIsTime.HourOffset" => value.parse::<f32>().is_ok_and(|v| v.is_finite() && (-24.0..=24.0).contains(&v)),
+                _ => true,
+            };
+            if !valid {
+                return Err(Error::Invalid(format!("Invalid value for {key}.")));
+            }
+        }
         if id == "content-scaling" && key == "CoAContentScaling.Difficulty.DamageMultiplier" {
             let multiplier = value.parse::<f32>().map_err(|_| {
                 Error::Invalid("Enemy damage must be a number from 0.25 to 2.0.".into())
@@ -1003,8 +1022,8 @@ mod tests {
         // it may be empty (modules are added to it one by one); whatever is in it must be complete
         for e in &c {
             assert!(
-                e.description.contains_key("en") && e.description.len() == 5,
-                "{} has all five descriptions",
+                ["en", "ru", "de", "fr", "es"].iter().all(|locale| e.description.get(*locale).is_some_and(|text| !text.is_empty())),
+                "{} has the existing catalog languages",
                 e.id
             );
             assert!(

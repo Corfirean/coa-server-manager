@@ -9,3 +9,5 @@ src-tauri/gen
 services/*/target/
 # Disposable database fixtures and private recovery data
 .cache/
+
+release-preview/
