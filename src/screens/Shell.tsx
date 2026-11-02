@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, BarChart3, Bot, Bug, Gauge, Globe, Loader2, Puzzle, Server, Settings, Swords, Terminal, Users, type LucideIcon } from "lucide-react";
+import { Archive, BarChart3, Bot, Bug, Gauge, Globe, Loader2, Puzzle, Server, Settings, Swords, Terminal, Users, RotateCcw, type LucideIcon } from "lucide-react";
 import { api, type ServerSummary } from "@/lib/api";
 import { useT, type Key } from "@/i18n";
 import logo from "@/assets/logo.png";
@@ -14,6 +14,7 @@ import { PlayWithFriends } from "@/screens/PlayWithFriends";
 import { ReportPage } from "@/screens/ReportPage";
 import { ModulesPage } from "@/screens/ModulesPage";
 import { ConsolePage } from "@/screens/ConsolePage";
+import { ServerMigrationWizard } from "@/screens/ServerMigrationWizard";
 import { PortablePage } from "@/screens/PortablePage";
 import { DashboardPage } from "@/screens/DashboardPage";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
 import { startClientPolling } from "@/lib/clientUpdate";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
-type Page = "overview" | "bots" | "dashboard" | "server" | "modules" | "players" | "characters" | "friends" | "backups" | "console" | "report" | "settings";
+type Page = "overview" | "bots" | "dashboard" | "server" | "modules" | "players" | "characters" | "friends" | "backups" | "console" | "report" | "settings" | "migration";
 
 const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "overview", label: "nav.overview", icon: Gauge, question: "q.overview" },
@@ -34,6 +35,7 @@ const NAV: { id: Page; label: Key; icon: LucideIcon; question: Key }[] = [
   { id: "characters", label: "nav.characters", icon: Swords, question: "q.characters" },
   { id: "friends", label: "nav.friends", icon: Globe, question: "q.friends" },
   { id: "backups", label: "nav.backups", icon: Archive, question: "q.backups" },
+  { id: "migration", label: "nav.migration", icon: RotateCcw, question: "q.migration" },
   { id: "console", label: "nav.console", icon: Terminal, question: "q.console" },
   { id: "report", label: "nav.report", icon: Bug, question: "q.report" },
   { id: "settings", label: "nav.settings", icon: Settings, question: "q.settings" },
@@ -171,6 +173,8 @@ export function Shell(props: {
           <PortablePage key="characters" />
         ) : page === "players" ? (
           <PlayersPage key={server.id} serverId={server.id} />
+        ) : page === "migration" ? (
+          <ServerMigrationWizard key={server.id} currentRealmId={server.id} onClose={() => setPage("overview")} />
         ) : page === "backups" ? (
           <BackupsPage key={server.id} serverId={server.id} />
         ) : (

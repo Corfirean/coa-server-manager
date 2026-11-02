@@ -730,7 +730,7 @@ mod tests {
         assert_eq!(errors.len(), 2);
         assert_eq!(errors[0].error_code, "C2065");
         assert_eq!(errors[0].line, 42);
-        assert_eq!(errors[1].error_code, "LINKER_ERROR");
+        assert_eq!(errors[1].error_code, "LNK2019");
     }
 
     #[test]

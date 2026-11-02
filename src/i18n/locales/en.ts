@@ -818,6 +818,8 @@ const en = {
   "realm.delete": "Remove {name}",
   "realm.confirmDelete": "Remove the realmlist “{name}”? The game client keeps whatever file it has now.",
   "nav.modules": "Modules",
+  "nav.migration": "Server Migration",
+  "q.migration": "Migrate data from an existing server into this Preview realm",
   "q.modules": "What extra features does the server have?",
     "mod.ahbot.types": "Item types for sale",
   "mod.ahbot.typesHint": "Choose types for new listings. Existing auctions remain. Enabling a type restores its previous weights in this session, or the configured defaults.",

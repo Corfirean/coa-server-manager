@@ -133,14 +133,24 @@ fn truthy(v: &str) -> bool {
     )
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ComponentType {
+    DynamicDll,
+    CoreEmbedded,
+    ContentPack,
+    ClientPatch,
+    LogicalFeature,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModuleView {
     pub id: String,
     pub name: String,
     pub version: Option<String>,
     pub description: BTreeMap<String, String>,
     pub repo: String,
-    /// The module's configuration is present on this server (otherwise it is not part of this server build).
+    /// The module's component is truly present and installed on this server.
     pub installed: bool,
     /// At least one editable setting besides the master switch exists in this server build.
     pub has_settings: bool,
@@ -151,6 +161,9 @@ pub struct ModuleView {
     pub page: Option<String>,
     pub hidden: bool,
     pub compatibility: String,
+    pub component_type: ComponentType,
+    pub can_remove: bool,
+    pub source_commit: Option<String>,
 }
 
 pub fn list(root: &Path) -> Vec<ModuleView> {
@@ -217,19 +230,66 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     let wildcard = crate::realms::state(root)
         .map(|s| s.active != crate::realms::Mode::Coa)
         .unwrap_or(true);
+
+    let is_modular_host = root.join("plugins").is_dir()
+        || root.join(".manager/plugins.json").is_file()
+        || root.join(".manager/plugin-store").is_dir()
+        || root.join("sdk.json").is_file();
+
     let mut views: Vec<ModuleView> = cat.iter()
         .cloned()
         .map(|e| {
             let name = conf_name(root, &e);
             let conf = dir(root).join(&name);
             let dist = dir(root).join(format!("{name}.dist"));
-            let plugin_entry = plugin_reg.as_ref().and_then(|r| r.plugins.get(&e.id));
-            let installed = conf.is_file() || dist.is_file() || plugin_entry.is_some();
+
+            // 1. Dynamic DLL detection
+            let plugin_entry = plugin_reg.as_ref().and_then(|r| {
+                r.plugins.get(&e.id)
+                    .or_else(|| r.plugins.get(&e.id.replace('-', "_")))
+            });
+            let dll_present = root.join("plugins").join(format!("{}.dll", e.id)).is_file()
+                || root.join("plugins").join(format!("{}.dll", e.id.replace('-', "_"))).is_file()
+                || root.join(".manager/plugins").join(format!("{}.dll", e.id)).is_file()
+                || root.join(".manager/plugins").join(format!("{}.dll", e.id.replace('-', "_"))).is_file();
+            let is_dynamic = plugin_entry.is_some() || dll_present;
+
+            // 2. Classify ComponentType and determine installation strictly
+            let (component_type, installed, can_remove) = if is_dynamic {
+                (ComponentType::DynamicDll, true, true)
+            } else if e.id == "custom-races" {
+                let has_patch = root.join("Data/patch-Z.mpq").is_file()
+                    || root.join("Data/patch-4.mpq").is_file()
+                    || root.join("Data/ruRU/patch-ruRU-4.mpq").is_file()
+                    || root.join("Data/enGB/patch-enGB-4.mpq").is_file()
+                    || root.join("Data/enUS/patch-enUS-4.mpq").is_file();
+                (ComponentType::ClientPatch, has_patch, true)
+            } else if matches!(e.id.as_str(), "tbc-content" | "wotlk-content") {
+                let has_content = (conf.is_file() || dist.is_file() || root.join("data").is_dir())
+                    && (!wildcard || root.join("data").is_dir());
+                (ComponentType::ContentPack, has_content, false)
+            } else if e.id == "client-compat" {
+                (ComponentType::LogicalFeature, true, false)
+            } else if !is_modular_host {
+                let key = match e.id.as_str() {
+                    "companions" => "bots",
+                    "playerbots" => "squid",
+                    "content-scaling" => "scaling",
+                    id => id,
+                };
+                let has_files = conf.is_file() || dist.is_file() || installed_commits.contains_key(key);
+                (ComponentType::CoreEmbedded, has_files, false)
+            } else {
+                // In a modular host, if dynamic DLL is not present, it is NOT installed!
+                (ComponentType::DynamicDll, false, false)
+            };
+
             let has_settings = installed
                 && settings_in(cat, root, &e.id)
                     .map(|settings| settings.iter().any(|s| s.key != e.enable_key))
                     .unwrap_or(false);
-            // the active file or plugin registry decides
+
+            // the active file or plugin registry decides enabled state
             let enabled = if let Some(p) = plugin_entry {
                 p.enabled
             } else if matches!(e.id.as_str(), "companions" | "playerbots") {
@@ -272,6 +332,8 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             } else {
                 None
             };
+            let source_commit = installed_commits.get(key).cloned();
+
             ModuleView {
                 version,
                 compatibility: if blocked {
@@ -294,6 +356,9 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 icon: e.icon,
                 page: e.page,
                 hidden: e.hidden,
+                component_type,
+                can_remove,
+                source_commit,
             }
         })
         .collect();
@@ -307,7 +372,9 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 } else {
                     String::new()
                 };
+                let mut source_commit = None;
                 if display_name.is_empty() || (display_name.len() == 40 && display_name.chars().all(|c| c.is_ascii_hexdigit())) {
+                    source_commit = Some(plugin_id.clone());
                     display_name = if plugin_id.len() == 40 && plugin_id.chars().all(|c| c.is_ascii_hexdigit()) {
                         if plugin_entry.conf_files.iter().any(|c| c.contains("npc_buffer")) {
                             "NPC Buffer".to_string()
@@ -362,6 +429,9 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     icon: "plug".into(),
                     page: None,
                     hidden: false,
+                    component_type: ComponentType::DynamicDll,
+                    can_remove: true,
+                    source_commit,
                 });
             }
         }
@@ -369,7 +439,6 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
 
     views
 }
-
 /// The active file, created from its `.dist` when it does not exist yet.
 fn active_file(root: &Path, e: &Entry) -> Result<PathBuf> {
     let name = conf_name(root, e);

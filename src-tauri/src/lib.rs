@@ -2995,6 +2995,115 @@ async fn preview_export_diagnostics(
     Ok(export_path.display().to_string())
 }
 
+#[tauri::command]
+async fn preview_migration_inspect(
+    source_path: String,
+) -> std::result::Result<coa_core::server_migration::SourceInspectionReport, UiError> {
+    blocking(move || {
+        let p = std::path::PathBuf::from(source_path);
+        coa_core::server_migration::inspect_source(&p).map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_migration_plan(
+    state: State<'_, AppState>,
+    source_path: String,
+    dest_realm_id: String,
+    scope: coa_core::server_migration::MigrationScope,
+    conflict_policy: coa_core::server_migration::ConflictResolutionPolicy,
+) -> std::result::Result<coa_core::server_migration::MigrationPlan, UiError> {
+    let dest_root = path_of(&state, &dest_realm_id)?;
+    blocking(move || {
+        let src_p = std::path::PathBuf::from(source_path);
+        let report = coa_core::server_migration::inspect_source(&src_p)?;
+        coa_core::server_migration::plan_migration(&report, &dest_root, scope, conflict_policy)
+            .map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_migration_execute(
+    plan: coa_core::server_migration::MigrationPlan,
+) -> std::result::Result<coa_core::server_migration::MigrationExecutionReport, UiError> {
+    blocking(move || {
+        coa_core::server_migration::execute_migration(&plan).map_err(Into::into)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn preview_check_updates(
+    state: State<'_, AppState>,
+    realm_id: String,
+) -> std::result::Result<coa_core::solver::SolverVerdict, UiError> {
+    let realm_root = path_of(&state, &realm_id)?;
+    blocking(move || {
+        let lock_path = std::path::PathBuf::from(r"C:\games\coa-server-build\candidate-lock.json");
+        let candidate_host = if lock_path.is_file() {
+            let content = std::fs::read_to_string(&lock_path)
+                .map_err(|e| coa_core::Error::Invalid(e.to_string()))?;
+            let val: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| coa_core::Error::Invalid(e.to_string()))?;
+            coa_core::solver::HostManifest {
+                version: val.get("version").and_then(|v| v.as_str()).unwrap_or("0.7.1-preview").into(),
+                commit: val.get("core").and_then(|c| c.get("commit")).and_then(|v| v.as_str()).unwrap_or("unknown").into(),
+                abi_fingerprint: val.get("sdk").and_then(|s| s.get("abi_fingerprint")).and_then(|v| v.as_str()).unwrap_or("").into(),
+                sdk_contract_version: val.get("sdk").and_then(|s| s.get("version")).and_then(|v| v.as_str()).unwrap_or("0.3.2").into(),
+                schema_version: "2026_10_28_00".into(),
+            }
+        } else {
+            coa_core::solver::HostManifest {
+                version: "0.7.1-preview".into(),
+                commit: "unknown".into(),
+                abi_fingerprint: "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into(),
+                sdk_contract_version: "0.3.2".into(),
+                schema_version: "2026_10_28_00".into(),
+            }
+        };
+
+        let installed_host = coa_core::solver::HostManifest {
+            version: "0.7.0".into(),
+            commit: "installed_commit".into(),
+            abi_fingerprint: "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into(),
+            sdk_contract_version: "0.3.2".into(),
+            schema_version: "2026_10_28_00".into(),
+        };
+
+        let modules_view = coa_core::modules::list(&realm_root);
+        let installed_modules: Vec<coa_core::solver::ModuleArtifactInfo> = modules_view
+            .into_iter()
+            .filter(|m| m.installed)
+            .map(|m| coa_core::solver::ModuleArtifactInfo {
+                id: m.id.clone(),
+                name: m.name,
+                version: m.version.unwrap_or_else(|| "1.0.0".into()),
+                required_abi_fingerprint: Some("2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into()),
+                required_sdk_contract: Some("0.3.2".into()),
+                min_host_version: Some("0.7.0".into()),
+                dependencies: vec![],
+                conflicts: if m.id == "companions" { vec!["playerbots".into()] } else { vec![] },
+                required_schema_version: None,
+                has_source: false,
+                is_dynamic_dll: m.component_type == coa_core::modules::ComponentType::DynamicDll,
+            })
+            .collect();
+
+        let graph = coa_core::solver::CompatibilityGraph {
+            installed_host: &installed_host,
+            candidate_host: &candidate_host,
+            installed_modules: &installed_modules,
+            available_modules: &[],
+            current_schema_version: "2026_10_28_00",
+        };
+
+        Ok(coa_core::solver::solve_compatibility(&graph))
+    })
+    .await
+}
+
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn run() {
@@ -3034,6 +3143,10 @@ pub fn run() {
             preview_remove_module,
             preview_list_installed_plugins,
             preview_export_diagnostics,
+            preview_migration_inspect,
+            preview_migration_plan,
+            preview_migration_execute,
+            preview_check_updates,
             default_install_dir,
             game_data_folder,
             set_game_data_folder,

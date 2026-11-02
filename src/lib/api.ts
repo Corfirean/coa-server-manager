@@ -207,6 +207,8 @@ export interface RealmProfile {
   data: string;
 }
 
+export type ComponentType = "DYNAMIC_DLL" | "CORE_EMBEDDED" | "CONTENT_PACK" | "CLIENT_PATCH" | "LOGICAL_FEATURE";
+
 export interface ModuleView {
   id: string;
   name: string;
@@ -227,6 +229,9 @@ export interface ModuleView {
   /** not shown on the Modules page */
   hidden: boolean;
   compatibility?: "compatible" | "experimental" | "unsupported";
+  component_type?: ComponentType;
+  can_remove?: boolean;
+  source_commit?: string | null;
 }
 
 export interface MultiDimensionalStatus {
@@ -600,6 +605,85 @@ export interface CrashItem {
   full_log: string;
 }
 
+
+export type SourceClassification = "CSM_MANAGED_COA" | "LEGACY_EMBEDDED_COA" | "STANDARD_AZEROTH_CORE" | "UNKNOWN_CUSTOM";
+
+export interface DetectedModule {
+  id: string;
+  name: string;
+  detected_via: string;
+  version?: string | null;
+  has_database_data: boolean;
+  is_supported_by_preview: boolean;
+}
+
+export interface SourceInspectionReport {
+  source_path: string;
+  source_type: SourceClassification;
+  core_version?: string | null;
+  schema_version?: string | null;
+  accounts_count: number;
+  characters_count: number;
+  detected_modules: DetectedModule[];
+  module_tables: Record<string, string[]>;
+  custom_race_support: boolean;
+  compatibility_notes: string[];
+}
+
+export interface MigrationScope {
+  accounts_and_characters: boolean;
+  module_owned_data: boolean;
+  server_configuration: boolean;
+  selected_modules: string[];
+}
+
+export type ConflictResolutionPolicy = "remap_colliding_guids" | "skip_colliding_guids" | "overwrite_existing";
+
+export interface AdapterPlan {
+  module_id: string;
+  source_tables: string[];
+  dest_tables: string[];
+  data_loss_risks: string[];
+  requires_conversion: boolean;
+}
+
+export interface MigrationPlan {
+  plan_id: string;
+  source_path: string;
+  dest_realm_path: string;
+  source_report: SourceInspectionReport;
+  scope: MigrationScope;
+  conflict_policy: ConflictResolutionPolicy;
+  adapters: AdapterPlan[];
+  tables_to_migrate: string[];
+  quarantined_tables: string[];
+  estimated_disk_mb: number;
+  warnings: string[];
+}
+
+export interface MigrationExecutionReport {
+  success: boolean;
+  backup_path?: string | null;
+  accounts_transferred: number;
+  characters_transferred: number;
+  items_transferred: number;
+  modules_migrated: string[];
+  tables_migrated: string[];
+  quarantined_tables: string[];
+  warnings: string[];
+  errors: string[];
+  duration_ms: number;
+}
+
+export type SolverVerdict =
+  | { status: "CompatibleAsIs" }
+  | { status: "RequiresModuleRebuild"; details: { modules: string[] } }
+  | { status: "RequiresModuleUpdate"; details: { updates: [string, string][] } }
+  | { status: "RequiresAdditionalDependency"; details: { missing_dependencies: string[] } }
+  | { status: "RequiresDisablingConflictingModule"; details: { conflicting_modules: string[] } }
+  | { status: "Unsupported"; details: { reason: string } }
+  | { status: "Unknown"; details: { reason: string } };
+
 export const api = {
   remoteConnection: () => invoke<RemoteConnection>("remote_connection"),
   remoteConnect: (host: string) => invoke<RemoteConnection>("remote_connect", { host }),
@@ -726,6 +810,14 @@ export const api = {
     invoke<InstalledPreviewPlugin[]>("preview_list_installed_plugins", { realmId }),
   previewExportDiagnostics: (realmId?: string) =>
     invoke<string>("preview_export_diagnostics", { realmId: realmId ?? null }),
+  previewMigrationInspect: (sourcePath: string) =>
+    invoke<SourceInspectionReport>("preview_migration_inspect", { sourcePath }),
+  previewMigrationPlan: (sourcePath: string, destRealmId: string, scope: MigrationScope, conflictPolicy: ConflictResolutionPolicy) =>
+    invoke<MigrationPlan>("preview_migration_plan", { sourcePath, destRealmId, scope, conflictPolicy }),
+  previewMigrationExecute: (plan: MigrationPlan) =>
+    invoke<MigrationExecutionReport>("preview_migration_execute", { plan }),
+  previewCheckUpdates: (realmId: string) =>
+    invoke<SolverVerdict>("preview_check_updates", { realmId }),
 };
 
 export function asUiError(e: unknown): UiError {
