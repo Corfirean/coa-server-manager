@@ -77,7 +77,47 @@ fn entry_in(cat: &[Entry], id: &str) -> Result<Entry> {
 }
 
 fn dir(root: &Path) -> PathBuf {
-    root.join("Core/configs/modules")
+    crate::plugins::modules_config_dir(root)
+}
+
+fn find_conf_for_id(root: &Path, id: &str) -> Option<(PathBuf, Option<PathBuf>)> {
+    let conf_dir = dir(root);
+    // 1. Check if known in catalog
+    if let Ok(e) = entry_in(&catalog(), id) {
+        let name = conf_name(root, &e);
+        let conf = conf_dir.join(&name);
+        let dist = conf_dir.join(format!("{name}.dist"));
+        return Some((conf, dist.is_file().then_some(dist)));
+    }
+    // 2. Check plugin registry
+    if let Ok(reg) = crate::plugins::load_registry(root) {
+        if let Some(entry) = reg.plugins.get(id) {
+            for conf_entry in &entry.conf_files {
+                let base_name = conf_entry.strip_suffix(".dist").unwrap_or(conf_entry);
+                let conf = conf_dir.join(base_name);
+                let dist = conf_dir.join(format!("{base_name}.dist"));
+                if conf.is_file() || dist.is_file() {
+                    return Some((conf, dist.is_file().then_some(dist)));
+                }
+            }
+        }
+    }
+    // 3. Fallback search by ID or name in conf_dir
+    let normalized = id.replace('-', "_");
+    if let Ok(entries) = fs::read_dir(&conf_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Some(fname) = p.file_name().and_then(|n| n.to_str()) {
+                if fname.starts_with(&normalized) || fname.starts_with(id) {
+                    let base_name = fname.strip_suffix(".dist").unwrap_or(fname);
+                    let conf = conf_dir.join(base_name);
+                    let dist = conf_dir.join(format!("{base_name}.dist"));
+                    return Some((conf, dist.is_file().then_some(dist)));
+                }
+            }
+        }
+    }
+    None
 }
 
 fn read(path: &Path) -> Option<ConfFile> {
@@ -177,7 +217,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     let wildcard = crate::realms::state(root)
         .map(|s| s.active != crate::realms::Mode::Coa)
         .unwrap_or(true);
-    cat.iter()
+    let mut views: Vec<ModuleView> = cat.iter()
         .cloned()
         .map(|e| {
             let name = conf_name(root, &e);
@@ -256,7 +296,71 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 hidden: e.hidden,
             }
         })
-        .collect()
+        .collect();
+
+    // Also include installed dynamic plugins from plugin_reg that aren't already in views
+    if let Some(ref reg) = plugin_reg {
+        for (plugin_id, plugin_entry) in &reg.plugins {
+            if !views.iter().any(|v| v.id == *plugin_id) {
+                let (display_name, desc_map) = if let Ok(meta) = crate::plugins::load_store_metadata(root, plugin_id, &plugin_entry.sha256) {
+                    (meta.name, meta.description)
+                } else {
+                    let name = if plugin_id.len() == 40 && plugin_id.chars().all(|c| c.is_ascii_hexdigit()) {
+                        if plugin_entry.conf_files.iter().any(|c| c.contains("npc_buffer")) {
+                            "NPC Buffer".to_string()
+                        } else if plugin_entry.conf_files.iter().any(|c| c.contains("ah_bot") || c.contains("ahbot")) {
+                            "Auction House Bot".to_string()
+                        } else if plugin_entry.conf_files.iter().any(|c| c.contains("enchanter")) {
+                            "NPC Enchanter".to_string()
+                        } else if plugin_entry.conf_files.iter().any(|c| c.contains("congrats")) {
+                            "Congrats On Level".to_string()
+                        } else if plugin_entry.conf_files.iter().any(|c| c.contains("reward_played_time")) {
+                            "Reward Played Time".to_string()
+                        } else {
+                            format!("Module ({})", &plugin_id[..8])
+                        }
+                    } else if plugin_id == "npc-buffer" {
+                        "NPC Buffer".to_string()
+                    } else if plugin_id == "ah-bot" {
+                        "Auction House Bot".to_string()
+                    } else if plugin_id == "congrats-on-level" {
+                        "Congrats On Level".to_string()
+                    } else if plugin_id == "npc-enchanter" {
+                        "NPC Enchanter".to_string()
+                    } else if plugin_id == "reward-played-time" {
+                        "Reward Played Time".to_string()
+                    } else {
+                        plugin_id.clone()
+                    };
+                    let mut desc = BTreeMap::new();
+                    desc.insert("ru".to_string(), format!("Динамический модуль {}", name));
+                    desc.insert("en".to_string(), format!("Dynamic module {}", name));
+                    (name, desc)
+                };
+
+                let has_settings = settings_in(cat, root, plugin_id).map(|s| !s.is_empty()).unwrap_or(false);
+
+                views.push(ModuleView {
+                    version: Some(plugin_entry.version.clone()),
+                    compatibility: "compatible".into(),
+                    id: plugin_id.clone(),
+                    name: display_name,
+                    description: desc_map,
+                    repo: format!("https://github.com/azerothcore/{}", plugin_id),
+                    installed: true,
+                    has_settings,
+                    enabled: plugin_entry.enabled,
+                    switchable: true,
+                    status: "release".into(),
+                    icon: "plug".into(),
+                    page: None,
+                    hidden: false,
+                });
+            }
+        }
+    }
+
+    views
 }
 
 /// The active file, created from its `.dist` when it does not exist yet.
@@ -387,49 +491,86 @@ pub fn ensure_bot_exclusivity(root: &Path) -> Result<()> {
 }
 
 fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
-    let e = entry_in(cat, id)?;
-    if !e.switchable || e.enable_key.is_empty() {
-        return Err(Error::Invalid("This part cannot be switched off.".into()));
-    }
-    if on && matches!(id, "companions" | "playerbots") {
-        let other = if id == "companions" {
-            "playerbots"
-        } else {
-            "companions"
-        };
-        if let Some(other) = cat.iter().find(|e| e.id == other) {
-            if bot_enabled(root, other)? {
-                return Err(Error::BotModulesConflict);
+    match entry_in(cat, id) {
+        Ok(e) => {
+            if !e.switchable || e.enable_key.is_empty() {
+                return Err(Error::Invalid("This part cannot be switched off.".into()));
             }
+            if on && matches!(id, "companions" | "playerbots") {
+                let other = if id == "companions" {
+                    "playerbots"
+                } else {
+                    "companions"
+                };
+                if let Some(other) = cat.iter().find(|e| e.id == other) {
+                    if bot_enabled(root, other)? {
+                        return Err(Error::BotModulesConflict);
+                    }
+                }
+            }
+            let conf = active_file(root, &e)?;
+            let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
+            if file.get(&e.enable_key).map(truthy).unwrap_or(e.default_on) == on
+                && file.get(&e.enable_key).is_some()
+            {
+                return Ok(());
+            }
+            backup(meta, &conf)?;
+            file.set(
+                &e.enable_key,
+                if on { "1" } else { "0" },
+                &["Changed by CoA Server Manager"],
+            );
+            fsx::atomic_write(&conf, file.to_text().as_bytes())?;
+
+            // If registered as a dynamic plugin, synchronize plugins.lock and plugin state
+            if let Ok(reg) = crate::plugins::load_registry(root) {
+                if reg.plugins.contains_key(id) {
+                    let _ = crate::plugins::set_enabled(root, id, on);
+                }
+            }
+            if id == "playerbots" && on {
+                let _ = crate::plugins::record_squid_migrations_applied(root);
+            }
+
+            tracing::info!(module = id, on, "module switched");
+            Ok(())
+        }
+        Err(_) => {
+            // Dynamic plugin / module fallback
+            let mut found_conf = false;
+            if let Some((conf, dist_opt)) = find_conf_for_id(root, id) {
+                if !conf.is_file() {
+                    if let Some(d) = dist_opt {
+                        let _ = fsx::atomic_write(&conf, &fs::read(d)?);
+                    }
+                }
+                if conf.is_file() {
+                    if let Ok(mut file) = ConfFile::parse_bytes(&fs::read(&conf)?) {
+                        let enable_key = file.entries().into_iter()
+                            .find(|(k, _)| k.ends_with(".Enable") || k.ends_with(".Enabled"))
+                            .map(|(k, _)| k.to_string());
+                        if let Some(k) = enable_key {
+                            let _ = backup(meta, &conf);
+                            file.set(&k, if on { "1" } else { "0" }, &["Changed by CoA Server Manager"]);
+                            let _ = fsx::atomic_write(&conf, file.to_text().as_bytes());
+                            found_conf = true;
+                        }
+                    }
+                }
+            }
+            if let Ok(reg) = crate::plugins::load_registry(root) {
+                if reg.plugins.contains_key(id) {
+                    crate::plugins::set_enabled(root, id, on)?;
+                    return Ok(());
+                }
+            }
+            if found_conf {
+                return Ok(());
+            }
+            Err(Error::Invalid("That module is not known to the Manager.".into()))
         }
     }
-    let conf = active_file(root, &e)?;
-    let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
-    if file.get(&e.enable_key).map(truthy).unwrap_or(e.default_on) == on
-        && file.get(&e.enable_key).is_some()
-    {
-        return Ok(());
-    }
-    backup(meta, &conf)?;
-    file.set(
-        &e.enable_key,
-        if on { "1" } else { "0" },
-        &["Changed by CoA Server Manager"],
-    );
-    fsx::atomic_write(&conf, file.to_text().as_bytes())?;
-
-    // If registered as a dynamic plugin, synchronize plugins.lock and plugin state
-    if let Ok(reg) = crate::plugins::load_registry(root) {
-        if reg.plugins.contains_key(id) {
-            let _ = crate::plugins::set_enabled(root, id, on);
-        }
-    }
-    if id == "playerbots" && on {
-        let _ = crate::plugins::record_squid_migrations_applied(root);
-    }
-
-    tracing::info!(module = id, on, "module switched");
-    Ok(())
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -448,10 +589,19 @@ pub fn settings(root: &Path, id: &str) -> Result<Vec<Setting>> {
 }
 
 fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
-    let e = entry_in(cat, id)?;
-    let name = conf_name(root, &e);
-    let conf = dir(root).join(&name);
-    let dist = read(&dir(root).join(format!("{name}.dist")));
+    let (conf, dist) = match entry_in(cat, id) {
+        Ok(e) => {
+            let name = conf_name(root, &e);
+            (dir(root).join(&name), read(&dir(root).join(format!("{name}.dist"))))
+        }
+        Err(_) => {
+            if let Some((c, d_opt)) = find_conf_for_id(root, id) {
+                (c, d_opt.and_then(|d| read(&d)))
+            } else {
+                return Err(Error::Invalid("This module is not part of this server.".into()));
+            }
+        }
+    };
     let active = read(&conf)
         .or_else(|| dist.clone())
         .ok_or_else(|| Error::Invalid("This module is not part of this server.".into()))?;
@@ -524,10 +674,32 @@ fn save_settings_in(
     id: &str,
     changes: &BTreeMap<String, String>,
 ) -> Result<Vec<String>> {
-    let e = entry_in(cat, id)?;
-    let conf = active_file(root, &e)?;
+    let (conf, dist, switchable, enable_key) = match entry_in(cat, id) {
+        Ok(e) => {
+            let conf = active_file(root, &e)?;
+            let dist = read(&dir(root).join(format!("{}.dist", conf_name(root, &e))));
+            (conf, dist, e.switchable, e.enable_key)
+        }
+        Err(_) => {
+            if let Some((c, d_opt)) = find_conf_for_id(root, id) {
+                if !c.is_file() {
+                    if let Some(ref d) = d_opt {
+                        fsx::atomic_write(&c, &fs::read(d)?)?;
+                    } else {
+                        return Err(Error::Invalid("This module is not part of this server.".into()));
+                    }
+                }
+                let dist = d_opt.and_then(|d| read(&d));
+                let enable_k = dist.as_ref()
+                    .and_then(|d| d.entries().into_iter().find(|(k, _)| k.ends_with(".Enable") || k.ends_with(".Enabled")).map(|(k, _)| k.to_string()))
+                    .unwrap_or_default();
+                (c, dist, true, enable_k)
+            } else {
+                return Err(Error::Invalid("This module is not part of this server.".into()));
+            }
+        }
+    };
     let mut file = ConfFile::parse_bytes(&fs::read(&conf)?)?;
-    let dist = read(&dir(root).join(format!("{}.dist", conf_name(root, &e))));
     let fields = if id == "playerbots" {
         crate::squid::fields(root)?
     } else {
@@ -539,7 +711,7 @@ fn save_settings_in(
         if let Some(field) = fields.get(key) {
             crate::squid::validate(field, value)?;
         }
-        if e.switchable && key == &e.enable_key {
+        if switchable && !enable_key.is_empty() && key == &enable_key {
             return Err(Error::Invalid(
                 "Use the module switch to turn this module on or off.".into(),
             ));
@@ -1403,5 +1575,34 @@ mod tests {
                 .value,
             "0"
         );
+    }
+
+    #[test]
+    fn dynamic_plugin_settings_and_enable_roundtrip() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        fs::write(
+            dir(&root).join("npc_buffer.conf.dist"),
+            "# Enable NPC Buffer\nNpcBuffer.Enable = 1\n# Cost of buff\nNpcBuffer.Cost = 500\n",
+        )
+        .unwrap();
+
+        let cat = catalog();
+        let s = settings_in(&cat, &root, "npc-buffer").unwrap();
+        assert_eq!(s.len(), 2);
+        let cost = s.iter().find(|item| item.key == "NpcBuffer.Cost").unwrap();
+        assert_eq!(cost.value, "500");
+        assert_eq!(cost.doc, "Cost of buff");
+
+        let change = BTreeMap::from([("NpcBuffer.Cost".to_string(), "1000".to_string())]);
+        let saved = save_settings_in(&cat, &root, &meta, "npc-buffer", &change).unwrap();
+        assert_eq!(saved, ["NpcBuffer.Cost"]);
+
+        let conf_content = fs::read_to_string(dir(&root).join("npc_buffer.conf")).unwrap();
+        assert!(conf_content.contains("NpcBuffer.Cost = 1000"));
+
+        set_enabled_in(&cat, &root, &meta, "npc-buffer", false).unwrap();
+        let conf_content = fs::read_to_string(dir(&root).join("npc_buffer.conf")).unwrap();
+        assert!(conf_content.contains("NpcBuffer.Enable = 0"));
     }
 }

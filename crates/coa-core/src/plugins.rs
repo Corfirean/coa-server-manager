@@ -132,10 +132,10 @@ pub fn lockfile_path(server: &Path) -> PathBuf {
 
 /// Directory for module configs (`Core/configs/modules` or `configs/modules`).
 pub fn modules_config_dir(server: &Path) -> PathBuf {
-    if server.join("Core/configs/modules").is_dir() || server.join("Core").is_dir() {
-        server.join("Core/configs/modules")
-    } else {
+    if server.join("configs/modules").is_dir() && !server.join("Core/configs/modules").is_dir() {
         server.join("configs/modules")
+    } else {
+        server.join("Core/configs/modules")
     }
 }
 

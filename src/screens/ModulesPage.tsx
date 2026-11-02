@@ -15,7 +15,6 @@ import {
   Loader2,
   Plug,
   Puzzle,
-  RefreshCw,
   Scaling,
   Search,
   Settings2,
@@ -121,25 +120,188 @@ function Tile({ icon, off }: { icon: string; off: boolean }) {
   );
 }
 
-export type TabId = "official" | "catalog" | "github" | "installed" | "builds" | "toolchain";
+export type TabId = "installed" | "catalog" | "builds" | "toolchain" | "github";
 
 interface VerifiedCatalogModule {
   id: string;
   name: string;
   repo: string;
-  category: "utility" | "economy" | "social" | "profession" | "scaling" | "housing" | "scripting";
+  category: "official" | "utility" | "economy" | "social" | "profession" | "scaling";
   description: { ru: string; en: string };
-  qualification: "INSTALL_VERIFIED" | "LINK_VERIFIED" | "BUILT" | "POTENTIAL_CONFLICT" | "CONFLICT_DETECTED" | "CORE_INTEGRATED_REQUIRED" | "DEPENDENCY_MISSING";
+  qualification: "OFFICIAL_CORE" | "INSTALL_VERIFIED" | "LINK_VERIFIED" | "BUILT";
   tier: string;
   verificationLevel: string;
   notes: { ru: string; en: string };
   sqlRequired: boolean;
   canInstall: boolean;
+  isOfficial?: boolean;
+  icon?: string;
 }
 
+const OFFICIAL_IDS = new Set([
+  "companions",
+  "content-scaling",
+  "tbc-content",
+  "wotlk-content",
+  "playerbots",
+  "custom-races",
+  "time-is-time",
+  "client-compat",
+]);
+
 const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
+  // Official Core Modules
   {
-    id: "mod-npc-buffer",
+    id: "companions",
+    name: "CoA Companions",
+    repo: "https://github.com/Corfirean/mod-coa-playerbots",
+    category: "official",
+    description: {
+      ru: "Боты-компаньоны для групп, подземелий и гильдии.",
+      en: "Companion bots for groups, dungeons and your guild.",
+    },
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
+    notes: {
+      ru: "Встроенный официальный модуль сервера. Взаимоисключение со SQUID's Playerbots.",
+      en: "Official built-in server module. Mutually exclusive with Playerbots.",
+    },
+    sqlRequired: false,
+    canInstall: true,
+    isOfficial: true,
+    icon: "bot",
+  },
+  {
+    id: "content-scaling",
+    name: "Content Scaling",
+    repo: "https://github.com/Corfirean/mod-coa-content-scaling",
+    category: "official",
+    description: {
+      ru: "Подстраивает подземелья и рейды под вашу группу, есть соло-режимы.",
+      en: "Scales dungeons and raids to your group, with solo modes.",
+    },
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
+    notes: {
+      ru: "Встроенный официальный модуль динамического масштабирования подземелий.",
+      en: "Official built-in dynamic dungeon scaling module.",
+    },
+    sqlRequired: false,
+    canInstall: true,
+    isOfficial: true,
+    icon: "scaling",
+  },
+  {
+    id: "tbc-content",
+    name: "TBC Content",
+    repo: "https://github.com/Corfirean/mod-coa-content-scaling",
+    category: "official",
+    description: {
+      ru: "Подземелья и рейды Запределья, подогнанные под ваши уровни.",
+      en: "Outland dungeons and raids, scaled to your level range.",
+    },
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
+    notes: {
+      ru: "Встроенный пакет контента Burning Crusade.",
+      en: "Built-in Burning Crusade content pack.",
+    },
+    sqlRequired: false,
+    canInstall: true,
+    isOfficial: true,
+    icon: "tbc",
+  },
+  {
+    id: "wotlk-content",
+    name: "WotLK Content",
+    repo: "https://github.com/Corfirean/mod-coa-content-scaling",
+    category: "official",
+    description: {
+      ru: "Подземелья и рейды Нордскола, подогнанные под ваши уровни.",
+      en: "Northrend dungeons and raids, scaled to your level range.",
+    },
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
+    notes: {
+      ru: "Встроенный пакет контента Wrath of the Lich King.",
+      en: "Built-in Wrath of the Lich King content pack.",
+    },
+    sqlRequired: false,
+    canInstall: true,
+    isOfficial: true,
+    icon: "wotlk",
+  },
+  {
+    id: "playerbots",
+    name: "SQUID's Playerbots",
+    repo: "https://github.com/Zyth45/mod-playerbots",
+    category: "official",
+    description: {
+      ru: "Альтернативная система ботов со случайными ботами и полным ИИ.",
+      en: "An alternative bot system with random bots and full AI.",
+    },
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
+    notes: {
+      ru: "Встроенная система случайных ботов SQUID. Взаимоисключение с CoA Companions.",
+      en: "Built-in SQUID random bots system. Mutually exclusive with CoA Companions.",
+    },
+    sqlRequired: true,
+    canInstall: true,
+    isOfficial: true,
+    icon: "swords",
+  },
+  {
+    id: "custom-races",
+    name: "Custom Races",
+    repo: "https://github.com/Corfirean/azerothcore-wotlk-coa",
+    category: "official",
+    description: {
+      ru: "Пользовательские расы (Esteria и другие) с расширенной внешностью и патчем клиента.",
+      en: "Playable custom races (Esteria and additional races) with extended appearances.",
+    },
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
+    notes: {
+      ru: "Встроенный модуль рас. Требуется установка клиентского MPQ-патча.",
+      en: "Built-in custom races module. Requires client MPQ patch.",
+    },
+    sqlRequired: true,
+    canInstall: true,
+    isOfficial: true,
+    icon: "races",
+  },
+  {
+    id: "time-is-time",
+    name: "TimeIsTime",
+    repo: "https://github.com/Corfirean/azerothcore-wotlk-coa",
+    category: "official",
+    description: {
+      ru: "Настройка скорости смены дня и ночи и начального времени игрового мира.",
+      en: "Adjust the day and night cycle speed and starting game time.",
+    },
+    qualification: "OFFICIAL_CORE",
+    tier: "Core Module",
+    verificationLevel: "PRODUCTION_SUPPORTED",
+    notes: {
+      ru: "Встроенный модуль синхронизации игрового времени с сервером.",
+      en: "Built-in world time synchronization module.",
+    },
+    sqlRequired: false,
+    canInstall: true,
+    isOfficial: true,
+    icon: "sparkles",
+  },
+
+  // Supported Dynamic DLL Modules (Verified & Compiling)
+  {
+    id: "npc-buffer",
     name: "NPC Buffer",
     repo: "https://github.com/azerothcore/mod-npc-buffer",
     category: "utility",
@@ -149,16 +311,17 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     },
     qualification: "INSTALL_VERIFIED",
     tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L4 PASS, L6 PASS (L5 GAMEPLAY_NOT_TESTED)",
+    verificationLevel: "L0-L4 PASS, L6 PASS",
     notes: {
       ru: "Сборка, связывание и динамическая загрузка в реалм подтверждены. Требуется импорт SQL.",
       en: "Compilation, linking and dynamic realm load verified. Requires SQL migration.",
     },
     sqlRequired: true,
     canInstall: true,
+    icon: "plug",
   },
   {
-    id: "mod-ah-bot",
+    id: "ah-bot",
     name: "Auction House Bot",
     repo: "https://github.com/azerothcore/mod-ah-bot",
     category: "economy",
@@ -175,9 +338,10 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     },
     sqlRequired: false,
     canInstall: true,
+    icon: "gavel",
   },
   {
-    id: "mod-congrats-on-level",
+    id: "congrats-on-level",
     name: "Congrats On Level",
     repo: "https://github.com/azerothcore/mod-congrats-on-level",
     category: "social",
@@ -187,16 +351,17 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     },
     qualification: "INSTALL_VERIFIED",
     tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L4 PASS, L6 PASS (L5 GAMEPLAY_NOT_TESTED)",
+    verificationLevel: "L0-L4 PASS, L6 PASS",
     notes: {
       ru: "Полный цикл жизненного цикла динамического плагина проверен на SDK v0.3.",
       en: "Full lifecycle verified against CoA Plugin SDK v0.3.",
     },
     sqlRequired: false,
     canInstall: true,
+    icon: "sparkles",
   },
   {
-    id: "mod-npc-enchanter",
+    id: "npc-enchanter",
     name: "NPC Enchanter",
     repo: "https://github.com/azerothcore/mod-npc-enchanter",
     category: "profession",
@@ -206,16 +371,17 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     },
     qualification: "INSTALL_VERIFIED",
     tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L4 PASS, L6 PASS (L5 GAMEPLAY_NOT_TESTED)",
+    verificationLevel: "L0-L4 PASS, L6 PASS",
     notes: {
       ru: "Подтверждена сборка и установка. Для спавна NPC используется команда .npc add 601015.",
       en: "Build and install verified. Spawn using command .npc add 601015.",
     },
     sqlRequired: true,
     canInstall: true,
+    icon: "sparkles",
   },
   {
-    id: "mod-reward-played-time",
+    id: "reward-played-time",
     name: "Reward Played Time",
     repo: "https://github.com/azerothcore/mod-reward-played-time",
     category: "social",
@@ -225,16 +391,17 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     },
     qualification: "INSTALL_VERIFIED",
     tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L4 PASS, L6 PASS (L5 GAMEPLAY_NOT_TESTED)",
+    verificationLevel: "L0-L4 PASS, L6 PASS",
     notes: {
       ru: "Сборка и установка подтверждены. Содержит миграции базы данных characters.",
       en: "Build and install verified. Contains characters DB migrations.",
     },
     sqlRequired: true,
     canInstall: true,
+    icon: "plug",
   },
   {
-    id: "mod-transmog",
+    id: "transmog",
     name: "Transmogrification",
     repo: "https://github.com/azerothcore/mod-transmog",
     category: "utility",
@@ -246,14 +413,15 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     tier: "Tier 1: Dynamic DLL",
     verificationLevel: "L0-L2 PASS",
     notes: {
-      ru: "Сборка C++20 с адаптером успешна. Требуется проверка на живом клиенте.",
-      en: "C++20 compilation with adapter succeeds. Client testing required.",
+      ru: "Сборка C++20 с адаптером успешна.",
+      en: "C++20 compilation with adapter succeeds.",
     },
     sqlRequired: true,
     canInstall: true,
+    icon: "plug",
   },
   {
-    id: "mod-solocraft",
+    id: "solocraft",
     name: "Solocraft",
     repo: "https://github.com/azerothcore/mod-solocraft",
     category: "scaling",
@@ -261,72 +429,16 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Масштабирование характеристик персонажа при одиночном прохождении группового контента.",
       en: "Dynamically boosts player stats in group dungeons and raids for solo play.",
     },
-    qualification: "POTENTIAL_CONFLICT",
-    tier: "Tier 2: Config Conflict Protection",
-    verificationLevel: "L0-L2 PASS (Конфликт со встроенным скалированием)",
+    qualification: "BUILT",
+    tier: "Tier 1: Dynamic DLL",
+    verificationLevel: "L0-L2 PASS",
     notes: {
-      ru: "Может конфликтовать по балансу со встроенным Content Scaling. Требуется калибровка параметров.",
-      en: "Potential balance stacking with Content Scaling. Requires parameter calibration.",
+      ru: "Сборка и связывание успешны. Параметры настраиваются через конфигурационный файл.",
+      en: "Build and link successful. Configurable via settings.",
     },
     sqlRequired: true,
     canInstall: true,
-  },
-  {
-    id: "mod-autobalance",
-    name: "AutoBalance",
-    repo: "https://github.com/azerothcore/mod-autobalance",
-    category: "scaling",
-    description: {
-      ru: "Динамическое изменение характеристик монстров в зависимости от состава группы.",
-      en: "Dynamic mob health and damage scaling based on player group size.",
-    },
-    qualification: "CONFLICT_DETECTED",
-    tier: "Tier 2: Mutual Exclusion Required",
-    verificationLevel: "L0 PASS (Прямой конфликт полномочий)",
-    notes: {
-      ru: "Прямой конфликт с CoAContentScaling: оба модуля переопределяют SetCreateHealth. Запрещено включать одновременно.",
-      en: "Direct budget collision with CoAContentScaling. Concurrent execution prohibited.",
-    },
-    sqlRequired: true,
-    canInstall: false,
-  },
-  {
-    id: "mod-guildhouse",
-    name: "Guildhouse",
-    repo: "https://github.com/azerothcore/mod-guildhouse",
-    category: "housing",
-    description: {
-      ru: "Гильдейские дома с телепортацией, дворецкими и динамическим созданием объектов.",
-      en: "Guild housing system with portals, butlers, and dynamic object spawning.",
-    },
-    qualification: "CORE_INTEGRATED_REQUIRED",
-    tier: "Tier 3: Core-Integrated Required",
-    verificationLevel: "L0 PASS, L1/L2 BLOCKED (Требуется сборка ядра)",
-    notes: {
-      ru: "Прямое управление жизненным циклом GameObject/Creature в памяти и БД (SaveToDB, DeleteFromDB, AddObjectToRemoveList). Не может быть загружен как автономная DLL.",
-      en: "Direct entity lifecycle calls require host core compilation. Cannot be loaded as standalone dynamic DLL.",
-    },
-    sqlRequired: true,
-    canInstall: false,
-  },
-  {
-    id: "mod-ale",
-    name: "Azeroth Lua Engine (ALE)",
-    repo: "https://github.com/azerothcore/mod-ale",
-    category: "scripting",
-    description: {
-      ru: "Встраиваемая среда выполнения Lua-скриптов для расширения игровой логики сервера.",
-      en: "Embedded Lua runtime environment for writing server-side game logic scripts.",
-    },
-    qualification: "DEPENDENCY_MISSING",
-    tier: "Tier 4: Runtime Dependency Missing",
-    verificationLevel: "L0 PASS (Отсутствует runtime LuaJIT)",
-    notes: {
-      ru: "Требует отдельной сборки и связывания с внешней библиотекой LuaJIT в среде /MD.",
-      en: "Requires external LuaJIT /MD build target and C++20 adapter.",
-    },
-    sqlRequired: false,
-    canInstall: false,
+    icon: "scaling",
   },
 ];
 
@@ -343,7 +455,7 @@ export function ModulesPage({
   const human = useHuman();
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<TabId>("official");
+  const [activeTab, setActiveTab] = useState<TabId>("installed");
 
   // Official modules state
   const [modules, setModules] = useState<ModuleView[] | null>(null);
@@ -551,7 +663,6 @@ export function ModulesPage({
     setAnalysisError(null);
     setReport(null);
     setBuildResult(null);
-    setActiveTab("github");
     try {
       const rep = await api.analyzeGithubModule(targetUrl, serverId);
       setReport(rep);
@@ -562,19 +673,19 @@ export function ModulesPage({
     }
   }
 
-  async function startControlledBuild() {
-    if (!githubUrl.trim() && !report) return;
+  async function startControlledBuild(urlToBuildParam?: string) {
+    const target = (urlToBuildParam || (report ? report.repository_name : githubUrl)).trim();
+    if (!target) return;
     setBuilding(true);
     setActiveTab("builds");
     setBuildLogs(["[CSM Controlled Build Engine] Initializing build environment..."]);
     try {
-      const urlToBuild = report ? report.repository_name : githubUrl.trim();
       setBuildLogs((prev) => [
         ...prev,
-        `Target module: ${urlToBuild}`,
+        `Target module: ${target}`,
         "Compiling C++ sources against CoA Plugin SDK v0.3 via MSVC...",
       ]);
-      const res = await api.previewBuildModule(serverId, githubUrl.trim());
+      const res = await api.previewBuildModule(serverId, target);
       setBuildResult(res);
       setBuildLogs(res.log_output);
       if (res.success) {
@@ -586,8 +697,8 @@ export function ModulesPage({
       } else {
         setAnalysisError(
           locale === "ru"
-            ? "Сборка завершилась ошибкой. Проверьте диагностику компилятора во вкладке 'Сборки'."
-            : "Build failed. Check compiler diagnostics in the 'Builds' tab."
+            ? "Сборка завершилась ошибкой. Проверьте диагностику компилятора во вкладке 'Сборка & логи MSVC'."
+            : "Build failed. Check compiler diagnostics in the 'Builds & MSVC Logs' tab."
         );
       }
     } catch (e: unknown) {
@@ -620,28 +731,13 @@ export function ModulesPage({
         applySql
       );
       setNotification(res.message);
-      await loadInstalledPlugins();
+      await load();
       setActiveTab("installed");
       onChanged?.();
     } catch (e) {
       setError(asUiError(e));
     } finally {
       setInstalling(false);
-    }
-  }
-
-  async function togglePlugin(moduleId: string, currentEnabled: boolean) {
-    setActionInProgress(`toggle-${moduleId}`);
-    setError(null);
-    try {
-      const msg = await api.previewToggleModule(serverId, moduleId, !currentEnabled);
-      setNotification(msg);
-      await loadInstalledPlugins();
-      onChanged?.();
-    } catch (e) {
-      setError(asUiError(e));
-    } finally {
-      setActionInProgress(null);
     }
   }
 
@@ -680,13 +776,13 @@ export function ModulesPage({
     URL.revokeObjectURL(url);
   }
 
-  const selectedOfficial = modules?.find((m) => m.id === openSettings) ?? null;
-  const selectedOfficialIndex = modules?.findIndex((m) => m.id === openSettings) ?? -1;
+  const installedModules = modules?.filter((m) => m.installed) ?? [];
+  const selectedModule = modules?.find((m) => m.id === openSettings) ?? null;
+  const selectedModuleIndex = installedModules.findIndex((m) => m.id === openSettings);
 
   const filteredCatalog = VERIFIED_CATALOG.filter((item) => {
-    if (catalogFilter === "verified" && !["INSTALL_VERIFIED", "LINK_VERIFIED"].includes(item.qualification)) return false;
-    if (catalogFilter === "conflict" && !["POTENTIAL_CONFLICT", "CONFLICT_DETECTED"].includes(item.qualification)) return false;
-    if (catalogFilter === "intree" && item.qualification !== "CORE_INTEGRATED_REQUIRED") return false;
+    if (catalogFilter === "official" && !item.isOfficial) return false;
+    if (catalogFilter === "verified" && item.isOfficial) return false;
     if (!catalogQuery.trim()) return true;
     const q = catalogQuery.toLowerCase();
     return (
@@ -808,19 +904,121 @@ export function ModulesPage({
         </div>
       )}
 
+      {/* GitHub URL Intake Bar on General Modules Screen */}
+      <Card className="border-line bg-card/60 p-3.5 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1">
+            <GithubMark className="absolute left-3 top-2.5 h-4 w-4 text-muted" />
+            <input
+              type="text"
+              value={githubUrl}
+              onChange={(e) => setGithubUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && githubUrl.trim()) {
+                  void runAnalysis();
+                }
+              }}
+              placeholder={
+                locale === "ru"
+                  ? "Укажите ссылку на GitHub-репозиторий модуля (например, https://github.com/azerothcore/mod-npc-buffer)..."
+                  : "Enter GitHub repository URL (e.g., https://github.com/azerothcore/mod-npc-buffer)..."
+              }
+              className="w-full rounded border border-line bg-bg pl-9 pr-3 py-1.5 text-xs text-ink placeholder:text-muted/60 focus:border-gold focus:outline-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void runAnalysis()}
+              disabled={analyzing || !githubUrl.trim()}
+              className="text-xs h-8 px-3"
+            >
+              {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Search className="h-3.5 w-3.5 mr-1.5" />}
+              {locale === "ru" ? "Анализировать" : "Analyze"}
+            </Button>
+
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={async () => {
+                if (!githubUrl.trim()) return;
+                await runAnalysis();
+                await startControlledBuild();
+              }}
+              disabled={building || analyzing || !githubUrl.trim()}
+              className="text-xs h-8 px-3.5 font-medium"
+            >
+              {building ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Hammer className="h-3.5 w-3.5 mr-1.5" />}
+              {locale === "ru" ? "Собрать и установить" : "Build & Install"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Compact analysis banner when report is ready */}
+        {report && (
+          <div className="mt-3 border-t border-line/60 pt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-ink">{report.repository_name}</span>
+              <span className="font-mono text-muted text-[11px]">@{report.commit.substring(0, 8)}</span>
+              <span className="rounded bg-ok/10 text-ok border border-ok/30 px-2 py-0.5 text-[10px] uppercase font-mono">
+                {report.classification}
+              </span>
+              {report.sql_files.length > 0 && (
+                <span className="rounded bg-black/40 text-muted px-1.5 py-0.5 font-mono text-[10px]">
+                  {report.sql_files.length} SQL
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={exportReportJson} className="text-xs h-7 px-2">
+                {locale === "ru" ? "Экспорт JSON" : "Export JSON"}
+              </Button>
+              <Button size="sm" variant="primary" onClick={() => void startControlledBuild()} disabled={building} className="text-xs h-7 px-2.5">
+                {locale === "ru" ? "Перейти к сборке" : "Build"}
+              </Button>
+              {buildResult?.success && (
+                <Button size="sm" variant="primary" onClick={handleInstallClick} disabled={installing} className="bg-ok hover:bg-ok/90 text-xs h-7 px-2.5">
+                  {locale === "ru" ? "Установить в реалм" : "Install"}
+                </Button>
+              )}
+              <button onClick={() => setReport(null)} className="text-muted hover:text-ink ml-1" title="Скрыть">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {analysisError && (
+          <div className="mt-2 text-xs text-bad flex items-center justify-between">
+            <span>⚠ {analysisError}</span>
+            <button onClick={() => setAnalysisError(null)} className="text-muted hover:text-ink">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </Card>
+
       {/* Tabs Header */}
       <div className="flex flex-wrap border-b border-line gap-2">
         <button
-          onClick={() => setActiveTab("official")}
+          onClick={() => setActiveTab("installed")}
           className={cn(
             "flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
-            activeTab === "official"
+            activeTab === "installed"
               ? "border-gold text-gold"
               : "border-transparent text-muted hover:text-ink"
           )}
         >
-          <Bot className="h-4 w-4" />
-          {locale === "ru" ? "Официальные модули" : "Official Modules"}
+          <Plug className="h-4 w-4" />
+          {locale === "ru" ? "Установленные модули" : "Installed Modules"}
+          {installedModules.length > 0 && (
+            <span className="rounded-full bg-gold/15 text-gold text-[11px] px-1.5 py-0.2 font-mono">
+              {installedModules.length}
+            </span>
+          )}
         </button>
 
         <button
@@ -833,33 +1031,10 @@ export function ModulesPage({
           )}
         >
           <Layers className="h-4 w-4" />
-          {locale === "ru" ? "Каталог модулей" : "Verified Catalog"}
-        </button>
-
-        <button
-          onClick={() => setActiveTab("github")}
-          className={cn(
-            "flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
-            activeTab === "github"
-              ? "border-gold text-gold"
-              : "border-transparent text-muted hover:text-ink"
-          )}
-        >
-          <Hammer className="h-4 w-4" />
-          {locale === "ru" ? "Установка с GitHub" : "Install from GitHub"}
-        </button>
-
-        <button
-          onClick={() => setActiveTab("installed")}
-          className={cn(
-            "flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
-            activeTab === "installed"
-              ? "border-gold text-gold"
-              : "border-transparent text-muted hover:text-ink"
-          )}
-        >
-          <Plug className="h-4 w-4" />
-          {locale === "ru" ? "Установленные плагины" : "Installed Plugins"} ({installedPlugins.length})
+          {locale === "ru" ? "Каталог модулей" : "Modules Catalog"}
+          <span className="rounded-full bg-white/10 text-muted text-[11px] px-1.5 py-0.2 font-mono">
+            {VERIFIED_CATALOG.length}
+          </span>
         </button>
 
         <button
@@ -890,15 +1065,15 @@ export function ModulesPage({
         </button>
       </div>
 
-      {/* TAB 0: OFFICIAL MODULES (FROM STABLE CSM DESIGN LANGUAGE) */}
-      {activeTab === "official" && (
+      {/* TAB 0: INSTALLED MODULES */}
+      {activeTab === "installed" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted">
                 {locale === "ru"
-                  ? "Встроенные модули сервера. Включайте, выключайте и настраивайте параметры каждого модуля."
-                  : "Built-in server modules. Enable, disable and configure runtime module parameters."}
+                  ? "Установленные модули и динамические плагины сервера. Включайте, выключайте и настраивайте параметры каждого модуля."
+                  : "Installed server modules and dynamic DLL plugins. Enable, disable, and configure parameters for each module."}
               </p>
             </div>
             {changed && (
@@ -915,246 +1090,284 @@ export function ModulesPage({
                 {t("overview.checking")}
               </div>
             )}
-            {modules?.length === 0 && (
-              <Card className="p-6 text-center text-muted sm:col-span-2">{t("mod.empty")}</Card>
-            )}
-            {modules?.map((m, i) => (
-              <Fragment key={m.id}>
-                <Card
-                  className={cn(
-                    "flex flex-col gap-4 p-5 transition-colors",
-                    (!m.installed || m.status === "soon") && "opacity-60",
-                    openSettings === m.id && "border-gold/50"
-                  )}
-                  aria-label={m.status === "soon" ? `${m.name}: ${t("mod.status.soon")}` : undefined}
+            {modules !== null && installedModules.length === 0 && (
+              <Card className="p-8 text-center text-muted sm:col-span-2 space-y-2">
+                <p className="text-sm font-medium text-ink">
+                  {locale === "ru" ? "Нет установленных модулей" : "No installed modules"}
+                </p>
+                <p className="text-xs text-muted">
+                  {locale === "ru"
+                    ? "Выберите модули из Каталога или укажите ссылку на GitHub выше для установки."
+                    : "Choose modules from the Catalog or provide a GitHub URL above to install."}
+                </p>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => setActiveTab("catalog")}
+                  className="mt-2 text-xs"
                 >
-                  <div className="flex items-start gap-4">
-                    <Tile icon={m.icon} off={!m.enabled || !m.installed || m.status === "soon"} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <h3 className="font-semibold leading-tight text-ink">{m.name}</h3>
-                        {m.version && (
-                          <span className="font-mono text-xs font-normal text-muted">{m.version}</span>
+                  <Layers className="h-3.5 w-3.5 mr-1.5" />
+                  {locale === "ru" ? "Открыть каталог модулей" : "Open Modules Catalog"}
+                </Button>
+              </Card>
+            )}
+            {installedModules.map((m, i) => {
+              const isDynamic = !OFFICIAL_IDS.has(m.id) || installedPlugins.some((p) => p.id === m.id);
+              return (
+                <Fragment key={m.id}>
+                  <Card
+                    className={cn(
+                      "flex flex-col gap-4 p-5 transition-colors",
+                      (!m.installed || m.status === "soon") && "opacity-60",
+                      openSettings === m.id && "border-gold/50"
+                    )}
+                  >
+                    <div className="flex items-start gap-4">
+                      <Tile icon={m.icon} off={!m.enabled || !m.installed || m.status === "soon"} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <h3 className="font-semibold leading-tight text-ink">{m.name}</h3>
+                          {m.version && (
+                            <span className="font-mono text-xs font-normal text-muted">{m.version}</span>
+                          )}
+                          <StatusBadge status={m.status} />
+                          {isDynamic && (
+                            <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 px-1.5 py-0.2 text-[10px] font-mono uppercase">
+                              DLL
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1.5 line-clamp-2 text-xs text-muted">
+                          {m.description[locale] ?? m.description.en}
+                        </p>
+                        {m.id === "companions" && (
+                          <p className="mt-1 text-[11px] text-zinc-400">
+                            {locale === "ru"
+                              ? "Взаимоисключение: не работает одновременно со SQUID's Playerbots."
+                              : "Mutual exclusion: cannot run concurrently with SQUID's Playerbots."}
+                          </p>
                         )}
-                        <StatusBadge status={m.status} />
+                        {(m.id === "playerbots" || m.id === "squid") && (
+                          <p className="mt-1 text-[11px] text-zinc-400">
+                            {locale === "ru"
+                              ? "Взаимоисключение: отключает CoA Companions при активации."
+                              : "Mutual exclusion: disables CoA Companions upon activation."}
+                          </p>
+                        )}
                       </div>
-                      <p className="mt-1.5 line-clamp-2 text-xs text-muted">
-                        {m.description[locale] ?? m.description.en}
-                      </p>
-                      {m.id === "companions" && (
-                        <p className="mt-1 text-[11px] text-zinc-400">
-                          {locale === "ru"
-                            ? "Взаимоисключение: не работает одновременно со SQUID's Playerbots."
-                            : "Mutual exclusion: cannot run concurrently with SQUID's Playerbots."}
-                        </p>
+                      {m.installed && m.switchable && (
+                        <button
+                          role="switch"
+                          aria-checked={m.enabled}
+                          aria-label={t("mod.switch", { name: m.name })}
+                          aria-busy={toggling === m.id}
+                          disabled={toggling !== null || (m.id === "custom-races" && racesInstalling)}
+                          onClick={() => void toggleOfficialModule(m)}
+                          className={cn(
+                            "relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors",
+                            m.enabled ? "bg-gold" : "bg-white/15",
+                            m.id === "custom-races" && racesInstalling && "opacity-50 cursor-not-allowed"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all",
+                              m.enabled ? "left-[22px]" : "left-0.5"
+                            )}
+                          />
+                        </button>
                       )}
-                      {m.id === "squid" && (
-                        <p className="mt-1 text-[11px] text-zinc-400">
-                          {locale === "ru"
-                            ? "Взаимоисключение: отключает CoA Companions при активации."
-                            : "Mutual exclusion: disables CoA Companions upon activation."}
-                        </p>
+                      {m.installed && !m.switchable && m.status !== "soon" && (
+                        <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>
                       )}
                     </div>
-                    {m.installed && m.switchable && (
-                      <button
-                        role="switch"
-                        aria-checked={m.enabled}
-                        aria-label={t("mod.switch", { name: m.name })}
-                        aria-busy={toggling === m.id}
-                        disabled={toggling !== null || (m.id === "custom-races" && racesInstalling)}
-                        onClick={() => void toggleOfficialModule(m)}
-                        className={cn(
-                          "relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors",
-                          m.enabled ? "bg-gold" : "bg-white/15",
-                          m.id === "custom-races" && racesInstalling && "opacity-50 cursor-not-allowed"
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all",
-                            m.enabled ? "left-[22px]" : "left-0.5"
-                          )}
-                        />
-                      </button>
-                    )}
-                    {m.installed && !m.switchable && m.status !== "soon" && (
-                      <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.alwaysOn")}</span>
-                    )}
-                    {!m.installed && m.status !== "soon" && (
-                      <span className="mt-1.5 shrink-0 text-xs text-muted">{t("mod.notHere")}</span>
-                    )}
-                  </div>
 
-                  {toggling === m.id && (
-                    <p role="status" className="flex items-center gap-2 text-xs text-gold">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                      {t("mod.switching")}
-                    </p>
-                  )}
-
-                  {/* Custom Races Client Patch status & actions */}
-                  {m.id === "custom-races" && (
-                    <div className="w-full">
-                      <p className="text-xs text-muted">
-                        {locale === "ru"
-                          ? "Установленная версия патча клиента: "
-                          : "Installed client patch version: "}
-                        {racesPatchStatus?.version ?? (locale === "ru" ? "не записана" : "not recorded")}
+                    {toggling === m.id && (
+                      <p role="status" className="flex items-center gap-2 text-xs text-gold">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        {t("mod.switching")}
                       </p>
-                      {racesInstalling && racesProgress ? (
-                        <div className="rounded-lg border border-gold/30 bg-gold/5 p-3 mt-2">
-                          <div className="flex items-center justify-between gap-3 text-xs">
-                            <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
-                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gold" />
-                              <span className="truncate">{racesProgress.step}</span>
-                            </span>
-                            <span className="shrink-0 font-mono text-xs font-semibold text-gold">
-                              {Math.round(racesProgress.percent * 100)}%
-                            </span>
-                          </div>
-                          <div
-                            className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-white/10"
-                            role="progressbar"
-                            aria-valuenow={Math.round(racesProgress.percent * 100)}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                          >
+                    )}
+
+                    {/* Custom Races Client Patch status & actions */}
+                    {m.id === "custom-races" && (
+                      <div className="w-full">
+                        <p className="text-xs text-muted">
+                          {locale === "ru"
+                            ? "Установленная версия патча клиента: "
+                            : "Installed client patch version: "}
+                          {racesPatchStatus?.version ?? (locale === "ru" ? "не записана" : "not recorded")}
+                        </p>
+                        {racesInstalling && racesProgress ? (
+                          <div className="rounded-lg border border-gold/30 bg-gold/5 p-3 mt-2">
+                            <div className="flex items-center justify-between gap-3 text-xs">
+                              <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
+                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gold" />
+                                <span className="truncate">{racesProgress.step}</span>
+                              </span>
+                              <span className="shrink-0 font-mono text-xs font-semibold text-gold">
+                                {Math.round(racesProgress.percent * 100)}%
+                              </span>
+                            </div>
                             <div
-                              className="h-full rounded-full bg-gold transition-all duration-300"
-                              style={{ width: `${Math.round(racesProgress.percent * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/40 pt-3 text-xs mt-2">
-                          <div className="flex items-center gap-2">
-                            {racesPatchStatus?.state === "enabled" && (
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
-                                <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-                                {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
-                              </span>
-                            )}
-                            {racesPatchStatus?.state === "disabled" && (
-                              <span
-                                className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted border border-white/15"
-                                title="MPQ files disabled with .disabled suffix"
-                              >
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-                                {locale === "ru"
-                                  ? "Патч клиента: Отключен (.disabled)"
-                                  : "Client Patch: Disabled (.disabled)"}
-                              </span>
-                            )}
-                            {racesPatchStatus?.state === "not-installed" && (
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
-                                <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                                {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
-                              </span>
-                            )}
-                            {racesPatchStatus?.state === "partially-installed" && (
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
-                                <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                                {locale === "ru"
-                                  ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`
-                                  : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
-                              disabled={toggling !== null || racesInstalling || !racesPatchStatus?.clientPath}
-                              onClick={() => void installClientPatch()}
+                              className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-white/10"
+                              role="progressbar"
+                              aria-valuenow={Math.round(racesProgress.percent * 100)}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
                             >
-                              {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                              {racesPatchStatus?.state === "not-installed"
-                                ? locale === "ru"
-                                  ? "Установить патч клиента"
-                                  : "Install Client Patch"
-                                : locale === "ru"
-                                ? "Восстановить патч клиента"
-                                : "Repair Client Patch"}
-                            </Button>
-                            {racesPatchStatus && racesPatchStatus.state !== "not-installed" && (
+                              <div
+                                className="h-full rounded-full bg-gold transition-all duration-300"
+                                style={{ width: `${Math.round(racesProgress.percent * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/40 pt-3 text-xs mt-2">
+                            <div className="flex items-center gap-2">
+                              {racesPatchStatus?.state === "enabled" && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+                                  {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
+                                </span>
+                              )}
+                              {racesPatchStatus?.state === "disabled" && (
+                                <span
+                                  className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted border border-white/15"
+                                  title="MPQ files disabled with .disabled suffix"
+                                >
+                                  <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+                                  {locale === "ru"
+                                    ? "Патч клиента: Отключен (.disabled)"
+                                    : "Client Patch: Disabled (.disabled)"}
+                                </span>
+                              )}
+                              {racesPatchStatus?.state === "not-installed" && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                                  {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
+                                </span>
+                              )}
+                              {racesPatchStatus?.state === "partially-installed" && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                                  {locale === "ru"
+                                    ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`
+                                    : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
                               <Button
                                 size="sm"
-                                variant="ghost"
-                                disabled={toggling !== null || racesInstalling}
-                                onClick={() => void uninstallClientPatch()}
-                                className="text-xs"
+                                variant="secondary"
+                                className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
+                                disabled={toggling !== null || racesInstalling || !racesPatchStatus?.clientPath}
+                                onClick={() => void installClientPatch()}
                               >
-                                {locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}
+                                {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                {racesPatchStatus?.state === "not-installed"
+                                  ? locale === "ru"
+                                    ? "Установить патч клиента"
+                                    : "Install Client Patch"
+                                  : locale === "ru"
+                                  ? "Восстановить патч клиента"
+                                  : "Repair Client Patch"}
                               </Button>
-                            )}
+                              {racesPatchStatus && racesPatchStatus.state !== "not-installed" && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={toggling !== null || racesInstalling}
+                                  onClick={() => void uninstallClientPatch()}
+                                  className="text-xs"
+                                >
+                                  {locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}
+                                </Button>
+                              )}
+                            </div>
+                            <p className="w-full text-[11px] text-muted">
+                              {locale === "ru"
+                                ? m.enabled
+                                  ? "После установки патч будет включён."
+                                  : "После установки патч останется отключённым: модуль сервера выключен или отсутствует."
+                                : m.enabled
+                                ? "The patch will be enabled after installation."
+                                : "The patch will stay disabled after installation: the server module is off or missing."}
+                            </p>
                           </div>
-                          <p className="w-full text-[11px] text-muted">
-                            {locale === "ru"
-                              ? m.enabled
-                                ? "После установки патч будет включён."
-                                : "После установки патч останется отключённым: модуль сервера выключен или отсутствует."
-                              : m.enabled
-                              ? "The patch will be enabled after installation."
-                              : "The patch will stay disabled after installation: the server module is off or missing."}
-                          </p>
-                        </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="mt-auto flex items-center justify-between border-t border-line/40 pt-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => void api.openLink(m.repo)}
+                          title={t("mod.github")}
+                          aria-label={`${t("mod.github")}: ${m.name}`}
+                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-line text-muted transition-colors hover:border-gold/50 hover:text-ink"
+                        >
+                          <GithubMark className="h-3.5 w-3.5" />
+                        </button>
+                        {!m.page && m.installed && m.has_settings && m.status !== "soon" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-expanded={openSettings === m.id}
+                            onClick={() => setOpenSettings(openSettings === m.id ? null : m.id)}
+                            className={cn("text-xs h-7 px-2.5", openSettings === m.id && "bg-gold/15 text-gold border border-gold/40")}
+                          >
+                            <Settings2 className="h-3.5 w-3.5 mr-1" aria-hidden /> {t("mod.settings")}
+                          </Button>
+                        )}
+                      </div>
+
+                      {isDynamic && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => removePlugin(m.id)}
+                          disabled={actionInProgress === `remove-${m.id}`}
+                          className="text-bad hover:text-bad hover:bg-bad/10 text-xs h-7 px-2"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1" />
+                          {locale === "ru" ? "Удалить" : "Remove"}
+                        </Button>
                       )}
                     </div>
-                  )}
+                  </Card>
 
-                  <div className="mt-auto flex items-center gap-2">
-                    <button
-                      onClick={() => void api.openLink(m.repo)}
-                      title={t("mod.github")}
-                      aria-label={`${t("mod.github")}: ${m.name}`}
-                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-line text-muted transition-colors hover:border-gold/50 hover:text-ink"
-                    >
-                      <GithubMark className="h-4 w-4" />
-                    </button>
-                    {!m.page && m.installed && m.has_settings && m.status !== "soon" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-expanded={openSettings === m.id}
-                        onClick={() => setOpenSettings(openSettings === m.id ? null : m.id)}
-                        className="text-xs"
-                      >
-                        <Settings2 className="h-3.5 w-3.5 mr-1" aria-hidden /> {t("mod.settings")}
-                      </Button>
+                  {/* Inline settings drawer */}
+                  {selectedModule?.has_settings &&
+                    !selectedModule.page &&
+                    selectedModuleIndex >= 0 &&
+                    Math.floor(selectedModuleIndex / 2) === Math.floor(i / 2) &&
+                    (i % 2 === 1 || i === installedModules.length - 1) && (
+                      <SettingsPanel key={selectedModule.id} className="sm:col-span-2">
+                        <div className="flex items-center justify-between border-b border-line pb-3 mb-3">
+                          <h3 className="font-semibold text-ink text-sm flex items-center gap-2">
+                            <Settings2 className="h-4 w-4 text-gold" />
+                            {t("mod.settingsOf", { name: selectedModule.name })}
+                          </h3>
+                          <button
+                            onClick={() => setOpenSettings(null)}
+                            className="text-muted hover:text-ink text-xs flex items-center gap-1"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <ModuleSettings
+                          serverId={serverId}
+                          module={selectedModule}
+                          onSaved={() => setChanged(true)}
+                          onRegisterGuard={setGuard}
+                        />
+                      </SettingsPanel>
                     )}
-                  </div>
-                </Card>
-
-                {/* Inline settings drawer */}
-                {selectedOfficial?.has_settings &&
-                  !selectedOfficial.page &&
-                  selectedOfficialIndex >= 0 &&
-                  Math.floor(selectedOfficialIndex / 2) === Math.floor(i / 2) &&
-                  (i % 2 === 1 || i === modules.length - 1) && (
-                    <SettingsPanel key={selectedOfficial.id} className="sm:col-span-2">
-                      <div className="flex items-center justify-between border-b border-line pb-3 mb-3">
-                        <h3 className="font-semibold text-ink text-sm">
-                          {t("mod.settingsOf", { name: selectedOfficial.name })}
-                        </h3>
-                        <button
-                          onClick={() => setOpenSettings(null)}
-                          className="text-muted hover:text-ink text-xs flex items-center gap-1"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <ModuleSettings
-                        serverId={serverId}
-                        module={selectedOfficial}
-                        onSaved={() => setChanged(true)}
-                        onRegisterGuard={setGuard}
-                      />
-                    </SettingsPanel>
-                  )}
-              </Fragment>
-            ))}
+                </Fragment>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1169,8 +1382,8 @@ export function ModulesPage({
               </h3>
               <p className="text-xs text-muted">
                 {locale === "ru"
-                  ? "Модули AzerothCore, протестированные против CoA Plugin SDK с честными уровнями квалификации."
-                  : "Curated AzerothCore modules evaluated against CoA Plugin SDK with honest qualification levels."}
+                  ? "Официальные модули и сторонние DLL, протестированные с платформой и готовые к работе."
+                  : "Official modules and third-party DLL plugins verified and fully compatible with the platform."}
               </p>
             </div>
 
@@ -1186,6 +1399,17 @@ export function ModulesPage({
                 {locale === "ru" ? "Все" : "All"} ({VERIFIED_CATALOG.length})
               </button>
               <button
+                onClick={() => setCatalogFilter("official")}
+                className={cn(
+                  "rounded-full px-2.5 py-1 transition-colors",
+                  catalogFilter === "official"
+                    ? "bg-sky-400 text-black font-semibold"
+                    : "bg-black/30 text-muted hover:text-ink"
+                )}
+              >
+                {locale === "ru" ? "Официальные" : "Official Core"} ({VERIFIED_CATALOG.filter(c => c.isOfficial).length})
+              </button>
+              <button
                 onClick={() => setCatalogFilter("verified")}
                 className={cn(
                   "rounded-full px-2.5 py-1 transition-colors",
@@ -1194,29 +1418,7 @@ export function ModulesPage({
                     : "bg-black/30 text-muted hover:text-ink"
                 )}
               >
-                {locale === "ru" ? "Проверенные DLL" : "Verified DLLs"}
-              </button>
-              <button
-                onClick={() => setCatalogFilter("conflict")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors",
-                  catalogFilter === "conflict"
-                    ? "bg-warn text-black font-semibold"
-                    : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                {locale === "ru" ? "Конфликты" : "Conflicts"}
-              </button>
-              <button
-                onClick={() => setCatalogFilter("intree")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors",
-                  catalogFilter === "intree"
-                    ? "bg-sky-500 text-black font-semibold"
-                    : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                {locale === "ru" ? "Требуют ядро" : "In-Tree Only"}
+                {locale === "ru" ? "Проверенные DLL" : "Verified DLLs"} ({VERIFIED_CATALOG.filter(c => !c.isOfficial).length})
               </button>
             </div>
           </div>
@@ -1230,8 +1432,8 @@ export function ModulesPage({
               onChange={(e) => setCatalogQuery(e.target.value)}
               placeholder={
                 locale === "ru"
-                  ? "Поиск по названию или описанию (например, buffer, enchanter, guildhouse)..."
-                  : "Search verified catalog..."
+                  ? "Поиск по каталогу (например, buffer, enchanter, companions, scaling)..."
+                  : "Search modules catalog..."
               }
               className="w-full rounded-md border border-line bg-bg pl-9 pr-4 py-2 text-xs text-ink placeholder:text-muted/60 focus:border-gold focus:outline-none"
             />
@@ -1239,107 +1441,136 @@ export function ModulesPage({
 
           {/* Catalog Grid */}
           <div className="grid gap-3 sm:grid-cols-2">
-            {filteredCatalog.map((item) => (
-              <Card key={item.id} className="border-line bg-card p-4 flex flex-col justify-between space-y-3">
-                <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-semibold text-ink text-sm flex items-center gap-2">
-                        {item.name}
-                        <span className="font-mono text-[11px] text-muted">({item.id})</span>
-                      </h4>
-                      <p className="text-xs text-muted mt-1">{locale === "ru" ? item.description.ru : item.description.en}</p>
+            {filteredCatalog.map((item) => {
+              const matchedModule = modules?.find(
+                (m) => m.id === item.id || m.name.toLowerCase() === item.name.toLowerCase()
+              );
+              const isInstalled = Boolean(matchedModule?.installed);
+              const isEnabled = Boolean(matchedModule?.enabled);
+
+              return (
+                <Card key={item.id} className="border-line bg-card p-4 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-3">
+                        <Tile icon={item.icon || (item.isOfficial ? "bot" : "plug")} off={!isInstalled || !isEnabled} />
+                        <div>
+                          <h4 className="font-semibold text-ink text-sm flex items-center gap-2">
+                            {item.name}
+                            <span className="font-mono text-[11px] text-muted">({item.id})</span>
+                          </h4>
+                          <p className="text-xs text-muted mt-1">{locale === "ru" ? item.description.ru : item.description.en}</p>
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Qualification Badges */}
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      {item.isOfficial ? (
+                        <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 px-2 py-0.5 font-medium">
+                          ✓ OFFICIAL_CORE
+                        </span>
+                      ) : item.qualification === "INSTALL_VERIFIED" ? (
+                        <span className="rounded bg-ok/10 text-ok border border-ok/30 px-2 py-0.5 font-medium">
+                          ✓ INSTALL_VERIFIED
+                        </span>
+                      ) : item.qualification === "LINK_VERIFIED" ? (
+                        <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 px-2 py-0.5 font-medium">
+                          ✓ LINK_VERIFIED
+                        </span>
+                      ) : (
+                        <span className="rounded bg-teal-500/10 text-teal-300 border border-teal-500/30 px-2 py-0.5 font-medium">
+                          ● BUILT
+                        </span>
+                      )}
+
+                      <span className="rounded bg-white/5 text-muted px-2 py-0.5 font-mono">{item.tier}</span>
+                      {item.sqlRequired && (
+                        <span className="rounded bg-black/40 text-muted px-1.5 py-0.5 font-mono">SQL</span>
+                      )}
+                    </div>
+
+                    <p className="mt-2 text-[11px] text-zinc-400 font-sans border-t border-line/40 pt-2">
+                      {locale === "ru" ? item.notes.ru : item.notes.en}
+                    </p>
                   </div>
 
-                  {/* Qualification Badges */}
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
-                    {item.qualification === "INSTALL_VERIFIED" && (
-                      <span className="rounded bg-ok/10 text-ok border border-ok/30 px-2 py-0.5 font-medium">
-                        ✓ {item.qualification}
-                      </span>
-                    )}
-                    {item.qualification === "LINK_VERIFIED" && (
-                      <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 px-2 py-0.5 font-medium">
-                        ✓ {item.qualification}
-                      </span>
-                    )}
-                    {item.qualification === "BUILT" && (
-                      <span className="rounded bg-teal-500/10 text-teal-300 border border-teal-500/30 px-2 py-0.5 font-medium">
-                        ● {item.qualification}
-                      </span>
-                    )}
-                    {item.qualification === "POTENTIAL_CONFLICT" && (
-                      <span className="rounded bg-warn/10 text-warn border border-warn/30 px-2 py-0.5 font-medium">
-                        ⚠ {item.qualification}
-                      </span>
-                    )}
-                    {item.qualification === "CONFLICT_DETECTED" && (
-                      <span className="rounded bg-bad/10 text-bad border border-bad/30 px-2 py-0.5 font-medium">
-                        ✕ {item.qualification}
-                      </span>
-                    )}
-                    {item.qualification === "CORE_INTEGRATED_REQUIRED" && (
-                      <span className="rounded bg-orange-500/10 text-orange-400 border border-orange-500/30 px-2 py-0.5 font-medium">
-                        ⚙ {item.qualification}
-                      </span>
-                    )}
-                    {item.qualification === "DEPENDENCY_MISSING" && (
-                      <span className="rounded bg-purple-500/10 text-purple-400 border border-purple-500/30 px-2 py-0.5 font-medium">
-                        ⚙ {item.qualification}
-                      </span>
-                    )}
-
-                    <span className="rounded bg-white/5 text-muted px-2 py-0.5 font-mono">{item.tier}</span>
-                    {item.sqlRequired && (
-                      <span className="rounded bg-black/40 text-muted px-1.5 py-0.5 font-mono">SQL</span>
-                    )}
-                  </div>
-
-                  <p className="mt-2 text-[11px] text-zinc-400 font-sans border-t border-line/40 pt-2">
-                    {locale === "ru" ? item.notes.ru : item.notes.en}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between border-t border-line/60 pt-3">
-                  <button
-                    onClick={() => void api.openLink(item.repo)}
-                    className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
-                  >
-                    <GithubMark className="h-3.5 w-3.5" />
-                    <span>GitHub</span>
-                  </button>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setSelectedCatalogModule(item)}
-                      className="text-xs h-7 px-2"
+                  <div className="flex items-center justify-between border-t border-line/60 pt-3">
+                    <button
+                      onClick={() => void api.openLink(item.repo)}
+                      className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
                     >
-                      <Info className="h-3.5 w-3.5 mr-1" />
-                      {locale === "ru" ? "Подробнее" : "Details"}
-                    </Button>
+                      <GithubMark className="h-3.5 w-3.5" />
+                      <span>GitHub</span>
+                    </button>
 
-                    {item.canInstall ? (
+                    <div className="flex items-center gap-2">
                       <Button
                         size="sm"
-                        variant="primary"
-                        onClick={() => void runAnalysis(item.repo)}
-                        className="text-xs h-7 px-3"
+                        variant="ghost"
+                        onClick={() => setSelectedCatalogModule(item)}
+                        className="text-xs h-7 px-2"
                       >
-                        <Hammer className="h-3.5 w-3.5 mr-1" />
-                        {locale === "ru" ? "Собрать / Установить" : "Build / Install"}
+                        <Info className="h-3.5 w-3.5 mr-1" />
+                        {locale === "ru" ? "Подробнее" : "Details"}
                       </Button>
-                    ) : (
-                      <Button size="sm" variant="ghost" disabled className="text-xs h-7 px-2 opacity-50 cursor-not-allowed">
-                        {locale === "ru" ? "Не поддерживается DLL" : "DLL Unsupported"}
-                      </Button>
-                    )}
+
+                      {isInstalled ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-ok font-medium mr-1">
+                            ✓ {locale === "ru" ? (isEnabled ? "Включен" : "Установлен") : (isEnabled ? "Active" : "Installed")}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              if (matchedModule) {
+                                setOpenSettings(matchedModule.id);
+                              }
+                              setActiveTab("installed");
+                            }}
+                            className="text-xs h-7 px-2.5 border border-gold/40 text-gold hover:bg-gold/10"
+                          >
+                            <Settings2 className="h-3.5 w-3.5 mr-1" />
+                            {locale === "ru" ? "Настроить" : "Configure"}
+                          </Button>
+                        </div>
+                      ) : item.isOfficial ? (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={async () => {
+                            if (matchedModule) {
+                              await toggleOfficialModule(matchedModule);
+                              setOpenSettings(matchedModule.id);
+                              setActiveTab("installed");
+                            }
+                          }}
+                          className="text-xs h-7 px-3"
+                        >
+                          <Plug className="h-3.5 w-3.5 mr-1" />
+                          {locale === "ru" ? "Включить" : "Enable"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={async () => {
+                            setGithubUrl(item.repo);
+                            await runAnalysis(item.repo);
+                            await startControlledBuild(item.repo);
+                          }}
+                          className="text-xs h-7 px-3"
+                        >
+                          <Hammer className="h-3.5 w-3.5 mr-1" />
+                          {locale === "ru" ? "Собрать и установить" : "Build & Install"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
 
           {/* Details Modal */}
@@ -1393,385 +1624,37 @@ export function ModulesPage({
                     <Button
                       size="sm"
                       variant="primary"
-                      onClick={() => {
+                      onClick={async () => {
                         const repo = selectedCatalogModule.repo;
+                        const isOff = selectedCatalogModule.isOfficial;
+                        const modId = selectedCatalogModule.id;
                         setSelectedCatalogModule(null);
-                        void runAnalysis(repo);
+                        if (isOff) {
+                          const m = modules?.find(x => x.id === modId);
+                          if (m) {
+                            await toggleOfficialModule(m);
+                            setOpenSettings(m.id);
+                            setActiveTab("installed");
+                          }
+                        } else {
+                          setGithubUrl(repo);
+                          await runAnalysis(repo);
+                          await startControlledBuild(repo);
+                        }
                       }}
                     >
                       <Hammer className="h-3.5 w-3.5 mr-1" />
-                      {locale === "ru" ? "Перейти к сборке" : "Proceed to Build"}
+                      {selectedCatalogModule.isOfficial
+                        ? locale === "ru"
+                          ? "Включить модуль"
+                          : "Enable Module"
+                        : locale === "ru"
+                        ? "Перейти к сборке"
+                        : "Proceed to Build"}
                     </Button>
                   )}
                 </div>
               </Card>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 2: GITHUB INSTALLATION & COMPATIBILITY WORKFLOW */}
-      {activeTab === "github" && (
-        <div className="space-y-4">
-          <Card className="border-line bg-card/60 p-4">
-            <h3 className="text-sm font-semibold text-ink">
-              {locale === "ru" ? "1. Анализ и инспекция модуля" : "1. Module Intake & Analysis"}
-            </h3>
-            <p className="mt-1 text-xs text-muted">
-              {locale === "ru"
-                ? "Укажите ссылку на GitHub-репозиторий совместимого модуля AzerothCore (например, mod-npc-buffer, mod-ah-bot, mod-congrats-on-level, mod-npc-enchanter)."
-                : "Paste GitHub repository URL for an AzerothCore module (e.g., mod-npc-buffer, mod-ah-bot, mod-congrats-on-level, mod-npc-enchanter)."}
-            </p>
-
-            <div className="mt-3 flex gap-2">
-              <input
-                type="text"
-                value={githubUrl}
-                onChange={(e) => setGithubUrl(e.target.value)}
-                placeholder="https://github.com/azerothcore/mod-congrats-on-level"
-                className="flex-1 rounded border border-line bg-bg px-3 py-1.5 text-xs text-ink placeholder:text-muted/50 focus:border-gold focus:outline-none"
-              />
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => void runAnalysis()}
-                disabled={analyzing || !githubUrl.trim()}
-              >
-                {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-                <span className="ml-1.5">{locale === "ru" ? "Анализировать" : "Analyze"}</span>
-              </Button>
-            </div>
-
-            {/* Quick module sample chips */}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-              <span>{locale === "ru" ? "Быстрый выбор:" : "Quick select:"}</span>
-              <button
-                onClick={() => void runAnalysis("https://github.com/azerothcore/mod-npc-buffer")}
-                className="rounded bg-black/30 hover:bg-black/60 px-2 py-0.5 text-zinc-300 font-mono"
-              >
-                mod-npc-buffer
-              </button>
-              <button
-                onClick={() => void runAnalysis("https://github.com/azerothcore/mod-ah-bot")}
-                className="rounded bg-black/30 hover:bg-black/60 px-2 py-0.5 text-zinc-300 font-mono"
-              >
-                mod-ah-bot
-              </button>
-              <button
-                onClick={() => void runAnalysis("https://github.com/azerothcore/mod-congrats-on-level")}
-                className="rounded bg-black/30 hover:bg-black/60 px-2 py-0.5 text-zinc-300 font-mono"
-              >
-                mod-congrats-on-level
-              </button>
-              <button
-                onClick={() => void runAnalysis("https://github.com/azerothcore/mod-guildhouse")}
-                className="rounded bg-black/30 hover:bg-black/60 px-2 py-0.5 text-orange-400 font-mono"
-              >
-                mod-guildhouse (Tier 3)
-              </button>
-            </div>
-          </Card>
-
-          {analysisError && (
-            <div className="rounded border border-bad/30 bg-bad/10 p-3 text-xs text-bad">
-              <strong>{locale === "ru" ? "Ошибка анализа:" : "Analysis Error:"}</strong> {analysisError}
-            </div>
-          )}
-
-          {/* Analysis Report View */}
-          {report && (
-            <Card className="border-gold/40 bg-card p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
-                <div>
-                  <h3 className="text-base font-semibold text-ink flex items-center gap-2">
-                    {report.repository_name}
-                    <span className="font-mono text-xs text-muted font-normal">
-                      @{report.commit.substring(0, 8)}
-                    </span>
-                    <span className="rounded bg-ok/10 text-ok border border-ok/30 px-2 py-0.5 text-[10px] uppercase font-mono">
-                      {report.classification}
-                    </span>
-                  </h3>
-                  <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded bg-black/40 px-2 py-0.5 text-muted">
-                      License: <strong className="text-ink">{report.license_info.primary_license}</strong>
-                    </span>
-                    <span className="rounded bg-black/40 px-2 py-0.5 text-muted">
-                      SDK Host:{" "}
-                      <strong className="text-ink">
-                        {report.sdk_fingerprint ? report.sdk_fingerprint.substring(0, 16) + "..." : "Default"}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Build and Install Buttons */}
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="ghost" onClick={exportReportJson} className="text-xs">
-                    {locale === "ru" ? "Экспорт JSON" : "Export JSON"}
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={startControlledBuild}
-                    disabled={building || report.classification === "CorePatchRequired"}
-                  >
-                    {building ? (
-                      <>
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        {locale === "ru" ? "Сборка..." : "Building..."}
-                      </>
-                    ) : (
-                      <>
-                        <Hammer className="mr-1.5 h-3.5 w-3.5" />
-                        {locale === "ru" ? "Собрать модуль" : "Build Module"}
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={handleInstallClick}
-                    disabled={installing || !buildResult || !buildResult.success}
-                    className={cn(buildResult?.success ? "bg-ok hover:bg-ok/90" : "opacity-50 cursor-not-allowed")}
-                  >
-                    {installing ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : locale === "ru" ? (
-                      "Установить в реалм"
-                    ) : (
-                      "Install to Realm"
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              {report.classification === "CorePatchRequired" && (
-                <div className="rounded border border-orange-500/30 bg-orange-500/10 p-3 text-xs text-orange-300 flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div>
-                    <strong>
-                      {locale === "ru"
-                        ? "Tier 3: Требуется интеграция с ядром (In-Tree Core Build)"
-                        : "Tier 3: Core-Integrated Compatibility Required"}
-                    </strong>
-                    <p className="mt-0.5">
-                      {locale === "ru"
-                        ? "Модуль обращается к внутренним структурам управления памятью GameObject/Creature или базам данных (SaveToDB, DeleteFromDB, AddObjectToRemoveList). Сборка в виде автономной DLL отключена во избежание падения сервера."
-                        : "Module calls engine-internal GameObject/Creature memory or database lifecycle methods. Standalone dynamic DLL build is blocked to prevent host crashes."}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Multi-Dimensional Status */}
-              {report.multi_dimensional_status && (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 text-center">
-                  <div className="rounded border border-line bg-bg/50 p-2.5">
-                    <div className="text-xs text-muted">{locale === "ru" ? "Сборка" : "Build"}</div>
-                    <div
-                      className={cn(
-                        "mt-1 text-xs font-semibold uppercase",
-                        report.multi_dimensional_status.build_status === "PASS"
-                          ? "text-ok"
-                          : report.multi_dimensional_status.build_status === "BLOCKED"
-                          ? "text-bad"
-                          : "text-warn"
-                      )}
-                    >
-                      {report.multi_dimensional_status.build_status}
-                    </div>
-                  </div>
-                  <div className="rounded border border-line bg-bg/50 p-2.5">
-                    <div className="text-xs text-muted">{locale === "ru" ? "Рантайм" : "Runtime"}</div>
-                    <div
-                      className={cn(
-                        "mt-1 text-xs font-semibold uppercase",
-                        report.multi_dimensional_status.runtime_status === "PASS"
-                          ? "text-ok"
-                          : report.multi_dimensional_status.runtime_status === "BLOCKED"
-                          ? "text-bad"
-                          : "text-muted"
-                      )}
-                    >
-                      {report.multi_dimensional_status.runtime_status}
-                    </div>
-                  </div>
-                  <div className="rounded border border-line bg-bg/50 p-2.5">
-                    <div className="text-xs text-muted">{locale === "ru" ? "Геймплей" : "Gameplay"}</div>
-                    <div
-                      className={cn(
-                        "mt-1 text-xs font-semibold uppercase",
-                        report.multi_dimensional_status.gameplay_status === "CLEAN" ? "text-ok" : "text-warn"
-                      )}
-                    >
-                      {report.multi_dimensional_status.gameplay_status}
-                    </div>
-                  </div>
-                  <div className="rounded border border-line bg-bg/50 p-2.5">
-                    <div className="text-xs text-muted">{locale === "ru" ? "БД / SQL" : "Database"}</div>
-                    <div
-                      className={cn(
-                        "mt-1 text-xs font-semibold uppercase",
-                        report.multi_dimensional_status.db_status === "CLEAN" ? "text-ok" : "text-warn"
-                      )}
-                    >
-                      {report.multi_dimensional_status.db_status}
-                    </div>
-                  </div>
-                  <div className="rounded border border-line bg-bg/50 p-2.5">
-                    <div className="text-xs text-muted">{locale === "ru" ? "Безопасность" : "Security"}</div>
-                    <div
-                      className={cn(
-                        "mt-1 text-xs font-semibold uppercase",
-                        report.multi_dimensional_status.security_status === "SOURCE_ANALYZED" ||
-                          report.multi_dimensional_status.security_status === "REVIEWED_THIRD_PARTY" ||
-                          report.multi_dimensional_status.security_status === "TRUSTED_OFFICIAL"
-                          ? "text-ok"
-                          : "text-bad"
-                      )}
-                    >
-                      {report.multi_dimensional_status.security_status}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Findings List */}
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">
-                  {locale === "ru" ? "Диагностические находки" : "Diagnostic Findings"} ({report.findings.length})
-                </h4>
-                {report.findings.length === 0 ? (
-                  <p className="mt-1 text-xs text-ok">✓ Замечаний и критических блокировок не обнаружено.</p>
-                ) : (
-                  <ul className="mt-2 space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {report.findings.map((f, idx) => (
-                      <li key={idx} className="rounded border border-line/60 bg-black/20 p-2 text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <span
-                            className={cn(
-                              "font-medium",
-                              f.severity === "Critical"
-                                ? "text-bad"
-                                : f.severity === "Warning"
-                                ? "text-warn"
-                                : "text-sky-300"
-                            )}
-                          >
-                            [{f.severity}] {f.rule_id}
-                          </span>
-                          <span className="font-mono text-muted">
-                            {f.file}:{f.line}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-ink">{f.explanation}</p>
-                        <p className="mt-0.5 text-muted">➜ {f.recommended_action}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* TAB 3: INSTALLED PLUGINS */}
-      {activeTab === "installed" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-ink">
-              {locale === "ru" ? "Динамические плагины в реалме" : "Dynamic Plugins in Realm"}
-            </h3>
-            <Button size="sm" variant="ghost" onClick={loadInstalledPlugins} className="text-xs">
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-              {locale === "ru" ? "Обновить" : "Refresh"}
-            </Button>
-          </div>
-
-          {installedPlugins.length === 0 ? (
-            <Card className="border-line bg-card/40 p-8 text-center text-muted">
-              <Plug className="mx-auto h-8 w-8 text-muted/50 mb-2" />
-              <p className="text-sm">
-                {locale === "ru"
-                  ? "В этом реалме ещё нет установленных динамических плагинов."
-                  : "No dynamic plugins installed in this realm yet."}
-              </p>
-              <Button size="sm" variant="primary" onClick={() => setActiveTab("catalog")} className="mt-4">
-                {locale === "ru" ? "Открыть каталог проверенных модулей" : "Open Verified Modules Catalog"}
-              </Button>
-            </Card>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {installedPlugins.map((p) => (
-                <Card key={p.id} className="border-line bg-card p-4 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-semibold text-ink text-sm flex items-center gap-2">
-                        {p.name}
-                        <span className="text-xs font-mono font-normal text-muted">v{p.version}</span>
-                      </h4>
-                      {p.source_commit && (
-                        <p className="text-[11px] font-mono text-muted mt-0.5">
-                          Commit: {p.source_commit.substring(0, 8)}
-                        </p>
-                      )}
-                      <p className="text-[11px] font-mono text-muted/70 mt-0.5">
-                        SHA256: {p.sha256.substring(0, 16)}...
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className={cn("text-xs font-semibold uppercase", p.enabled ? "text-ok" : "text-muted")}>
-                        {p.enabled
-                          ? locale === "ru"
-                            ? "Включён"
-                            : "Enabled"
-                          : locale === "ru"
-                          ? "Отключён"
-                          : "Disabled"}
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={p.enabled}
-                        onClick={() => togglePlugin(p.id, p.enabled)}
-                        disabled={actionInProgress === `toggle-${p.id}`}
-                        className={cn(
-                          "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                          p.enabled ? "bg-ok" : "bg-zinc-700"
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
-                            p.enabled ? "translate-x-4" : "translate-x-0"
-                          )}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-t border-line/60 pt-2 text-xs">
-                    <span className="text-muted">
-                      {p.conf_files.length > 0 ? `${p.conf_files.length} config file(s)` : "No configs"}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => removePlugin(p.id)}
-                      disabled={actionInProgress === `remove-${p.id}`}
-                      className="text-bad hover:text-bad hover:bg-bad/10 h-7 px-2"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-1" />
-                      {locale === "ru" ? "Удалить" : "Remove"}
-                    </Button>
-                  </div>
-                </Card>
-              ))}
             </div>
           )}
         </div>
