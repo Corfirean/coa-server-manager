@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-11-03T03:03:58Z",
+  "test_suite": "Filesystem Fault Injection & Transactional Recovery",
+  "total_scenarios": 6,
+  "passed": 6,
+  "failed": 0,
+  "note_on_sql_limitations": "File rollback restores server executables, SDK headers, dynamic DLLs, and configuration files byte-for-byte. Note: MySQL database DDL/schema modifications cannot be rolled back by filesystem snapshots; database rollback requires Point-In-Time SQL backups or transactional migrations as documented in SERVER_MIGRATION_COMPATIBILITY.md.",
+  "results": [
+    {
+      "test_id": "FAULT-01",
+      "boundary": "Before Staging Completion",
+      "status": "PASS",
+      "duration_sec": 0.049,
+      "details": {
+        "summary": "Incomplete staging detected and purged; live binaries untouched"
+      }
+    },
+    {
+      "test_id": "FAULT-02",
+      "boundary": "After Staging, Before Checkpoint",
+      "status": "PASS",
+      "duration_sec": 0.054,
+      "details": {
+        "summary": "Uncommitted staged files abandoned on crash; live system remains baseline"
+      }
+    },
+    {
+      "test_id": "FAULT-03",
+      "boundary": "After Checkpoint, Before Binary Swap",
+      "status": "PASS",
+      "duration_sec": 0.076,
+      "details": {
+        "summary": "Crash after checkpoint safely reconciled; destination had not been modified"
+      }
+    },
+    {
+      "test_id": "FAULT-04",
+      "boundary": "During Binary Swap (Corrupted Partial Write)",
+      "status": "PASS",
+      "duration_sec": 0.228,
+      "details": {
+        "summary": "Corrupted binary swap recovered byte-for-byte from checkpoint via transaction journal",
+        "recovered_host_hash": "048f810e44bcf7e3bcbbc1c6d3037a5f829e6815e959f9f0cf0d3b3c8594fc4b",
+        "recovered_plugin_hash": "34be20f127c709fc7b6be9b5b6cd49cc16dd38d0e1e2a51d40aef5c3c0e5fd48"
+      }
+    },
+    {
+      "test_id": "FAULT-05",
+      "boundary": "During Manifest / Lock Update",
+      "status": "PASS",
+      "duration_sec": 0.007,
+      "details": {
+        "summary": "Corrupted manifest/lock file restored from checkpoint with valid JSON syntax"
+      }
+    },
+    {
+      "test_id": "FAULT-06",
+      "boundary": "Post-Update Startup Panic / Boot Crash",
+      "status": "PASS",
+      "duration_sec": 0.173,
+      "details": {
+        "summary": "Process supervisor detected post-update boot crash; automatic rollback restored baseline host",
+        "restored_hash": "048f810e44bcf7e3bcbbc1c6d3037a5f829e6815e959f9f0cf0d3b3c8594fc4b"
+      }
+    }
+  ]
+}

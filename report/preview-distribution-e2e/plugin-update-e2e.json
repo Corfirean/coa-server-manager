@@ -1,0 +1,75 @@
+{
+  "timestamp": "2026-11-03T03:03:24Z",
+  "test_suite": "Independent Dynamic Plugin Update E2E",
+  "total_tests": 7,
+  "passed": 7,
+  "failed": 0,
+  "results": [
+    {
+      "test_id": "PLUG-UPD-01",
+      "name": "Compatible Plugin-Only Update",
+      "status": "PASS",
+      "duration_sec": 0.075,
+      "details": {
+        "summary": "Plugin updated from 1.0.0 to 1.0.1; host binary untouched and config preserved",
+        "plugin_a_hash": "5486fc8fe0d9c56935515db40c025992132242a7e1a3438e2ee501e35867ae9e",
+        "plugin_b_hash": "44a7a8cae78d5133bac7613189d7e8ab39a9ab1100957e57e7e5efa85c76e8e1"
+      }
+    },
+    {
+      "test_id": "PLUG-UPD-02",
+      "name": "Negative: Invalid DLL Checksum Rejection",
+      "status": "PASS",
+      "duration_sec": 0.005,
+      "details": {
+        "summary": "Invalid DLL hash detected; staging aborted before file swap"
+      }
+    },
+    {
+      "test_id": "PLUG-UPD-03",
+      "name": "Negative: Incompatible SDK Requirement Blocked",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Incompatible SDK requirement (0.4.0 > 0.3.2) blocked plugin update"
+      }
+    },
+    {
+      "test_id": "PLUG-UPD-04",
+      "name": "Negative: Missing Dependency Rejection",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Missing dependency 'mod_dungeon_clear' blocked installation"
+      }
+    },
+    {
+      "test_id": "PLUG-UPD-05",
+      "name": "Interruption After Staging Cleaned Safely",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Staged update interrupted mid-operation cleaned up safely"
+      }
+    },
+    {
+      "test_id": "PLUG-UPD-06",
+      "name": "Plugin Recovery from Pre-Update Checkpoint",
+      "status": "PASS",
+      "duration_sec": 0.036,
+      "details": {
+        "summary": "Plugin rolled back to 1.0.0 from pre-update checkpoint with exact hash match",
+        "restored_hash": "5486fc8fe0d9c56935515db40c025992132242a7e1a3438e2ee501e35867ae9e"
+      }
+    },
+    {
+      "test_id": "PLUG-UPD-07",
+      "name": "Idempotent Repeat Update Validation",
+      "status": "PASS",
+      "duration_sec": 0.004,
+      "details": {
+        "summary": "Repeat update to same version is idempotent no-op"
+      }
+    }
+  ]
+}

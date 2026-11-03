@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-11-03T03:02:30Z",
+  "test_suite": "Independent Modular Host Update E2E",
+  "total_tests": 5,
+  "passed": 5,
+  "failed": 0,
+  "results": [
+    {
+      "test_id": "CORE-UPD-01",
+      "name": "Stop-Gate Enforcement on Active Server",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Stop-Gate prevented binary mutation while server process was active"
+      }
+    },
+    {
+      "test_id": "CORE-UPD-02",
+      "name": "Compatible Host A -> Host B Update",
+      "status": "PASS",
+      "duration_sec": 0.26,
+      "details": {
+        "summary": "Compatible Host B installed; plugins and configs preserved",
+        "host_a_hash": "048f810e44bcf7e3bcbbc1c6d3037a5f829e6815e959f9f0cf0d3b3c8594fc4b",
+        "host_b_hash": "0456c0e5107883474e7844491d1012366cfe8462e599a676b2049b1c84d7ab3b"
+      }
+    },
+    {
+      "test_id": "CORE-UPD-03",
+      "name": "Incompatible Host ABI Detected and Blocked",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Incompatible ABI fingerprint rejected by solver; update blocked prior to file staging",
+        "abi_installed": "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883",
+        "abi_incompatible": "99999999def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883",
+        "verdict": "RequiresModuleUpdate"
+      }
+    },
+    {
+      "test_id": "CORE-UPD-04",
+      "name": "Coordinated Host & Plugin Replacement",
+      "status": "PASS",
+      "duration_sec": 0.056,
+      "details": {
+        "summary": "Coordinated host and plugin replacement applied atomically",
+        "new_plugin_hash": "117a6f01604c21be7dfd4ae676a9ec5b7f469643e12531eb6daa344a12a805cd",
+        "plugin_version": "0.3.3"
+      }
+    },
+    {
+      "test_id": "CORE-UPD-05",
+      "name": "Fault Injection & Atomic Checkpoint Rollback",
+      "status": "PASS",
+      "duration_sec": 0.165,
+      "details": {
+        "summary": "Fault injection triggered automatic checkpoint rollback; Host A and Plugin A restored byte-for-byte",
+        "recovered_host_hash": "048f810e44bcf7e3bcbbc1c6d3037a5f829e6815e959f9f0cf0d3b3c8594fc4b",
+        "recovered_plugin_hash": "34be20f127c709fc7b6be9b5b6cd49cc16dd38d0e1e2a51d40aef5c3c0e5fd48"
+      }
+    }
+  ]
+}

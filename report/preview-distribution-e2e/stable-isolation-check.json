@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-11-03T03:05:13Z",
+  "test_name": "Stable Channel Isolation Verification",
+  "status": "PASS",
+  "checks": {
+    "preview_app_identifier": "com.corfirean.csm-modules-preview",
+    "stable_app_identifier": "com.corfirean.csm",
+    "identifiers_are_different": true,
+    "preview_updater_endpoint": "https://raw.githubusercontent.com/Corfirean/coa-server-build/preview/modules-v2/updates/csm-preview-app-latest.json",
+    "points_to_preview_channel": true,
+    "does_not_point_to_stable_latest": true,
+    "stable_branches_untouched": {
+      "manager_master": "Untouched",
+      "builder_main": "Untouched",
+      "core_coa_bots": "Untouched"
+    }
+  }
+}

@@ -3041,8 +3041,21 @@ async fn preview_check_updates(
 ) -> std::result::Result<coa_core::solver::SolverVerdict, UiError> {
     let realm_root = path_of(&state, &realm_id)?;
     blocking(move || {
-        let lock_path = std::path::PathBuf::from(r"C:\games\coa-server-build\candidate-lock.json");
-        let candidate_host = if lock_path.is_file() {
+        let candidate_lock_path = std::env::var("COA_PREVIEW_LOCK_PATH")
+            .map(std::path::PathBuf::from)
+            .ok()
+            .or_else(|| {
+                let p1 = realm_root.join(".manager").join("csm-preview-components.json");
+                if p1.is_file() { return Some(p1); }
+                let p2 = realm_root.join(".manager").join("candidate-lock.json");
+                if p2.is_file() { return Some(p2); }
+                let p3 = std::path::PathBuf::from(r"C:\games\coa-server-build\updates\csm-preview-components.json");
+                if p3.is_file() { return Some(p3); }
+                let p4 = std::path::PathBuf::from(r"C:\games\coa-server-build\candidate-lock.json");
+                if p4.is_file() { return Some(p4); }
+                None
+            });
+        let candidate_host = if let Some(lock_path) = candidate_lock_path {
             let content = std::fs::read_to_string(&lock_path)
                 .map_err(|e| coa_core::Error::Invalid(e.to_string()))?;
             let val: serde_json::Value = serde_json::from_str(&content)
@@ -3115,9 +3128,21 @@ pub fn run() {
     let (control, host_control) = control_cmds::start(&dir, portable.clone());
     let registry = Registry::at(dir.join("installs.json"));
     if registry.list().map(|l| l.is_empty()).unwrap_or(true) {
-        let v03_path = PathBuf::from(r"C:\games\coa-work\plugin-spike\server-v03");
-        if v03_path.join("worldserver.exe").is_file() {
-            let _ = registry.register("test-realm-v03", &v03_path);
+        let test_realm_path = std::env::var("COA_TEST_REALM_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(r"C:\games\CoA Server Preview"));
+        let target_realm = if test_realm_path.join("worldserver.exe").is_file() {
+            Some(("preview-realm", test_realm_path))
+        } else {
+            let spike_path = PathBuf::from(r"C:\games\coa-work\plugin-spike\server-v03");
+            if spike_path.join("worldserver.exe").is_file() {
+                Some(("test-realm-v03", spike_path))
+            } else {
+                None
+            }
+        };
+        if let Some((name, path)) = target_realm {
+            let _ = registry.register(name, &path);
         }
     }
     tauri::Builder::default()

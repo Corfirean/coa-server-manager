@@ -1,0 +1,119 @@
+{
+  "timestamp": "2026-11-03T03:01:56Z",
+  "test_suite": "Independent Manager Update E2E",
+  "total_tests": 12,
+  "passed": 12,
+  "failed": 0,
+  "results": [
+    {
+      "test_id": "MGR-UPD-01",
+      "name": "Positive Manager A -> B Update",
+      "status": "PASS",
+      "duration_sec": 1.961,
+      "details": {
+        "summary": "Candidate A updated to Candidate B with verified signature and preserved state",
+        "new_version": "0.7.2",
+        "new_hash": "3a759db047e1a596835724170e8398bdb362c5f2b45328f17a2d651a66642eac"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-02",
+      "name": "Negative: Invalid Signature Rejected",
+      "status": "PASS",
+      "duration_sec": 0.079,
+      "details": {
+        "summary": "Invalid signature rejected; installed binary preserved"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-03",
+      "name": "Negative: Missing Signature Rejected",
+      "status": "PASS",
+      "duration_sec": 0.079,
+      "details": {
+        "summary": "Missing signature rejected; installed binary preserved"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-04",
+      "name": "Negative: Wrong Channel Discarded",
+      "status": "PASS",
+      "duration_sec": 0.08,
+      "details": {
+        "summary": "Wrong channel manifest rejected by updater parser"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-05",
+      "name": "Negative: Missing Remote Asset (404)",
+      "status": "PASS",
+      "duration_sec": 0.084,
+      "details": {
+        "summary": "Missing download asset (404) halts update cleanly"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-06",
+      "name": "Negative: Incompatible Platform Rejected",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Unsupported platform manifest discarded"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-07",
+      "name": "Negative: Corrupted Download Rejected",
+      "status": "PASS",
+      "duration_sec": 0.08,
+      "details": {
+        "summary": "Corrupted download rejected; no file mutation"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-08",
+      "name": "Negative: Same Version Rejected",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Same version candidate rejected as already up-to-date"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-09",
+      "name": "Negative: Downgrade Candidate Blocked",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Downgrade candidate rejected"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-10",
+      "name": "Negative: Network Unavailability Handled",
+      "status": "PASS",
+      "duration_sec": 1.085,
+      "details": {
+        "summary": "Network unavailability gracefully reports error without crash"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-11",
+      "name": "Negative: Malformed JSON Rejected",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Malformed JSON safely rejected"
+      }
+    },
+    {
+      "test_id": "MGR-UPD-12",
+      "name": "Negative: Cross-Update Isolation Enforced",
+      "status": "PASS",
+      "duration_sec": 0.0,
+      "details": {
+        "summary": "Cross-channel update strictly isolated by unique application IDs"
+      }
+    }
+  ]
+}

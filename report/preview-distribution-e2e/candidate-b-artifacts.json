@@ -1,0 +1,38 @@
+{
+  "candidate": "Candidate B",
+  "version": "0.7.2-preview",
+  "artifacts": {
+    "server/worldserver.exe": {
+      "sha256": "048f810e44bcf7e3bcbbc1c6d3037a5f829e6815e959f9f0cf0d3b3c8594fc4b",
+      "size": 68840960
+    },
+    "sdk/sdk.json": {
+      "sha256": "8d87955fe2d24f82554cf500435cffbd3ba7ce436de64623773b8abeb1abd1e0",
+      "size": 2812
+    },
+    "plugins/companions.dll": {
+      "sha256": "34be20f127c709fc7b6be9b5b6cd49cc16dd38d0e1e2a51d40aef5c3c0e5fd48",
+      "size": 5876224
+    },
+    "plugins/content_scaling.dll": {
+      "sha256": "46e215ea723c180886c4617e49335dee1edfc3b0dacf7530bcea8755821420a1",
+      "size": 22078976
+    },
+    "plugins/squid_playerbots.dll": {
+      "sha256": "9e42dccf534f333c50a49c0e661143267ca4e297d79f6c2b5bcb98ff215f94f0",
+      "size": 24022016
+    },
+    "plugins/time-is-time.dll": {
+      "sha256": "7bca10943ab995dd36af509d25cf3869fd3fa213d195e5164bfdffd05d83ba4e",
+      "size": 132096
+    },
+    "manager/CSM Modules Preview.exe": {
+      "sha256": "3a759db047e1a596835724170e8398bdb362c5f2b45328f17a2d651a66642eac",
+      "size": 54784512
+    },
+    "candidate-lock.json": {
+      "sha256": "45e76b54fcc7f0c7040f8f43155c5bff6294bacc712d3d3f228f56f056a91a46",
+      "size": 3027
+    }
+  }
+}

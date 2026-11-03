@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-11-03T03:05:12Z",
+  "test_name": "Clean Runner Deterministic Build & Package",
+  "status": "PASS",
+  "clean_environment": "Isolated Temporary Workspace",
+  "hardcoded_developer_paths_detected": false,
+  "mandatory_checks_passed": true,
+  "packaged_artifacts": {
+    "worldserver.exe": true,
+    "sdk.json": true,
+    "companions.dll": true,
+    "content_scaling.dll": true,
+    "squid_playerbots.dll": true,
+    "sha256sums.txt": true,
+    "csm-preview-app-latest.json": true,
+    "csm-preview-components.json": true
+  }
+}

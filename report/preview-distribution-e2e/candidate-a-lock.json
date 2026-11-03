@@ -1,0 +1,83 @@
+﻿{
+    "official_modules":  [
+                             {
+                                 "id":  "companions",
+                                 "name":  "CoA Companions",
+                                 "required_sdk":  null,
+                                 "binary":  "companions.dll",
+                                 "type":  "DYNAMIC_DLL",
+                                 "sha256":  "34be20f127c709fc7b6be9b5b6cd49cc16dd38d0e1e2a51d40aef5c3c0e5fd48",
+                                 "source_commit":  "bc94a9b6d4991c0e35fae16726226068067b8a7c"
+                             },
+                             {
+                                 "id":  "content-scaling",
+                                 "name":  "Content Scaling",
+                                 "required_sdk":  null,
+                                 "binary":  "content_scaling.dll",
+                                 "type":  "DYNAMIC_DLL",
+                                 "sha256":  "46e215ea723c180886c4617e49335dee1edfc3b0dacf7530bcea8755821420a1",
+                                 "source_commit":  "f893866cb0e65c010d1f4ba40b82f0ad4cbe0642"
+                             },
+                             {
+                                 "id":  "playerbots",
+                                 "name":  "SQUID Playerbots",
+                                 "required_sdk":  null,
+                                 "binary":  "squid_playerbots.dll",
+                                 "type":  "DYNAMIC_DLL",
+                                 "sha256":  "9e42dccf534f333c50a49c0e661143267ca4e297d79f6c2b5bcb98ff215f94f0",
+                                 "source_commit":  "a105d60526e3c09e3a6a9de9b9a68e82aa2518e3"
+                             },
+                             {
+                                 "id":  "time-is-time",
+                                 "name":  "TimeIsTime",
+                                 "required_sdk":  null,
+                                 "binary":  "time-is-time.dll",
+                                 "type":  "DYNAMIC_DLL",
+                                 "sha256":  "7bca10943ab995dd36af509d25cf3869fd3fa213d195e5164bfdffd05d83ba4e",
+                                 "source_commit":  "d18ae56a666ea33c6978434720ae79e438183141"
+                             }
+                         ],
+    "db_schema_requirements":  {
+                                   "world":  "2026_10_28_00_world",
+                                   "characters":  "2026_10_28_00_characters",
+                                   "auth":  "2026_10_28_00_auth"
+                               },
+    "sdk":  {
+                "compiler":  "MSVC-19.51.36247.0",
+                "version":  null,
+                "export_def":  "src/server/apps/worldserver/Plugins/coa_plugin_exports.def",
+                "flags":  "/DWIN32 /D_WINDOWS /EHsc /Zi /O2 /Ob1 /DNDEBUG -std:c++20 -MD",
+                "abi_fingerprint":  "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883",
+                "platform":  "Windows-AMD64"
+            },
+    "client_compatibility":  {
+                                 "ascension_support":  true,
+                                 "build":  12340,
+                                 "version":  "3.3.5a"
+                             },
+    "version":  "0.7.1-preview",
+    "manager":  {
+                    "branch":  "preview/modules-v2",
+                    "commit":  "c3664b881d45699d9da9ebe58779dfeace6a26ad",
+                    "repository":  "https://github.com/Corfirean/coa-server-manager"
+                },
+    "core":  {
+                 "branch":  "preview/dynamic-plugin-host",
+                 "features":  [
+                                  "COA_PLUGIN_HOST",
+                                  "ACORE_API_USE_DYNAMIC_LINKING",
+                                  "MOD_PLAYERBOTS"
+                              ],
+                 "sha256":  "048f810e44bcf7e3bcbbc1c6d3037a5f829e6815e959f9f0cf0d3b3c8594fc4b",
+                 "commit":  "a11c2a7143c29e4ce8021d63eae319a2cc623f99",
+                 "repository":  "https://github.com/Corfirean/azerothcore-wotlk-coa"
+             },
+    "schema":  1,
+    "product":  "CoA Server Preview Modular Host",
+    "build_timestamp":  "2026-11-03T02:52:14Z",
+    "builder":  {
+                    "branch":  "preview/modules-v2",
+                    "commit":  "a461e9031d56dd302ca9308c72535eb30f1fa774",
+                    "repository":  "https://github.com/Corfirean/coa-server-build"
+                }
+}

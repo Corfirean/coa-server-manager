@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-11-03T03:05:13Z",
+  "test_name": "Channel Manifest Contracts 1 & 2 Schema Validation",
+  "status": "PASS",
+  "contract_1_tauri_updater": {
+    "file": "updates/csm-preview-app-latest.json",
+    "valid_tauri_schema": true,
+    "version": "0.7.1",
+    "target_platform": "windows-x86_64",
+    "has_download_url": true,
+    "has_signature_field": true
+  },
+  "contract_2_server_components": {
+    "file": "updates/csm-preview-components.json",
+    "valid_component_schema": true,
+    "channel": "preview",
+    "core_abi_fingerprint": "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883",
+    "official_modules_count": 4,
+    "has_db_schema_requirements": true,
+    "has_client_compatibility": true
+  }
+}
