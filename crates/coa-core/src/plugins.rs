@@ -949,9 +949,21 @@ pub fn update(
 pub fn remove(server: &Path, id: &str) -> Result<()> {
     require_server_stopped(server)?;
 
-    let mut tx = TxGuard::begin_op(server, PluginOpType::Remove, id)?;
     let mut reg = load_registry_direct(server)?;
-    if reg.plugins.remove(id).is_none() {
+    let actual_id = if reg.plugins.contains_key(id) {
+        id.to_string()
+    } else if reg.plugins.contains_key(&format!("coa-{}", id)) {
+        format!("coa-{}", id)
+    } else if reg.plugins.contains_key(&format!("mod-{}", id)) {
+        format!("mod-{}", id)
+    } else if reg.plugins.contains_key(&format!("mod-coa-{}", id)) {
+        format!("mod-coa-{}", id)
+    } else {
+        id.to_string()
+    };
+
+    let mut tx = TxGuard::begin_op(server, PluginOpType::Remove, &actual_id)?;
+    if reg.plugins.remove(&actual_id).is_none() {
         return Ok(());
     }
 
@@ -962,9 +974,13 @@ pub fn remove(server: &Path, id: &str) -> Result<()> {
     regenerate_lockfile(server, &reg)?;
     check_crash_injection("after_lock_update");
 
-    let target_dir = plugins_install_dir(server).join(id);
+    let target_dir = plugins_install_dir(server).join(&actual_id);
     if target_dir.is_dir() {
         let _ = fs::remove_dir_all(target_dir);
+    }
+    let flat_dll = plugins_install_dir(server).join(format!("{}.dll", actual_id));
+    if flat_dll.is_file() {
+        let _ = fs::remove_file(flat_dll);
     }
 
     tx.set_phase(TransactionPhase::Validating)?;

@@ -761,15 +761,15 @@ export function ModulesPage({
     setToggling(m.id);
     setError(null);
     try {
-      // Mutual exclusion check between companions and squid
+      // Mutual exclusion check between companions and playerbots (squid)
       if (m.id === "companions" && !m.enabled) {
-        const squidMod = modules?.find((x) => x.id === "squid");
-        if (squidMod?.enabled) {
-          await api.moduleSetEnabled(serverId, "squid", false);
+        const otherBot = modules?.find((x) => (x.id === "playerbots" || x.id === "squid") && x.enabled);
+        if (otherBot) {
+          await api.moduleSetEnabled(serverId, otherBot.id, false);
         }
-      } else if (m.id === "squid" && !m.enabled) {
-        const compMod = modules?.find((x) => x.id === "companions");
-        if (compMod?.enabled) {
+      } else if ((m.id === "playerbots" || m.id === "squid") && !m.enabled) {
+        const compMod = modules?.find((x) => x.id === "companions" && x.enabled);
+        if (compMod) {
           await api.moduleSetEnabled(serverId, "companions", false);
         }
       }
@@ -965,6 +965,7 @@ export function ModulesPage({
       const msg = await api.previewRemoveModule(serverId, moduleId);
       setNotification(msg);
       await loadInstalledPlugins();
+      await load();
       onChanged?.();
     } catch (e) {
       setError(asUiError(e));

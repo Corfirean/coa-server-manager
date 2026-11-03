@@ -718,9 +718,20 @@ fn meta_dir(root: &std::path::Path) -> Result<PathBuf> {
     if dir.join("install.json").is_file() {
         Ok(dir)
     } else {
-        Err(Error::Invalid(
-            "This server has not been added to the Manager yet.".into(),
-        ))
+        let internal_meta = root.join(".manager");
+        if internal_meta.join("install.json").is_file() {
+            Ok(internal_meta)
+        } else if internal_meta.is_dir() || root.join("worldserver.exe").is_file() {
+            // Auto-heal minimal install.json for imported or standalone spike realms
+            let meta = coa_core::registry::InstallMeta::new(coa_core::registry::InstallKind::Imported, root);
+            let _ = std::fs::create_dir_all(&internal_meta);
+            let _ = coa_core::fsx::atomic_write_json(&internal_meta.join("install.json"), &meta);
+            Ok(internal_meta)
+        } else {
+            Err(Error::Invalid(
+                "This server has not been added to the Manager yet.".into(),
+            ))
+        }
     }
 }
 
@@ -1300,7 +1311,34 @@ async fn module_set_enabled(
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
-        let (dir, _) = install_meta(&root)?;
+        // 1. If registered as dynamic plugin in .manager/plugins.json, synchronize plugin state
+        if let Ok(ref r) = coa_core::plugins::load_registry(&root) {
+            let plug_key = if r.plugins.contains_key(&module) {
+                Some(module.clone())
+            } else if r.plugins.contains_key(&format!("coa-{}", module)) {
+                Some(format!("coa-{}", module))
+            } else if r.plugins.contains_key(&format!("mod-{}", module)) {
+                Some(format!("mod-{}", module))
+            } else if r.plugins.contains_key(&format!("mod-coa-{}", module)) {
+                Some(format!("mod-coa-{}", module))
+            } else {
+                None
+            };
+
+            if let Some(key) = plug_key {
+                let _ = coa_core::plugins::set_enabled(&root, &key, enabled);
+            }
+        }
+
+        // 2. Synchronize module .conf file / core setting
+        let dir = match install_meta(&root) {
+            Ok((dir, _)) => dir,
+            Err(_) => {
+                let fallback = root.join(".manager");
+                let _ = std::fs::create_dir_all(&fallback);
+                fallback
+            }
+        };
         coa_core::modules::set_enabled(&root, &dir, &module, enabled)
     })
     .await

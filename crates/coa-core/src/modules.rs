@@ -259,7 +259,25 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     })
             });
 
-            let dll_candidates = [
+            let alias_dlls: Vec<PathBuf> = match e.id.as_str() {
+                "content-scaling" => vec![
+                    root.join("plugins").join("coa-content-scaling").join("coa-content-scaling.dll"),
+                    root.join("plugins").join("coa-content-scaling.dll"),
+                ],
+                "companions" => vec![
+                    root.join("plugins").join("coa-playerbots").join("coa-playerbots.dll"),
+                    root.join("plugins").join("coa-playerbots.dll"),
+                    root.join("plugins").join("mod-coa-playerbots.dll"),
+                ],
+                "playerbots" => vec![
+                    root.join("plugins").join("mod-playerbots").join("mod-playerbots.dll"),
+                    root.join("plugins").join("squid-playerbots").join("squid-playerbots.dll"),
+                    root.join("plugins").join("mod-playerbots.dll"),
+                ],
+                _ => Vec::new(),
+            };
+
+            let mut dll_candidates = vec![
                 root.join("plugins").join(format!("{}.dll", e.id)),
                 root.join("plugins").join(format!("{}.dll", e.id.replace('-', "_"))),
                 root.join("plugins").join(format!("coa-{}.dll", e.id)),
@@ -273,14 +291,12 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 root.join("plugins").join(format!("coa-{}", e.id)).join(format!("coa-{}.dll", e.id)),
                 root.join("plugins").join(format!("mod-{}", e.id)).join(format!("mod-{}.dll", e.id)),
                 root.join("plugins").join(format!("mod-coa-{}", e.id)).join(format!("mod-coa-{}.dll", e.id)),
-                // Special alias subdirectories
-                root.join("plugins").join("coa-content-scaling").join("coa-content-scaling.dll"),
-                root.join("plugins").join("coa-playerbots").join("coa-playerbots.dll"),
                 // .manager/plugins checks
                 root.join(".manager/plugins").join(format!("{}.dll", e.id)),
                 root.join(".manager/plugins").join(format!("coa-{}.dll", e.id)),
                 root.join(".manager/plugins").join(format!("mod-coa-{}.dll", e.id)),
             ];
+            dll_candidates.extend(alias_dlls);
             let dll_present = dll_candidates.iter().any(|p| p.is_file());
             let is_dynamic = plugin_entry.is_some() || dll_present;
 
@@ -427,7 +443,16 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     // Also include installed dynamic plugins from plugin_reg that aren't already in views
     if let Some(ref reg) = plugin_reg {
         for (plugin_id, plugin_entry) in &reg.plugins {
-            if !views.iter().any(|v| v.id == *plugin_id) {
+            let is_already_represented = views.iter().any(|v| {
+                v.id == *plugin_id
+                    || format!("coa-{}", v.id) == *plugin_id
+                    || format!("mod-coa-{}", v.id) == *plugin_id
+                    || format!("mod-{}", v.id) == *plugin_id
+                    || (v.id == "content-scaling" && matches!(plugin_id.as_str(), "coa-content-scaling" | "mod-coa-content-scaling"))
+                    || (v.id == "companions" && matches!(plugin_id.as_str(), "coa-playerbots" | "mod-coa-playerbots"))
+                    || (v.id == "playerbots" && matches!(plugin_id.as_str(), "squid-playerbots" | "mod-playerbots"))
+            });
+            if !is_already_represented {
                 let mut display_name = if let Ok(meta) = crate::plugins::load_store_metadata(root, plugin_id, &plugin_entry.sha256) {
                     meta.name
                 } else {
