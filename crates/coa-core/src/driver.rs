@@ -233,6 +233,10 @@ fn run_inner_mode(
         recover_world_for_forced_stop(&root)?;
     }
     let mut cmd = Command::new(&python);
+    if validating_update {
+        // Isolated startup must use the port from its temporary auth config.
+        cmd.env_remove("AC_REALM_SERVER_PORT");
+    }
     cmd.arg("-B")
         .arg("-c")
         .arg(LAUNCH_SCRIPT)

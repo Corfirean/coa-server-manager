@@ -36,7 +36,8 @@
       "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear можно включить при активных SQUID bots",
       "Update validation keeps MySQL running between compatible checks": "При проверке обновления MySQL продолжает работать между совместимыми проверками",
       "Choose normal logs, errors only or no server logs in maintenance settings": "Выбирайте обычные логи, только ошибки или отключение логов в настройках обслуживания",
-      "Diagnostic exports include launcher stages and lock owner records": "В архив диагностики входят этапы лаунчера и записи о владельцах блокировок"
+      "Diagnostic exports include launcher stages and lock owner records": "В архив диагностики входят этапы лаунчера и записи о владельцах блокировок",
+      "Update and recovery checks use the temporary login port even with a Windows override": "Проверка обновления и восстановления использует временный порт входа даже при переопределении в Windows"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -74,7 +75,8 @@
       "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear lässt sich bei aktiven SQUID-Bots einschalten",
       "Update validation keeps MySQL running between compatible checks": "Bei der Update-Validierung bleibt MySQL zwischen kompatiblen Prüfungen aktiv",
       "Choose normal logs, errors only or no server logs in maintenance settings": "In den Wartungseinstellungen normale Protokolle, nur Fehler oder keine Serverprotokolle wählen",
-      "Diagnostic exports include launcher stages and lock owner records": "Diagnoseexporte enthalten Launcher-Schritte und aufgezeichnete Sperrbesitzer"
+      "Diagnostic exports include launcher stages and lock owner records": "Diagnoseexporte enthalten Launcher-Schritte und aufgezeichnete Sperrbesitzer",
+      "Update and recovery checks use the temporary login port even with a Windows override": "Update- und Wiederherstellungsprüfungen verwenden den temporären Anmeldeport auch bei einer Windows-Vorgabe"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -112,7 +114,8 @@
       "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear peut être activé lorsque les bots SQUID sont actifs",
       "Update validation keeps MySQL running between compatible checks": "La validation des mises à jour garde MySQL actif entre les vérifications compatibles",
       "Choose normal logs, errors only or no server logs in maintenance settings": "Choisissez les journaux normaux, les erreurs uniquement ou aucun journal dans les paramètres de maintenance",
-      "Diagnostic exports include launcher stages and lock owner records": "Les exports de diagnostic incluent les étapes de lancement et les propriétaires des verrous"
+      "Diagnostic exports include launcher stages and lock owner records": "Les exports de diagnostic incluent les étapes de lancement et les propriétaires des verrous",
+      "Update and recovery checks use the temporary login port even with a Windows override": "Les contrôles de mise à jour et de restauration utilisent le port de connexion temporaire même si Windows en impose un autre"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -150,7 +153,8 @@
       "Dungeon Clear can be enabled when SQUID bots are active": "Dungeon Clear se puede activar cuando los bots SQUID están activos",
       "Update validation keeps MySQL running between compatible checks": "La validación de actualizaciones mantiene MySQL activo entre comprobaciones compatibles",
       "Choose normal logs, errors only or no server logs in maintenance settings": "Elige registros normales, solo errores o ningún registro en los ajustes de mantenimiento",
-      "Diagnostic exports include launcher stages and lock owner records": "Los archivos de diagnóstico incluyen las etapas del lanzador y los propietarios de bloqueos"
+      "Diagnostic exports include launcher stages and lock owner records": "Los archivos de diagnóstico incluyen las etapas del lanzador y los propietarios de bloqueos",
+      "Update and recovery checks use the temporary login port even with a Windows override": "Las comprobaciones de actualización y recuperación usan el puerto temporal de acceso aunque Windows indique otro"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -188,7 +192,8 @@
       "Dungeon Clear can be enabled when SQUID bots are active": "启用 SQUID 机器人后即可开启 Dungeon Clear",
       "Update validation keeps MySQL running between compatible checks": "更新验证会在兼容的检查步骤之间保持 MySQL 运行",
       "Choose normal logs, errors only or no server logs in maintenance settings": "在维护设置中选择普通日志、仅错误或关闭服务器日志",
-      "Diagnostic exports include launcher stages and lock owner records": "诊断导出包含启动器阶段和锁所属进程记录"
+      "Diagnostic exports include launcher stages and lock owner records": "诊断导出包含启动器阶段和锁所属进程记录",
+      "Update and recovery checks use the temporary login port even with a Windows override": "即使 Windows 指定了其他端口，更新和恢复检查也会使用临时登录端口"
     }
   },
   "server": {
@@ -222,7 +227,7 @@
       "Imported 40 upstream commits with class, item and Pale Reach quest fixes, optional account-wide friends, and corrected Vanity purchases": "Включены 40 изменений апстрима: исправления классов, предметов и заданий Pale Reach, необязательные друзья на весь аккаунт и исправленные покупки Vanity",
       "Server includes newer upstream class, quest and dungeon updates": "Сервер включает новые обновления классов, заданий и подземелий из апстрима",
       "Dungeon scaling preserves the level differences between creatures": "Масштабирование подземелий сохраняет разницу уровней между существами",
-      "Normal Classic dungeons retain their authored damage at full party size": "Обычные подземелья классики сохраняют исходный урон при полной группе",
+      "Normal Classic dungeons retain their authored damage at full party size": "В обычных классических подземельях урон при полной группе соответствует исходной настройке",
       "Interactive World Map displays allied bots, guild tasks and events": "Интерактивная карта мира показывает союзных ботов, задания гильдии и события",
       "Database startup allows time for slower hard drives": "Запуск базы данных допускает более долгое ожидание на медленных дисках",
       "Option to make low-health runners walk": "Добавлена возможность замедлить убегающих существ с низким здоровьем до шага",
@@ -237,7 +242,9 @@
       "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear доступен как дополнительный модуль для SQUID bots",
       "Server validation skips creating and logging in SQUID bots": "При проверке сервера аккаунты SQUID bots не создаются и боты не входят в мир",
       "Startup and shutdown keep bounded diagnostics of launcher stages": "При запуске и остановке сохраняется ограниченная по объёму диагностика этапов лаунчера",
-      "Database shutdown succeeds when MySQL closes its connection before replying": "Остановка базы завершается успешно, если MySQL закрыл соединение до отправки ответа"
+      "Database shutdown succeeds when MySQL closes its connection before replying": "Остановка базы завершается успешно, если MySQL закрыл соединение до отправки ответа",
+      "Server startup waits for ports that Windows is still releasing": "При запуске сервер ждёт, пока Windows освободит порт",
+      "Companions avoid repeating unreachable routes in the open world": "В открытом мире спутники перестают повторять непроходимые маршруты"
     },
     "de": {
       "Restrict new characters by custom race without changing existing characters": "Neue Charaktere nach zusätzlichem Volk beschränken, ohne bestehende Charaktere zu ändern",
@@ -269,7 +276,7 @@
       "Imported 40 upstream commits with class, item and Pale Reach quest fixes, optional account-wide friends, and corrected Vanity purchases": "40 Upstream-Änderungen mit Klassen-, Gegenstands- und Pale-Reach-Questkorrekturen, optionalen accountweiten Freunden und korrigierten Vanity-Käufen übernommen",
       "Server includes newer upstream class, quest and dungeon updates": "Der Server enthält neuere Upstream-Updates für Klassen, Quests und Dungeons",
       "Dungeon scaling preserves the level differences between creatures": "Die Dungeon-Skalierung erhält die Stufenunterschiede zwischen Kreaturen",
-      "Normal Classic dungeons retain their authored damage at full party size": "Normale Classic-Dungeons behalten bei voller Gruppe ihren ursprünglichen Schaden",
+      "Normal Classic dungeons retain their authored damage at full party size": "Normale klassische Dungeons behalten bei voller Gruppe ihren vorgesehenen Schaden",
       "Interactive World Map displays allied bots, guild tasks and events": "Die interaktive Weltkarte zeigt verbündete Bots, Gildenaufgaben und Ereignisse",
       "Database startup allows time for slower hard drives": "Der Datenbankstart lässt langsameren Festplatten mehr Zeit",
       "Option to make low-health runners walk": "Fliehende Kreaturen mit wenig Gesundheit können im Schritttempo laufen",
@@ -284,7 +291,9 @@
       "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear ist als optionale Erweiterung für SQUID-Bots verfügbar",
       "Server validation skips creating and logging in SQUID bots": "Die Servervalidierung überspringt das Erstellen und Anmelden von SQUID-Bots",
       "Startup and shutdown keep bounded diagnostics of launcher stages": "Start und Herunterfahren speichern begrenzte Diagnosedaten der Launcher-Schritte",
-      "Database shutdown succeeds when MySQL closes its connection before replying": "Das Herunterfahren der Datenbank gelingt auch, wenn MySQL die Verbindung vor der Antwort schließt"
+      "Database shutdown succeeds when MySQL closes its connection before replying": "Das Herunterfahren der Datenbank gelingt auch, wenn MySQL die Verbindung vor der Antwort schließt",
+      "Server startup waits for ports that Windows is still releasing": "Beim Start wartet der Server, bis Windows den Port freigibt",
+      "Companions avoid repeating unreachable routes in the open world": "Gefährten meiden in der offenen Welt wiederholte Versuche auf unpassierbaren Routen"
     },
     "fr": {
       "Restrict new characters by custom race without changing existing characters": "Restreignez les races supplémentaires des nouveaux personnages sans modifier les personnages existants",
@@ -316,7 +325,7 @@
       "Imported 40 upstream commits with class, item and Pale Reach quest fixes, optional account-wide friends, and corrected Vanity purchases": "Intégration de 40 changements amont : classes, objets et quêtes de Pale Reach corrigés, amis de compte facultatifs et achats Vanity corrigés",
       "Server includes newer upstream class, quest and dungeon updates": "Le serveur intègre de nouvelles mises à jour des classes, quêtes et donjons provenant du projet amont",
       "Dungeon scaling preserves the level differences between creatures": "La mise à l’échelle des donjons conserve les écarts de niveau entre les créatures",
-      "Normal Classic dungeons retain their authored damage at full party size": "Les donjons Classic normaux conservent leurs dégâts d’origine avec un groupe complet",
+      "Normal Classic dungeons retain their authored damage at full party size": "Les donjons classiques normaux conservent leurs dégâts prévus pour un groupe complet",
       "Interactive World Map displays allied bots, guild tasks and events": "La carte du monde interactive affiche les bots alliés, les tâches de guilde et les événements",
       "Database startup allows time for slower hard drives": "Le démarrage de la base de données laisse plus de temps aux disques lents",
       "Option to make low-health runners walk": "Une option permet aux créatures affaiblies de fuir en marchant",
@@ -331,7 +340,9 @@
       "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear est disponible comme extension facultative pour les bots SQUID",
       "Server validation skips creating and logging in SQUID bots": "La validation du serveur ignore la création et la connexion des bots SQUID",
       "Startup and shutdown keep bounded diagnostics of launcher stages": "Le démarrage et l’arrêt conservent un diagnostic limité des étapes de lancement",
-      "Database shutdown succeeds when MySQL closes its connection before replying": "L’arrêt de la base réussit même si MySQL ferme la connexion avant de répondre"
+      "Database shutdown succeeds when MySQL closes its connection before replying": "L’arrêt de la base réussit même si MySQL ferme la connexion avant de répondre",
+      "Server startup waits for ports that Windows is still releasing": "Au démarrage, le serveur attend que Windows libère le port",
+      "Companions avoid repeating unreachable routes in the open world": "Les compagnons évitent de reprendre les chemins impraticables en monde ouvert"
     },
     "es": {
       "Restrict new characters by custom race without changing existing characters": "Restringe las razas adicionales de personajes nuevos sin modificar los existentes",
@@ -363,7 +374,7 @@
       "Imported 40 upstream commits with class, item and Pale Reach quest fixes, optional account-wide friends, and corrected Vanity purchases": "Integrados 40 cambios del proyecto original: correcciones de clases, objetos y misiones de Pale Reach, amigos opcionales de toda la cuenta y compras Vanity corregidas",
       "Server includes newer upstream class, quest and dungeon updates": "El servidor incorpora nuevas actualizaciones de clases, misiones y mazmorras del proyecto original",
       "Dungeon scaling preserves the level differences between creatures": "El escalado de las mazmorras conserva las diferencias de nivel entre criaturas",
-      "Normal Classic dungeons retain their authored damage at full party size": "Las mazmorras Classic normales conservan su daño original con un grupo completo",
+      "Normal Classic dungeons retain their authored damage at full party size": "Las mazmorras clásicas normales conservan el daño previsto para un grupo completo",
       "Interactive World Map displays allied bots, guild tasks and events": "El mapa del mundo interactivo muestra bots aliados, tareas de hermandad y eventos",
       "Database startup allows time for slower hard drives": "El inicio de la base de datos permite más tiempo en discos lentos",
       "Option to make low-health runners walk": "Una opción permite que las criaturas con poca salud huyan caminando",
@@ -378,7 +389,9 @@
       "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear está disponible como extensión opcional para los bots SQUID",
       "Server validation skips creating and logging in SQUID bots": "La validación del servidor omite la creación y conexión de bots SQUID",
       "Startup and shutdown keep bounded diagnostics of launcher stages": "El inicio y la parada guardan diagnósticos limitados de las etapas del lanzador",
-      "Database shutdown succeeds when MySQL closes its connection before replying": "La parada de la base de datos se completa aunque MySQL cierre la conexión antes de responder"
+      "Database shutdown succeeds when MySQL closes its connection before replying": "La parada de la base de datos se completa aunque MySQL cierre la conexión antes de responder",
+      "Server startup waits for ports that Windows is still releasing": "Al iniciarse, el servidor espera a que Windows libere el puerto",
+      "Companions avoid repeating unreachable routes in the open world": "Los compañeros evitan repetir rutas intransitables en el mundo abierto"
     },
     "zh": {
       "Restrict new characters by custom race without changing existing characters": "限制新角色可选的自定义种族，不影响现有角色",
@@ -410,7 +423,7 @@
       "Imported 40 upstream commits with class, item and Pale Reach quest fixes, optional account-wide friends, and corrected Vanity purchases": "合入 40 项上游更改：职业、物品及 Pale Reach 任务修复，可选的账号共享好友，以及 Vanity 购买修复",
       "Server includes newer upstream class, quest and dungeon updates": "服务器整合了上游新的职业、任务和地下城更新",
       "Dungeon scaling preserves the level differences between creatures": "地下城缩放保留生物之间的等级差异",
-      "Normal Classic dungeons retain their authored damage at full party size": "普通经典地下城在满员队伍下保留原始伤害",
+      "Normal Classic dungeons retain their authored damage at full party size": "满队时普通经典地下城保留原定的伤害数值",
       "Interactive World Map displays allied bots, guild tasks and events": "交互式世界地图显示友方机器人、公会任务和事件",
       "Database startup allows time for slower hard drives": "数据库启动为较慢的硬盘预留更多等待时间",
       "Option to make low-health runners walk": "新增选项，可让低生命值的逃跑生物改为步行",
@@ -425,7 +438,9 @@
       "Dungeon Clear is available as an optional extension for SQUID bots": "Dungeon Clear 现可作为 SQUID 机器人的可选扩展",
       "Server validation skips creating and logging in SQUID bots": "服务器验证会跳过 SQUID 机器人的创建和登录",
       "Startup and shutdown keep bounded diagnostics of launcher stages": "启动和关闭时会保留大小受限的启动器阶段诊断日志",
-      "Database shutdown succeeds when MySQL closes its connection before replying": "即使 MySQL 在回复前关闭连接，数据库关闭操作也能正确完成"
+      "Database shutdown succeeds when MySQL closes its connection before replying": "即使 MySQL 在回复前关闭连接，数据库关闭操作也能正确完成",
+      "Server startup waits for ports that Windows is still releasing": "服务器启动时会等待 Windows 释放端口",
+      "Companions avoid repeating unreachable routes in the open world": "伙伴在开放世界中会避免反复尝试无法通行的路线"
     }
   }
 }

@@ -2,8 +2,8 @@
 
 The Manager feed is imported from the canonical `changelog/history.json`. The
 server snapshot in this directory is copied from `Corfirean/coa-server-build`
-commit `e91ae8af4e506c9b8461c7eed6731945a34c3ad8`, path
-`changelog/history.json`, on 2026-10-31. Only schema, component, repository and
+commit `902ed8eed3017e3ee8c31e5dc5e4df6f551362bf`, path
+`changelog/history.json`, on 2026-11-03. Only schema, component, repository and
 releases are retained. Do not independently edit historical records here.
 
 At runtime the native read-only command fetches the fixed canonical URL, bounds
