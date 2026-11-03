@@ -161,6 +161,85 @@ fn sha256_of_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+pub const COMPANIONS_SHIMS_CPP: &str = r#"#include "Player.h"
+#include "Unit.h"
+#include "ScriptMgr.h"
+#include "LFGMgr.h"
+#include "SpellAuraEffects.h"
+#include "training/TrainingArenaManager.h"
+#include "world/encounters/WorldEncounterDirector.h"
+
+// Compatibility implementations for internal worldserver symbols not exported in dynamic DLL ABI
+
+bool Player::HasQuestForItem(uint32, uint32, bool, bool*) const { return false; }
+uint32 Player::GetCorpseReclaimDelay(bool) const { return 30; }
+void Player::CastItemUseSpell(Item*, SpellCastTargets const&, uint8, uint32) {}
+
+namespace lfg {
+    uint32 LFGMgr::GetOptions() { return 0; }
+    static LfgLockMap _emptyLocks;
+    LfgLockMap const& LFGMgr::GetLockedDungeons(ObjectGuid) { return _emptyLocks; }
+    uint32 LFGMgr::GetDungeon(ObjectGuid, bool) { return 0; }
+}
+
+bool ScriptMgr::CanAccountCreateCharacter(uint32, uint8, uint8) { return true; }
+int AuraEffect::GetMiscValue() const { return 0; }
+int Unit::CalculateSpellDamage(Unit const*, SpellInfo const*, uint8, int const*) const { return 0; }
+uint32 Unit::SpellDamageBonusDone(Unit*, SpellInfo const*, uint32, DamageEffectType, uint8, float, uint32) { return 0; }
+uint32 Unit::SpellDamageBonusTaken(Unit*, SpellInfo const*, uint32, DamageEffectType, uint32) { return 0; }
+void Unit::SendPlaySpellVisual(uint32) {}
+
+void AddSC_coa_training() {}
+
+namespace CoaTraining {
+    std::atomic<bool> Enabled{false};
+    void Initialize() {}
+    void Command(ChatHandler*, std::string const&) {}
+    void Update(uint32) {}
+    void Shutdown() {}
+    bool Owns(ObjectGuid) { return false; }
+    bool Running(ObjectGuid) { return false; }
+    void RecordDamage(Unit*, Unit*, uint32) {}
+    void RecordHeal(Unit*, Unit*, uint32) {}
+    void RecordPeriodicDamage(Unit*, Unit*, uint32, uint32) {}
+    void RecordSpellDamage(Unit*, Unit*, uint32, uint32, bool) {}
+    void RecordSpellHeal(Unit*, Unit*, uint32, uint32) {}
+    void RecordAura(Unit*, uint32, ObjectGuid, char const*, uint32) {}
+    void BeginDecision(BotAI::CombatContext const&) {}
+    void Candidate(ObjectGuid, uint32, char const*, bool, float, char const*) {}
+    void EndDecision(ObjectGuid, uint32, float, uint32) {}
+    void CastResult(Player*, uint32, uint32, Unit*) {}
+    void RecordKill(Player*, Creature*) {}
+    void InterruptKick(Player*, uint32, Unit*, uint32, char const*, bool) {}
+    void RecordSpellLifecycle(Unit*, ObjectGuid, uint32, char const*, uint32, bool) {}
+}
+
+namespace WorldEncounterDirector {
+    void LoadConfig() {}
+    void Update(uint32) {}
+    bool UpdateBot(Player*, BrainState&, WorldPersona const&, uint32) { return false; }
+    bool IsBotInEncounter(ObjectGuid) { return false; }
+    bool IsEncounterTemporaryGroup(uint32) { return false; }
+    void OnBotSuspended(Player*, char const*) {}
+    void OnParticipantDeath(Unit*, Unit*) {}
+    void OnPvPKill(ObjectGuid, ObjectGuid) {}
+    void OnPlayerLogout(ObjectGuid) {}
+    void ForgetBot(ObjectGuid) {}
+    void ResetAll() {}
+    std::string DescribeBot(ObjectGuid) { return ""; }
+    std::string DescribeStats() { return ""; }
+    std::string DescribeActiveList() { return ""; }
+    std::string DescribeBountyAndNemesis(ObjectGuid) { return ""; }
+    bool ValidateEncounterCleanup(ObjectGuid, std::string&) { return true; }
+    void SetDebugLogging(bool) {}
+    bool IsDebugLogging() { return false; }
+    void ResetCooldowns(ObjectGuid) {}
+    bool ForceStartEncounter(EncounterType, Player*, std::string&) { return false; }
+    bool StopEncounter(uint64, std::string&) { return false; }
+    uint32 StopAllEncounters() { return 0; }
+}
+"#;
+
 /// Recursively collects all files with specified extension, skipping non-module directories.
 fn collect_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut results = Vec::new();
@@ -493,8 +572,15 @@ pub fn build_module_from_source(
     let mut staged_cpp_paths = Vec::new();
     staged_cpp_paths.push(clean_path(&adapter_path));
 
+    let is_companions = module_id == "companions";
+
     for cpp in &upstream_cpps {
         let rel = cpp.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(cpp.file_name().unwrap()));
+        let rel_normalized = rel.to_string_lossy().replace('\\', "/");
+        if is_companions && (rel_normalized.contains("/training/") || rel_normalized.contains("/world/encounters/")) {
+            continue;
+        }
+
         let dest = staging_src.join(rel);
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)?;
@@ -518,6 +604,12 @@ pub fn build_module_from_source(
         }
 
         staged_cpp_paths.push(clean_path(&dest));
+    }
+
+    if is_companions {
+        let shims_path = staging_src.join("companions_shims.cpp");
+        fs::write(&shims_path, COMPANIONS_SHIMS_CPP)?;
+        staged_cpp_paths.push(clean_path(&shims_path));
     }
 
     // Also copy all headers (.h and .hpp) preserving directory structure
@@ -892,6 +984,48 @@ mod tests {
         assert_eq!(machine, "AMD64 (x86_64)");
         assert!(exports.iter().any(|e| e.decorated_name == "CoaPluginQuery"));
 
+        let _ = fs::remove_dir_all(&staging);
+    }
+
+    #[test]
+    fn test_controlled_build_companions() {
+        let repo_dir = Path::new("C:/Users/Dion/AppData/Local/CSMModulesPreview/github_cache/github/Corfirean/mod-coa-playerbots/38c02202f01708ab5600931c9e3e2ee02a33e0ed");
+        let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
+
+        if !repo_dir.exists() || !realm_root.join("worldserver.exe").is_file() {
+            return;
+        }
+
+        let staging = std::env::temp_dir().join("test_staging_companions");
+        let res = build_module_from_source(repo_dir, realm_root, Some(&staging), None)
+            .unwrap_or_else(|e| panic!("Build failed for mod-coa-playerbots: {}", e));
+
+        assert!(res.success, "Build of companions must succeed: {:?}", res.errors);
+        assert_eq!(res.module_id, "companions");
+        assert!(res.dll_sha256.is_some());
+        let dll_p = PathBuf::from(res.dll_path.unwrap());
+        assert!(dll_p.is_file(), "mod-coa-playerbots DLL must exist");
+        let _ = fs::remove_dir_all(&staging);
+    }
+
+    #[test]
+    fn test_controlled_build_squid_playerbots() {
+        let repo_dir = Path::new("C:/Users/Dion/AppData/Local/CSMModulesPreview/github_cache/github/Zyth45/mod-playerbots/3f916d45a4b55ce919bf69fee4a4ec75be12cffe");
+        let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
+
+        if !repo_dir.exists() || !realm_root.join("worldserver.exe").is_file() {
+            return;
+        }
+
+        let staging = std::env::temp_dir().join("test_staging_squid_playerbots");
+        let res = build_module_from_source(repo_dir, realm_root, Some(&staging), None)
+            .unwrap_or_else(|e| panic!("Build failed for Zyth45/mod-playerbots: {}", e));
+
+        assert!(res.success, "Build of squid playerbots must succeed: {:?}", res.errors);
+        assert_eq!(res.module_id, "playerbots");
+        assert!(res.dll_sha256.is_some());
+        let dll_p = PathBuf::from(res.dll_path.unwrap());
+        assert!(dll_p.is_file(), "mod-playerbots DLL must exist");
         let _ = fs::remove_dir_all(&staging);
     }
 }

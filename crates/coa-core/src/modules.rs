@@ -309,7 +309,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     || root.join("Data/ruRU/patch-ruRU-4.mpq").is_file()
                     || root.join("Data/enGB/patch-enGB-4.mpq").is_file()
                     || root.join("Data/enUS/patch-enUS-4.mpq").is_file();
-                (ComponentType::ClientPatch, has_patch, true)
+                (ComponentType::ClientPatch, has_patch, false)
             } else if matches!(e.id.as_str(), "tbc-content" | "wotlk-content") {
                 let is_scaling_installed = {
                     let se_plugin = plugin_reg.as_ref().and_then(|r| {
@@ -326,13 +326,10 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                         || root.join(".manager/plugins").join("content-scaling.dll").is_file()
                         || root.join(".manager/plugins").join("coa-content-scaling.dll").is_file()
                         || root.join(".manager/plugins").join("mod-coa-content-scaling.dll").is_file();
-                    se_plugin.is_some() || se_dll || (!is_modular_host && installed_commits.contains_key("scaling"))
+                    se_plugin.is_some() || se_dll || (!is_modular_host && (conf.is_file() || dist.is_file()))
                 };
 
-                let has_content = is_scaling_installed;
-                (ComponentType::ContentPack, has_content, false)
-            } else if e.id == "client-compat" {
-                (ComponentType::LogicalFeature, true, false)
+                (ComponentType::ContentPack, is_scaling_installed, false)
             } else if !is_modular_host {
                 let key = match e.id.as_str() {
                     "companions" => "bots",
@@ -343,7 +340,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 let has_files = conf.is_file() || dist.is_file() || installed_commits.contains_key(key);
                 (ComponentType::CoreEmbedded, has_files, false)
             } else {
-                // In a modular host, if dynamic DLL is not present, it is NOT installed!
+                // In a modular host (with plugins/ directory or plugins.json), if dynamic DLL is not present, it is NOT installed!
                 (ComponentType::DynamicDll, false, false)
             };
 
@@ -358,7 +355,17 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             } else if let Some(p) = plugin_entry {
                 p.enabled
             } else if matches!(e.id.as_str(), "companions" | "playerbots") {
-                bot_enabled(root, &e).unwrap_or(true)
+                let comp_entry = cat.iter().find(|ce| ce.id == "companions");
+                let comp_on = comp_entry.map(|ce| bot_enabled(root, ce).unwrap_or(false)).unwrap_or(false);
+                if e.id == "playerbots" {
+                    if comp_on {
+                        false
+                    } else {
+                        bot_enabled(root, &e).unwrap_or(false)
+                    }
+                } else {
+                    bot_enabled(root, &e).unwrap_or(true)
+                }
             } else if matches!(e.id.as_str(), "tbc-content" | "wotlk-content") {
                 let sc_entry = cat.iter().find(|entry| entry.id == "content-scaling");
                 let sc_conf = sc_entry.map(|se| dir(root).join(conf_name(root, se)));
@@ -443,7 +450,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     // Also include installed dynamic plugins from plugin_reg that aren't already in views
     if let Some(ref reg) = plugin_reg {
         for (plugin_id, plugin_entry) in &reg.plugins {
-            let is_already_represented = views.iter().any(|v| {
+            let matched_idx = views.iter().position(|v| {
                 v.id == *plugin_id
                     || format!("coa-{}", v.id) == *plugin_id
                     || format!("mod-coa-{}", v.id) == *plugin_id
@@ -451,8 +458,24 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     || (v.id == "content-scaling" && matches!(plugin_id.as_str(), "coa-content-scaling" | "mod-coa-content-scaling"))
                     || (v.id == "companions" && matches!(plugin_id.as_str(), "coa-playerbots" | "mod-coa-playerbots"))
                     || (v.id == "playerbots" && matches!(plugin_id.as_str(), "squid-playerbots" | "mod-playerbots"))
+                    || (v.id == "ah-bot" && matches!(plugin_id.as_str(), "mod_ahbot" | "ahbot"))
+                    || (v.id == "npc-buffer" && (plugin_id.contains("buffer") || plugin_entry.conf_files.iter().any(|c| c.contains("npc_buffer"))))
+                    || (v.id == "npc-enchanter" && (plugin_id.contains("enchanter") || plugin_entry.conf_files.iter().any(|c| c.contains("enchanter"))))
+                    || (v.id == "congrats-on-level" && (plugin_id.contains("congrats") || plugin_entry.conf_files.iter().any(|c| c.contains("congrats"))))
+                    || (v.id == "reward-played-time" && (plugin_id.contains("reward") || plugin_entry.conf_files.iter().any(|c| c.contains("reward"))))
             });
-            if !is_already_represented {
+
+            if let Some(idx) = matched_idx {
+                // Update existing canonical module entry instead of duplicating
+                views[idx].installed = true;
+                views[idx].enabled = plugin_entry.enabled;
+                views[idx].version = Some(plugin_entry.version.clone());
+                views[idx].component_type = ComponentType::DynamicDll;
+                views[idx].can_remove = true;
+                continue;
+            }
+
+            if true {
                 let mut display_name = if let Ok(meta) = crate::plugins::load_store_metadata(root, plugin_id, &plugin_entry.sha256) {
                     meta.name
                 } else {

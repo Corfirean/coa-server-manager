@@ -889,16 +889,41 @@ export function ModulesPage({
       setBuildLogs(res.log_output);
       if (res.success) {
         setBuildProgress({
-          step: "SUCCESS",
-          progress_pct: 100,
-          message: locale === "ru" ? "Сборка завершена успешно" : "Build completed successfully",
+          step: "INSTALLING",
+          progress_pct: 95,
+          message: locale === "ru" ? "Установка скомпилированного модуля..." : "Installing compiled module into realm...",
           elapsedSeconds: (Date.now() - startTime) / 1000,
         });
-        setNotification(
-          locale === "ru"
-            ? `Сборка успешно завершена! DLL '${res.display_name || res.module_id}' квалифицирована: ${res.dll_sha256?.substring(0, 16)}...`
-            : `Build succeeded! DLL '${res.display_name || res.module_id}' qualified: ${res.dll_sha256?.substring(0, 16)}...`
-        );
+
+        // Automatically install if module doesn't require schema changes
+        let autoInstalled = false;
+        try {
+          await api.previewInstallModule(
+            serverId,
+            res.module_id,
+            res.version,
+            false
+          );
+          setNotification(
+            locale === "ru"
+              ? `Модуль '${res.display_name || res.module_id}' успешно собран и установлен!`
+              : `Module '${res.display_name || res.module_id}' successfully built and installed!`
+          );
+          await load();
+          setActiveTab("installed");
+          onChanged?.();
+          autoInstalled = true;
+        } catch {
+          // If auto-install requires manual SQL confirmation, keep build results visible
+        }
+
+        if (!autoInstalled) {
+          setNotification(
+            locale === "ru"
+              ? `Сборка успешно завершена! DLL '${res.display_name || res.module_id}' квалифицирована: ${res.dll_sha256?.substring(0, 16)}...`
+              : `Build succeeded! DLL '${res.display_name || res.module_id}' qualified: ${res.dll_sha256?.substring(0, 16)}...`
+          );
+        }
       } else {
         setAnalysisError(
           locale === "ru"
@@ -913,6 +938,37 @@ export function ModulesPage({
     } finally {
       clearInterval(timer);
       unlisten?.();
+      setBuilding(false);
+    }
+  }
+
+  async function handleBuildAndInstall(repoUrl: string) {
+    const url = repoUrl.trim();
+    if (!url) return;
+    setGithubUrl(url);
+    setActiveTab("builds");
+    setBuilding(true);
+    setAnalysisError(null);
+    setBuildResult(null);
+    setBuildLogs([
+      `[CSM Controlled Build Engine] Initializing build pipeline...`,
+      `Target repository: ${url}`,
+      `Cloning and inspecting C++ sources...`,
+    ]);
+    setBuildProgress({
+      step: "ANALYZING",
+      progress_pct: 15,
+      message: locale === "ru" ? "Интроспекция репозитория..." : "Inspecting module repository...",
+      elapsedSeconds: 0,
+    });
+    try {
+      const rep = await api.analyzeGithubModule(url, serverId);
+      setReport(rep);
+      await startControlledBuild(rep.repository_path);
+    } catch (e: unknown) {
+      const errText = formatErrorMessage(e, locale);
+      setAnalysisError(errText);
+      setBuildLogs((prev) => [...prev, `[FATAL ERROR]: ${errText}`]);
       setBuilding(false);
     }
   }
@@ -1261,11 +1317,7 @@ export function ModulesPage({
             <Button
               size="sm"
               variant="primary"
-              onClick={async () => {
-                if (!githubUrl.trim()) return;
-                await runAnalysis();
-                await startControlledBuild();
-              }}
+              onClick={() => void handleBuildAndInstall(githubUrl)}
               disabled={building || analyzing || !githubUrl.trim()}
               className="text-xs h-8 px-3.5 font-medium"
             >
@@ -1316,6 +1368,27 @@ export function ModulesPage({
             <button onClick={() => setAnalysisError(null)} className="text-muted hover:text-ink">
               <X className="h-3.5 w-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* Global Live Build Progress Bar */}
+        {building && buildProgress && (
+          <div className="mt-3 border-t border-line/60 pt-3 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="flex items-center gap-2 font-medium text-ink">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
+                <span>{buildProgress.message || buildProgress.step}</span>
+              </span>
+              <span className="font-mono font-semibold text-gold">
+                {buildProgress.progress_pct}% ({buildProgress.elapsedSeconds.toFixed(1)}s)
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-black/60 border border-line/40">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 transition-all duration-300 ease-out"
+                style={{ width: `${Math.max(5, Math.min(100, buildProgress.progress_pct))}%` }}
+              />
+            </div>
           </div>
         )}
       </Card>
@@ -1555,114 +1628,23 @@ export function ModulesPage({
                       </p>
                     )}
 
-                    {/* Custom Races Client Patch status & actions */}
-                    {m.id === "custom-races" && (
-                      <div className="w-full">
-                        <p className="text-xs text-muted">
-                          {locale === "ru"
-                            ? "Установленная версия патча клиента: "
-                            : "Installed client patch version: "}
-                          {racesPatchStatus?.version ?? (locale === "ru" ? "не записана" : "not recorded")}
-                        </p>
-                        {racesInstalling && racesProgress ? (
-                          <div className="rounded-lg border border-gold/30 bg-gold/5 p-3 mt-2">
-                            <div className="flex items-center justify-between gap-3 text-xs">
-                              <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
-                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gold" />
-                                <span className="truncate">{racesProgress.step}</span>
-                              </span>
-                              <span className="shrink-0 font-mono text-xs font-semibold text-gold">
-                                {Math.round(racesProgress.percent * 100)}%
-                              </span>
-                            </div>
-                            <div
-                              className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-white/10"
-                              role="progressbar"
-                              aria-valuenow={Math.round(racesProgress.percent * 100)}
-                              aria-valuemin={0}
-                              aria-valuemax={100}
-                            >
-                              <div
-                                className="h-full rounded-full bg-gold transition-all duration-300"
-                                style={{ width: `${Math.round(racesProgress.percent * 100)}%` }}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/40 pt-3 text-xs mt-2">
-                            <div className="flex items-center gap-2">
-                              {racesPatchStatus?.state === "enabled" && (
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-                                  {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
-                                </span>
-                              )}
-                              {racesPatchStatus?.state === "disabled" && (
-                                <span
-                                  className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted border border-white/15"
-                                  title="MPQ files disabled with .disabled suffix"
-                                >
-                                  <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-                                  {locale === "ru"
-                                    ? "Патч клиента: Отключен (.disabled)"
-                                    : "Client Patch: Disabled (.disabled)"}
-                                </span>
-                              )}
-                              {racesPatchStatus?.state === "not-installed" && (
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                                  {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
-                                </span>
-                              )}
-                              {racesPatchStatus?.state === "partially-installed" && (
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                                  {locale === "ru"
-                                    ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`
-                                    : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
-                                disabled={toggling !== null || racesInstalling || !racesPatchStatus?.clientPath}
-                                onClick={() => void installClientPatch()}
-                              >
-                                {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                                {racesPatchStatus?.state === "not-installed"
-                                  ? locale === "ru"
-                                    ? "Установить патч клиента"
-                                    : "Install Client Patch"
-                                  : locale === "ru"
-                                  ? "Восстановить патч клиента"
-                                  : "Repair Client Patch"}
-                              </Button>
-                              {racesPatchStatus && racesPatchStatus.state !== "not-installed" && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  disabled={toggling !== null || racesInstalling}
-                                  onClick={() => void uninstallClientPatch()}
-                                  className="text-xs"
-                                >
-                                  {locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}
-                                </Button>
-                              )}
-                            </div>
-                            <p className="w-full text-[11px] text-muted">
-                              {locale === "ru"
-                                ? m.enabled
-                                  ? "После установки патч будет включён."
-                                  : "После установки патч останется отключённым: модуль сервера выключен или отсутствует."
-                                : m.enabled
-                                ? "The patch will be enabled after installation."
-                                : "The patch will stay disabled after installation: the server module is off or missing."}
-                            </p>
-                          </div>
-                        )}
+                    {/* Custom Races Client Patch status badge */}
+                    {m.id === "custom-races" && racesPatchStatus && (
+                      <div className="text-[11px] text-muted flex items-center gap-1.5">
+                        <span className={cn(
+                          "h-2 w-2 rounded-full",
+                          racesPatchStatus.state === "enabled" ? "bg-ok" : racesPatchStatus.state === "disabled" ? "bg-muted" : "bg-warn"
+                        )} />
+                        <span>
+                          {locale === "ru" ? "Патч клиента: " : "Client patch: "}
+                          <strong>
+                            {racesPatchStatus.state === "enabled"
+                              ? (locale === "ru" ? "Активен" : "Active")
+                              : racesPatchStatus.state === "disabled"
+                              ? (locale === "ru" ? "Отключен" : "Disabled")
+                              : (locale === "ru" ? "Не установлен" : "Not installed")}
+                          </strong>
+                        </span>
                       </div>
                     )}
 
@@ -1676,7 +1658,7 @@ export function ModulesPage({
                         >
                           <GithubMark className="h-3.5 w-3.5" />
                         </button>
-                        {!m.page && m.installed && m.has_settings && m.status !== "soon" && (
+                        {!m.page && m.installed && (m.has_settings || m.id === "custom-races") && m.status !== "soon" && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -1730,12 +1712,116 @@ export function ModulesPage({
                           onRegisterGuard={setGuard}
                         />
                         {selectedModule.id === "custom-races" && (
-                          <RaceAvailabilitySettings
-                            serverId={serverId}
-                            blocked={racesInstalling || toggling !== null}
-                            onSaved={() => setChanged(true)}
-                            onRegisterGuard={setRacesGuard}
-                          />
+                          <div className="space-y-4 border-t border-line/40 pt-4 mt-4">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-semibold uppercase tracking-wider text-ink flex items-center gap-2">
+                                <Download className="h-4 w-4 text-gold" />
+                                {locale === "ru" ? "Управление патчем клиента MPQ" : "Client MPQ Patch Management"}
+                              </h4>
+                              <span className="text-xs text-muted">
+                                {locale === "ru" ? "Версия: " : "Version: "}
+                                {racesPatchStatus?.version ?? (locale === "ru" ? "не записана" : "not recorded")}
+                              </span>
+                            </div>
+
+                            {racesInstalling && racesProgress ? (
+                              <div className="rounded-lg border border-gold/30 bg-gold/5 p-3">
+                                <div className="flex items-center justify-between gap-3 text-xs">
+                                  <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
+                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-gold" />
+                                    <span className="truncate">{racesProgress.step}</span>
+                                  </span>
+                                  <span className="shrink-0 font-mono text-xs font-semibold text-gold">
+                                    {Math.round(racesProgress.percent * 100)}%
+                                  </span>
+                                </div>
+                                <div
+                                  className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-white/10"
+                                  role="progressbar"
+                                  aria-valuenow={Math.round(racesProgress.percent * 100)}
+                                  aria-valuemin={0}
+                                  aria-valuemax={100}
+                                >
+                                  <div
+                                    className="h-full rounded-full bg-gold transition-all duration-300"
+                                    style={{ width: `${Math.round(racesProgress.percent * 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center justify-between gap-2 border border-line/40 rounded-lg p-3 bg-black/20 text-xs">
+                                <div className="flex items-center gap-2">
+                                  {racesPatchStatus?.state === "enabled" && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+                                      {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
+                                    </span>
+                                  )}
+                                  {racesPatchStatus?.state === "disabled" && (
+                                    <span
+                                      className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted border border-white/15"
+                                      title="MPQ files disabled with .disabled suffix"
+                                    >
+                                      <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+                                      {locale === "ru"
+                                        ? "Патч клиента: Отключен (.disabled)"
+                                        : "Client Patch: Disabled (.disabled)"}
+                                    </span>
+                                  )}
+                                  {racesPatchStatus?.state === "not-installed" && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                                      {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
+                                    </span>
+                                  )}
+                                  {racesPatchStatus?.state === "partially-installed" && (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                                      {locale === "ru"
+                                        ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`
+                                        : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="h-7 px-3 text-xs border border-gold/40 hover:border-gold"
+                                    disabled={toggling !== null || racesInstalling || !racesPatchStatus?.clientPath}
+                                    onClick={() => void installClientPatch()}
+                                  >
+                                    {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                    {racesPatchStatus?.state === "not-installed"
+                                      ? locale === "ru"
+                                        ? "Установить патч клиента"
+                                        : "Install Client Patch"
+                                      : locale === "ru"
+                                      ? "Восстановить патч клиента"
+                                      : "Repair Client Patch"}
+                                  </Button>
+                                  {racesPatchStatus && racesPatchStatus.state !== "not-installed" && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={toggling !== null || racesInstalling}
+                                      onClick={() => void uninstallClientPatch()}
+                                      className="text-xs"
+                                    >
+                                      {locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            <RaceAvailabilitySettings
+                              serverId={serverId}
+                              blocked={racesInstalling || toggling !== null}
+                              onSaved={() => setChanged(true)}
+                              onRegisterGuard={setRacesGuard}
+                            />
+                          </div>
                         )}
                       </SettingsPanel>
                     )}
@@ -2105,12 +2191,8 @@ export function ModulesPage({
                             <Button
                               size="sm"
                               variant="primary"
-                              onClick={async () => {
-                                setGithubUrl(item.repo);
-                                setActiveTab("builds");
-                                await runAnalysis(item.repo);
-                                await startControlledBuild(item.repo);
-                              }}
+                              onClick={() => void handleBuildAndInstall(item.repo)}
+                              disabled={building}
                               className="text-xs h-7 px-3 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-black font-medium"
                             >
                               <Hammer className="h-3.5 w-3.5 mr-1" />
@@ -2277,11 +2359,8 @@ export function ModulesPage({
                           <Button
                             size="sm"
                             variant="primary"
-                            onClick={async () => {
-                              setGithubUrl(item.html_url);
-                              await runAnalysis(item.html_url);
-                              await startControlledBuild(item.html_url);
-                            }}
+                            onClick={() => void handleBuildAndInstall(item.html_url)}
+                            disabled={building}
                             className={cn(
                               "text-xs h-7 px-3",
                               isIncompatible && "bg-warn/80 hover:bg-warn text-black"
@@ -2398,9 +2477,7 @@ export function ModulesPage({
                             setError(asUiError(e));
                           }
                         } else {
-                          setGithubUrl(repo);
-                          await runAnalysis(repo);
-                          await startControlledBuild(repo);
+                          void handleBuildAndInstall(repo);
                         }
                       }}
                     >
@@ -2530,13 +2607,12 @@ export function ModulesPage({
                       <Button
                         size="sm"
                         variant="primary"
-                        onClick={async () => {
+                        onClick={() => {
                           const url = selectedPublicModule.html_url;
                           setSelectedPublicModule(null);
-                          setGithubUrl(url);
-                          await runAnalysis(url);
-                          await startControlledBuild(url);
+                          void handleBuildAndInstall(url);
                         }}
+                        disabled={building}
                         className={cn(
                           "text-xs",
                           selectedPublicModule.coa_status === "Incompatible" && "bg-warn/80 hover:bg-warn text-black"
