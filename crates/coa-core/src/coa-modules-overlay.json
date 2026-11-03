@@ -141,10 +141,16 @@
       "reason": "Конфликт с ядром CoA: используйте SQUID's Playerbots (Zyth45/mod-playerbots) или CoA Companions, специально адаптированные под CoA."
     },
     {
+      "repo_slug": "zyth45/mod-dungeon-clear",
+      "status": "Recommended",
+      "is_recommended": true,
+      "reason": "Модуль тактик прохождения подземелий для SQUID's Playerbots (Zyth45). Требует активного модуля SQUID bots."
+    },
+    {
       "repo_slug": "jrad7/mod-dungeon-clear",
       "status": "Blocked",
       "is_recommended": false,
-      "reason": "Конфликт с ядром CoA: функционал прохождения подземелий уже встроен в SQUID's Playerbots и CoA Companions."
+      "reason": "Конфликт с ядром CoA: используйте Zyth45/mod-dungeon-clear, адаптированный под SQUID's Playerbots в CoA."
     },
     {
       "repo_slug": "nathanhandley/mod-ah-bot-plus",
