@@ -139,7 +139,7 @@ interface VerifiedCatalogModule {
   repo: string;
   category: "official" | "utility" | "economy" | "social" | "profession" | "scaling";
   description: { ru: string; en: string };
-  qualification: "OFFICIAL_CORE" | "INSTALL_VERIFIED" | "LINK_VERIFIED" | "BUILT";
+  qualification: "OPTIMIZED_COA" | "OFFICIAL_CORE" | "INSTALL_VERIFIED" | "LINK_VERIFIED" | "BUILT";
   tier: string;
   verificationLevel: string;
   notes: { ru: string; en: string };
@@ -177,7 +177,7 @@ function cleanModuleName(name: string, id: string): string {
 }
 
 const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
-  // Official Core Modules
+  // Optimized CoA Modules
   {
     id: "companions",
     name: "CoA Companions",
@@ -187,12 +187,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Боты-компаньоны для групп, подземелий и гильдии.",
       en: "Companion bots for groups, dungeons and your guild.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Tier 1: Dynamic DLL",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный официальный модуль сервера. Взаимоисключение со SQUID's Playerbots.",
-      en: "Official built-in server module. Mutually exclusive with Playerbots.",
+      ru: "Оптимизированный модуль ботов-компаньонов для сервера. Взаимоисключение со SQUID's Playerbots.",
+      en: "Optimized companion bots module for server. Mutually exclusive with Playerbots.",
     },
     sqlRequired: false,
     canInstall: true,
@@ -208,12 +208,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Подстраивает подземелья и рейды под вашу группу, есть соло-режимы.",
       en: "Scales dungeons and raids to your group, with solo modes.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Tier 1: Dynamic DLL",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный официальный модуль динамического масштабирования подземелий.",
-      en: "Official built-in dynamic dungeon scaling module.",
+      ru: "Оптимизированный модуль динамического масштабирования подземелий.",
+      en: "Optimized dynamic dungeon scaling module.",
     },
     sqlRequired: false,
     canInstall: true,
@@ -229,12 +229,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Подземелья и рейды Запределья, подогнанные под ваши уровни.",
       en: "Outland dungeons and raids, scaled to your level range.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Content Pack",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный пакет контента Burning Crusade.",
-      en: "Built-in Burning Crusade content pack.",
+      ru: "Оптимизированный пакет контента Burning Crusade для Content Scaling.",
+      en: "Optimized Burning Crusade content pack for Content Scaling.",
     },
     sqlRequired: false,
     canInstall: true,
@@ -250,12 +250,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Подземелья и рейды Нордскола, подогнанные под ваши уровни.",
       en: "Northrend dungeons and raids, scaled to your level range.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Content Pack",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный пакет контента Wrath of the Lich King.",
-      en: "Built-in Wrath of the Lich King content pack.",
+      ru: "Оптимизированный пакет контента Wrath of the Lich King для Content Scaling.",
+      en: "Optimized Wrath of the Lich King content pack for Content Scaling.",
     },
     sqlRequired: false,
     canInstall: true,
@@ -271,12 +271,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Альтернативная система ботов со случайными ботами и полным ИИ.",
       en: "An alternative bot system with random bots and full AI.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Tier 1: Dynamic DLL",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенная система случайных ботов SQUID. Взаимоисключение с CoA Companions.",
-      en: "Built-in SQUID random bots system. Mutually exclusive with CoA Companions.",
+      ru: "Оптимизированная система случайных ботов SQUID. Взаимоисключение с CoA Companions.",
+      en: "Optimized SQUID random bots system. Mutually exclusive with CoA Companions.",
     },
     sqlRequired: true,
     canInstall: true,
@@ -292,12 +292,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Пользовательские расы (Esteria и другие) с расширенной внешностью и патчем клиента.",
       en: "Playable custom races (Esteria and additional races) with extended appearances.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Client Patch",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный модуль рас. Требуется установка клиентского MPQ-патча.",
-      en: "Built-in custom races module. Requires client MPQ patch.",
+      ru: "Оптимизированный модуль рас CoA. Требуется клиентский MPQ-патч.",
+      en: "Optimized CoA custom races module. Requires client MPQ patch.",
     },
     sqlRequired: true,
     canInstall: true,
@@ -313,12 +313,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Настройка скорости смены дня и ночи и начального времени игрового мира.",
       en: "Adjust the day and night cycle speed and starting game time.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Tier 1: Dynamic DLL",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный модуль синхронизации игрового времени с сервером.",
-      en: "Built-in world time synchronization module.",
+      ru: "Оптимизированный модуль синхронизации игрового времени с сервером.",
+      en: "Optimized world time synchronization module.",
     },
     sqlRequired: false,
     canInstall: true,
@@ -356,12 +356,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "Наполняет аукцион реалистичными настраиваемыми лотами.",
       en: "Fills the auction house with realistic, adjustable listings.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Tier 1: Dynamic DLL",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный официальный модуль аукциона виртуальных персонажей.",
-      en: "Built-in official virtual characters auction house module.",
+      ru: "Оптимизированный модуль аукциона виртуальных персонажей для CoA.",
+      en: "Optimized virtual characters auction house module for CoA.",
     },
     sqlRequired: false,
     canInstall: true,
@@ -397,12 +397,12 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       ru: "НПС, который зачаровывает ваше снаряжение.",
       en: "An NPC that enchants your gear for you.",
     },
-    qualification: "OFFICIAL_CORE",
-    tier: "Core Module",
+    qualification: "OPTIMIZED_COA",
+    tier: "Tier 1: Dynamic DLL",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
-      ru: "Встроенный официальный модуль зачарования экипировки у НПС.",
-      en: "Built-in official NPC equipment enchanting module.",
+      ru: "Оптимизированный модуль зачарования экипировки у НПС для CoA.",
+      en: "Optimized NPC equipment enchanting module for CoA.",
     },
     sqlRequired: false,
     canInstall: true,
@@ -1735,7 +1735,7 @@ export function ModulesPage({
                   catalogFilter === "official" ? "bg-sky-400 text-black font-semibold" : "bg-black/30 text-muted hover:text-ink"
                 )}
               >
-                {locale === "ru" ? "Официальные ядра" : "Official Core"} ({VERIFIED_CATALOG.filter((c) => c.isOfficial).length})
+                {locale === "ru" ? "Оптимизированы" : "Optimized"} ({VERIFIED_CATALOG.filter((c) => c.isOfficial).length})
               </button>
               <button
                 onClick={() => setCatalogFilter("verified")}
@@ -1803,14 +1803,14 @@ export function ModulesPage({
                 <div className="flex items-center gap-2">
                   <Star className="h-4 w-4 text-gold fill-gold" />
                   <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">
-                    {locale === "ru" ? "Группа A: Рекомендовано для CoA" : "Group A: Recommended for CoA"}
+                    {locale === "ru" ? "Рекомендовано" : "Recommended"}
                   </h4>
                   <span className="rounded-full bg-gold/20 text-gold px-2 py-0.5 text-[11px] font-mono font-medium">
                     {filteredVerifiedCatalog.length}
                   </span>
                 </div>
                 <span className="text-[11px] text-muted">
-                  {locale === "ru" ? "Проверенная интеграция и поддержка CoA" : "Verified compatibility with CoA"}
+                  {locale === "ru" ? "Проверенная интеграция и оптимизация для CoA" : "Verified compatibility and optimization for CoA"}
                 </span>
               </div>
 
@@ -1843,9 +1843,9 @@ export function ModulesPage({
 
                         {/* Qualification Badges */}
                         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
-                          {item.isOfficial ? (
+                          {item.qualification === "OPTIMIZED_COA" || item.isOfficial ? (
                             <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 px-2 py-0.5 font-medium">
-                              ✓ OFFICIAL_CORE
+                              ✓ {locale === "ru" ? "Оптимизировано" : "Optimized"}
                             </span>
                           ) : item.qualification === "INSTALL_VERIFIED" ? (
                             <span className="rounded bg-ok/10 text-ok border border-ok/30 px-2 py-0.5 font-medium">
@@ -1912,32 +1912,50 @@ export function ModulesPage({
                                 {locale === "ru" ? "Настроить" : "Configure"}
                               </Button>
                             </div>
-                          ) : item.isOfficial ? (
+                          ) : item.id === "tbc-content" || item.id === "wotlk-content" ? (
+                            !isScalingInstalled ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled
+                                className="text-xs h-7 px-2.5 border border-line text-muted/60 cursor-not-allowed"
+                              >
+                                {locale === "ru" ? "Требуется Content Scaling" : "Requires Content Scaling"}
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                onClick={async () => {
+                                  try {
+                                    await api.moduleSetEnabled(serverId, item.id, true);
+                                    setChanged(true);
+                                    await load();
+                                    setOpenSettings(item.id);
+                                    setActiveTab("installed");
+                                    onChanged?.();
+                                  } catch (e) {
+                                    setError(asUiError(e));
+                                  }
+                                }}
+                                className="text-xs h-7 px-3"
+                              >
+                                <Plug className="h-3.5 w-3.5 mr-1" />
+                                {locale === "ru" ? "Включить" : "Enable"}
+                              </Button>
+                            )
+                          ) : item.id === "custom-races" ? (
                             <Button
                               size="sm"
                               variant="primary"
-                              onClick={async () => {
-                                try {
-                                  const mod = modules?.find((m) => m.id === item.id);
-                                  if (mod && mod.enabled) {
-                                    setOpenSettings(mod.id);
-                                    setActiveTab("installed");
-                                    return;
-                                  }
-                                  await api.moduleSetEnabled(serverId, item.id, true);
-                                  setChanged(true);
-                                  await load();
-                                  setOpenSettings(item.id);
-                                  setActiveTab("installed");
-                                  onChanged?.();
-                                } catch (e) {
-                                  setError(asUiError(e));
-                                }
+                              onClick={() => {
+                                setActiveTab("installed");
+                                setOpenSettings("custom-races");
                               }}
                               className="text-xs h-7 px-3"
                             >
-                              <Plug className="h-3.5 w-3.5 mr-1" />
-                              {locale === "ru" ? "Включить" : "Enable"}
+                              <Settings2 className="h-3.5 w-3.5 mr-1" />
+                              {locale === "ru" ? "Настроить расы" : "Configure Races"}
                             </Button>
                           ) : (
                             <Button
@@ -1945,10 +1963,10 @@ export function ModulesPage({
                               variant="primary"
                               onClick={async () => {
                                 setGithubUrl(item.repo);
+                                setActiveTab("builds");
                                 await runAnalysis(item.repo);
-                                await startControlledBuild(item.repo);
                               }}
-                              className="text-xs h-7 px-3"
+                              className="text-xs h-7 px-3 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-black font-medium"
                             >
                               <Hammer className="h-3.5 w-3.5 mr-1" />
                               {locale === "ru" ? "Собрать и установить" : "Build & Install"}
@@ -1969,7 +1987,7 @@ export function ModulesPage({
               <div className="flex items-center gap-2">
                 <Puzzle className="h-4 w-4 text-sky-400" />
                 <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">
-                  {locale === "ru" ? "Группа B: Каталог сообщества AzerothCore" : "Group B: AzerothCore Community Modules"}
+                  {locale === "ru" ? "Каталог AzerothCore" : "AzerothCore Catalogue"}
                 </h4>
                 <span className="rounded-full bg-white/10 text-muted px-2 py-0.5 text-[11px] font-mono font-medium">
                   {filteredCommunityCatalog.length}

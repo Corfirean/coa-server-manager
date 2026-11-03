@@ -247,11 +247,21 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             let plugin_entry = plugin_reg.as_ref().and_then(|r| {
                 r.plugins.get(&e.id)
                     .or_else(|| r.plugins.get(&e.id.replace('-', "_")))
+                    .or_else(|| r.plugins.get(&format!("mod-{}", e.id)))
+                    .or_else(|| r.plugins.get(&format!("mod-coa-{}", e.id)))
             });
             let dll_present = root.join("plugins").join(format!("{}.dll", e.id)).is_file()
                 || root.join("plugins").join(format!("{}.dll", e.id.replace('-', "_"))).is_file()
+                || root.join("plugins").join(format!("mod-{}.dll", e.id)).is_file()
+                || root.join("plugins").join(format!("mod-{}.dll", e.id.replace('-', "_"))).is_file()
+                || root.join("plugins").join(format!("mod-coa-{}.dll", e.id)).is_file()
+                || root.join("plugins").join(format!("mod_coa_{}.dll", e.id.replace('-', "_"))).is_file()
                 || root.join(".manager/plugins").join(format!("{}.dll", e.id)).is_file()
-                || root.join(".manager/plugins").join(format!("{}.dll", e.id.replace('-', "_"))).is_file();
+                || root.join(".manager/plugins").join(format!("{}.dll", e.id.replace('-', "_"))).is_file()
+                || root.join(".manager/plugins").join(format!("mod-{}.dll", e.id)).is_file()
+                || root.join(".manager/plugins").join(format!("mod-{}.dll", e.id.replace('-', "_"))).is_file()
+                || root.join(".manager/plugins").join(format!("mod-coa-{}.dll", e.id)).is_file()
+                || root.join(".manager/plugins").join(format!("mod_coa_{}.dll", e.id.replace('-', "_"))).is_file();
             let is_dynamic = plugin_entry.is_some() || dll_present;
 
             // 2. Classify ComponentType and determine installation strictly
@@ -265,16 +275,20 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     || root.join("Data/enUS/patch-enUS-4.mpq").is_file();
                 (ComponentType::ClientPatch, has_patch, true)
             } else if matches!(e.id.as_str(), "tbc-content" | "wotlk-content") {
-                let scaling_entry = cat.iter().find(|entry| entry.id == "content-scaling");
-                let is_scaling_installed = scaling_entry.map(|se| {
-                    let sc_name = conf_name(root, se);
-                    let sc_conf = dir(root).join(&sc_name);
-                    let sc_dist = dir(root).join(format!("{sc_name}.dist"));
-                    sc_conf.is_file() || sc_dist.is_file() || installed_commits.contains_key("scaling")
+                let is_scaling_installed = {
+                    let se_plugin = plugin_reg.as_ref().and_then(|r| {
+                        r.plugins.get("content-scaling")
+                            .or_else(|| r.plugins.get("content_scaling"))
+                            .or_else(|| r.plugins.get("mod-coa-content-scaling"))
+                    });
+                    let se_dll = root.join("plugins").join("content-scaling.dll").is_file()
+                        || root.join("plugins").join("content_scaling.dll").is_file()
                         || root.join("plugins").join("mod-coa-content-scaling.dll").is_file()
-                        || root.join(".manager/plugins").join("mod-coa-content-scaling.dll").is_file()
-                        || plugin_reg.as_ref().map(|r| r.plugins.contains_key("content-scaling")).unwrap_or(false)
-                }).unwrap_or(false);
+                        || root.join("plugins").join("mod_coa_content_scaling.dll").is_file()
+                        || root.join(".manager/plugins").join("content-scaling.dll").is_file()
+                        || root.join(".manager/plugins").join("mod-coa-content-scaling.dll").is_file();
+                    se_plugin.is_some() || se_dll || (!is_modular_host && installed_commits.contains_key("scaling"))
+                };
 
                 let has_content = is_scaling_installed && (conf.is_file() || dist.is_file());
                 (ComponentType::ContentPack, has_content, false)
@@ -300,10 +314,24 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     .unwrap_or(false);
 
             // the active file or plugin registry decides enabled state
-            let enabled = if let Some(p) = plugin_entry {
+            let enabled = if !installed {
+                false
+            } else if let Some(p) = plugin_entry {
                 p.enabled
             } else if matches!(e.id.as_str(), "companions" | "playerbots") {
                 bot_enabled(root, &e).unwrap_or(true)
+            } else if matches!(e.id.as_str(), "tbc-content" | "wotlk-content") {
+                let sc_entry = cat.iter().find(|entry| entry.id == "content-scaling");
+                let sc_conf = sc_entry.map(|se| dir(root).join(conf_name(root, se)));
+                let sc_enabled = sc_conf
+                    .and_then(|p| read(&p))
+                    .and_then(|c| c.get("CoAContentScaling.Enable").map(truthy))
+                    .unwrap_or(true);
+
+                sc_enabled && read(&conf)
+                    .or_else(|| read(&dist))
+                    .and_then(|c| c.get(&e.enable_key).map(truthy))
+                    .unwrap_or(e.default_on)
             } else {
                 !e.switchable
                     || read(&conf)
