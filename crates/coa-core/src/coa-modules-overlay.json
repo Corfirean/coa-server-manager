@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "description": "Curated CoA compatibility and recommendation overlay for AzerothCore modules",
+  "rules": [
+    {
+      "repo_slug": "corfirean/mod-coa-playerbots",
+      "status": "Recommended",
+      "is_recommended": true,
+      "reason": "Official companion bots for groups, dungeons and guild in Conquest of Azeroth."
+    },
+    {
+      "repo_slug": "corfirean/mod-coa-content-scaling",
+      "status": "Recommended",
+      "is_recommended": true,
+      "reason": "Official dynamic dungeon and raid scaling system with solo modes."
+    },
+    {
+      "repo_slug": "zyth45/mod-playerbots",
+      "status": "Recommended",
+      "is_recommended": true,
+      "reason": "SQUID's Playerbots with full autonomous AI. Mutually exclusive with CoA Companions."
+    },
+    {
+      "repo_slug": "corfirean/azerothcore-wotlk-coa",
+      "status": "Recommended",
+      "is_recommended": true,
+      "reason": "Official Conquest of Azeroth modular core features."
+    },
+    {
+      "repo_slug": "azerothcore/mod-npc-buffer",
+      "status": "Verified",
+      "is_recommended": true,
+      "reason": "NPC buff master offering spells, sickness removal, and player restoration. Verified dynamic DLL on CoA Plugin SDK."
+    },
+    {
+      "repo_slug": "azerothcore/mod-congrats-on-level",
+      "status": "Verified",
+      "is_recommended": true,
+      "reason": "Level-up celebration animations, fireworks and announcements. Verified dynamic DLL on CoA Plugin SDK."
+    },
+    {
+      "repo_slug": "azerothcore/mod-npc-enchanter",
+      "status": "Recommended",
+      "is_recommended": true,
+      "reason": "Official NPC equipment enchanting module."
+    },
+    {
+      "repo_slug": "azerothcore/mod-reward-played-time",
+      "status": "Verified",
+      "is_recommended": true,
+      "reason": "Periodic rewards and tokens granted based on active playtime. Verified dynamic DLL on CoA Plugin SDK."
+    },
+    {
+      "repo_slug": "azerothcore/mod-solocraft",
+      "status": "RequiresAdapter",
+      "is_recommended": true,
+      "reason": "Dynamically boosts player stats in group content. Verified DLL build; requires calibration with CoA Content Scaling."
+    },
+    {
+      "repo_slug": "azerothcore/mod-cfbg",
+      "status": "Verified",
+      "is_recommended": false,
+      "reason": "Cross-faction battlegrounds system. Built into CoA core fork."
+    },
+    {
+      "repo_slug": "azerothcore/mod-duel-reset",
+      "status": "Verified",
+      "is_recommended": false,
+      "reason": "Resets health, mana, cooldowns and auras after duels. Verified dynamic DLL."
+    },
+    {
+      "repo_slug": "azerothcore/mod-pvp-titles",
+      "status": "Verified",
+      "is_recommended": false,
+      "reason": "Classic PvP rank titles awarded based on honorable kills."
+    },
+    {
+      "repo_slug": "azerothcore/mod-starter-guild",
+      "status": "Verified",
+      "is_recommended": false,
+      "reason": "Automatically invites newly created characters into a designated starter guild."
+    },
+    {
+      "repo_slug": "azerothcore/mod-skip-dk-starting-area",
+      "status": "Verified",
+      "is_recommended": false,
+      "reason": "Allows Death Knights to skip the Scarlet Enclave starter zone."
+    },
+    {
+      "repo_slug": "azerothcore/mod-learn-spells",
+      "status": "Incompatible",
+      "is_recommended": false,
+      "reason": "Directly conflicts with CoA classless progression & spell draft: automatically grants standard class spells, breaking player builds."
+    },
+    {
+      "repo_slug": "azerothcore/mod-autobalance",
+      "status": "Incompatible",
+      "is_recommended": false,
+      "reason": "Direct gameplay authority collision with mod-coa-content-scaling: both systems attempt to dynamically scale creature health and damage."
+    },
+    {
+      "repo_slug": "zhengpeiru21/mod-individual-progression",
+      "status": "Incompatible",
+      "is_recommended": false,
+      "reason": "Conflicts with CoA progression curve, dungeon level brackets, and content scaling gating."
+    },
+    {
+      "repo_slug": "azerothcore/mod-arac",
+      "status": "Incompatible",
+      "is_recommended": false,
+      "reason": "Incompatible with CoA custom races DBC table (Esteria, etc.) and expanded race limits."
+    },
+    {
+      "repo_slug": "azerothcore/mod-ahbot",
+      "status": "Blocked",
+      "is_recommended": false,
+      "reason": "Upstream repository has missing script loader entrypoint (Addmod_ahbotScripts) causing compilation and linking failures. Use official mod-ah-bot-plus instead."
+    },
+    {
+      "repo_slug": "azerothcore/mod-eluna",
+      "status": "RequiresAdapter",
+      "is_recommended": false,
+      "reason": "Requires external LuaJIT runtime and custom CoA spell system exports."
+    },
+    {
+      "repo_slug": "azerothcore/mod-transmog",
+      "status": "RequiresAdapter",
+      "is_recommended": false,
+      "reason": "Redundant: CoA already provides a built-in wardrobe and transmog system configured in coa.conf."
+    }
+  ]
+}
