@@ -2,6 +2,24 @@
   "schema": 1,
   "modules": [
     {
+      "id": "dungeon-clear",
+      "name": "Dungeon Clear",
+      "description": {
+        "en": "Dungeon tactics for SQUID bots. Requires SQUID bots to be enabled.",
+        "ru": "Тактика подземелий для SQUID bots. Работает только при включённых SQUID bots.",
+        "de": "Dungeon-Taktiken für SQUID-Bots. Erfordert aktivierte SQUID-Bots.",
+        "fr": "Tactiques de donjon pour les bots SQUID. Nécessite les bots SQUID activés.",
+        "es": "Tácticas de mazmorra para bots SQUID. Requiere activar los bots SQUID.",
+        "zh": "为 SQUID 机器人提供地下城战术。需要启用 SQUID 机器人。"
+      },
+      "repo": "https://github.com/Zyth45/mod-dungeon-clear",
+      "conf": "mod_dungeon_clear.conf",
+      "enable_key": "DungeonClear.Enable",
+      "default_on": false,
+      "status": "early",
+      "icon": "bot"
+    },
+    {
       "id": "companions",
       "name": "CoA Companions",
       "description": {

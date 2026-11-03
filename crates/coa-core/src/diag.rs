@@ -718,6 +718,24 @@ pub fn export_package(
         "maintenance.json",
         serde_json::to_string_pretty(&maintenance)?.as_bytes(),
     )?;
+    for (realm, prefix) in [("primary", ""), ("secondary", ".realms/secondary/"), ("reborn", ".realms/reborn/")] {
+        let state = root.join(format!("{prefix}.state"));
+        if let Ok(owner) = fs::read_to_string(state.join("control-owner.json")) {
+            add(&format!("launcher/{realm}/control-owner.json"), redact_json(&owner).as_bytes())?;
+        }
+        for (path, _, _) in newest_files(&state.join("diagnostics"), "jsonl", 20)
+            .into_iter()
+            .filter(|(path, _, _)| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("manage-")))
+            .take(5)
+        {
+            let bytes = tail(&path, 512 * 1024);
+            let entries: Vec<serde_json::Value> = String::from_utf8_lossy(&bytes).lines().map(|line| {
+                serde_json::from_str(&redact_json(line)).unwrap_or_else(|_| serde_json::Value::String(redact(line)))
+            }).collect();
+            add(&format!("launcher/{realm}/{}.json", path.file_stem().unwrap_or_default().to_string_lossy()),
+                serde_json::to_string_pretty(&entries)?.as_bytes())?;
+        }
+    }
 
     // Logs. The newest update logs of the repack's own updater are added under their own names.
     let mut logs: Vec<(String, PathBuf)> = vec![
@@ -1257,6 +1275,12 @@ real error
         fs::create_dir_all(meta_dir.join("diagnostics")).unwrap();
         fs::write(meta_dir.join("diagnostics/schema-validation-CoA-test.json"), r#"{"problems":[{"table":"creature_display_preset","column":"display_id","detail":"default mismatch"}],"password":"schema-secret"}"#).unwrap();
         fs::write(meta_dir.join("diagnostics/database-recovery-test.json"), r#"{"objects":[{"database":"acore_characters","kind":"TRIGGER","name":"user_character_trigger"}],"password":"recovery-secret"}"#).unwrap();
+        for prefix in ["", ".realms/secondary/", ".realms/reborn/"] {
+            let state = root.join(format!("{prefix}.state"));
+            fs::create_dir_all(state.join("diagnostics")).unwrap();
+            fs::write(state.join("control-owner.json"), r#"{"pid":42,"action":"start-all","password":"launcher-owner-secret"}"#).unwrap();
+            fs::write(state.join("diagnostics/manage-test.jsonl"), "{\"event\":\"launcher-stage-test\",\"password\":\"launcher-stage-secret\"}\n{\"event\":\"wait_ready.error\",\"port\":3307}\n").unwrap();
+        }
         let meta = InstallMeta::new(InstallKind::Imported, &root);
         let report = run(&root, &meta);
         let zip_path = d.path().join("diag.zip");
@@ -1289,6 +1313,9 @@ real error
         assert!(all.contains("checking updates") && all.contains("1234"));
         assert!(all.contains("lockFilePresent") && all.contains("does not establish"));
         assert!(!all.contains("owner-secret"));
+        assert!(all.contains("launcher-stage-test"));
+        assert!(all.contains("wait_ready.error"));
+        assert!(!all.contains("launcher-stage-secret"));
         assert_eq!(fs::read(meta_dir.join("update.lock")).unwrap(), b"");
         assert!(
             !all.contains("hunter2")

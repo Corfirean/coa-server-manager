@@ -1083,6 +1083,13 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "stop.forceWarning": "Puede perderse el progreso sin guardar. Solo se detendrán los procesos verificados de este servidor. La base de datos seguirá activa hasta que se detengan todos los mundos.",
   "stop.cancel": "Cancelar",
 
+  "serverLogs.title": "Registros del servidor",
+  "serverLogs.description": "Elige los registros del mundo y del servidor de acceso. Los cambios se aplican al reiniciar el servidor. La configuración anterior se guarda en las instantáneas de ajustes.",
+  "serverLogs.normal": "Normales",
+  "serverLogs.errors": "Solo errores",
+  "serverLogs.off": "Desactivados",
+  "serverLogs.saved": "Guardado. Reinicia el servidor para aplicar los cambios.",
+  "mod.requiresSquid": "Activa los bots SQUID para usar Dungeon Clear.",
 };
 
 export default es;

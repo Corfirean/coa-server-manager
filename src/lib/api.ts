@@ -229,7 +229,7 @@ export interface ModuleView {
   page: string | null;
   /** not shown on the Modules page */
   hidden: boolean;
-  compatibility?: "compatible" | "experimental" | "unsupported";
+  compatibility?: "compatible" | "experimental" | "unsupported" | "requires-squid";
 }
 
 export interface ModuleSetting {
@@ -499,6 +499,7 @@ export const api = {
   forceStop: (id: string) => invoke<DriverOutcome>("force_stop_server", { id }),
   stop: (id: string) => invoke<DriverOutcome>("stop_server", { id }),
   settings: (id: string, scope: Scope) => invoke<SettingsView>("get_settings", { id, scope }),
+  serverLoggingPreset: (id: string, preset: "normal" | "errors" | "off") => invoke<void>("server_logging_preset", { id, preset }),
   save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
   presets: (scope: Scope) => invoke<PresetInfo[]>("list_presets", { scope }),
   backups: (id: string) => invoke<RecoveryPoint[]>("list_backups", { id }),

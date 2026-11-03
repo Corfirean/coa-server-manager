@@ -1276,6 +1276,13 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "stop.forceWarning": "Несохранённый прогресс игроков может быть потерян. Будут остановлены только проверенные процессы этого сервера. База данных останется работать до остановки всех миров.",
   "stop.cancel": "Отмена",
 
+  "serverLogs.title": "Логи сервера",
+  "serverLogs.description": "Выберите режим логов игрового мира и сервера входа. Изменения применятся после перезапуска сервера. Предыдущая конфигурация сохранится в снимках настроек.",
+  "serverLogs.normal": "Обычные",
+  "serverLogs.errors": "Только ошибки",
+  "serverLogs.off": "Выключены",
+  "serverLogs.saved": "Сохранено. Перезапустите сервер для применения.",
+  "mod.requiresSquid": "Для Dungeon Clear сначала включите SQUID bots.",
 };
 
 export default ru;

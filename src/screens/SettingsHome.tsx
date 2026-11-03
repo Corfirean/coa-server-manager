@@ -16,6 +16,7 @@ import { AutoRestartSettings } from "./AutoRestartSettings";
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { RepairCard } from "./RepairCard";
 import { RemoveServerCard } from "./RemoveServerCard";
+import { ServerLoggingSettings } from "./ServerLoggingSettings";
 
 const sections = [["updates", Download], ["startup", Power], ["client", FolderOpen], ["service", Wrench], ["interface", Languages]] as const;
 export function SettingsHome({ serverId, path, onForget }: { serverId: string; serverName?: string; path: string; onForget: () => Promise<void> }) {
@@ -51,7 +52,7 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; s
     </div>
     <div hidden={section !== "startup"} className="max-w-3xl"><RealmStartupSettings serverId={serverId} /><AutoRestartSettings serverId={serverId} /></div>
     <div hidden={section !== "client"} className="max-w-3xl"><ClientCard serverId={serverId} /><GameDataCard serverId={serverId} /></div>
-    <div hidden={section !== "service"} className="max-w-3xl"><DiagnosticsCard serverId={serverId} /><RepairCard serverId={serverId} /><RemoveServerCard serverId={serverId} path={path} onForget={onForget} /></div>
+    <div hidden={section !== "service"} className="max-w-3xl"><ServerLoggingSettings serverId={serverId} /><DiagnosticsCard serverId={serverId} /><RepairCard serverId={serverId} /><RemoveServerCard serverId={serverId} path={path} onForget={onForget} /></div>
     <div hidden={section !== "interface"} className="max-w-3xl"><Card className="mt-6 p-6"><h2 className="font-semibold">{t("settings.language")}</h2><p className="mt-1 text-sm text-muted">{t("settings.languageHint")}</p><LanguagePicker className="mt-4" /></Card><WindowSettings /><PublicServerSettings /></div>
   </div>;
 }
