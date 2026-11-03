@@ -265,8 +265,18 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     || root.join("Data/enUS/patch-enUS-4.mpq").is_file();
                 (ComponentType::ClientPatch, has_patch, true)
             } else if matches!(e.id.as_str(), "tbc-content" | "wotlk-content") {
-                let has_content = (conf.is_file() || dist.is_file() || root.join("data").is_dir())
-                    && (!wildcard || root.join("data").is_dir());
+                let scaling_entry = cat.iter().find(|entry| entry.id == "content-scaling");
+                let is_scaling_installed = scaling_entry.map(|se| {
+                    let sc_name = conf_name(root, se);
+                    let sc_conf = dir(root).join(&sc_name);
+                    let sc_dist = dir(root).join(format!("{sc_name}.dist"));
+                    sc_conf.is_file() || sc_dist.is_file() || installed_commits.contains_key("scaling")
+                        || root.join("plugins").join("mod-coa-content-scaling.dll").is_file()
+                        || root.join(".manager/plugins").join("mod-coa-content-scaling.dll").is_file()
+                        || plugin_reg.as_ref().map(|r| r.plugins.contains_key("content-scaling")).unwrap_or(false)
+                }).unwrap_or(false);
+
+                let has_content = is_scaling_installed && (conf.is_file() || dist.is_file());
                 (ComponentType::ContentPack, has_content, false)
             } else if e.id == "client-compat" {
                 (ComponentType::LogicalFeature, true, false)

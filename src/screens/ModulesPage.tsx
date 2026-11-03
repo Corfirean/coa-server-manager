@@ -902,7 +902,16 @@ export function ModulesPage({
     URL.revokeObjectURL(url);
   }
 
-  const installedModules = modules?.filter((m) => m.installed) ?? [];
+  const isScalingInstalled = Boolean(
+    modules?.some((m) => m.id === "content-scaling" && m.installed)
+  );
+
+  const installedModules = (modules?.filter((m) => m.installed) ?? []).filter((m) => {
+    if (m.id === "tbc-content" || m.id === "wotlk-content") {
+      return isScalingInstalled;
+    }
+    return true;
+  });
   const selectedModule = modules?.find((m) => m.id === openSettings) ?? null;
   const selectedModuleIndex = installedModules.findIndex((m) => m.id === openSettings);
 
