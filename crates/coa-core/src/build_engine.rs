@@ -161,13 +161,28 @@ fn sha256_of_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Recursively collects all files with specified extension.
+/// Recursively collects all files with specified extension, skipping non-module directories.
 fn collect_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut results = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let n_lower = name.to_ascii_lowercase();
+                if n_lower == "tests"
+                    || n_lower == "test"
+                    || n_lower == "stubs"
+                    || n_lower == "stub"
+                    || n_lower == "pilot"
+                    || n_lower == "tools"
+                    || n_lower == "build"
+                    || n_lower == ".git"
+                    || n_lower == ".github"
+                    || n_lower == "cmake"
+                {
+                    continue;
+                }
                 results.extend(collect_files_with_ext(&path, ext));
             } else if let Some(e) = path.extension() {
                 if e.to_string_lossy().eq_ignore_ascii_case(ext) {
@@ -286,14 +301,17 @@ pub fn resolve_module_identity(source_dir: &Path) -> (String, String, Option<Str
 fn parse_msvc_errors(logs: &[String]) -> Vec<BuildErrorDiagnostic> {
     let mut diagnostics = Vec::new();
     for line in logs {
-        // MSVC C-error: filename(line,col): error Cxxxx: message
-        // or filename(line): error Cxxxx: message
-        if line.contains(": error C") {
-            let parts: Vec<&str> = line.split(": error ").collect();
-            if parts.len() == 2 {
-                let left = parts[0].trim();
-                let right = parts[1].trim();
+        // MSVC C-error: filename(line,col): [fatal] error Cxxxx: message
+        if line.contains(": error C") || line.contains(": fatal error C") {
+            let (left, right) = if let Some(idx) = line.find(": fatal error ") {
+                (line[..idx].trim(), line[idx + 14..].trim())
+            } else if let Some(idx) = line.find(": error ") {
+                (line[..idx].trim(), line[idx + 8..].trim())
+            } else {
+                ("", line.trim())
+            };
 
+            if !right.is_empty() {
                 let (file, line_num) = if let Some(idx) = left.rfind('(') {
                     let f = left[..idx].trim().to_string();
                     let rest = &left[idx + 1..];
@@ -509,6 +527,14 @@ coa_add_plugin({safe_target_name}
 target_include_directories({safe_target_name} PRIVATE
 {includes_block}
 )
+target_compile_definitions({safe_target_name} PRIVATE
+  _WIN32_WINNT=0x0601
+  WIN32_LEAN_AND_MEAN
+  NOMINMAX
+)
+if(MSVC)
+  target_compile_options({safe_target_name} PRIVATE /bigobj)
+endif()
 "#, safe_target_name = safe_target_name, cmake_sdk_path = cmake_sdk_path, sources_block = sources_block, includes_block = includes_block);
 
     fs::write(staging_dir.join("CMakeLists.txt"), &controlled_cmake)?;

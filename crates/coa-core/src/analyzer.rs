@@ -556,6 +556,16 @@ pub fn analyze_repository_with_contract(repo_path: &Path, contract: &SdkExportCo
         reasons.push("Compiled and linked successfully against CoA Plugin SDK v0.3; database review required for SQL scripts".into());
         recommended_actions.push("Review SQL migration and deploy with active configuration".into());
         CompatibilityClassification::SqlReviewRequired
+    } else if script_loaders.canonical_loader.is_none() {
+        if !sql_files.is_empty() {
+            reasons.push(format!("Database/SQL-only module (no C++ entrypoint detected; {} SQL files)", sql_files.len()));
+            recommended_actions.push("Review and apply SQL schema to database; no DLL compilation needed".into());
+            CompatibilityClassification::SqlReviewRequired
+        } else {
+            reasons.push("No C++ script loader or entrypoint found in repository (Lua/Eluna, client addon, or non-C++ repository)".into());
+            recommended_actions.push("Module contains no compilable C++ sources for dynamic DLL architecture".into());
+            CompatibilityClassification::Inconclusive
+        }
     } else {
         reasons.push("Clean script hooks compatible with CoA Plugin SDK".into());
         recommended_actions.push("Generate standalone CMakeLists.txt and compile against CoA Plugin SDK".into());

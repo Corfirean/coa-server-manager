@@ -870,8 +870,31 @@ export const api = {
 
 export function asUiError(e: unknown): UiError {
   if (e && typeof e === "object" && "human" in e) return e as UiError;
+  let text = "";
+  if (typeof e === "string") {
+    text = e;
+  } else if (e instanceof Error) {
+    text = e.message;
+  } else if (e && typeof e === "object") {
+    const o = e as Record<string, unknown>;
+    text = (typeof o.technical === "string" && o.technical !== "[object Object]" && o.technical) ||
+           (typeof o.message === "string" && o.message !== "[object Object]" && o.message) ||
+           (typeof o.error === "string" && o.error !== "[object Object]" && o.error) ||
+           (typeof o.reason === "string" && o.reason !== "[object Object]" && o.reason) ||
+           "";
+    if (!text) {
+      try {
+        const json = JSON.stringify(e);
+        if (json && json !== "{}") text = json;
+      } catch {}
+    }
+  }
+  if (!text || text === "[object Object]") {
+    text = String(e);
+    if (text === "[object Object]") text = "Неизвестная системная ошибка (см. логи)";
+  }
   return {
-    human: { code: "unknown", title: "Something went wrong", message: "See the technical details.", actions: ["show_details"] },
-    technical: String(e),
+    human: { code: "unknown", title: "Что-то пошло не так", message: text, actions: ["show_details"] },
+    technical: text,
   };
 }

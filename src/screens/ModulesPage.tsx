@@ -314,14 +314,14 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
       en: "Adjust the day and night cycle speed and starting game time.",
     },
     qualification: "OPTIMIZED_COA",
-    tier: "Tier 1: Dynamic DLL",
+    tier: "Core Module",
     verificationLevel: "PRODUCTION_SUPPORTED",
     notes: {
       ru: "Оптимизированный модуль синхронизации игрового времени с сервером.",
       en: "Optimized world time synchronization module.",
     },
     sqlRequired: false,
-    canInstall: true,
+    canInstall: false,
     isOfficial: true,
     icon: "sparkles",
   },
@@ -350,7 +350,7 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
   {
     id: "ah-bot",
     name: "Auction House Bot",
-    repo: "https://github.com/Corfirean/azerothcore-wotlk-coa/tree/coa-bots/modules/mod-ah-bot-plus",
+    repo: "https://github.com/azerothcore/mod-ah-bot",
     category: "official",
     description: {
       ru: "Наполняет аукцион реалистичными настраиваемыми лотами.",
@@ -481,52 +481,81 @@ function CoaStatusBadge({ status, conflictReason }: { status: CoaCompatibilitySt
   }
 }
 
+function humanizeRawError(raw: string, locale: string): string {
+  if (raw.includes("[NO_LOADER_FOUND]")) {
+    return locale === "ru"
+      ? "В репозитории не найдена C++ точка входа Add*Scripts. Модуль не содержит исходного кода C++ для компиляции в DLL (возможно, это скрипт Lua/Eluna или чистый SQL)."
+      : "No Add*Scripts entrypoint found. This repository contains no C++ source code to build into a DLL (it may be a Lua/Eluna script or SQL-only).";
+  }
+  if (raw.includes("No C++ (.cpp) source files found")) {
+    return locale === "ru"
+      ? "В репозитории не найдено файлов C++ (.cpp). Модуль не может быть собран в бинарный DLL-плагин (возможно, это скрипт Lua/Eluna или клиентский аддон)."
+      : "No C++ source files (.cpp) found in repository. Module cannot be built into a dynamic DLL.";
+  }
+  if (raw.includes("Repository not found") || raw.includes("[REPOSITORY_NOT_FOUND]")) {
+    return locale === "ru"
+      ? "Репозиторий GitHub не найден или недоступен. Проверьте правильность URL-адреса."
+      : "GitHub repository not found or unreachable. Check the repository URL.";
+  }
+  if (raw.includes("Failed to locate cached repository sources")) {
+    return locale === "ru"
+      ? "Не удалось найти кэшированные исходные коды. Попробуйте нажать 'Анализировать' снова."
+      : "Failed to locate cached repository sources. Try analyzing the module again.";
+  }
+  if (raw.includes("[REPOSITORY_TOO_LARGE]")) {
+    return locale === "ru"
+      ? `Размер файла или репозитория превышает допустимый лимит: ${raw.replace(/^\[REPOSITORY_TOO_LARGE\]\s*/, "")}`
+      : `Repository or file exceeds size limit: ${raw.replace(/^\[REPOSITORY_TOO_LARGE\]\s*/, "")}`;
+  }
+  if (raw.includes("[MODULE_BLOCKED]")) {
+    return locale === "ru"
+      ? `Модуль заблокирован: ${raw}`
+      : `Module blocked: ${raw}`;
+  }
+  if (raw.includes("[MANUAL_ADAPTER_REQUIRED]")) {
+    return locale === "ru"
+      ? `Требуется ручной адаптер точки входа: ${raw}`
+      : `Manual adapter required: ${raw}`;
+  }
+  if (raw.includes("[TOOLCHAIN_ERROR]")) {
+    return locale === "ru"
+      ? `Ошибка среды сборки: ${raw}`
+      : `Toolchain error: ${raw}`;
+  }
+  return raw;
+}
+
 function formatErrorMessage(e: unknown, locale = "ru"): string {
   if (!e) return locale === "ru" ? "Неизвестная ошибка" : "Unknown error";
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
+  if (typeof e === "string" && e !== "[object Object]") {
+    return humanizeRawError(e, locale);
+  }
+  if (e instanceof Error) return humanizeRawError(e.message, locale);
   if (typeof e === "object") {
     const obj = e as {
-      technical?: string;
-      human?: { title?: string; message?: string };
-      message?: string;
+      technical?: unknown;
+      human?: { title?: unknown; message?: unknown };
+      message?: unknown;
+      error?: unknown;
+      reason?: unknown;
     };
-    const raw = obj.technical || obj.human?.message || obj.message || "";
+    const raw = (
+      (typeof obj.technical === "string" && obj.technical !== "[object Object]" && obj.technical) ||
+      (obj.human && typeof obj.human.message === "string" && obj.human.message !== "[object Object]" && obj.human.message) ||
+      (typeof obj.message === "string" && obj.message !== "[object Object]" && obj.message) ||
+      (typeof obj.error === "string" && obj.error !== "[object Object]" && obj.error) ||
+      (typeof obj.reason === "string" && obj.reason !== "[object Object]" && obj.reason) ||
+      ""
+    );
     if (raw) {
-      if (raw.includes("[NO_LOADER_FOUND]")) {
-        return locale === "ru"
-          ? "В репозитории не найдена C++ точка входа Add*Scripts. Модуль не содержит исходного кода C++ для компиляции в DLL (возможно, это скрипт Lua/Eluna или чистый SQL)."
-          : "No Add*Scripts entrypoint found. This repository contains no C++ source code to build into a DLL (it may be a Lua/Eluna script or SQL-only).";
-      }
-      if (raw.includes("[REPOSITORY_TOO_LARGE]")) {
-        return locale === "ru"
-          ? `Размер файла или репозитория превышает допустимый лимит: ${raw.replace(/^\[REPOSITORY_TOO_LARGE\]\s*/, "")}`
-          : `Repository or file exceeds size limit: ${raw.replace(/^\[REPOSITORY_TOO_LARGE\]\s*/, "")}`;
-      }
-      if (raw.includes("[MODULE_BLOCKED]")) {
-        return locale === "ru"
-          ? `Модуль заблокирован: ${raw}`
-          : `Module blocked: ${raw}`;
-      }
-      if (raw.includes("[MANUAL_ADAPTER_REQUIRED]")) {
-        return locale === "ru"
-          ? `Требуется ручной адаптер точки входа: ${raw}`
-          : `Manual adapter required: ${raw}`;
-      }
-      if (raw.includes("[TOOLCHAIN_ERROR]")) {
-        return locale === "ru"
-          ? `Ошибка среды сборки: ${raw}`
-          : `Toolchain error: ${raw}`;
-      }
-      return raw;
+      return humanizeRawError(raw, locale);
     }
     try {
-      return JSON.stringify(e);
-    } catch {
-      return String(e);
-    }
+      const json = JSON.stringify(e);
+      if (json && json !== "{}" && json !== "[]") return json;
+    } catch {}
   }
-  return String(e);
+  return locale === "ru" ? "Неизвестная ошибка при сборке модуля" : "Unknown error during module build";
 }
 
 function formatDate(dateStr?: string | null): string {
@@ -1949,6 +1978,27 @@ export function ModulesPage({
                                 {locale === "ru" ? "Включить" : "Enable"}
                               </Button>
                             )
+                          ) : item.id === "time-is-time" ? (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={async () => {
+                                try {
+                                  await api.moduleSetEnabled(serverId, "time-is-time", true);
+                                  setChanged(true);
+                                  await load();
+                                  setOpenSettings("time-is-time");
+                                  setActiveTab("installed");
+                                  onChanged?.();
+                                } catch (e) {
+                                  setError(asUiError(e));
+                                }
+                              }}
+                              className="text-xs h-7 px-3"
+                            >
+                              <Plug className="h-3.5 w-3.5 mr-1" />
+                              {locale === "ru" ? "Включить" : "Enable"}
+                            </Button>
                           ) : item.id === "custom-races" ? (
                             <Button
                               size="sm"
@@ -1970,6 +2020,7 @@ export function ModulesPage({
                                 setGithubUrl(item.repo);
                                 setActiveTab("builds");
                                 await runAnalysis(item.repo);
+                                await startControlledBuild(item.repo);
                               }}
                               className="text-xs h-7 px-3 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-black font-medium"
                             >
