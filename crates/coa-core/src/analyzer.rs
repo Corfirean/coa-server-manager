@@ -339,9 +339,9 @@ pub fn analyze_repository(repo_path: &Path) -> Result<CompatibilityReport> {
 
 /// Validate that a source tree meets repository safety limits:
 /// - No symlinks or directory junctions
-/// - Maximum 5,000 files
-/// - Single file maximum 25 MB
-/// - Total size maximum 100 MB
+/// - Maximum 10,000 files
+/// - Single file maximum 100 MB
+/// - Total size maximum 300 MB
 pub fn validate_source_tree_safety(root_dir: &Path) -> Result<()> {
     let mut total_size: u64 = 0;
     let mut file_count: usize = 0;
@@ -368,20 +368,20 @@ pub fn validate_source_tree_safety(root_dir: &Path) -> Result<()> {
                         } else {
                             file_count += 1;
                             total_size += meta.len();
-                            if meta.len() > 26_214_400 {
+                            if meta.len() > 104_857_600 {
                                 return Err(Error::Invalid(format!(
-                                    "[REPOSITORY_TOO_LARGE] Single file exceeds limit of 25 MB: {}",
+                                    "[REPOSITORY_TOO_LARGE] Single file exceeds limit of 100 MB: {}",
                                     path.display()
                                 )));
                             }
-                            if file_count > 5000 {
+                            if file_count > 10000 {
                                 return Err(Error::Invalid(
-                                    "[REPOSITORY_TOO_LARGE] Exceeded maximum allowed files (5000)".into()
+                                    "[REPOSITORY_TOO_LARGE] Exceeded maximum allowed files (10000)".into()
                                 ));
                             }
-                            if total_size > 104_857_600 {
+                            if total_size > 314_572_800 {
                                 return Err(Error::Invalid(
-                                    "[REPOSITORY_TOO_LARGE] Exceeded maximum allowed repository size (100 MB)".into()
+                                    "[REPOSITORY_TOO_LARGE] Exceeded maximum allowed repository size (300 MB)".into()
                                 ));
                             }
                         }
@@ -922,7 +922,7 @@ pub fn parse_and_validate_github_url(url_str: &str) -> Result<(String, String, O
 /// - Only github.com allowed
 /// - git hooks disabled (`-c core.hooksPath=""`)
 /// - smudge/LFS filters constrained
-/// - Size limit: max 100 MB, max 5,000 files, single file max 25 MB
+/// - Size limit: max 300 MB, max 10,000 files, single file max 100 MB
 /// - Symlinks and junctions rejected
 /// - Strictly read-only analysis: NO execution of CMake, build scripts, or SQL migrations
 pub fn analyze_github_repository(url_str: &str, cache_base_dir: Option<&Path>) -> Result<CompatibilityReport> {

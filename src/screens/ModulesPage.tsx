@@ -498,6 +498,11 @@ function formatErrorMessage(e: unknown, locale = "ru"): string {
           ? "В репозитории не найдена C++ точка входа Add*Scripts. Модуль не содержит исходного кода C++ для компиляции в DLL (возможно, это скрипт Lua/Eluna или чистый SQL)."
           : "No Add*Scripts entrypoint found. This repository contains no C++ source code to build into a DLL (it may be a Lua/Eluna script or SQL-only).";
       }
+      if (raw.includes("[REPOSITORY_TOO_LARGE]")) {
+        return locale === "ru"
+          ? `Размер файла или репозитория превышает допустимый лимит: ${raw.replace(/^\[REPOSITORY_TOO_LARGE\]\s*/, "")}`
+          : `Repository or file exceeds size limit: ${raw.replace(/^\[REPOSITORY_TOO_LARGE\]\s*/, "")}`;
+      }
       if (raw.includes("[MODULE_BLOCKED]")) {
         return locale === "ru"
           ? `Модуль заблокирован: ${raw}`
