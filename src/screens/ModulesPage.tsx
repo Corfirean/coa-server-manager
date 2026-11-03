@@ -479,6 +479,49 @@ function CoaStatusBadge({ status, conflictReason }: { status: CoaCompatibilitySt
   }
 }
 
+function formatErrorMessage(e: unknown, locale = "ru"): string {
+  if (!e) return locale === "ru" ? "Неизвестная ошибка" : "Unknown error";
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  if (typeof e === "object") {
+    const obj = e as {
+      technical?: string;
+      human?: { title?: string; message?: string };
+      message?: string;
+    };
+    const raw = obj.technical || obj.human?.message || obj.message || "";
+    if (raw) {
+      if (raw.includes("[NO_LOADER_FOUND]")) {
+        return locale === "ru"
+          ? "В репозитории не найдена C++ точка входа Add*Scripts. Модуль не содержит исходного кода C++ для компиляции в DLL (возможно, это скрипт Lua/Eluna или чистый SQL)."
+          : "No Add*Scripts entrypoint found. This repository contains no C++ source code to build into a DLL (it may be a Lua/Eluna script or SQL-only).";
+      }
+      if (raw.includes("[MODULE_BLOCKED]")) {
+        return locale === "ru"
+          ? `Модуль заблокирован: ${raw}`
+          : `Module blocked: ${raw}`;
+      }
+      if (raw.includes("[MANUAL_ADAPTER_REQUIRED]")) {
+        return locale === "ru"
+          ? `Требуется ручной адаптер точки входа: ${raw}`
+          : `Manual adapter required: ${raw}`;
+      }
+      if (raw.includes("[TOOLCHAIN_ERROR]")) {
+        return locale === "ru"
+          ? `Ошибка среды сборки: ${raw}`
+          : `Toolchain error: ${raw}`;
+      }
+      return raw;
+    }
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return String(e);
+    }
+  }
+  return String(e);
+}
+
 function formatDate(dateStr?: string | null): string {
   if (!dateStr) return "—";
   try {
@@ -749,7 +792,7 @@ export function ModulesPage({
       const rep = await api.analyzeGithubModule(targetUrl, serverId);
       setReport(rep);
     } catch (e: unknown) {
-      setAnalysisError(e instanceof Error ? e.message : String(e));
+      setAnalysisError(formatErrorMessage(e, locale));
     } finally {
       setAnalyzing(false);
     }
@@ -784,8 +827,9 @@ export function ModulesPage({
         );
       }
     } catch (e: unknown) {
-      setAnalysisError(e instanceof Error ? e.message : String(e));
-      setBuildLogs((prev) => [...prev, `[FATAL BUILD ERROR]: ${String(e)}`]);
+      const errText = formatErrorMessage(e, locale);
+      setAnalysisError(errText);
+      setBuildLogs((prev) => [...prev, `[FATAL BUILD ERROR]: ${errText}`]);
     } finally {
       setBuilding(false);
     }
