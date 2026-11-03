@@ -402,6 +402,9 @@ pub fn build_module_from_source(
     let sdk_dir = toolchain.sdk_dir.unwrap();
 
     let (module_id, display_name, source_commit) = resolve_module_identity(module_source_dir);
+    if let Some(reason) = crate::catalogue::is_blocked_repo(&module_id) {
+        return Err(Error::Invalid(format!("[MODULE_BLOCKED] Module '{}' is blocked by CoA project policy: {}", module_id, reason)));
+    }
     let raw_module_name = module_source_dir.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| module_id.clone());

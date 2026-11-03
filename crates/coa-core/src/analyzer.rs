@@ -1185,6 +1185,22 @@ pub fn analyze_github_module_for_realm(
     let mut report = analyze_github_repository(url_str, cache_base_dir)?;
     report.sdk_fingerprint = Some(realm_sdk_fingerprint.clone());
 
+    if let Some(reason) = crate::catalogue::is_blocked_repo(url_str) {
+        report.findings.push(CompatibilityFinding {
+            rule_id: "COA_POLICY_BLOCKED".into(),
+            severity: FindingSeverity::Critical,
+            confidence: FindingConfidence::High,
+            file: "repository".into(),
+            line: 0,
+            explanation: format!("This module is blocked by CoA project policy: {}", reason),
+            recommended_action: "Installation of this repository is blocked due to known fatal issues or security risks.".into(),
+            evidence: format!("Repository: {}, Block reason: {}", url_str, reason),
+            is_auto_fixable: false,
+        });
+        report.classification = CompatibilityClassification::SourceIncompatible;
+        report.reasons.push(format!("Blocked by CoA policy: {}", reason));
+    }
+
     let v03_fingerprint = SdkExportContract::v03().abi_fingerprint;
     if realm_sdk_fingerprint != v03_fingerprint {
         report.findings.push(CompatibilityFinding {
