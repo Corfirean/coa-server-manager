@@ -397,10 +397,22 @@ pub fn validate_source_tree_safety(root_dir: &Path) -> Result<()> {
 pub fn analyze_repository_with_contract(repo_path: &Path, contract: &SdkExportContract) -> Result<CompatibilityReport> {
     validate_source_tree_safety(repo_path)?;
     let repo_path_buf = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
-    let repo_name = repo_path_buf
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "unknown".into());
+    let repo_name = {
+        let name = repo_path_buf
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unknown".into());
+        // If the path leaf is a git commit hash (e.g. in github_cache), use the parent directory as repo_name
+        if name.len() >= 7 && name.chars().all(|c| c.is_ascii_hexdigit()) {
+            repo_path_buf
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or(name)
+        } else {
+            name
+        }
+    };
 
     let mut findings = Vec::new();
     let mut hooks = Vec::new();

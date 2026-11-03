@@ -569,6 +569,7 @@ pub fn build_module_from_source(
     let controlled_cmake = format!(r#"cmake_minimum_required(VERSION 3.22)
 project(coa_plugin_{safe_target_name} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON)
 
 string(REPLACE "/Zi" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${{CMAKE_CXX_FLAGS_RELWITHDEBINFO}}")
 string(REPLACE "-Zi" "" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${{CMAKE_CXX_FLAGS_RELWITHDEBINFO}}")
