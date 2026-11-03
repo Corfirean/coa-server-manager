@@ -1,5 +1,7 @@
 # Realm profiles
 
+**English** · [Русский](ru/WILDCARD.md) · [Deutsch](de/WILDCARD.md) · [Français](fr/WILDCARD.md) · [Español](es/WILDCARD.md) · [简体中文](zh-CN/WILDCARD.md)
+
 Overview offers CoA and Wildcard. The installed worldserver must contain Wildcard support and the database must
 already have its Wildcard migrations. The Manager refuses an unsupported binary, an occupied realm ID 2 or an
 existing destination database rather than overwrite them.

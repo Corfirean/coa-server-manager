@@ -69,6 +69,8 @@ export interface BrowseParams {
 }
 
 export const browse = {
+  enabled: () => invoke<boolean>("browse_enabled"),
+  setEnabled: (enabled: boolean) => invoke<void>("browse_set_enabled", { enabled }),
   list: (params: BrowseParams) => invoke<RealmPage>("browse_list", { params }),
   detail: (realmId: string) => invoke<RealmDetail>("browse_detail", { realmId }),
   modules: () => invoke<ModuleInfo[]>("module_catalog"),

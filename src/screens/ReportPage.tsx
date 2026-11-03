@@ -12,6 +12,8 @@ const TARGET_LABEL: Record<ReportTargetId, Key> = {
   manager: "rep.target.manager",
   companions: "rep.target.companions",
   squid: "rep.target.squid",
+  "custom-races": "rep.target.custom-races",
+  "content-scaling": "rep.target.content-scaling",
 };
 
 const FALLBACK: ReportTarget = { id: "manager", repo: "Corfirean/coa-server-manager", ours: true };

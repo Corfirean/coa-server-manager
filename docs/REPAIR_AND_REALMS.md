@@ -1,5 +1,7 @@
 # Updates, backups and repair
 
+**English** · [Русский](ru/REPAIR_AND_REALMS.md) · [Deutsch](de/REPAIR_AND_REALMS.md) · [Français](fr/REPAIR_AND_REALMS.md) · [Español](es/REPAIR_AND_REALMS.md) · [简体中文](zh-CN/REPAIR_AND_REALMS.md)
+
 ## Update your server
 
 Select your server in the Manager. When an update is available, choose **UPDATE** and follow the prompts. Keep the Manager open until it finishes: it stops the server, creates a recovery point and checks the updated server.

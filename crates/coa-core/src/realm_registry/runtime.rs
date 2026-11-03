@@ -26,6 +26,7 @@ enum Cmd {
     SetAccess {
         local_id: String,
         existing_only: bool,
+        allow_portable: bool,
         route: Option<String>,
         reply: Sender<Result<()>>,
     },
@@ -90,11 +91,12 @@ impl RegistryRuntime {
                     Ok(Cmd::SetAccess {
                         local_id,
                         existing_only,
+                        allow_portable,
                         route,
                         reply,
                     }) => {
                         let _ =
-                            reply.send(host.set_access(&local_id, existing_only, route.as_deref()));
+                            reply.send(host.set_access(&local_id, existing_only, allow_portable, route.as_deref()));
                     }
                     Ok(Cmd::Retry(local_id)) => host.retry(&local_id, Instant::now()),
                     Err(RecvTimeoutError::Timeout) => {}
@@ -157,11 +159,13 @@ impl RegistryRuntime {
         &self,
         local_id: &str,
         existing_only: bool,
+        allow_portable: bool,
         route: Option<&str>,
     ) -> Result<()> {
         self.ask(|reply| Cmd::SetAccess {
             local_id: local_id.into(),
             existing_only,
+            allow_portable,
             route: route.map(str::to_string),
             reply,
         })

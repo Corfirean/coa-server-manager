@@ -106,6 +106,7 @@ pub struct RealmPublishStatus {
     pub language: String,
     pub region: Option<String>,
     pub existing_only: bool,
+    pub allow_portable: bool,
     pub route: Option<String>,
     pub metadata_revision: Option<u64>,
     pub last_ok_unix: Option<i64>,
@@ -347,6 +348,7 @@ impl RegistryHost {
         &mut self,
         local_id: &str,
         existing_only: bool,
+        allow_portable: bool,
         route: Option<&str>,
     ) -> Result<()> {
         let route = route
@@ -359,6 +361,7 @@ impl RegistryHost {
         };
         let before = cfg.clone();
         cfg.existing_only = existing_only;
+        cfg.allow_portable = allow_portable;
         cfg.route = route;
         let cfg = cfg.clone();
         if let Err(e) = self.save() {
@@ -421,6 +424,7 @@ impl RegistryHost {
                 language: p.cfg.language.clone(),
                 region: p.cfg.region.clone(),
                 existing_only: p.cfg.existing_only,
+                allow_portable: p.cfg.allow_portable,
                 route: p.cfg.route.clone(),
                 metadata_revision: p.revision,
                 last_ok_unix: p.last_ok,

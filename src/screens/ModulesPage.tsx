@@ -5,6 +5,7 @@ import {
   Ban,
   Bot,
   CheckCircle2,
+  Clock,
   Database,
   Download,
   ExternalLink,
@@ -54,7 +55,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useI18n, useSchemaText, type Key } from "@/i18n";
-import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField } from "@/lib/moduleSettings";
+import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField, retiredModuleKeys } from "@/lib/moduleSettings";
 import { AuctionTypes } from "@/screens/AuctionTypes";
 import { RaceAvailabilitySettings } from "@/screens/RaceAvailabilitySettings";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
@@ -70,6 +71,7 @@ function GithubMark(props: { className?: string }) {
 
 /** Icon and colors of a module's square tile */
 const TILES: Record<string, { icon: ComponentType<LucideProps>; from: string; to: string }> = {
+  clock: { icon: Clock, from: "from-indigo-400", to: "to-violet-800" },
   bot: { icon: Bot, from: "from-emerald-500", to: "to-teal-700" },
   scaling: { icon: Scaling, from: "from-violet-500", to: "to-indigo-700" },
   plug: { icon: Plug, from: "from-amber-500", to: "to-orange-700" },
@@ -2676,7 +2678,7 @@ function ModuleSettings({
       return next;
     });
 
-  const available = items?.filter((s) => s.key !== moduleEnableKey(module.id)) ?? [];
+  const available = items?.filter((s) => s.key !== moduleEnableKey(module.id) && !["CoACustomRaces.DisabledRaceIds", "CoACustomRaces.DisabledRaceCatalogSha256"].includes(s.key) && !retiredModuleKeys.has(s.key)) ?? [];
   const advancedCount = available.filter(
     (s) =>
       !auctionWeightKey(s.key) &&

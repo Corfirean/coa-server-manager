@@ -309,7 +309,7 @@ async fn perform_probe(ip: IpAddr, ports: Vec<u16>) -> Response {
 }
 
 async fn health<K: KeyLookup>(State(hub): State<Arc<Hub<K>>>) -> Response {
-    Json(serde_json::json!({ "status": "ok", "protocol_version": coa_control_proto::CONTROL_PROTOCOL_VERSION, "hosts": hub.connected_hosts() })).into_response()
+    Json(serde_json::json!({ "status": "ok", "protocol_version": coa_control_proto::coord::COORDINATOR_PROTOCOL_VERSION, "hosts": hub.connected_hosts() })).into_response()
 }
 
 async fn host_ws<K: KeyLookup>(State(hub): State<Arc<Hub<K>>>, ConnectInfo(Peer(peer)): ConnectInfo<Peer>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
@@ -368,7 +368,7 @@ async fn next_text(sock: &mut WebSocket, timeout: Duration) -> Option<Frame> {
 
 async fn run_host<K: KeyLookup>(hub: Arc<Hub<K>>, mut sock: WebSocket, ip: IpAddr) {
     let nonce = coord::challenge_nonce();
-    if !send_frame(&mut sock, &Frame::Challenge { protocol: coa_control_proto::CONTROL_PROTOCOL_VERSION, nonce: nonce.clone() }).await {
+    if !send_frame(&mut sock, &Frame::Challenge { protocol: coa_control_proto::coord::COORDINATOR_PROTOCOL_VERSION, nonce: nonce.clone() }).await {
         return;
     }
     let Some(hello) = next_text(&mut sock, hub.cfg.hello_timeout).await else { return refuse(&mut sock, ErrorCode::Timeout, "no valid hello").await };
@@ -478,7 +478,7 @@ fn expire<K: KeyLookup>(hub: &Hub<K>, entry: &HostEntry) {
 
 async fn run_player<K: KeyLookup>(hub: Arc<Hub<K>>, mut sock: WebSocket, ip: IpAddr, realm: RealmId) {
     let nonce = coord::challenge_nonce();
-    if !send_frame(&mut sock, &Frame::Challenge { protocol: coa_control_proto::CONTROL_PROTOCOL_VERSION, nonce: nonce.clone() }).await {
+    if !send_frame(&mut sock, &Frame::Challenge { protocol: coa_control_proto::coord::COORDINATOR_PROTOCOL_VERSION, nonce: nonce.clone() }).await {
         return;
     }
     let Some(hello) = next_text(&mut sock, hub.cfg.hello_timeout).await else { return refuse(&mut sock, ErrorCode::Timeout, "no valid hello").await };

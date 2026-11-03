@@ -112,6 +112,10 @@ pub struct ProbeResponse {
     pub all_reachable: bool,
 }
 
+/// Coordinator authentication is independent of the encrypted application protocol.
+/// Changing portable messages must not invalidate deployed v1 host/player proofs.
+pub const COORDINATOR_PROTOCOL_VERSION: u32 = 1;
+
 pub fn challenge_nonce() -> String {
     let mut n = [0u8; 32];
     n[..16].copy_from_slice(Uuid::new_v4().as_bytes());
@@ -122,7 +126,7 @@ pub fn challenge_nonce() -> String {
 fn host_input(realm: &RealmId, nonce: &str, ts: i64) -> Vec<u8> {
     format!(
         "coa-coord-host-v1\n{}\n{realm}\n{nonce}\n{ts}",
-        crate::CONTROL_PROTOCOL_VERSION
+        COORDINATOR_PROTOCOL_VERSION
     )
     .into_bytes()
 }
@@ -130,7 +134,7 @@ fn host_input(realm: &RealmId, nonce: &str, ts: i64) -> Vec<u8> {
 fn player_input(player: &Uuid, public_key: &str, realm: &RealmId, nonce: &str, ts: i64) -> Vec<u8> {
     format!(
         "coa-coord-player-v1\n{}\n{}\n{public_key}\n{realm}\n{nonce}\n{ts}",
-        crate::CONTROL_PROTOCOL_VERSION,
+        COORDINATOR_PROTOCOL_VERSION,
         player.hyphenated()
     )
     .into_bytes()
@@ -276,6 +280,14 @@ pub fn to_text(frame: &Frame) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deployed_coordinator_proofs_stay_v1_when_application_protocol_changes() {
+        let realm = RealmId::new();
+        let player = Uuid::now_v7();
+        assert_eq!(host_input(&realm, "nonce", 42), format!("coa-coord-host-v1\n1\n{realm}\nnonce\n42").into_bytes());
+        assert_eq!(player_input(&player, "public", &realm, "nonce", 42), format!("coa-coord-player-v1\n1\n{player}\npublic\n{realm}\nnonce\n42").into_bytes());
+    }
 
     fn key(n: u8) -> SigningKey {
         SigningKey::from_bytes(&[n; 32])

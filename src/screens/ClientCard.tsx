@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, asUiError, type ClientInfo, type ClientStatus, type UiError } from "@/lib/api";
 import { checkClient } from "@/lib/clientUpdate";
+import { ClientGraphics } from "./ClientGraphics";
 import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -95,6 +96,7 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
             <dt className="text-muted">{t("client.otherAddons")}</dt>
             <dd>{t("client.leftAsIs", { n: info.other_addons })}</dd>
           </dl>
+          <ClientGraphics key={info.path} serverId={serverId} />
           {!remote && (
             <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm">
               <input type="checkbox" checked={playAfter} onChange={(e) => setPlayAfter(e.target.checked)} className="h-4 w-4 accent-[#c9a24a]" />

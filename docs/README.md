@@ -1,5 +1,7 @@
 # Guides and screenshots
 
+**English** · [Русский](ru/README.md) · [Deutsch](de/README.md) · [Français](fr/README.md) · [Español](es/README.md) · [简体中文](zh-CN/README.md)
+
 - [Screenshot gallery](SCREENSHOTS.md) — explore the interface and its main features.
 - [Host your own server](HOST-A-SERVER.md) — install a server, invite friends and publish a realm listing.
 - [Portable characters · Experimental](PORTABLE-CHARACTERS.md) — save an existing character and use compatible realms.

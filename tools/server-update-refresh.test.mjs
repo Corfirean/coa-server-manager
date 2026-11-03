@@ -16,6 +16,7 @@ globalThis.__hotfixApi = {
 };
 registerHooks({ resolve(specifier, context, next) {
   if (specifier === "react") return { shortCircuit: true, url: "data:text/javascript,export const useSyncExternalStore=(subscribe,getSnapshot)=>getSnapshot();export const useState=()=>{throw new Error('React state is not used in this test');};" };
+  if (specifier === "@/lib/serverLifecycle") return { shortCircuit: true, url: new URL("../src/lib/serverLifecycle.ts", import.meta.url).href };
   if (specifier === "@/lib/api") return { shortCircuit: true, url: "data:text/javascript,export const api=globalThis.__hotfixApi;export const asUiError=e=>({human:{code:'unknown'},technical:e.message});" };
   if (specifier === "@tauri-apps/api/event") return { shortCircuit: true, url: "data:text/javascript,export const listen=async()=>()=>{};" };
   if (specifier === "./serverUpdateStatus" && context.parentURL?.endsWith("/serverUpdate.ts")) return { shortCircuit: true, url: new URL("../src/lib/serverUpdateStatus.ts", import.meta.url).href };
@@ -50,6 +51,19 @@ test("refresh after recovery returns the latest disk state, then its absence", a
   assert.equal(await refreshServerUpdateState("recovery-case"), pending);
   pending = null;
   assert.equal(await refreshServerUpdateState("recovery-case"), null);
+});
+
+test("successful update keeps the existing-character warning across disk refresh", async () => {
+  const original = globalThis.__hotfixApi.applyUpdate;
+  try {
+    applyFailure = false;
+    stateFailure = false;
+    pending = null;
+    globalThis.__hotfixApi.applyUpdate = async () => ({ txn: { state: "committed", to_version: "2" }, preexisting_character_count: 174 });
+    assert.equal(await applyServerUpdate("old-character-warnings", { choices: {} }), true);
+    await refreshServerUpdateState("old-character-warnings");
+    assert.deepEqual(useServerUpdate("old-character-warnings").result, { committed: "2", preexistingCharacters: 174 });
+  } finally { globalThis.__hotfixApi.applyUpdate = original; }
 });
 
 test("a stopped server is left stopped after a successful update by default", async () => {

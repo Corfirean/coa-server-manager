@@ -10,6 +10,12 @@ source = source.replace(/import (\w+) from "(\.\.\/\.\.\/[^"\n]+\.json)";/g, (_,
 const compiled = stripTypeScriptTypes(source);
 const { moduleSettingDefinitions, moduleField, canonicalModuleValue, auctionTypeChanges, auctionCategorySettings, auctionCategories, auctionQualities } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const ids = new Set();
+for (const [key, type] of [["Announce", "bool"], ["SpeedRate", "float"], ["TimeStart", "int"], ["HourOffset", "float"]]) {
+  for (const locale of ["en", "ru", "de", "fr", "es", "zh"]) {
+    const field = moduleField(`TimeIsTime.${key}`, locale);
+    if (field?.type !== type || !field.title || !field.description) throw new Error(`Missing TimeIsTime control: ${key}/${locale}`);
+  }
+}
 for (const field of moduleSettingDefinitions) {
   if (ids.has(field.key)) throw new Error(`Duplicate module setting: ${field.key}`);
   ids.add(field.key);

@@ -8,6 +8,143 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.8 — 2026-11-01
+
+- Dungeon Clear can be enabled when SQUID bots are active.
+- Diagnostic exports include launcher stages and lock owner records.
+- Choose normal logs, errors only or no server logs in maintenance settings.
+- Update checks temporarily suspend bot population and restore your configuration.
+- Update validation keeps MySQL running between compatible checks.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.8) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.7...v0.9.8)
+
+## 0.9.7 — 2026-10-30
+
+- Show available update notes even when release history is cached.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.7) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.5...v0.9.7)
+
+## 0.9.5 — 2026-10-30
+
+- Account creation verifies a lost console reply against the requested login.
+- Abandoned game relay tunnels close their local connection immediately.
+- Keep disabled graphics components disabled during client updates.
+- Force-stop an unresponsive world after a failed normal shutdown.
+- Crash history includes reports from every world and Windows text files.
+- Show the online bot count for Playerbots on the overview.
+- Disable public server browsing in Settings.
+- Keep deliberate stops and update shutdowns from triggering crash restart.
+- Server startup waits for a responsive console before reporting success.
+- Restore the existing Manager window when launching it again.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.5) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.4...v0.9.5)
+
+## 0.9.4 — 2026-10-29
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Settings group updates, startup and maintenance with translated release history.
+- Update and launch without updating share a divided button.
+- Maximizing the window keeps text and controls at a comfortable size.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.4) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.3...v0.9.4)
+
+## 0.9.3 — 2026-10-29
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Slow server startup no longer triggers an early update rollback.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.3) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.2...v0.9.3)
+
+## 0.9.2 — 2026-10-28
+
+**Portable Characters are experimental and may contain bugs.**
+
+- New server installation waits for slower database startup.
+- Find and edit CoA options in the existing server settings.
+- Simultaneous update checks share results or wait their turn.
+- Recovery can stop an unfinished world startup after restoring an older launcher.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2)
+
+## 0.9.1 — 2026-10-28
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Existing unsupported character records no longer block unrelated server updates.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.0...v0.9.1)
+
+## 0.9.0 — 2026-10-28
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Choose Parallel or Global level scaling in module settings.
+- Report Content Scaling problems directly to its repository.
+- Send custom race problem reports directly to their maintainer.
+- Internet sharing restores the LAN address after server restarts.
+- Configure custom race availability for new characters.
+- Public listing offers every realm that starts together, not just the main one.
+- Public listing is a short list of realms with a window for the details.
+- Configure profession and defense skill gains in server settings.
+- Starting a server sets the character classes of the realm chosen on Overview.
+- Start Wildcard and Warcraft Reborn together with Conquest of Azeroth.
+- Control portable characters and keep Manager running in the system tray.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.8.2...v0.9.0)
+
+## 0.8.2 — 2026-10-27
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Installs the verified CoA Custom 1.9.2 client patches and quest safety addon, while recognizing existing 1.9.1 installations.
+- Server updates preserve the order of database migrations introduced during merges, preventing older snapshots from overwriting newer progression.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.8.1...v0.8.2)
+
+## 0.8.1 — 2026-10-25
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Install the matching CoA Custom 1.9.1 client files.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.1) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.8.0...v0.8.1)
+
+## 0.8.0 — 2026-10-24
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Server owners can allow portable characters per realm.
+- Allowing portable characters also prepares the server for portable sessions.
+- Managers stay compatible with the public connection service.
+- Relay connections recover and use the ports of the installed server.
+- Portable progress resumes after reconnecting or restarting the Manager.
+- Older copies on another host may require maintenance before returning.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.0) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.7.3...v0.8.0)
+
+## 0.7.3 — 2026-10-23
+
+**Portable Characters are experimental and may contain bugs.**
+
+- Portable characters open again after using an experimental Manager.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.3) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.7.2...v0.7.3)
+
+## 0.7.2 — 2026-10-23
+
+- Advanced settings cover creature melee damage, spell damage and health by rank.
+- Internet sharing accepts existing port forwards to the same server.
+- The Auction House Bot card has a single switch.
+- More character and server browser controls now use your selected language.
+- Online player counts correctly separate random bots from players.
+- Custom races work with shared addon folders on another drive.
+- Configure the day and night cycle from the module settings.
+- A stalled database inspection no longer blocks server maintenance indefinitely.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.2) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.7.1...v0.7.2)
+
 ## 0.7.1 — 2026-10-22
 
 Close the game, then open Modules → Custom Races → Repair Client Patch to update existing patches, or Install Client Patch for a new installation. Updating the Manager does not automatically replace game files or update your server.

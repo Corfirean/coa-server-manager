@@ -95,13 +95,42 @@ pub struct Problem {
 
 /// Keep all differences for support; never change a database to match a contract automatically.
 pub fn check_with_report(db: &Db, root: &Path) -> Result<Vec<Problem>> {
-    let problems = check(db, root)?;
-    if problems.is_empty() {
+    check_update_with_report(db, root, None)
+}
+
+/// Only a hash-verified pre-update baseline may downgrade unchanged missing starts to warnings.
+pub fn check_update_with_report(
+    db: &Db,
+    root: &Path,
+    baseline: Option<&crate::character_start_check::Baseline>,
+) -> Result<Vec<Problem>> {
+    let mut preexisting = BTreeMap::new();
+    let before = match baseline {
+        Some(b) if b.schema == 1 => Some(b.realms.get(db.realm().name()).ok_or_else(|| {
+            crate::Error::Invalid("The character baseline does not contain this realm.".into())
+        })?),
+        Some(_) => {
+            return Err(crate::Error::Invalid(
+                "Unsupported character start baseline.".into(),
+            ))
+        }
+        None => None,
+    };
+    let problems = check_inner(db, root, before, &mut preexisting)?;
+    let existing: usize = preexisting.values().sum();
+    let preexisting_details: Vec<_> = preexisting.into_iter().map(|((race, class), count)| serde_json::json!({"race": race, "class": class, "count": count})).collect();
+    if existing > 0 {
+        tracing::warn!(realm = db.realm().name(), characters = existing, "Unchanged pre-update characters with missing starting data retained; no character records were repaired or deleted");
+    }
+    if problems.is_empty() && existing == 0 {
         return Ok(problems);
     }
     let report = serde_json::json!({
         "schema": 1, "checkedAt": chrono::Utc::now().to_rfc3339(),
         "realm": db.realm().name(), "problems": problems,
+        "preexistingUnsupportedCharacters": existing,
+        "preexistingCharacterStarts": preexisting_details,
+        "note": "Unchanged pre-update missing starts are reported separately. New missing character starts and all schema errors still block the update.",
     });
     let path = crate::registry::metadata_dir_for(root)?
         .join("diagnostics")
@@ -245,6 +274,15 @@ pub(crate) fn repair_missing_defaults(
 }
 
 pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
+    check_inner(db, root, None, &mut BTreeMap::new())
+}
+
+fn check_inner(
+    db: &Db,
+    root: &Path,
+    before: Option<&BTreeSet<crate::character_start_check::MissingStart>>,
+    existing: &mut BTreeMap<(u32, u32), usize>,
+) -> Result<Vec<Problem>> {
     let contract = if root.join(CONTRACT).is_file() {
         let contract: Contract = fsx::read_json(&root.join(CONTRACT))?;
         if contract.schema != 1 {
@@ -367,12 +405,24 @@ pub fn check(db: &Db, root: &Path) -> Result<Vec<Problem>> {
     }
     // Check owned characters too, including legacy classes and Wildcard characters. Their rows
     // must not silently disappear from character selection after an otherwise healthy update.
-    let missing = db.query("SELECT c.race,c.class,COUNT(*) FROM acore_characters.characters c LEFT JOIN acore_world.playercreateinfo p ON p.race=c.race AND p.class=c.class WHERE p.race IS NULL GROUP BY c.race,c.class;")?;
-    for row in missing.lines() {
-        let fields: Vec<_> = row.split('\t').collect();
-        if fields.len() == 3 {
-            problems.push(Problem { database: "world".into(), table: "playercreateinfo".into(), column: String::new(), detail: format!("{} existing characters have no starting data for race {} / class {} and would be hidden from character selection", fields[2], fields[0], fields[1]) });
+    let current = crate::character_start_check::missing(db)?;
+    let blocking = if let Some(before) = before {
+        let introduced = crate::character_start_check::introduced(&current, before);
+        for character in current.intersection(before) {
+            *existing
+                .entry((character.race, character.class))
+                .or_default() += 1;
         }
+        introduced
+    } else {
+        current
+    };
+    let mut counts = BTreeMap::<(u32, u32), usize>::new();
+    for character in blocking {
+        *counts.entry((character.race, character.class)).or_default() += 1;
+    }
+    for ((race, class), count) in counts {
+        problems.push(Problem { database: "world".into(), table: "playercreateinfo".into(), column: String::new(), detail: format!("{count} existing characters have no starting data for race {race} / class {class} and would be hidden from character selection") });
     }
     Ok(problems)
 }

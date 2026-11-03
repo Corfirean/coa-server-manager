@@ -794,6 +794,20 @@ fn save_settings_in(
     let mut changed = Vec::new();
     for (key, value) in changes {
         let value = value.trim();
+        if id == "custom-races" && key == crate::race_availability::KEY {
+            require_bot_server_stopped(root)?;
+            let catalog = crate::race_availability::status(root)?;
+            if !catalog.server_config_supported {
+                return Err(Error::Invalid("Update the server before configuring individual race restrictions.".into()));
+            }
+            crate::race_availability::parse_disabled(value, &catalog.races)?;
+        }
+        if id == "custom-races" && key == crate::race_availability::CATALOG_KEY {
+            let hash = value.trim_matches('"');
+            if !hash.is_empty() && (hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())) {
+                return Err(Error::Invalid("Invalid race catalog fingerprint.".into()));
+            }
+        }
         if let Some(field) = fields.get(key) {
             crate::squid::validate(field, value)?;
         }
@@ -909,6 +923,53 @@ fn save_settings_in(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn time_is_time_card_settings_and_backups_match_the_module() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let meta = temp.path().join("metadata");
+        fs::create_dir_all(dir(&root)).unwrap();
+        fs::create_dir_all(&meta).unwrap();
+        let cat = catalog();
+        assert!(!list_in(&cat, &root).iter().find(|m| m.id == "time-is-time").unwrap().installed);
+        let defaults = "# Keep module documentation\n[worldserver]\nTimeIsTime.Enable = 1\nTimeIsTime.Announce = 1\nTimeIsTime.SpeedRate = 1.0\nTimeIsTime.TimeStart = 0\nTimeIsTime.HourOffset = 0.0\n";
+        let dist = dir(&root).join("mod-time_is_time.conf.dist");
+        let active = dir(&root).join("mod-time_is_time.conf");
+        fs::write(&dist, defaults).unwrap();
+        let view = list_in(&cat, &root).into_iter().find(|m| m.id == "time-is-time").unwrap();
+        assert!(view.installed && view.enabled && view.switchable && view.has_settings);
+        for locale in ["en", "ru", "de", "fr", "es", "zh"] {
+            assert!(!view.description[locale].is_empty());
+        }
+        assert_eq!(settings_in(&cat, &root, "time-is-time").unwrap().len(), 5);
+        let changes = BTreeMap::from([
+            ("TimeIsTime.SpeedRate".into(), "7.5".into()),
+            ("TimeIsTime.TimeStart".into(), "1213963200".into()),
+            ("TimeIsTime.HourOffset".into(), "5.5".into()),
+            ("TimeIsTime.Announce".into(), "0".into()),
+        ]);
+        assert_eq!(save_settings_in(&cat, &root, &meta, "time-is-time", &changes).unwrap().len(), 4);
+        let saved = fs::read(&active).unwrap();
+        assert!(String::from_utf8_lossy(&saved).contains("# Keep module documentation"));
+        assert_eq!(fs::read_to_string(&dist).unwrap(), defaults);
+        assert!(save_settings_in(&cat, &root, &meta, "time-is-time", &changes).unwrap().is_empty());
+        for (key, value) in [
+            ("TimeIsTime.Enable", "0"), ("TimeIsTime.SpeedRate", "NaN"),
+            ("TimeIsTime.SpeedRate", "-1"), ("TimeIsTime.SpeedRate", "61"),
+            ("TimeIsTime.HourOffset", "inf"), ("TimeIsTime.HourOffset", "25"),
+            ("TimeIsTime.TimeStart", "-1"), ("TimeIsTime.TimeStart", "2147483648"),
+            ("TimeIsTime.TimeStart", "1.5"), ("TimeIsTime.Announce", "2"),
+        ] {
+            assert!(save_settings_in(&cat, &root, &meta, "time-is-time", &BTreeMap::from([(key.into(), value.into())])).is_err(), "{key}={value}");
+            assert_eq!(fs::read(&active).unwrap(), saved);
+        }
+        set_enabled_in(&cat, &root, &meta, "time-is-time", false).unwrap();
+        assert_eq!(read(&active).unwrap().get("TimeIsTime.Enable"), Some("0"));
+        set_enabled_in(&cat, &root, &meta, "time-is-time", true).unwrap();
+        assert_eq!(read(&active).unwrap().get("TimeIsTime.SpeedRate"), Some("7.5"));
+        assert!(meta.join("backups").exists());
+    }
 
     fn test_catalog() -> Vec<Entry> {
         let one = |id: &str, name: &str, conf: &str, key: &str| Entry {
@@ -1102,7 +1163,7 @@ mod tests {
         for e in &c {
             assert!(
                 ["en", "ru", "de", "fr", "es"].iter().all(|locale| e.description.get(*locale).is_some_and(|text| !text.is_empty())),
-                "{} has the existing catalog languages",
+                "{} has the existing catalog languages (additional translations are allowed)",
                 e.id
             );
             assert!(

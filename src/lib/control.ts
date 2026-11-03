@@ -17,7 +17,7 @@ export interface Credentials { username: string; password: string }
 export interface RemoteCharacter { name: string; class: number; race: number; level: number; eligible: boolean; reasons: string[]; yours: boolean }
 
 export interface LinkStatus { connected: boolean; last_error: string | null; channels: number; requests: number }
-export interface HostControlRealm { local_id: string; realm_id: string; link: LinkStatus }
+export interface HostControlRealm { local_id: string; realm_id: string; link: LinkStatus; relay: { connected: boolean; last_error: string | null; active_streams: number } | null }
 export interface ControlStatus { secret_store: string; player_id: string | null; hosting: HostControlRealm[]; preferred_username: string }
 
 export interface ControlError { code: string; message: string }
@@ -30,7 +30,7 @@ export function asControlError(e: unknown): ControlError {
 export const control = {
   status: () => invoke<ControlStatus>("control_status"),
   setPreferredUsername: (name: string) => invoke<string>("control_set_preferred_username", { name }),
-  setAccess: (localId: string, existingOnly: boolean, route: string | null) => invoke<void>("registry_set_access", { localId, existingOnly, route }),
+  setAccess: (localId: string, existingOnly: boolean, allowPortable: boolean, route: string | null) => invoke<void>("registry_set_access", { localId, existingOnly, allowPortable, route }),
   join: (realm: string, character: string | null, launch: boolean) => invoke<JoinOutcome>("join_realm", { realm, character, launch }),
   link: (realm: string, login: string, password: string) => invoke<string>("join_link", { realm, login, password }),
   account: (realm: string) => invoke<AccountView | null>("join_account", { realm }),

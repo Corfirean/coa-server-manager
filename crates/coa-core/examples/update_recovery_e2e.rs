@@ -30,15 +30,27 @@ fn main() -> Result<()> {
         .unwrap()
         .to_string_lossy()
         .starts_with("coa-update-recovery-fixture-"));
-    assert!(
-        !root.join("recovery-e2e-started").exists(),
-        "Use a new fixture; never reuse an owned server"
-    );
-    fsx::atomic_write(&root.join("recovery-e2e-started"), b"disposable fixture")?;
-    let result = exercise(&root);
-    let stopped = driver::run(&root, Verb::StopAll)?;
-    assert!(stopped.ok);
-    result
+    let resume = std::env::args().nth(2).as_deref() == Some("--verify-recovered");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if resume {
+            assert!(root.join("recovery-e2e-started").is_file());
+            let manifest = coa_core::manifest::Manifest::parse(&std::fs::read(
+                root.join("fixture-package/manifest.json"),
+            )?)?;
+            verify_recovered(&root, &manifest)
+        } else {
+            assert!(
+                !root.join("recovery-e2e-started").exists(),
+                "Use a new fixture"
+            );
+            fsx::atomic_write(&root.join("recovery-e2e-started"), b"disposable fixture")?;
+            exercise(&root)
+        }
+    }));
+    assert!(driver::run(&root, Verb::StopAll)?.ok);
+    result.map_err(|_| {
+        Error::Invalid("Recovery acceptance assertion failed; owned services were stopped".into())
+    })?
 }
 
 fn exercise(root: &Path) -> Result<()> {
@@ -122,9 +134,18 @@ fn exercise(root: &Path) -> Result<()> {
     assert!(
         error
             .to_string()
-            .contains("private update rehearsal failed"),
+            .contains("files and databases were restored to the recovery point"),
         "{error}"
     );
+    verify_recovered(root, &manifest)
+}
+
+fn verify_recovered(root: &Path, manifest: &coa_core::manifest::Manifest) -> Result<()> {
+    let meta = coa_core::registry::metadata_dir_for(root)?;
+    let env = RepackEnv {
+        root,
+        meta_dir: &meta,
+    };
     assert!(!root.join("Core/recovery-probe.txt").exists());
     assert!(update::unfinished(&meta).is_none());
     assert_eq!(
@@ -168,6 +189,6 @@ fn exercise(root: &Path) -> Result<()> {
         Db::from_repack(root, Account::Admin)?.realm(),
         coa_core::realms::Mode::Coa
     );
-    println!("PASS: private rehearsal caught failed SQL before changing the installed world, characters, ledger, objects, files or version; complete recovery succeeded");
+    println!("PASS: failed SQL was rolled back; characters, world, ledger, views, triggers, routines, files and version were verified; the saved recovery point was restored again");
     Ok(())
 }

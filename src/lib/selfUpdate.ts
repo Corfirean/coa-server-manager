@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { useSyncExternalStore } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -93,9 +94,11 @@ export async function installNow(): Promise<void> {
     if (state.phase !== "ready") await downloadPending();
     if (state.phase !== "ready") return;
     set({ phase: "installing" });
+    await invoke("manager_installing", { enabled: true });
     await update.install();
     await relaunch();
   } catch (e) {
+    await invoke("manager_installing", { enabled: false }).catch(() => {});
     set({ phase: "error", error: String(e) });
   }
 }
@@ -107,14 +110,23 @@ export function installOnClose(): () => void {
     const win = getCurrentWindow();
     void win
       .onCloseRequested(async (event) => {
-        if (state.phase !== "ready" || !update || !autoUpdateEnabled()) return;
         event.preventDefault();
+        if (state.phase !== "ready" || !update || !autoUpdateEnabled()) {
+          await invoke("close_manager");
+          return;
+        }
+        if (await invoke<boolean>("close_to_tray")) {
+          await invoke("close_manager");
+          return;
+        }
         try {
           set({ phase: "installing" });
+          await invoke("manager_installing", { enabled: true });
           await update.install();
         } catch (e) {
+          await invoke("manager_installing", { enabled: false }).catch(() => {});
           set({ phase: "error", error: String(e) });
-          await win.destroy();
+          await invoke("close_manager");
         }
       })
       .then((un) => {

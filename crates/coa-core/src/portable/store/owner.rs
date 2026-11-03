@@ -181,6 +181,10 @@ impl Store {
         check_server_id(server_id)?;
         let tx = self.write_tx()?;
         let record = read_character(&tx, id)?;
+        let busy: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM owner_session WHERE character_id = ?1 AND server_id != ?2 AND state = 'open')", params![id.to_string(), server_id], |row| row.get(0))?;
+        if busy {
+            return Err(PortableError::SessionOpen);
+        }
         let live: Option<String> = tx
             .query_row("SELECT session_id FROM owner_session WHERE character_id = ?1 AND server_id = ?2 AND state IN ('offered', 'open')", params![id.to_string(), server_id], |r| r.get(0))
             .optional()?;
@@ -194,6 +198,8 @@ impl Store {
             }
             tx.execute("UPDATE owner_session SET state = 'superseded', updated_at = ?2 WHERE session_id = ?1", params![live, now()])?;
         }
+        // Only the selected realm may start the next session. Other idle offers must not come alive later.
+        tx.execute("UPDATE owner_session SET state='superseded', updated_at=?3 WHERE character_id=?1 AND server_id!=?2 AND state='offered'", params![id.to_string(), server_id, now()])?;
         let offer = open_offer(&tx, id, server_id)?;
         tx.commit()?;
         Ok(offer)
@@ -520,5 +526,22 @@ impl Store {
     pub fn owner_session_info(&self, session: SessionId) -> Result<Option<(String, u64, u64)>> {
         Ok(read_owner_row(&self.conn, session)?
             .map(|r| (r.state, r.last_sequence, r.head_revision)))
+    }
+
+    pub fn owner_next_session(
+        &self,
+        character: CharacterId,
+        realm: &str,
+    ) -> Result<Option<SessionId>> {
+        let sid: Option<String> = self.conn.query_row("SELECT session_id FROM owner_session WHERE character_id=?1 AND server_id=?2 AND state IN ('offered','open') ORDER BY updated_at DESC LIMIT 1", params![character.to_string(), realm], |row| row.get(0)).optional()?;
+        sid.map(|sid| sid.parse()).transpose()
+    }
+
+    pub fn owner_active_remote(&self, character: CharacterId) -> Result<Option<(String, String)>> {
+        self.conn.query_row("SELECT server_id, state FROM owner_session WHERE character_id=?1 AND server_id LIKE 'remote-%' AND state='open' ORDER BY updated_at DESC LIMIT 1", [character.to_string()], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(Into::into)
+    }
+
+    pub fn owner_session_realm(&self, session: SessionId) -> Result<Option<String>> {
+        Ok(read_owner_row(&self.conn, session)?.map(|row| row.server_id))
     }
 }

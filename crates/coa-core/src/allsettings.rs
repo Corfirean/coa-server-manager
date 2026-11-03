@@ -1,5 +1,5 @@
 //! Every setting of the world server's configuration, for people who want more than the curated list: the documented
-//! settings come from `worldserver.conf.dist` (the file that ships with the server and explains each one), the current
+//! settings come from `worldserver.conf.dist` and `modules/coa.conf.dist`, the current
 //! values from the configuration the next start will use. Anything that holds a password, a port, an address, a folder or
 //! the database connection is left out; the Manager owns those.
 
@@ -10,7 +10,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::config::parser::ConfFile;
-use crate::config::{take_snapshot, targets, Scope};
+use crate::config::{take_snapshot, targets, Scope, Targets};
 use crate::error::{Error, Result};
 use crate::fsx;
 
@@ -39,6 +39,14 @@ fn hidden(key: &str) -> bool {
         || k.starts_with("logindatabase.")
         || k.starts_with("worlddatabase.")
         || k.starts_with("characterdatabase.")
+        || [
+            "coa.classmodel",
+            "coa.realmtype",
+            "coa.gamemodemask",
+            "coa.mapclass10towarrior",
+            "coa.clientbooleanconfigs",
+        ]
+        .contains(&k.as_str())
         || [
             "bindip",
             "realmid",
@@ -121,52 +129,85 @@ fn dist_path(root: &Path) -> std::path::PathBuf {
     root.join("Core/configs/worldserver.conf.dist")
 }
 
+fn sources(root: &Path) -> Result<Vec<(std::path::PathBuf, Targets)>> {
+    let mut result = vec![(dist_path(root), targets(root, Scope::Server)?)];
+    let dist = root.join("Core/configs/modules/coa.conf.dist");
+    if dist.is_file() {
+        let active = root.join("Core/configs/modules/coa.conf");
+        result.push((
+            dist,
+            Targets {
+                read: active.clone(),
+                writes: vec![active],
+                generated: None,
+            },
+        ));
+    }
+    Ok(result)
+}
+
 pub fn list(root: &Path) -> Result<Vec<Item>> {
-    let dist = fs::read_to_string(dist_path(root)).map_err(|_| {
-        Error::Invalid(
-            "The documented settings file (worldserver.conf.dist) was not found on this server."
-                .into(),
-        )
-    })?;
-    let t = targets(root, Scope::Server)?;
-    let active = ConfFile::parse_bytes(&fs::read(&t.read)?)?;
-    Ok(parse_dist(&dist)
-        .into_iter()
-        .filter(|(k, _, _)| !hidden(k))
-        .map(|(key, default, doc)| {
-            let value = active
-                .get(&key)
-                .map(|v| v.trim().to_string())
-                .unwrap_or_else(|| default.clone());
-            let changed = value != default;
-            Item {
-                key,
-                value,
-                default,
-                doc,
-                changed,
-            }
-        })
-        .collect())
+    let mut items = Vec::new();
+    for (dist_path, t) in sources(root)? {
+        let dist = fs::read_to_string(&dist_path)?;
+        let active = ConfFile::parse_bytes(&if t.read.exists() {
+            fs::read(&t.read)?
+        } else {
+            dist.as_bytes().to_vec()
+        })?;
+        items.extend(
+            parse_dist(&dist)
+                .into_iter()
+                .filter(|(k, _, _)| !hidden(k))
+                .map(|(key, default, doc)| {
+                    let value = active
+                        .get(&key)
+                        .map(|v| v.trim().to_string())
+                        .unwrap_or_else(|| default.clone());
+                    let changed = value != default;
+                    Item {
+                        key,
+                        value,
+                        default,
+                        doc,
+                        changed,
+                    }
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+    Ok(items)
 }
 
 /// Change settings that exist in the documented file. A value is one line of at most 500 characters. Returns the keys
 /// that actually changed; the previous files are snapshotted first (and can be restored from Settings).
 pub fn save(root: &Path, meta: &Path, changes: &BTreeMap<String, String>) -> Result<Vec<String>> {
-    let known: BTreeMap<String, String> =
-        parse_dist(&fs::read_to_string(dist_path(root)).map_err(|_| {
-            Error::Invalid("worldserver.conf.dist was not found on this server.".into())
-        })?)
-        .into_iter()
-        .map(|(k, d, _)| (k, d))
-        .collect();
-    let t = targets(root, Scope::Server)?;
+    let _lock = crate::update::operation_lock(meta)?;
+    crate::update::ensure_recovered(meta)?;
+    let sources = sources(root)?;
+    let mut known = BTreeMap::new();
     let mut originals: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     let mut confs: Vec<ConfFile> = Vec::new();
-    for p in &t.writes {
-        let bytes = fs::read(p)?;
-        confs.push(ConfFile::parse_bytes(&bytes)?);
-        originals.push((p.clone(), bytes));
+    let mut owners = Vec::new();
+    for (index, (dist, t)) in sources.iter().enumerate() {
+        let defaults = fs::read(dist)?;
+        for (key, default, _) in parse_dist(&String::from_utf8_lossy(&defaults)) {
+            if known.insert(key.clone(), (default, index)).is_some() {
+                return Err(Error::Invalid(format!(
+                    "{key} is documented in more than one configuration file."
+                )));
+            }
+        }
+        for p in &t.writes {
+            let bytes = if p.exists() {
+                fs::read(p)?
+            } else {
+                defaults.clone()
+            };
+            confs.push(ConfFile::parse_bytes(&bytes)?);
+            originals.push((p.clone(), bytes));
+            owners.push(index);
+        }
     }
     let mut changed = Vec::new();
     for (key, value) in changes {
@@ -181,10 +222,22 @@ pub fn save(root: &Path, meta: &Path, changes: &BTreeMap<String, String>) -> Res
                 "The value of {key} must be one line of text."
             )));
         }
-        let same = confs.iter().all(|c| match c.get(key) {
-            Some(v) => v.trim() == value,
-            None => known[key] == value,
-        });
+        let (default, owner) = &known[key];
+        if default.parse::<f64>().is_ok() && !value.parse::<f64>().is_ok_and(f64::is_finite)
+            || key == "CoA.LegacyMountFlight" && !matches!(value, "0" | "1")
+        {
+            return Err(Error::Invalid(format!(
+                "The value of {key} must be a number matching its documented default."
+            )));
+        }
+        let same = confs
+            .iter()
+            .zip(&owners)
+            .filter(|(_, index)| *index == owner)
+            .all(|(c, _)| match c.get(key) {
+                Some(v) => v.trim() == value,
+                None => default == value,
+            });
         if !same {
             changed.push((key.clone(), value.to_string()));
         }
@@ -192,20 +245,31 @@ pub fn save(root: &Path, meta: &Path, changes: &BTreeMap<String, String>) -> Res
     if changed.is_empty() {
         return Ok(Vec::new());
     }
-    for c in &mut confs {
+    for (c, owner) in confs.iter_mut().zip(&owners) {
         for (k, v) in &changed {
-            c.set(k, v, &["Added by CoA Server Manager"]);
+            if known[k].1 == *owner {
+                c.set(k, v, &["Added by CoA Server Manager"]);
+            }
         }
     }
     let texts: Vec<String> = confs.iter().map(ConfFile::to_text).collect();
-    for text in &texts {
+    for (text, owner) in texts.iter().zip(&owners) {
         let reread = ConfFile::parse(text);
         for (k, v) in &changed {
-            if reread.get(k).map(str::trim) != Some(v.as_str()) {
+            if known[k].1 == *owner && reread.get(k).map(str::trim) != Some(v.as_str()) {
                 return Err(Error::Invalid(format!("internal check failed for {k}")));
             }
         }
     }
+    let affected: std::collections::BTreeSet<_> =
+        changed.iter().map(|(key, _)| known[key].1).collect();
+    let (originals, texts): (Vec<_>, Vec<_>) = originals
+        .into_iter()
+        .zip(texts)
+        .zip(owners)
+        .filter(|(_, owner)| affected.contains(owner))
+        .map(|(pair, _)| pair)
+        .unzip();
     take_snapshot(
         meta,
         Scope::Server,
@@ -231,6 +295,114 @@ pub fn save(root: &Path, meta: &Path, changes: &BTreeMap<String, String>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unrelated_saves_do_not_create_coa_files_and_existing_realm_values_are_preserved() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let module = root.join("Core/configs/modules");
+        fs::create_dir_all(&module).unwrap();
+        fs::write(
+            module.join("coa.conf.dist"),
+            "CoA.LegacyMountFlight = 0\nCoA.ClassModel = \"coa\"\n",
+        )
+        .unwrap();
+        save(
+            &root,
+            &meta,
+            &BTreeMap::from([("Rate.Drop.Item.Rare".into(), "1.5".into())]),
+        )
+        .unwrap();
+        assert!(!module.join("coa.conf").exists());
+        fs::write(
+            module.join("coa.conf"),
+            "# Reborn realm\nCoA.ClassModel = \"wcr\"\nCustom.Preserved = 42\n",
+        )
+        .unwrap();
+        assert!(save(
+            &root,
+            &meta,
+            &BTreeMap::from([("CoA.ClassModel".into(), "\"coa\"".into())])
+        )
+        .is_err());
+        save(
+            &root,
+            &meta,
+            &BTreeMap::from([("CoA.LegacyMountFlight".into(), "1".into())]),
+        )
+        .unwrap();
+        let actual = fs::read_to_string(module.join("coa.conf")).unwrap();
+        assert!(
+            actual.contains("CoA.ClassModel = \"wcr\"") && actual.contains("Custom.Preserved = 42")
+        );
+        assert!(actual.contains("# Reborn realm"));
+    }
+
+    #[test]
+    fn coa_settings_are_found_saved_to_the_module_and_snapshotted_without_profile_overrides() {
+        let d = tempfile::tempdir().unwrap();
+        let (root, meta) = server(d.path());
+        let module = root.join("Core/configs/modules");
+        fs::create_dir_all(&module).unwrap();
+        let defaults = "[worldserver]\n# Mount flight rules\nCoA.LegacyMountFlight = 0\nCoA.ClassModel = \"coa\"\nCoA.RealmType = \"live\"\n";
+        fs::write(module.join("coa.conf.dist"), defaults).unwrap();
+        let original_world = fs::read(root.join("Core/configs/worldserver.conf")).unwrap();
+        let items = list(&root).unwrap();
+        assert!(items
+            .iter()
+            .any(|i| i.key == "CoA.LegacyMountFlight" && i.value == "0"));
+        assert!(!items
+            .iter()
+            .any(|i| i.key == "CoA.ClassModel" || i.key == "CoA.RealmType"));
+        for value in ["2", "invalid", "1\nInjected = 1"] {
+            assert!(save(
+                &root,
+                &meta,
+                &BTreeMap::from([("CoA.LegacyMountFlight".into(), value.into())])
+            )
+            .is_err());
+        }
+        assert!(!module.join("coa.conf").exists());
+        save(
+            &root,
+            &meta,
+            &BTreeMap::from([
+                ("CoA.LegacyMountFlight".into(), "1".into()),
+                ("Rate.Drop.Item.Rare".into(), "1.5".into()),
+            ]),
+        )
+        .unwrap();
+        assert!(fs::read_to_string(module.join("coa.conf"))
+            .unwrap()
+            .contains("CoA.LegacyMountFlight = 1"));
+        let world = fs::read_to_string(root.join("Core/configs/worldserver.conf")).unwrap();
+        assert!(!world.contains("CoA.LegacyMountFlight"));
+        assert!(world.contains("Rate.Drop.Item.Rare = 1.5"));
+        assert!(!String::from_utf8(original_world)
+            .unwrap()
+            .contains("CoA.LegacyMountFlight"));
+        assert_eq!(
+            list(&root)
+                .unwrap()
+                .iter()
+                .find(|i| i.key == "CoA.LegacyMountFlight")
+                .unwrap()
+                .value,
+            "1"
+        );
+        assert!(!crate::config::list_snapshots(&meta).is_empty());
+        let saved = crate::config::list_snapshots(&meta).remove(0);
+        crate::config::restore_snapshot(&meta, &saved.id).unwrap();
+        assert_eq!(
+            list(&root)
+                .unwrap()
+                .iter()
+                .find(|i| i.key == "CoA.LegacyMountFlight")
+                .unwrap()
+                .value,
+            "0"
+        );
+    }
 
     const DIST: &str = "[worldserver]\r\n\r\n###################\r\n# SECTION\r\n###################\r\n\r\n#\r\n#    Rate.Drop.Item.Epic\r\n#    Rate.Drop.Item.Rare\r\n#        Description: Drop rates by quality.\r\n#        Default:     1\r\n#\r\n\r\nRate.Drop.Item.Rare = 1\r\nRate.Drop.Item.Epic = 1\r\n\r\n#\r\n#    LoginDatabaseInfo\r\n#        Description: secret\r\n#\r\n\r\nLoginDatabaseInfo = \"127.0.0.1;3306;a;b;c\"\r\n\r\n#\r\n#    Instance.ResetTimeHour\r\n#        Description: Hour of the reset.\r\n#        Important:   Use 0-23.\r\n#        Default:     4\r\n#\r\n\r\nInstance.ResetTimeHour = 4\r\n";
 

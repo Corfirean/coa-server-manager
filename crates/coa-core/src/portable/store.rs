@@ -28,6 +28,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/007_capabilities.sql"),
     include_str!("migrations/008_projection.sql"),
     include_str!("migrations/009_multiruleset.sql"),
+    include_str!("migrations/010_reborn_character_ruleset.sql"),
 ];
 
 pub const DEFAULT_HISTORY_KEEP: u32 = 20;
@@ -176,7 +177,7 @@ impl Store {
     fn init(conn: Connection) -> Result<Store> {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
-        let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+        conn.pragma_update(None, "synchronous", "FULL")?;
         let mut store = Store { conn };
         store.migrate()?;
         store.conn.pragma_update(None, "foreign_keys", true)?;

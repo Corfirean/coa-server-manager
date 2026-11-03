@@ -1,5 +1,7 @@
 # Warcraft Reborn
 
+**English** · [Русский](ru/WARCRAFT-REBORN.md) · [Deutsch](de/WARCRAFT-REBORN.md) · [Français](fr/WARCRAFT-REBORN.md) · [Español](es/WARCRAFT-REBORN.md) · [简体中文](zh-CN/WARCRAFT-REBORN.md)
+
 Choose **Warcraft Reborn** on Overview to create or switch to this realm. The
 installed worldserver must contain Warcraft Reborn support; an old build is
 refused before any databases are created. Stop the client before switching to

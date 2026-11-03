@@ -1,6 +1,6 @@
 //! Outbound Host <-> Game Relay tunnel link (Phase 13).
 //! Maintains outbound connectivity from Host Manager to the Game Relay,
-//! opening local TCP connections strictly to 127.0.0.1:3724 (Auth) and 127.0.0.1:8085 (World).
+//! opening local TCP connections only to the installed realm's configured loopback Auth and World ports.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -80,6 +80,22 @@ impl RelayLink {
         key: SigningKey,
         local_world_port: Option<u16>,
     ) -> Arc<Self> {
+        Self::start_with_local_ports(
+            url,
+            realm_id,
+            key,
+            RelayTarget::Auth.local_port(),
+            local_world_port,
+        )
+    }
+
+    pub fn start_with_local_ports(
+        url: String,
+        realm_id: RealmId,
+        key: SigningKey,
+        local_auth_port: u16,
+        local_world_port: Option<u16>,
+    ) -> Arc<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(RelayStatus::default()));
         let (alloc_tx, alloc_rx) = channel();
@@ -88,7 +104,18 @@ impl RelayLink {
         let st = status.clone();
         let join = std::thread::Builder::new()
             .name("control-relay-host".into())
-            .spawn(move || run(&url, realm_id, &key, alloc_rx, &s, &st, local_world_port))
+            .spawn(move || {
+                run(
+                    &url,
+                    realm_id,
+                    &key,
+                    alloc_rx,
+                    &s,
+                    &st,
+                    local_auth_port,
+                    local_world_port,
+                )
+            })
             .ok();
 
         Arc::new(RelayLink {
@@ -136,12 +163,25 @@ fn run(
     )>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
+    local_auth_port: u16,
     local_world_port: Option<u16>,
 ) {
     let mut failures = 0u32;
     while !stop.load(Ordering::SeqCst) {
         let began = Instant::now();
-        let result = session(url, realm, key, &alloc_rx, stop, status, local_world_port);
+        let result = session(
+            url,
+            realm,
+            key,
+            &alloc_rx,
+            stop,
+            status,
+            local_auth_port,
+            local_world_port,
+        );
+        if let Err(error) = &result {
+            tracing::warn!(%realm, %error, "game relay connection lost; retrying");
+        }
         set_status(status, |s| {
             s.connected = false;
             s.active_streams = 0;
@@ -173,6 +213,17 @@ fn run(
 
 struct StreamWorker {
     tx: Sender<TunnelMsg>,
+    reset_on_drop: bool,
+    shutdown: Arc<TcpStream>,
+}
+
+impl Drop for StreamWorker {
+    fn drop(&mut self) {
+        if self.reset_on_drop {
+            let _ = self.shutdown.shutdown(std::net::Shutdown::Both);
+            let _ = self.tx.send(TunnelMsg::Reset { stream_id: 0 });
+        }
+    }
 }
 
 fn session(
@@ -186,6 +237,7 @@ fn session(
     )>,
     stop: &AtomicBool,
     status: &Mutex<RelayStatus>,
+    local_auth_port: u16,
     local_world_port: Option<u16>,
 ) -> Result<(), LinkError> {
     let mut ws = transport::connect(url, POLL)?;
@@ -254,6 +306,7 @@ fn session(
     let (ws_out_tx, ws_out_rx) = channel::<TunnelMsg>();
 
     let mut last_ping = Instant::now();
+    let mut last_pong = Instant::now();
 
     while !stop.load(Ordering::SeqCst) {
         // Drain pending allocation requests
@@ -274,10 +327,14 @@ fn session(
         }
 
         // Keepalive
+        if last_pong.elapsed() > Duration::from_secs(90) {
+            return Err(LinkError::Timeout);
+        }
         if last_ping.elapsed() > Duration::from_secs(30) {
-            let _ = ws.send(Message::Text(
+            ws.send(Message::Text(
                 serde_json::to_string(&TunnelMsg::Ping).unwrap().into(),
-            ));
+            ))
+            .map_err(|error| LinkError::Io(error.to_string()))?;
             last_ping = Instant::now();
         }
 
@@ -318,7 +375,7 @@ fn session(
                         } => {
                             // Strictly predefined local targets: Auth (3724) or World (8085 or bound realm world port)
                             let local_port = match target {
-                                RelayTarget::Auth => target.local_port(),
+                                RelayTarget::Auth => local_auth_port,
                                 RelayTarget::World => match local_world_port {
                                     Some(p) => p,
                                     None => {
@@ -333,12 +390,21 @@ fn session(
                             };
                             match TcpStream::connect(("127.0.0.1", local_port)) {
                                 Ok(tcp) => {
+                                    let tcp = Arc::new(tcp);
+                                    let shutdown = tcp.clone();
                                     let (stream_tx, stream_rx) = channel::<TunnelMsg>();
                                     let ws_tx = ws_out_tx.clone();
 
                                     // Spawn worker for this stream
                                     spawn_local_tcp_bridge(stream_id, tcp, stream_rx, ws_tx);
-                                    streams.insert(stream_id, StreamWorker { tx: stream_tx });
+                                    streams.insert(
+                                        stream_id,
+                                        StreamWorker {
+                                            tx: stream_tx,
+                                            reset_on_drop: true,
+                                            shutdown,
+                                        },
+                                    );
 
                                     // Reply ConnectOk
                                     let ok_msg = TunnelMsg::ConnectOk { stream_id };
@@ -364,7 +430,8 @@ fn session(
                             }
                         }
                         TunnelMsg::Close { stream_id } => {
-                            if let Some(w) = streams.remove(&stream_id) {
+                            if let Some(mut w) = streams.remove(&stream_id) {
+                                w.reset_on_drop = false;
                                 let _ = w.tx.send(TunnelMsg::Close { stream_id });
                             }
                             set_status(status, |s| s.active_streams = streams.len());
@@ -375,7 +442,9 @@ fn session(
                             }
                             set_status(status, |s| s.active_streams = streams.len());
                         }
-                        TunnelMsg::Pong => {}
+                        TunnelMsg::Pong => {
+                            last_pong = Instant::now();
+                        }
                         _ => {}
                     }
                 }
@@ -392,19 +461,20 @@ fn session(
 
 fn spawn_local_tcp_bridge(
     stream_id: u32,
-    mut tcp: TcpStream,
+    tcp: Arc<TcpStream>,
     from_tunnel: Receiver<TunnelMsg>,
     to_tunnel: Sender<TunnelMsg>,
 ) {
     let _ = tcp.set_nonblocking(false);
     let _ = tcp.set_nodelay(true);
-    let mut tcp_read = tcp.try_clone().expect("tcp clone");
+    let tcp_read = tcp.clone();
     let to_tunnel_read = to_tunnel.clone();
 
     // Local TCP read -> to tunnel
     std::thread::Builder::new()
         .name(format!("relay-stream-{stream_id}-read"))
         .spawn(move || {
+            let mut tcp_read = tcp_read.as_ref();
             let mut buf = [0u8; 16384];
             loop {
                 match tcp_read.read(&mut buf) {
@@ -434,11 +504,12 @@ fn spawn_local_tcp_bridge(
     std::thread::Builder::new()
         .name(format!("relay-stream-{stream_id}-write"))
         .spawn(move || {
+            let mut tcp_write = tcp.as_ref();
             while let Ok(msg) = from_tunnel.recv() {
                 match msg {
                     TunnelMsg::Data { chunk, .. } => {
                         if let Ok(data) = base64::engine::general_purpose::STANDARD.decode(&chunk) {
-                            if tcp.write_all(&data).is_err() {
+                            if tcp_write.write_all(&data).is_err() {
                                 break;
                             }
                         }
@@ -456,4 +527,159 @@ fn spawn_local_tcp_bridge(
             }
         })
         .ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn relay_reconnects_after_a_dropped_link_and_clears_its_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let seen = accepted.clone();
+        let worker = std::thread::spawn(move || {
+            for turn in 0..2 {
+                let (tcp, _) = listener.accept().unwrap();
+                tcp.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+                let mut ws = tungstenite::accept(tcp).unwrap();
+                ws.send(Message::Text(
+                    serde_json::to_string(&RelayChallenge {
+                        nonce: "relay-reconnect-test".into(),
+                    })
+                    .unwrap()
+                    .into(),
+                ))
+                .unwrap();
+                let _: HostHello =
+                    serde_json::from_str(ws.read().unwrap().to_text().unwrap()).unwrap();
+                ws.send(Message::Text(
+                    serde_json::to_string(&RelayWelcome {
+                        ok: true,
+                        message: String::new(),
+                    })
+                    .unwrap()
+                    .into(),
+                ))
+                .unwrap();
+                seen.fetch_add(1, Ordering::SeqCst);
+                if turn == 0 {
+                    continue;
+                }
+                while let Ok(message) = ws.read() {
+                    let Ok(text) = message.to_text() else {
+                        continue;
+                    };
+                    if let Ok(TunnelMsg::Allocate { request_id, .. }) = serde_json::from_str(text) {
+                        ws.send(Message::Text(
+                            serde_json::to_string(&TunnelMsg::AllocateOk {
+                                request_id,
+                                token: "test-only".into(),
+                                relay_host: "127.0.0.1".into(),
+                                auth_port: 41001,
+                                world_port: 41002,
+                                expires_at: i64::MAX,
+                            })
+                            .unwrap()
+                            .into(),
+                        ))
+                        .unwrap();
+                        break;
+                    }
+                }
+            }
+        });
+        let link = RelayLink::start_with_local_ports(
+            format!("ws://{addr}"),
+            RealmId::new(),
+            SigningKey::from_bytes(&[43; 32]),
+            57324,
+            Some(58085),
+        );
+        let until = Instant::now() + Duration::from_secs(20);
+        while accepted.load(Ordering::SeqCst) < 2 || !link.status().connected {
+            assert!(Instant::now() < until, "{:?}", link.status());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(link.status().last_error.is_none());
+        let allocation = link.allocate(&Uuid::now_v7(), None).unwrap();
+        assert_eq!(
+            (allocation.auth_port, allocation.world_port),
+            (41001, 41002)
+        );
+        link.stop();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn local_tunnel_exchanges_data_in_both_directions_before_reset() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let tcp = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+        let shutdown = tcp.clone();
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let (tx, rx) = channel();
+        let (out, replies) = channel();
+        spawn_local_tcp_bridge(8, tcp, rx, out);
+        let worker = StreamWorker {
+            tx,
+            reset_on_drop: true,
+            shutdown,
+        };
+        worker
+            .tx
+            .send(TunnelMsg::Data {
+                stream_id: 8,
+                chunk: base64::engine::general_purpose::STANDARD.encode(b"request"),
+            })
+            .unwrap();
+        let mut request = [0; 7];
+        peer.read_exact(&mut request).unwrap();
+        assert_eq!(&request, b"request");
+        peer.write_all(b"response").unwrap();
+        let mut response = Vec::new();
+        while response.len() < 8 {
+            match replies.recv_timeout(Duration::from_secs(3)).unwrap() {
+                TunnelMsg::Data { chunk, .. } => response.extend(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(chunk)
+                        .unwrap(),
+                ),
+                other => panic!("Expected the local reply, got {other:?}"),
+            }
+        }
+        assert_eq!(response, b"response");
+        drop(worker);
+    }
+
+    #[test]
+    fn dropping_a_tunnel_closes_its_local_tcp_stream() {
+        for _ in 0..32 {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let tcp = Arc::new(TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+            let shutdown = tcp.clone();
+            let (mut peer, _) = listener.accept().unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let (tx, rx) = channel();
+            let (out, _) = channel();
+            spawn_local_tcp_bridge(7, tcp, rx, out);
+            drop(StreamWorker {
+                tx,
+                reset_on_drop: true,
+                shutdown,
+            });
+            match peer.read(&mut [0u8; 1]) {
+                Ok(0) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                    ) => {}
+                other => panic!("The abandoned relay stream must close, got {other:?}"),
+            }
+        }
+    }
 }

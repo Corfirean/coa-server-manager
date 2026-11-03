@@ -35,6 +35,16 @@ Every published Manager version, including a clearly marked Pre-release, belongs
 CHANGELOG.md and changelog/history.json. Its GitHub release notes use the same reviewed record.
 Promotion updates that entry without duplicating it; Manager and server histories remain separate.
 
+Translated release notes are a required preparation step before freezing a new Manager source. Follow the
+runbook's "Mandatory translated release notes during preparation" checklist: translate every new reviewed
+Manager/server note into Russian, German, French, Spanish and Simplified Chinese in
+`src/data/latest-note-translations.json`, keyed by exact canonical English text. Preserve existing translations
+and released fragments. Refresh the bundled server-history snapshot from a pinned canonical commit and record
+its provenance. Run `node --test tools/release-history.test.mjs`, `node tools/check-i18n.mjs` and `npm run build`;
+verify each new record, all six viewer languages, English fallback and offline use. Save source/version and checks
+in the handoff. Translations ship with Manager: a server-only release must record the carrying Manager version or
+pending translation delivery, without forcing another Manager release or changing already signed installers.
+
 Before preparing or publishing a Manager/server release, read the maintained
 [release runbook](https://github.com/Corfirean/coa-server-build/blob/main/docs/server-release.md)
 and [build agent instructions](https://github.com/Corfirean/coa-server-build/blob/main/AGENTS.md).
@@ -51,3 +61,16 @@ Server promotion uses the persistent Windows PC and the shared workflow's verifi
 production databases; run applicable local acceptance in disposable fixtures. Record the actual passed,
 failed and unrun checks. Verify both GitHub Latest and the public signed stable pointer before reporting
 that users can update. Leave the durable handoff described in the runbook for the next agent.
+
+## Public documentation languages
+
+Maintain the public README and every player/server-owner guide in all six Manager languages:
+English, Russian, German, French, Spanish and Simplified Chinese. English stays at `README.md`
+and the player-facing `docs/*.md`; translated READMEs use `README.<locale>.md`, with guides in
+`docs/<locale>/` (`ru`, `de`, `fr`, `es`, `zh-CN`). Language switches open the same page.
+When changing a public guide, update its counterparts in the same change. Write naturally for
+players in each language rather than translating word for word. Keep steps, feature limits and
+experimental Portable Characters warnings equivalent. Use actual UI labels; retain English labels
+where the released UI falls back to English. English screenshots stay in `docs/screenshots/`; localized images use its `ru`, `de`, `fr`, `es` and `zh-CN` subfolders. Keep the interface and annotation language consistent with each guide.
+The public guide index is `docs/README.md`; internal protocol specifications and audits are not
+player guides. Keep canonical release histories in English and link to them instead of making copies.

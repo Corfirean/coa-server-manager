@@ -194,6 +194,17 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
 
 export function BrowsePage() {
   const { t } = useI18n();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { void browse.enabled().then(setEnabled).catch(e => setError(asUiError(e).technical)); }, []);
+  if (error) return <p role="alert" className="text-bad">{error}</p>;
+  if (enabled === null) return <Loader2 className="h-5 w-5 animate-spin" aria-label={t("portable.make.loading")} />;
+  if (!enabled) return <div><h1 className="text-2xl font-semibold">{t("browse.title")}</h1><p className="mt-2 text-muted">{t("browse.disabled")}</p></div>;
+  return <EnabledBrowsePage />;
+}
+
+function EnabledBrowsePage() {
+  const { t } = useI18n();
   const { status } = useRegistryStatus(5000);
   const [q, setQ] = useState("");
   const [ruleset, setRuleset] = useState<"" | "coa" | "wildcard" | "reborn">("");
@@ -213,6 +224,7 @@ export function BrowsePage() {
   const [preferredSaved, setPreferredSaved] = useState("");
   const [preferredNote, setPreferredNote] = useState<string | null>(null);
   const ticket = useRef(0);
+  const [requested, setRequested] = useState(false);
 
   useEffect(() => { void control.status().then((c) => { setPreferred(c.preferred_username); setPreferredSaved(c.preferred_username); }).catch(() => {}); }, []);
   useEffect(() => { void browse.modules().then((m) => setCatalog(Object.fromEntries(m.map((x) => [x.id, x])))).catch(() => {}); }, []);
@@ -244,10 +256,10 @@ export function BrowsePage() {
   }, [params]);
 
   useEffect(() => {
-    if (!status?.url) return;
+    if (!requested || !status?.url) return;
     const timer = setTimeout(() => void load(), q ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [load, status?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [load, status?.url, requested]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onSort(k: SortKey) {
     if (k === sort) setOrder((o) => (o === "asc" ? "desc" : "asc"));
@@ -263,7 +275,7 @@ export function BrowsePage() {
         <h1 className="text-2xl font-semibold">{t("browse.title")}</h1>
         <p className="mt-1 text-sm text-muted">{t("browse.text")}</p>
       </div>
-      <Button size="sm" onClick={() => void load()} disabled={loading || noUrl}>{loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}{t("browse.refresh")}</Button>
+      <Button size="sm" onClick={() => { if (requested) void load(); else setRequested(true); }} disabled={loading || noUrl}>{loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}{t("browse.refresh")}</Button>
     </div>
 
     {noUrl && <p className="mt-2 text-sm text-warn">{t("browse.noUrl")}</p>}

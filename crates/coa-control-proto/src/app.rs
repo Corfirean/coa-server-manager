@@ -15,6 +15,15 @@ pub const MAX_USERNAME: usize = 16;
 pub const MIN_PASSWORD: usize = 8;
 pub const MAX_PASSWORD: usize = 16;
 pub const MAX_CHARACTERS: usize = 200;
+pub const MAX_SESSION_BYTES: usize = 12 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMessageKind {
+    Started,
+    Checkpoint,
+    Collection,
+}
 
 /// A game account name: 3 to 16 ASCII letters, digits or `_`, not beginning or ending with `_`.
 pub fn valid_username(s: &str) -> bool {
@@ -109,6 +118,15 @@ pub enum Request {
         total_size: usize,
         collections: BTreeMap<String, Vec<u32>>,
     },
+    OwnedTransferOffer {
+        transfer_id: Uuid,
+        character_id: Uuid,
+        ruleset: String,
+        canonical_revision: u64,
+        content_hash: String,
+        total_size: usize,
+        collections: BTreeMap<String, Vec<u32>>,
+    },
     /// A chunk of the encoded portable character snapshot payload.
     TransferChunk {
         transfer_id: Uuid,
@@ -127,6 +145,24 @@ pub enum Request {
     TransferAck {
         transfer_id: Uuid,
         character_id: Uuid,
+    },
+    SessionPoll {
+        character_id: Uuid,
+        session_id: Uuid,
+    },
+    SessionRead {
+        character_id: Uuid,
+        session_id: Uuid,
+        message_hash: String,
+        offset: usize,
+    },
+    SessionAck {
+        character_id: Uuid,
+        session_id: Uuid,
+        message_hash: String,
+        offset: usize,
+        total_size: usize,
+        data: String,
     },
     /// Phase 13: Request a short-lived relay allocation for a relayed JOIN.
     AllocateRelay {
@@ -172,6 +208,22 @@ pub struct CharacterEntry {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Response {
+    SessionPending {
+        kind: SessionMessageKind,
+        total_size: usize,
+        content_hash: String,
+    },
+    SessionIdle {
+        closed: bool,
+    },
+    SessionData {
+        offset: usize,
+        data: String,
+    },
+    SessionAcked {
+        received_size: usize,
+        complete: bool,
+    },
     Welcome {
         realm_id: coa_registry_proto::RealmId,
         automatic: bool,
@@ -247,7 +299,10 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request> {
         .map_err(|_| ControlError::Invalid("a request is not valid".into()))?;
     if !matches!(
         &r,
-        Request::TransferOffer { .. } | Request::TransferChunk { .. }
+        Request::TransferOffer { .. }
+            | Request::OwnedTransferOffer { .. }
+            | Request::TransferChunk { .. }
+            | Request::SessionAck { .. }
     ) && bytes.len() > MAX_CONTROL_REQUEST_BYTES
     {
         return Err(ControlError::Limit(
@@ -255,6 +310,34 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request> {
         ));
     }
     match &r {
+        Request::SessionRead {
+            message_hash,
+            offset,
+            ..
+        } => {
+            if message_hash.len() != 64
+                || !message_hash.bytes().all(|b| b.is_ascii_hexdigit())
+                || *offset > MAX_SESSION_BYTES
+            {
+                return invalid("invalid portable session read");
+            }
+        }
+        Request::SessionAck {
+            message_hash,
+            offset,
+            total_size,
+            data,
+            ..
+        } => {
+            if message_hash.len() != 64
+                || !message_hash.bytes().all(|b| b.is_ascii_hexdigit())
+                || *total_size > MAX_SESSION_BYTES
+                || *offset > *total_size
+                || data.len() > 48 * 1024
+            {
+                return invalid("invalid portable session acknowledgement chunk");
+            }
+        }
         Request::Provision {
             desired, password, ..
         } => {
@@ -275,6 +358,13 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request> {
             return invalid("the client name is too long")
         }
         Request::TransferOffer {
+            ruleset,
+            content_hash,
+            total_size,
+            collections,
+            ..
+        }
+        | Request::OwnedTransferOffer {
             ruleset,
             content_hash,
             total_size,

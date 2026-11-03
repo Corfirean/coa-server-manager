@@ -1004,6 +1004,89 @@ mod tests {
         };
         let mut server = start();
         db.query("CREATE DATABASE acore_characters; CREATE DATABASE acore_world; CREATE DATABASE acore_auth; CREATE TABLE acore_characters.probe(id INT PRIMARY KEY, note VARCHAR(40)); CREATE TABLE acore_world.probe(id INT NOT NULL DEFAULT 0); INSERT INTO acore_world.probe VALUES(43); CREATE TABLE acore_auth.probe(id INT); INSERT INTO acore_auth.probe VALUES(44); CREATE USER 'fixture_user'@'localhost' IDENTIFIED BY 'fixture'; CREATE TRIGGER acore_characters.probe_insert BEFORE INSERT ON acore_characters.probe FOR EACH ROW SET NEW.note='triggered'; INSERT INTO acore_characters.probe VALUES(42,'original'); CREATE VIEW acore_characters.probe_view AS SELECT c.id,w.id AS world_id FROM acore_characters.probe c CROSS JOIN acore_world.probe w; CREATE PROCEDURE acore_characters.probe_proc() SELECT id FROM acore_characters.probe; CREATE FUNCTION acore_characters.probe_func() RETURNS INT DETERMINISTIC RETURN 73;").unwrap();
+        // Regression: an upgrade must distinguish pre-existing unsupported character starts
+        // from a newly lost start, without weakening any structural schema check.
+        db.query("CREATE TABLE acore_characters.characters(guid INT UNSIGNED PRIMARY KEY,race INT UNSIGNED NOT NULL,class INT UNSIGNED NOT NULL); CREATE TABLE acore_world.playercreateinfo(race INT UNSIGNED,class INT UNSIGNED,PRIMARY KEY(race,class)); INSERT INTO acore_characters.characters VALUES(100,44,14),(101,44,14),(102,7,14);").unwrap();
+        let starts = [1, 2, 3, 4, 5, 6, 7, 8, 10, 11]
+            .into_iter()
+            .flat_map(|race| (12..=32).map(move |class| format!("({race},{class})")))
+            .collect::<Vec<_>>()
+            .join(",");
+        db.query(&format!(
+            "INSERT INTO acore_world.playercreateinfo VALUES {starts};"
+        ))
+        .unwrap();
+        crate::schema_check::capture(&db, &root).unwrap();
+        let baseline = crate::character_start_check::capture(&db, &root).unwrap();
+        assert_eq!(baseline.realms[crate::realms::Mode::Coa.name()].len(), 2);
+        assert!(
+            !crate::schema_check::check(&db, &root).unwrap().is_empty(),
+            "ordinary diagnostics stay strict"
+        );
+        assert!(
+            crate::schema_check::check_update_with_report(&db, &root, Some(&baseline))
+                .unwrap()
+                .is_empty(),
+            "unchanged old gaps must not block an unrelated upgrade"
+        );
+        assert_eq!(
+            db.query("SELECT COUNT(*) FROM acore_characters.characters;")
+                .unwrap()
+                .trim(),
+            "3"
+        );
+        let report_dir = crate::registry::metadata_dir_for(&root)
+            .unwrap()
+            .join("diagnostics");
+        let report_path = fs::read_dir(report_dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("schema-validation-")
+            })
+            .unwrap();
+        let report: serde_json::Value = fsx::read_json(&report_path).unwrap();
+        assert_eq!(report["preexistingUnsupportedCharacters"], 2);
+        assert_eq!(
+            report["preexistingCharacterStarts"],
+            serde_json::json!([{"race":44,"class":14,"count":2}])
+        );
+        assert_eq!(report["problems"], serde_json::json!([]));
+        // Same count and race/class but a different GUID must still block.
+        db.query("UPDATE acore_characters.characters SET guid=103 WHERE guid=101;")
+            .unwrap();
+        assert!(
+            !crate::schema_check::check_update_with_report(&db, &root, Some(&baseline))
+                .unwrap()
+                .is_empty()
+        );
+        db.query("UPDATE acore_characters.characters SET guid=101 WHERE guid=103;")
+            .unwrap();
+        // Loss of a formerly valid start is never grandfathered.
+        db.query("DELETE FROM acore_world.playercreateinfo WHERE race=7 AND class=14;")
+            .unwrap();
+        assert!(
+            !crate::schema_check::check_update_with_report(&db, &root, Some(&baseline))
+                .unwrap()
+                .is_empty()
+        );
+        db.query("INSERT INTO acore_world.playercreateinfo VALUES(7,14);")
+            .unwrap();
+        db.query("ALTER TABLE acore_world.probe MODIFY id VARCHAR(30) NOT NULL DEFAULT '0';")
+            .unwrap();
+        assert!(
+            !crate::schema_check::check_update_with_report(&db, &root, Some(&baseline))
+                .unwrap()
+                .is_empty(),
+            "existing character warnings cannot hide a structural failure"
+        );
+        db.query("ALTER TABLE acore_world.probe MODIFY id INT NOT NULL DEFAULT 0; DROP TABLE acore_characters.characters; DROP TABLE acore_world.playercreateinfo;").unwrap();
+        fs::remove_file(root.join(crate::schema_check::CONTRACT)).unwrap();
+
         // Shared auth must not run again when the active realm changes.
         use crate::migrations::Store;
         db.query("CREATE DATABASE acore_world_wildcard;").unwrap();

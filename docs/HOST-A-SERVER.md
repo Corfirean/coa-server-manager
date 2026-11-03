@@ -1,5 +1,7 @@
 # Host a CoA server for other players
 
+**English** · [Русский](ru/HOST-A-SERVER.md) · [Deutsch](de/HOST-A-SERVER.md) · [Français](fr/HOST-A-SERVER.md) · [Español](es/HOST-A-SERVER.md) · [简体中文](zh-CN/HOST-A-SERVER.md)
+
 **Portable characters are experimental.** The feature is in active development and may contain bugs.
 
 ## Set up your server
@@ -24,3 +26,5 @@ Open **Play with friends**. Use the LAN/private-network instructions for your co
 A listing makes your server discoverable; it does not move hosting to the cloud or guarantee that your network can be reached. If joining fails, use the connection checks before changing router settings. Portable characters also require a compatible server build and its required settings.
 
 Use **Backups** before changing server versions or optional modules. To stop accepting visitors, turn off the listing; to stop hosting, stop the server.
+
+[All guides](README.md)

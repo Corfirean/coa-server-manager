@@ -284,8 +284,8 @@ export function SettingsPage(props: {
   const q = query.trim().toLowerCase();
   const searching = q !== "";
   const hit = (...parts: string[]) => parts.some((x) => x.toLowerCase().includes(q));
-  const curatedKeys = new Set(view.settings.map((s) => s.key));
   const collections = collectionsOf(cols);
+  const curatedKeys = new Set([...view.settings.map((s) => s.key), ...collections.map((c) => c.item.key)]);
   const curatedHits = searching ? view.settings.filter((s) => hit(s.key, sx.title(s), sx.description(s))) : [];
   const collectionHits = searching ? collections.filter((c) => hit(c.item.key, t(c.label), t(c.text))) : [];
   const rawHits = (raw ?? []).filter(

@@ -1,3 +1,6 @@
+import { ForceStopDialog } from "./ForceStopDialog";
+import { serverLifecycle } from "@/lib/serverLifecycle";
+import { serverUpdateBlocksRestart } from "@/lib/serverUpdate";
 import { dismissClientJob, startClientUpdate, stopClientJob, syncClient, useClientJob } from "@/lib/clientJob";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2, X } from "lucide-react";
@@ -10,7 +13,12 @@ import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
 import { RealmlistMenu } from "@/screens/RealmlistMenu";
 import { RealmPicker } from "@/screens/RealmPicker";
 import { CrashHistoryModal } from "@/screens/CrashHistoryModal";
+import { ListingChip } from "@/screens/PublishCard";
+import { PublishRealmDialog } from "@/screens/PublishDialog";
+import { useRegistryStatus } from "@/lib/registry";
+import { usePublishRealms, type PublishRealm } from "@/lib/publishRealms";
 import { useAutoRestart } from "@/lib/autoRestartPrefs";
+import { SplitButton } from "@/components/ui/split-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -86,6 +94,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   }, [bothWorlds, server.id]);
   const [action, setAction] = useState<Action>(null);
   const [realmBusy, setRealmBusy] = useState(false);
+  const [stopFailed, setStopFailed] = useState(false);
+  const [confirmForce, setConfirmForce] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [pop, setPop] = useState<Population | null>(null);
@@ -114,12 +124,19 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
   const [crashCount, setCrashCount] = useState(0);
   const crashCountRef = useRef(0);
   const [showCrashModal, setShowCrashModal] = useState(false);
+  const publishRealms = usePublishRealms(server.id, server.name);
+  const { status: registry } = useRegistryStatus(5000);
+  const [publishing, setPublishing] = useState<PublishRealm | null>(null);
+  // The realm a card shows: the first card is the main realm, then the realm that starts next to it, then Warcraft Reborn.
+  const chipOf = (realm: PublishRealm | undefined) => realm && <ListingChip status={registry?.realms.find((r) => r.local_id === realm.localId)} hasUrl={!!registry?.url} onOpen={() => setPublishing(realm)} />;
+  const mainRealm = publishRealms?.[0];
+  const secondRealm = publishRealms?.find((r) => r !== mainRealm && r.mode !== "reborn");
+  const rebornRealm = publishRealms?.find((r) => r !== mainRealm && r.mode === "reborn");
   const [hasCrashHistory, setHasCrashHistory] = useState(false);
   const [crashLoopPaused, setCrashLoopPaused] = useState(false);
   const [crashRestartNotice, setCrashRestartNotice] = useState<string | null>(null);
 
-  const userStoppedRef = useRef(false);
-  const wasWorldRunningRef = useRef(false);
+  const lifecycle = serverLifecycle(server.id);
   const actionRef = useRef<Action>(null);
   const crashTimestampsRef = useRef<number[]>([]);
   const pollRef = useRef<() => Promise<void>>(undefined);
@@ -155,10 +172,9 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
   const run = useCallback(
     async (kind: Exclude<Action, null>) => {
-      if (kind === "stopping") {
-        userStoppedRef.current = true;
-      } else {
-        userStoppedRef.current = false;
+      setStopFailed(false);
+      lifecycle.request(kind);
+      if (kind !== "stopping") {
         setCrashLoopPaused(false);
         setCrashRestartNotice(null);
       }
@@ -168,8 +184,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       actionRef.current = kind;
       try {
         if (kind !== "starting") {
-          const out = await api.stop(server.id);
-          if (!out.ok) throw { human: out.human, technical: out.output };
+          const out = await api.stop(server.id).catch(e => { setStopFailed(true); throw e; });
+          if (!out.ok) { setStopFailed(true); throw { human: out.human, technical: out.output }; }
         }
         if (kind !== "stopping") {
           setAction("starting");
@@ -181,6 +197,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         const ui = asUiError(e);
         setFailure({ human: ui.human ?? asUiError(String(e)).human, technical: ui.technical });
       } finally {
+        lifecycle.complete(kind);
         setAction(null);
         actionRef.current = null;
         void pollRef.current?.();
@@ -189,24 +206,30 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
     [server.id],
   );
 
+  async function forceStop() {
+    setConfirmForce(false); setFailure(null); setShowDetails(false); setStopFailed(false);
+    lifecycle.request("stopping"); setAction("stopping"); actionRef.current = "stopping";
+    try {
+      const out = await api.forceStop(server.id);
+      if (!out.ok) throw { human: out.human, technical: out.output };
+    } catch (e) { setStopFailed(true); setFailure(asUiError(e)); }
+    finally { lifecycle.complete("stopping"); setAction(null); actionRef.current = null; void pollRef.current?.(); }
+  }
+
   const poll = useCallback(async () => {
     try {
       const s = await api.status(server.id);
       if (alive.current) setStatus(s);
       const isWorldRunning = s.observed.world.state === "running";
       if (isWorldRunning) {
-        wasWorldRunningRef.current = true;
-        userStoppedRef.current = false;
+        lifecycle.observe(true, actionRef.current !== null, serverUpdateBlocksRestart(server.id));
         const p = await api.population(server.id).catch(() => null);
         if (alive.current) setPop(p);
       } else {
         if (alive.current) setPop(null);
         if (
-          wasWorldRunningRef.current &&
-          !userStoppedRef.current &&
-          actionRef.current === null
+          lifecycle.observe(false, actionRef.current !== null, serverUpdateBlocksRestart(server.id))
         ) {
-          wasWorldRunningRef.current = false;
           setHasCrashHistory(true);
           const now = Date.now();
           const recent = crashTimestampsRef.current.filter((ts) => now - ts < 180000);
@@ -317,7 +340,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       <RealmPicker serverId={server.id} running={anyUp} disabled={transitioning || upd.applying} onBusy={setRealmBusy} onChanged={() => { onRealmChanged(); void poll(); }} />
 
       <Card className="mt-6 p-7">
-        <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.first} · ${t("overview.server")}` : t("overview.server")}</div>
+        <div className="mb-1 flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.14em] text-muted"><span>{realms ? `${realms.first} · ${t("overview.server")}` : t("overview.server")}</span>{chipOf(mainRealm)}</div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className={cn("flex items-center gap-3 text-3xl font-semibold", tone)} role="status" aria-live="polite">
             <span
@@ -388,7 +411,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           </div>
           <div>
             <dt className="text-muted">{t("overview.players")}</dt>
-            <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{companions && pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.companions", { n: pop.bots_online })}</span> : null}</dd>
+            <dd className="mt-0.5 text-lg">{pop ? `${pop.players_online}` : "—"}{pop && pop.bots_online > 0 ? <span className="ml-2 text-sm text-muted">{t("overview.bots", { n: pop.bots_online })}</span> : null}</dd>
           </div>
         </dl>
         {companions && startBots !== undefined && (
@@ -398,30 +421,19 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
         <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-3">
           {running ? (
-            <Button variant="secondary" size="xl" disabled={transitioning} onClick={() => run("stopping")} className="min-w-56">
+            <Button variant="secondary" size="xl" disabled={transitioning} onClick={() => run("stopping")} className="min-w-40">
               {transitioning && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
               {t("btn.stop")}
             </Button>
           ) : upd.available ? (
-            <Button
-              variant="primary"
-              size="xl"
-              disabled={transitioning || upd.applying}
-              onClick={() => (needsDecision ? onOpenUpdates() : void runServerUpdate())}
-              className="min-w-56"
-            >
-              {upd.applying && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
-              {upd.applying ? t("btn.updating") : needsDecision ? t("overview.openUpdates") : t("btn.update")}
-            </Button>
+            <SplitButton label={t("overview.server")}
+              primary={{ disabled: transitioning || upd.applying, onClick: () => (needsDecision ? onOpenUpdates() : void runServerUpdate()), children: <>{upd.applying && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{upd.applying ? t("btn.updating") : needsDecision ? t("overview.openUpdates") : t("btn.update")}</> }}
+              secondary={{ disabled: transitioning || upd.applying, onClick: () => run("starting"), children: t("btn.startWithoutUpdate") }}
+            />
           ) : (
-            <Button variant="primary" size="xl" disabled={transitioning} onClick={() => run("starting")} className="min-w-56">
+            <Button variant="primary" size="xl" disabled={transitioning} onClick={() => run("starting")} className="min-w-40">
               {transitioning && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
               {transitioning ? (action === "stopping" ? t("btn.stoppingCaps") : t("btn.startingCaps")) : t("btn.start")}
-            </Button>
-          )}
-          {!running && upd.available && (
-            <Button variant="secondary" size="sm" disabled={transitioning || upd.applying} onClick={() => run("starting")}>
-              {t("btn.startWithoutUpdate")}
             </Button>
           )}
           {running && (
@@ -444,7 +456,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           {client && <RealmlistMenu serverId={server.id} />}
           {client && jobBusy ? (
             <div
-              className="relative flex h-16 min-w-64 items-center overflow-hidden rounded-md border border-gold/50 bg-card-2"
+              className="relative flex h-12 min-w-64 items-center overflow-hidden rounded-md border border-gold/50 bg-card-2"
               role="progressbar"
               aria-valuenow={jobPct}
               aria-valuemin={0}
@@ -470,9 +482,10 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               </button>
             </div>
           ) : client && (clientStatus?.update_available || job.phase === "choose") ? (
-            <Button variant="primary" size="xl" disabled={playing || job.phase === "choose"} onClick={() => void startClientUpdate(server.id)} className="min-w-40">
-              {t("btn.updateClient")}
-            </Button>
+            <SplitButton label={t("btn.play")}
+              primary={{ disabled: playing || job.phase === "choose", onClick: () => void startClientUpdate(server.id), children: t("btn.updateClient") }}
+              secondary={{ disabled: realmBusy || playing || upd.applying, onClick: () => void play(), children: <>{playing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{t("btn.playWithoutUpdate")}</> }}
+            />
           ) : client ? (
             <Button variant="primary" size="xl" disabled={realmBusy || playing} onClick={() => void play()} className="min-w-40">
               {playing && <Loader2 className="h-5 w-5 animate-spin" aria-hidden />}
@@ -483,11 +496,6 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
               {t("btn.setupClient")}
             </Button>
           ) : null}
-          {client && !jobBusy && (clientStatus?.update_available || job.phase === "choose") && (
-            <Button variant="secondary" size="sm" disabled={realmBusy || playing || upd.applying} onClick={() => void play()}>
-              {t("btn.playWithoutUpdate")}
-            </Button>
-          )}
           </div>
         </div>
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-4 text-xs text-muted">
@@ -542,10 +550,12 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
             <Button size="sm" variant="ghost" onClick={() => void startClientUpdate(server.id)}>{t("client.dl.retry")}</Button>
           </p>
         )}
+        {upd.result && "committed" in upd.result && !!upd.result.preexistingCharacters && <p className="mt-3 text-sm text-warn" role="status">{t("upd.preexistingCharacters", { n: upd.result.preexistingCharacters })}</p>}
         {upd.available && upd.preview && (
           <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3 text-sm">
             <p>{t("overview.updateAvail", { to: upd.preview.to_version, from: upd.preview.from_version ?? "?" })}</p>
             {upd.preview.latest_version && <p>{t("upd.intermediate", { to: upd.preview.to_version, latest: upd.preview.latest_version })}</p>}
+            <button className="mt-2 cursor-pointer text-gold hover:underline" onClick={onOpenUpdates}>{t("history.open")}</button>
             {needsDecision && <p className="mt-1 text-muted">{t("overview.updateConflicts")}</p>}
             {upd.applying && (
               <div className="mt-2">
@@ -565,7 +575,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
       {secondary_world && (
         <Card className="mt-4 p-7">
-          <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.second} · ${t("overview.server")}` : t("realm.secondWorld")}</div>
+          <div className="mb-1 flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.14em] text-muted"><span>{realms ? `${realms.second} · ${t("overview.server")}` : t("realm.secondWorld")}</span>{chipOf(secondRealm)}</div>
           <div
             className={cn("flex items-center gap-3 text-3xl font-semibold", secondary_world.state === "running" ? "text-ok" : secondary_world.state === "starting" || transitioning ? "text-warn" : "text-muted")}
             role="status"
@@ -587,7 +597,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
 
       {reborn_world && (
         <Card className="mt-4 p-7">
-          <div className="mb-1 text-xs font-medium uppercase tracking-[0.14em] text-muted">{realms ? `${realms.reborn} · ${t("overview.server")}` : t("realm.rebornWorld")}</div>
+          <div className="mb-1 flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.14em] text-muted"><span>{realms ? `${realms.reborn} · ${t("overview.server")}` : t("realm.rebornWorld")}</span>{chipOf(rebornRealm)}</div>
           <div
             className={cn("flex items-center gap-3 text-3xl font-semibold", reborn_world.state === "running" ? "text-ok" : reborn_world.state === "starting" || transitioning ? "text-warn" : "text-muted")}
             role="status"
@@ -620,6 +630,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         <Card className="mt-4 border-bad/40 p-5" role="alert">
           <p className="font-medium text-bad">{human(visibleFailure.human).title}</p>
           <p className="mt-1 text-sm text-muted">{human(visibleFailure.human).message}</p>
+          {anyUp && (stopFailed || /still stopping|could not be stopped|Stop the server before updating/i.test(visibleFailure.technical)) && <Button className="mt-3" size="sm" variant="secondary" disabled={transitioning || upd.applying} onClick={() => setConfirmForce(true)}>{t("stop.force")}</Button>}
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={() => setShowDetails((v) => !v)}>
               {showDetails ? t("common.hideDetails") : t("common.viewDetails")}
@@ -649,6 +660,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
         />
       )}
 
+      {publishing && <PublishRealmDialog realm={publishing} onClose={() => setPublishing(null)} />}
+      {confirmForce && <ForceStopDialog onCancel={() => setConfirmForce(false)} onConfirm={() => void forceStop()} />}
       {showCrashModal && (
         <CrashHistoryModal
           serverId={server.id}

@@ -31,34 +31,15 @@ impl Verb {
         }
     }
 
-    fn timeout(self, root: &Path) -> Duration {
+    fn timeout(self, _root: &Path) -> Duration {
         match self {
-            Verb::StartAll | Verb::StartWorld if squid_enabled(root) => Duration::from_secs(2700),
-            Verb::StartAll | Verb::StartWorld => Duration::from_secs(420),
-            Verb::StartMysql => Duration::from_secs(120),
+            // Includes database startup, optional bot provisioning and the shared 25-minute
+            // world/console wait in launcher_bridge.py, even for older installed scripts.
+            Verb::StartAll | Verb::StartWorld => Duration::from_secs(3600),
+            Verb::StartMysql => Duration::from_secs(360),
             Verb::StopAll => Duration::from_secs(240),
         }
     }
-}
-
-fn squid_enabled(root: &Path) -> bool {
-    let active = root.join("Core/configs/modules/playerbots.conf");
-    let path = if active.exists() {
-        active
-    } else {
-        root.join("Core/configs/modules/playerbots.conf.dist")
-    };
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| crate::config::parser::ConfFile::parse_bytes(&bytes).ok())
-        .is_some_and(|config| {
-            config.get("AiPlayerbot.Enabled").is_none_or(|value| {
-                !matches!(
-                    value.trim().trim_matches('"').to_ascii_lowercase().as_str(),
-                    "0" | "false" | "no" | "off"
-                )
-            })
-        })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -122,7 +103,69 @@ pub(crate) fn validate_update(root: &Path) -> Result<DriverOutcome> {
     run_inner(root, Verb::StartAll, true)
 }
 
+pub fn force_stop(root: &Path) -> Result<DriverOutcome> {
+    if crate::docker::is_docker(root) {
+        return Err(Error::Invalid(
+            "Forced shutdown is only available for Windows repacks.".into(),
+        ));
+    }
+    for tree in crate::multiworld::Tree::ALL {
+        let path = crate::multiworld::tree_root(root, tree);
+        if crate::multiworld::tree_running(root, tree)
+            || !crate::process::find_by_exe(&path.join("Core/worldserver.exe")).is_empty()
+        {
+            let child = fsx::ensure_within(root, &path)?;
+            let out = run_inner_mode(&child, Verb::StopAll, false, true)?;
+            if !out.ok || crate::multiworld::tree_running(root, tree) {
+                return Err(Error::Invalid(format!(
+                    "An extra world could not stop; the shared database was left running. {}",
+                    out.output
+                )));
+            }
+        }
+    }
+    run_inner_mode(root, Verb::StopAll, false, true)
+}
+
+fn recover_world_for_forced_stop(root: &Path) -> Result<()> {
+    let worlds = crate::process::find_by_exe(&root.join("Core/worldserver.exe"));
+    if worlds.len() > 1 {
+        return Err(Error::Invalid(
+            "More than one world process belongs to this folder; its database was left running."
+                .into(),
+        ));
+    }
+    if let Some(world) = worlds.first() {
+        if !crate::process::is_alive(world) {
+            return Err(Error::Invalid(
+                "The world process identity changed; retry the stop.".into(),
+            ));
+        }
+        if crate::process::read_state_record(root, "world")
+            .is_none_or(|saved| !saved.same_as(world))
+        {
+            let record = root.join(".state/world.json");
+            let previous = root.join(".state/world-before-forced-stop-recovery.json");
+            if record.is_file() && !previous.exists() {
+                fsx::atomic_write(&previous, &std::fs::read(&record)?)?;
+            }
+            fsx::atomic_write_json(&record, world)?;
+            tracing::warn!(pid = world.pid, root = %root.display(), "Recovered owned world identity before an explicitly requested forced stop");
+        }
+    }
+    Ok(())
+}
+
 fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverOutcome> {
+    run_inner_mode(root, verb, validating_update, false)
+}
+
+fn run_inner_mode(
+    root: &Path,
+    verb: Verb,
+    validating_update: bool,
+    force: bool,
+) -> Result<DriverOutcome> {
     let root = fsx::canonicalize_lenient(root)?;
     let _update_lock = if !validating_update && matches!(verb, Verb::StartAll | Verb::StartWorld) {
         Some(crate::update::operation_lock_for(
@@ -143,7 +186,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         prepare_headless_world(&root, verb)?;
         return crate::docker::run(&root, verb);
     }
-    if verb == Verb::StopAll {
+    if verb == Verb::StopAll && !force {
         crate::multiworld::stop(&root)?;
     }
     if verb == Verb::StartAll {
@@ -186,12 +229,15 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     if matches!(verb, Verb::StopAll | Verb::StartMysql | Verb::StartAll) {
         recover_mysql_launcher_state(&root, verb != Verb::StopAll)?;
     }
+    if force {
+        recover_world_for_forced_stop(&root)?;
+    }
     let mut cmd = Command::new(&python);
     cmd.arg("-B")
         .arg("-c")
         .arg(LAUNCH_SCRIPT)
         .arg(&script)
-        .arg(verb.arg())
+        .arg(if force { "force-stop-all" } else { verb.arg() })
         .current_dir(&root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -230,6 +276,13 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
     let mut output = out_t.join().unwrap_or_default();
     output.push_str(&err_t.join().unwrap_or_default());
     let mut output = output.trim().to_string();
+    if status.is_none() {
+        output.push_str(&format!(
+            "\nLauncher {} exceeded its {} second deadline; check the server logs.",
+            verb.arg(),
+            verb.timeout(&root).as_secs()
+        ));
+    }
     let (ok, exit_code) = match status {
         Some(st) => (st.success(), st.code()),
         None => (false, None),
@@ -290,6 +343,9 @@ fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
     if !matches!(verb, Verb::StartAll | Verb::StartWorld) {
         return Ok(());
     }
+    std::fs::create_dir_all(root.join("Core/Crashes"))?;
+    let probe = tempfile::NamedTempFile::new_in(root.join("Core/Crashes"))?;
+    probe.close()?;
     for relative in [
         "Settings/worldserver.conf.template",
         "Core/configs/worldserver.conf",
@@ -393,7 +449,7 @@ fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()
     Ok(())
 }
 
-const LAUNCH_SCRIPT: &str = "import runpy,sys\nfrom pathlib import Path\nscript=sys.argv[1]\nsys.path.insert(0,str(Path(script).resolve().parent))\nsys.argv=sys.argv[1:]\nif sys.argv[1]=='stop-all':\n    launcher=runpy.run_path(script,run_name='coa_manager_shutdown')\n    config=launcher['settings']()\n    with launcher['control_lock']():\n        launcher['stop_all'](config)\nelse:\n    runpy.run_path(script,run_name='__main__')";
+const LAUNCH_SCRIPT: &str = include_str!("launcher_bridge.py");
 
 pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
     let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
@@ -587,6 +643,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let root = folder.path();
         prepare_headless_world(root, Verb::StartAll).unwrap();
+        assert!(root.join("Core/Crashes").is_dir());
         std::fs::create_dir_all(root.join("Core/configs")).unwrap();
         let path = root.join("Core/configs/worldserver.conf");
         for original in [
@@ -604,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn large_squid_provisioning_has_time_to_finish_without_extending_shutdown() {
+    fn slow_world_startup_has_time_with_either_bot_system_without_extending_shutdown() {
         let folder = tempfile::tempdir().unwrap();
         let modules = folder.path().join("Core/configs/modules");
         std::fs::create_dir_all(&modules).unwrap();
@@ -615,7 +672,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             Verb::StartAll.timeout(folder.path()),
-            Duration::from_secs(2700)
+            Duration::from_secs(3600)
         );
         assert_eq!(
             Verb::StopAll.timeout(folder.path()),
@@ -624,7 +681,11 @@ mod tests {
         std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
         assert_eq!(
             Verb::StartWorld.timeout(folder.path()),
-            Duration::from_secs(420)
+            Duration::from_secs(3600)
+        );
+        assert_eq!(
+            Verb::StartMysql.timeout(folder.path()),
+            Duration::from_secs(360)
         );
     }
 

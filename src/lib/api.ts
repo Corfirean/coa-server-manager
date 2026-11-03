@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { updateCheckQueue } from "./updateCheckQueue";
+
+const queuedUpdateCheck = updateCheckQueue<UpdatePreview>();
 
 export const REMOTE_CLIENT_ID = "@remote-client";
 export interface RemoteConnection { host: string; client_path: string | null }
@@ -422,7 +425,7 @@ export interface ReportContext {
   bots_version: string | null;
 }
 
-export type ReportTargetId = "manager" | "companions" | "squid";
+export type ReportTargetId = "manager" | "companions" | "squid" | "custom-races" | "content-scaling";
 
 /** A place a problem report can go: its GitHub repository as `owner/name`. */
 export interface ReportTarget {
@@ -737,6 +740,7 @@ export const api = {
   forget: (id: string) => invoke<void>("forget_server", { id }),
   status: (id: string) => invoke<StatusView>("server_status", { id }),
   start: (id: string) => invoke<DriverOutcome>("start_server", { id }),
+  forceStop: (id: string) => invoke<DriverOutcome>("force_stop_server", { id }),
   stop: (id: string) => invoke<DriverOutcome>("stop_server", { id }),
   settings: (id: string, scope: Scope) => invoke<SettingsView>("get_settings", { id, scope }),
   save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
@@ -788,10 +792,13 @@ export const api = {
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),
   /** `background`: the repeating check, which must not start the database of a stopped server. */
-  checkUpdate: (id: string, source?: string, background?: boolean) => invoke<UpdatePreview>("check_update", { id, source: source ?? null, background: background ?? false }),
+  checkUpdate: (id: string, source?: string, background?: boolean) => queuedUpdateCheck(
+    id, JSON.stringify([source ?? null, background ?? false]),
+    () => invoke<UpdatePreview>("check_update", { id, source: source ?? null, background: background ?? false }),
+  ),
   pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
-    invoke<{ txn: UpdateTxn }>("apply_update", { id, source: source ?? null, resolutions }),
+    invoke<{ txn: UpdateTxn; preexisting_character_count?: number }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
   population: (id: string) => invoke<Population | null>("get_population", { id }),
@@ -803,6 +810,8 @@ export const api = {
   performance: (id: string) => invoke<Performance | null>("get_performance", { id }),
   companionSizes: () => invoke<CompanionSizes>("companion_sizes"),
   addCompanions: (id: string, count: number) => invoke<{ spawned: string | null; created: number | null; baseline: number | null }>("add_companions", { id, count }),
+  clientGraphics: (id: string) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_graphics", { id }),
+  clientSetGraphics: (id: string, name: string, disabled: boolean) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_set_graphics", { id, name, disabled }),
   clientInfo: (id: string) => invoke<ClientInfo | null>("client_info", { id }),
   setClient: (id: string, path: string) => invoke<ClientInfo>("set_client", { id, path }),
   setRealmlist: (id: string, host: string) => invoke<string[]>("client_realmlist", { id, host }),

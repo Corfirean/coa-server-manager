@@ -248,9 +248,15 @@ impl RealmAccess {
         }
     }
 
+    /// The folder of the world server this realm runs in: an extra world next to the main one has its own console port.
+    fn world_folder(&self, root: &Path) -> PathBuf {
+        self.mode
+            .map_or_else(|| root.to_path_buf(), |m| crate::multiworld::world_root(root, m))
+    }
+
     pub fn ra(&self) -> Result<Ra> {
         match &self.source {
-            Source::Install { root } => Ra::connect(root),
+            Source::Install { root } => Ra::connect(&self.world_folder(root)),
             Source::Descriptor(d) => Ra::connect_to(d.ra_port, &d.ra_user, d.ra_password.expose()),
         }
     }
@@ -261,7 +267,7 @@ impl RealmAccess {
 
     pub fn ports(&self) -> (Option<u16>, u16) {
         match &self.source {
-            Source::Install { root } => (None, read_ports(root).ra),
+            Source::Install { root } => (None, read_ports(&self.world_folder(root)).ra),
             Source::Descriptor(d) => (Some(d.db_port), d.ra_port),
         }
     }

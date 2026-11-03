@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useT } from "@/i18n";
 import { autoUpdateEnabled, installNow, lookForUpdate, setAutoUpdate, useSelfUpdate } from "@/lib/selfUpdate";
 
-export function AboutCard() {
+export function AboutCard({ onHistory }: { onHistory?: () => void }) {
   const t = useT();
   const s = useSelfUpdate();
   const [version, setVersion] = useState("");
@@ -21,37 +21,12 @@ export function AboutCard() {
 
   return (
     <Card className="mt-6 p-6">
-      <h2 className="font-semibold">{t("app.name")}</h2>
-      <p className="mt-1 text-sm text-muted">{t("about.version", { v: version || "…" })}</p>
-
-      <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="mt-1"
-          checked={auto}
-          onChange={(e) => {
-            setAuto(e.target.checked);
-            setAutoUpdate(e.target.checked);
-          }}
-        />
-        <span>
-          {t("about.auto")}
-          <span className="block text-xs text-muted">{t("about.autoHint")}</span>
-        </span>
-      </label>
-
+      <div className="flex items-start justify-between gap-3">
+        <div><h2 className="flex items-center gap-2 font-semibold"><Monitor className="h-4 w-4 text-gold" aria-hidden />{t("history.manager")}</h2><p className="mt-2 text-sm text-muted">{t("settings.version", { v: version || "…" })}</p></div>
+        <Button size="sm" disabled={busy} aria-label={t("about.check")} title={t("about.check")} onClick={() => { setAsked(true); void lookForUpdate({ download: false }); }}><RefreshCw className={`h-4 w-4 ${s.phase === "checking" ? "animate-spin" : ""}`} aria-hidden /></Button>
+      </div>
+      <p className="mt-3 text-xs text-muted">{t("about.autoHint")}</p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button
-          size="sm"
-          disabled={busy}
-          onClick={() => {
-            setAsked(true);
-            void lookForUpdate({ download: false });
-          }}
-        >
-          {s.phase === "checking" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-          {t("about.check")}
-        </Button>
         {s.version && s.phase !== "current" && (
           <Button size="sm" variant="primary" disabled={busy} onClick={() => void installNow()}>
             {(s.phase === "downloading" || s.phase === "installing") && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
@@ -64,7 +39,7 @@ export function AboutCard() {
           </span>
         )}
       </div>
-      {s.version && s.notes && s.phase !== "current" && <p className="mt-3 whitespace-pre-line text-sm text-muted">{s.notes}</p>}
+      {onHistory ? <button className="mt-3 cursor-pointer text-sm text-gold hover:underline" onClick={onHistory}>{t(s.version && s.phase !== "current" ? "history.open" : "history.title")}</button> : s.version && s.notes && s.phase !== "current" && <p className="mt-3 whitespace-pre-line text-sm text-muted">{s.notes}</p>}
       {s.phase === "ready" && <p className="mt-3 text-sm text-ok" role="status">{t("selfupd.onClose")}</p>}
       {asked && s.phase === "current" && <p className="mt-3 text-sm text-ok" role="status">{t("about.upToDate")}</p>}
       {s.phase === "error" && (
@@ -73,6 +48,9 @@ export function AboutCard() {
           {s.error && <p className="selectable mt-1 break-all text-xs text-muted">{s.error}</p>}
         </div>
       )}
+      <label className="mt-5 flex cursor-pointer items-center justify-between gap-3 border-t border-line pt-4 text-sm" title={t("about.auto")}>
+        <span>{t("settings.autoManager")}</span><input type="checkbox" role="switch" aria-description={t("about.auto")} checked={auto} onChange={e => { setAuto(e.target.checked); setAutoUpdate(e.target.checked); }} className="h-4 w-4 accent-[#c9a24a]" />
+      </label>
     </Card>
   );
 }

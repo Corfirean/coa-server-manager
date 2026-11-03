@@ -303,7 +303,21 @@ fn attempt_route_discovery(
     let local_auth = std::env::var("COA_OVERRIDE_LOCAL_AUTH_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(coa_control_proto::relay::LOCAL_AUTH_PORT);
+        .map(Ok)
+        .unwrap_or_else(|| service.local_auth_port());
+    let local_auth = match local_auth {
+        Ok(port) => port,
+        Err(error) => {
+            set_status(
+                status,
+                RouteStatus::RelayOnly {
+                    reason: format!("Cannot resolve local auth port: {error}"),
+                },
+            );
+            service.set_direct_route(None);
+            return;
+        }
+    };
     let local_world = match std::env::var("COA_OVERRIDE_LOCAL_WORLD_PORT")
         .ok()
         .and_then(|p| p.parse().ok())

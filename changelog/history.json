@@ -112,6 +112,8 @@
     "Corfirean/coa-server-manager:20261016-preserve-core-migration-history.md",
     "Corfirean/coa-server-manager:20261016-shared-auth-migration-history.md",
     "Corfirean/coa-server-manager:20261016-update-compatibility-wording.md",
+    "Corfirean/coa-server-manager:20261017-creature-difficulty-rates.md",
+    "Corfirean/coa-server-manager:20261017-existing-router-mapping.md",
     "Corfirean/coa-server-manager:20261018-custom-races-client.md",
     "Corfirean/coa-server-manager:20261019-portable-stop-diagnostics.md",
     "Corfirean/coa-server-manager:20261019-remote-character-class-names.md",
@@ -120,7 +122,59 @@
     "Corfirean/coa-server-manager:20261021-portable-experimental.md",
     "Corfirean/coa-server-manager:20261021-scaling-health-settings.md",
     "Corfirean/coa-server-manager:20261021-warcraft-reborn-realm.md",
-    "Corfirean/coa-server-manager:20261022-custom-races-client.md"
+    "Corfirean/coa-server-manager:20261022-custom-races-client.md",
+    "Corfirean/coa-server-manager:20261022-scaling-progression-modes.md",
+    "Corfirean/coa-server-manager:20261023-ah-bot-single-switch.md",
+    "Corfirean/coa-server-manager:20261023-interface-language-coverage.md",
+    "Corfirean/coa-server-manager:20261023-online-players-exclude-squid-bots.md",
+    "Corfirean/coa-server-manager:20261023-shared-addons-links.md",
+    "Corfirean/coa-server-manager:20261023-time-is-time-settings.md",
+    "Corfirean/coa-server-manager:20261023-update-check-database-timeout.md",
+    "Corfirean/coa-server-manager:20261024-portable-admission.md",
+    "Corfirean/coa-server-manager:20261024-portable-owner-core-activation.md",
+    "Corfirean/coa-server-manager:20261024-portable-schema-nine.md",
+    "Corfirean/coa-server-manager:20261024-relay-authentication.md",
+    "Corfirean/coa-server-manager:20261024-relay-recovery.md",
+    "Corfirean/coa-server-manager:20261024-remote-progress.md",
+    "Corfirean/coa-server-manager:20261024-remote-refresh.md",
+    "Corfirean/coa-server-manager:20261025-custom-races-191.md",
+    "Corfirean/coa-server-manager:20261026-custom-races-192.md",
+    "Corfirean/coa-server-manager:20261027-content-scaling-reports.md",
+    "Corfirean/coa-server-manager:20261027-custom-races-reports.md",
+    "Corfirean/coa-server-manager:20261027-internet-lan-address.md",
+    "Corfirean/coa-server-manager:20261027-merged-database-migration-order.md",
+    "Corfirean/coa-server-manager:20261027-per-race-server-settings.md",
+    "Corfirean/coa-server-manager:20261027-public-list-shows-every-running-realm.md",
+    "Corfirean/coa-server-manager:20261027-public-listing-window.md",
+    "Corfirean/coa-server-manager:20261027-skill-gain-controls.md",
+    "Corfirean/coa-server-manager:20261027-start-checks-the-realm-class-setting.md",
+    "Corfirean/coa-server-manager:20261027-start-wildcard-and-reborn-with-coa.md",
+    "Corfirean/coa-server-manager:20261028-coa-config-search.md",
+    "Corfirean/coa-server-manager:20261028-existing-character-update-validation.md",
+    "Corfirean/coa-server-manager:20261028-legacy-world-shutdown.md",
+    "Corfirean/coa-server-manager:20261028-mysql-install-startup.md",
+    "Corfirean/coa-server-manager:20261028-portable-settings-and-tray.md",
+    "Corfirean/coa-server-manager:20261028-settings-release-history.md",
+    "Corfirean/coa-server-manager:20261028-split-update-actions.md",
+    "Corfirean/coa-server-manager:20261028-update-check-queue.md",
+    "Corfirean/coa-server-manager:20261028-window-density.md",
+    "Corfirean/coa-server-manager:20261029-slow-world-startup.md",
+    "Corfirean/coa-server-manager:20261030-account-console-confirmation.md",
+    "Corfirean/coa-server-manager:20261030-close-abandoned-relay-sockets.md",
+    "Corfirean/coa-server-manager:20261030-disabled-client-renderers.md",
+    "Corfirean/coa-server-manager:20261030-force-stop-unresponsive-world.md",
+    "Corfirean/coa-server-manager:20261030-native-crash-reports.md",
+    "Corfirean/coa-server-manager:20261030-playerbots-overview-count.md",
+    "Corfirean/coa-server-manager:20261030-public-server-browsing-control.md",
+    "Corfirean/coa-server-manager:20261030-stop-does-not-trigger-auto-restart.md",
+    "Corfirean/coa-server-manager:20261030-update-history-target-cache.md",
+    "Corfirean/coa-server-manager:20261030-wait-for-world-console-readiness.md",
+    "Corfirean/coa-server-manager:20261030-window-lifecycle.md",
+    "Corfirean/coa-server-manager:20261031-dungeon-clear-dependency.md",
+    "Corfirean/coa-server-manager:20261031-launcher-diagnostics-export.md",
+    "Corfirean/coa-server-manager:20261031-server-logging-controls.md",
+    "Corfirean/coa-server-manager:20261031-validation-bot-population.md",
+    "Corfirean/coa-server-manager:20261031-validation-mysql-reuse.md"
   ],
   "releases": [
     {
@@ -623,6 +677,217 @@
       "links": [
         "[Guides and screenshots](https://github.com/Corfirean/coa-server-manager/blob/master/docs/README.md)"
       ]
+    },
+    {
+      "tag": "v0.7.2",
+      "version": "0.7.2",
+      "date": "2026-10-23",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.2",
+      "notes": [
+        "Advanced settings cover creature melee damage, spell damage and health by rank",
+        "Internet sharing accepts existing port forwards to the same server",
+        "The Auction House Bot card has a single switch",
+        "More character and server browser controls now use your selected language",
+        "Online player counts correctly separate random bots from players",
+        "Custom races work with shared addon folders on another drive",
+        "Configure the day and night cycle from the module settings",
+        "A stalled database inspection no longer blocks server maintenance indefinitely"
+      ],
+      "commit": "4d59ce8cb1d4abd7f4992370e9a7ba4dc6bd02f7",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.1...v0.7.2"
+    },
+    {
+      "tag": "v0.7.3",
+      "version": "0.7.3",
+      "date": "2026-10-23",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.7.3",
+      "notes": [
+        "Portable characters open again after using an experimental Manager"
+      ],
+      "commit": "2715170622665f62c396fe1a79f7ef6504713ef1",
+      "experimentalFeatures": [
+        "portable-characters"
+      ],
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.2...v0.7.3"
+    },
+    {
+      "tag": "v0.8.0",
+      "version": "0.8.0",
+      "date": "2026-10-24",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.0",
+      "notes": [
+        "Server owners can allow portable characters per realm",
+        "Allowing portable characters also prepares the server for portable sessions",
+        "Managers stay compatible with the public connection service",
+        "Relay connections recover and use the ports of the installed server",
+        "Portable progress resumes after reconnecting or restarting the Manager",
+        "Older copies on another host may require maintenance before returning"
+      ],
+      "commit": "b00e732c7f53f33680aaf6bd520da64b70b26a5a",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.7.3...v0.8.0",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "tag": "v0.8.1",
+      "version": "0.8.1",
+      "date": "2026-10-25",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.1",
+      "notes": [
+        "Install the matching CoA Custom 1.9.1 client files"
+      ],
+      "commit": "02e3a9e4e66870a627feeb0b4d3ec2d75a23973d",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.0...v0.8.1",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "tag": "v0.8.2",
+      "version": "0.8.2",
+      "date": "2026-10-27",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.8.2",
+      "notes": [
+        "Installs the verified CoA Custom 1.9.2 client patches and quest safety addon, while recognizing existing 1.9.1 installations",
+        "Server updates preserve the order of database migrations introduced during merges, preventing older snapshots from overwriting newer progression"
+      ],
+      "commit": "81b040ef02763c7cf7a3a3da1424b73177e9d433",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.1...v0.8.2",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "tag": "v0.9.0",
+      "version": "0.9.0",
+      "date": "2026-10-28",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.0",
+      "notes": [
+        "Choose Parallel or Global level scaling in module settings",
+        "Report Content Scaling problems directly to its repository",
+        "Send custom race problem reports directly to their maintainer",
+        "Internet sharing restores the LAN address after server restarts",
+        "Configure custom race availability for new characters",
+        "Public listing offers every realm that starts together, not just the main one",
+        "Public listing is a short list of realms with a window for the details",
+        "Configure profession and defense skill gains in server settings",
+        "Starting a server sets the character classes of the realm chosen on Overview",
+        "Start Wildcard and Warcraft Reborn together with Conquest of Azeroth",
+        "Control portable characters and keep Manager running in the system tray"
+      ],
+      "commit": "dc97095bd6b36d9b5111f04f0cfd88e1fb2ab1f1",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.8.2...v0.9.0",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "version": "0.9.1",
+      "tag": "v0.9.1",
+      "date": "2026-10-28",
+      "notes": [
+        "Existing unsupported character records no longer block unrelated server updates"
+      ],
+      "experimentalFeatures": [
+        "portable-characters"
+      ],
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.1",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.0...v0.9.1",
+      "commit": "8bbf16ed4f14e9b78c680783e4be5d8c580cc06b"
+    },
+    {
+      "tag": "v0.9.2",
+      "version": "0.9.2",
+      "date": "2026-10-28",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.2",
+      "notes": [
+        "New server installation waits for slower database startup",
+        "Find and edit CoA options in the existing server settings",
+        "Simultaneous update checks share results or wait their turn",
+        "Recovery can stop an unfinished world startup after restoring an older launcher"
+      ],
+      "commit": "2d9c6a65bbb1e296dc919e4c9e5785ed9d4a070b",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.1...v0.9.2",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "tag": "v0.9.3",
+      "version": "0.9.3",
+      "date": "2026-10-29",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.3",
+      "notes": [
+        "Slow server startup no longer triggers an early update rollback"
+      ],
+      "commit": "e7b76137d1b22a7596c2b1fa05ca9d12403b99d3",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.2...v0.9.3",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "tag": "v0.9.4",
+      "version": "0.9.4",
+      "date": "2026-10-29",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.4",
+      "notes": [
+        "Settings group updates, startup and maintenance with translated release history",
+        "Update and launch without updating share a divided button",
+        "Maximizing the window keeps text and controls at a comfortable size"
+      ],
+      "commit": "c004b90c54fa358b3037c56b093cf019dfcf02b8",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.3...v0.9.4",
+      "experimentalFeatures": [
+        "portable-characters"
+      ]
+    },
+    {
+      "tag": "v0.9.5",
+      "version": "0.9.5",
+      "date": "2026-10-30",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.5",
+      "notes": [
+        "Account creation verifies a lost console reply against the requested login",
+        "Abandoned game relay tunnels close their local connection immediately",
+        "Keep disabled graphics components disabled during client updates",
+        "Force-stop an unresponsive world after a failed normal shutdown",
+        "Crash history includes reports from every world and Windows text files",
+        "Show the online bot count for Playerbots on the overview",
+        "Disable public server browsing in Settings",
+        "Keep deliberate stops and update shutdowns from triggering crash restart",
+        "Server startup waits for a responsive console before reporting success",
+        "Restore the existing Manager window when launching it again"
+      ],
+      "commit": "642da8fdc1a0165aea74fbd1ab1b46933fc7e589",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.4...v0.9.5"
+    },
+    {
+      "tag": "v0.9.7",
+      "version": "0.9.7",
+      "date": "2026-10-30",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.7",
+      "notes": [
+        "Show available update notes even when release history is cached"
+      ],
+      "commit": "ba5816e3aea471d5b870e5f0db0b03920c071ed3",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.5...v0.9.7"
+    },
+    {
+      "tag": "v0.9.8",
+      "version": "0.9.8",
+      "date": "2026-11-01",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.8",
+      "notes": [
+        "Dungeon Clear can be enabled when SQUID bots are active",
+        "Diagnostic exports include launcher stages and lock owner records",
+        "Choose normal logs, errors only or no server logs in maintenance settings",
+        "Update checks temporarily suspend bot population and restore your configuration",
+        "Update validation keeps MySQL running between compatible checks"
+      ],
+      "commit": "076fba185c4d96d74f7258d6ca0cae6a4ae4a613",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.7...v0.9.8"
     }
   ]
 }
