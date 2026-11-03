@@ -273,27 +273,23 @@ export type CoaCompatibilityStatus =
   | 'Blocked';
 
 export interface PublicCatalogueItem {
-  id: string;
+  id: number;
   name: string;
+  full_name: string;
   owner: string;
-  repo: string;
-  description: string;
   html_url: string;
-  default_branch: string;
+  description: string;
   stars: number;
   forks: number;
-  open_issues: number;
+  default_branch: string;
   pushed_at?: string | null;
-  created_at?: string | null;
   updated_at?: string | null;
+  license?: string | null;
   topics: string[];
-  category: string;
-  author_name?: string | null;
-  license_spdx?: string | null;
   coa_status: CoaCompatibilityStatus;
-  coa_notes?: string | null;
+  coa_status_source: string;
   conflict_reason?: string | null;
-  is_curated_coa: boolean;
+  is_coa_recommended: boolean;
 }
 
 export interface PublicCatalogueResponse {

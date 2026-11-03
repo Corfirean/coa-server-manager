@@ -912,8 +912,8 @@ export function ModulesPage({
   const filteredCommunityCatalog = (publicCatalog?.items ?? [])
     .filter((item) => {
       // Exclude items already curated in Group A
-      const slug = item.id.toLowerCase();
-      if (verifiedRepoSlugs.has(slug) || verifiedRepoSlugs.has(item.repo.toLowerCase())) {
+      const slug = (item.full_name || item.name || "").toLowerCase();
+      if (verifiedRepoSlugs.has(slug) || verifiedRepoSlugs.has(normalizeUrlSlug(item.html_url))) {
         return false;
       }
 
@@ -934,21 +934,21 @@ export function ModulesPage({
       if (!catalogQuery.trim()) return true;
       const q = catalogQuery.toLowerCase();
       return (
-        item.name.toLowerCase().includes(q) ||
-        item.repo.toLowerCase().includes(q) ||
-        item.owner.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        item.topics.some((t) => t.toLowerCase().includes(q))
+        (item.name || "").toLowerCase().includes(q) ||
+        (item.full_name || "").toLowerCase().includes(q) ||
+        (item.owner || "").toLowerCase().includes(q) ||
+        (item.description || "").toLowerCase().includes(q) ||
+        (item.topics || []).some((t) => (t || "").toLowerCase().includes(q))
       );
     })
     .sort((a, b) => {
       if (catalogSort === "stars") {
-        return b.stars - a.stars;
+        return (b.stars || 0) - (a.stars || 0);
       }
       if (catalogSort === "updated") {
         return (b.pushed_at || "").localeCompare(a.pushed_at || "");
       }
-      return a.name.localeCompare(b.name);
+      return (a.name || "").localeCompare(b.name || "");
     });
 
   // Helper to check whether any module/plugin is installed
@@ -1964,7 +1964,7 @@ export function ModulesPage({
                             <h4 className="font-semibold text-ink text-sm flex items-center gap-2">
                               {item.name}
                             </h4>
-                            <span className="font-mono text-[11px] text-muted">{item.id}</span>
+                            <span className="font-mono text-[11px] text-muted">{item.full_name}</span>
                             <p className="text-xs text-muted mt-1 line-clamp-2">
                               {item.description || (locale === "ru" ? "Нет описания репозитория." : "No description provided.")}
                             </p>
@@ -1986,15 +1986,9 @@ export function ModulesPage({
                           {item.forks}
                         </span>
 
-                        {item.category && (
-                          <span className="rounded bg-white/5 text-muted px-2 py-0.5 font-mono">
-                            {item.category}
-                          </span>
-                        )}
-
-                        {item.license_spdx && (
+                        {item.license && (
                           <span className="rounded bg-white/5 text-muted px-1.5 py-0.5 font-mono">
-                            {item.license_spdx}
+                            {item.license}
                           </span>
                         )}
                       </div>
@@ -2004,10 +1998,6 @@ export function ModulesPage({
                         <div className="mt-2.5 rounded bg-bad/10 border border-bad/30 p-2 text-[11px] text-bad flex items-start gap-1.5">
                           <Ban className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                           <span>{item.conflict_reason}</span>
-                        </div>
-                      ) : item.coa_notes ? (
-                        <div className="mt-2 text-[11px] text-zinc-400 font-sans border-t border-line/40 pt-2">
-                          {item.coa_notes}
                         </div>
                       ) : item.topics.length > 0 ? (
                         <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-line/40 pt-2">
@@ -2222,7 +2212,7 @@ export function ModulesPage({
                     <h3 className="font-semibold text-ink text-base flex items-center gap-2">
                       {selectedPublicModule.name}
                     </h3>
-                    <span className="font-mono text-xs text-muted">{selectedPublicModule.id}</span>
+                    <span className="font-mono text-xs text-muted">{selectedPublicModule.full_name}</span>
                   </div>
                   <button onClick={() => setSelectedPublicModule(null)} className="text-muted hover:text-ink">
                     <X className="h-4 w-4" />
@@ -2258,7 +2248,7 @@ export function ModulesPage({
                     <div className="rounded bg-black/30 p-2 text-center">
                       <span className="text-muted block text-[10px]">{locale === "ru" ? "Лицензия" : "License"}</span>
                       <strong className="text-ink font-mono text-xs block truncate mt-1">
-                        {selectedPublicModule.license_spdx || "—"}
+                        {selectedPublicModule.license || "—"}
                       </strong>
                     </div>
 
@@ -2286,11 +2276,7 @@ export function ModulesPage({
                       </div>
                     )}
 
-                    {selectedPublicModule.coa_notes && (
-                      <p className="text-zinc-300 leading-relaxed text-xs">
-                        {selectedPublicModule.coa_notes}
-                      </p>
-                    )}
+
                   </div>
 
                   {/* Topics */}
