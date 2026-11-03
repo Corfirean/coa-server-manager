@@ -806,7 +806,7 @@ export function ModulesPage({
   }
 
   async function startControlledBuild(urlToBuildParam?: string) {
-    const target = (urlToBuildParam || (report ? report.repository_name : githubUrl)).trim();
+    const target = (urlToBuildParam || githubUrl || report?.repository_path || "").trim();
     if (!target) return;
     setBuilding(true);
     setActiveTab("builds");
@@ -1957,10 +1957,10 @@ export function ModulesPage({
                                 setActiveTab("installed");
                                 setOpenSettings("custom-races");
                               }}
-                              className="text-xs h-7 px-3"
+                              className="text-xs h-7 px-3 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-black font-medium"
                             >
-                              <Settings2 className="h-3.5 w-3.5 mr-1" />
-                              {locale === "ru" ? "Настроить расы" : "Configure Races"}
+                              <Download className="h-3.5 w-3.5 mr-1" />
+                              {locale === "ru" ? "Установить патч" : "Install Patch"}
                             </Button>
                           ) : (
                             <Button

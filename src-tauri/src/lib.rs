@@ -2976,10 +2976,28 @@ async fn preview_build_module(
             found.ok_or_else(|| coa_core::Error::Invalid("Failed to locate cached repository sources after intake".into()))?
         } else {
             let p = PathBuf::from(&source_url_or_path);
-            if !p.exists() {
+            if p.exists() {
+                p
+            } else if source_url_or_path.len() >= 7 && source_url_or_path.chars().all(|c| c.is_ascii_hexdigit()) {
+                // Defensive fallback: search github cache for this digest folder
+                let mut found = None;
+                if let Ok(entries) = std::fs::read_dir(cache_dir.join("github")) {
+                    'outer: for owner_entry in entries.flatten() {
+                        if let Ok(repo_entries) = std::fs::read_dir(owner_entry.path()) {
+                            for repo_entry in repo_entries.flatten() {
+                                let candidate = repo_entry.path().join(&source_url_or_path);
+                                if candidate.is_dir() && candidate.join(".coa_tree_digest").is_file() {
+                                    found = Some(candidate);
+                                    break 'outer;
+                                }
+                            }
+                        }
+                    }
+                }
+                found.ok_or_else(|| coa_core::Error::Invalid(format!("Source path '{}' does not exist", p.display())))?
+            } else {
                 return Err(coa_core::Error::Invalid(format!("Source path '{}' does not exist", p.display())));
             }
-            p
         };
 
         coa_core::build_engine::build_module_from_source(&source_dir, &realm_root, None, None)
