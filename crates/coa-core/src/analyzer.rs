@@ -413,7 +413,13 @@ pub fn analyze_repository_with_contract(repo_path: &Path, contract: &SdkExportCo
 
     // Check git commit if available
     let commit = if repo_path.join(".git").exists() {
-        std::process::Command::new("git")
+        let mut git_cmd = std::process::Command::new("git");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            git_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        git_cmd
             .args(["-C", &repo_path.to_string_lossy(), "rev-parse", "HEAD"])
             .output()
             .ok()
@@ -959,6 +965,11 @@ pub fn analyze_github_repository(url_str: &str, cache_base_dir: Option<&Path>) -
     // 1. Resolve commit SHA via git ls-remote (isolated env, no hooks)
     let repo_remote_url = format!("https://github.com/{}/{}.git", owner, repo);
     let mut ls_cmd = std::process::Command::new("git");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        ls_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
     ls_cmd.env("GIT_CONFIG_NOSYSTEM", "1")
           .env("GIT_CONFIG_GLOBAL", "")
           .env("GIT_TERMINAL_PROMPT", "0")
@@ -1013,6 +1024,11 @@ pub fn analyze_github_repository(url_str: &str, cache_base_dir: Option<&Path>) -
         fs::create_dir_all(&staging_dir)?;
 
         let mut clone_cmd = std::process::Command::new("git");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            clone_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
         clone_cmd.env("GIT_CONFIG_NOSYSTEM", "1")
                  .env("GIT_CONFIG_GLOBAL", "")
                  .env("GIT_TERMINAL_PROMPT", "0")

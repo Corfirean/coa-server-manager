@@ -483,22 +483,26 @@ pub fn build_module_from_source(
         )));
     }
 
+    // Helper to strip verbatim extended path prefix (\\?\) so CMake and MSVC can parse include dirs
+    let clean_path = |p: &Path| -> String {
+        let s = p.to_string_lossy();
+        let stripped = s.strip_prefix(r"\\?\").unwrap_or(&s);
+        stripped.replace('\\', "/")
+    };
+
     let mut staged_cpp_paths = Vec::new();
-    staged_cpp_paths.push(adapter_path.to_string_lossy().replace('\\', "/"));
+    staged_cpp_paths.push(clean_path(&adapter_path));
 
     for cpp in &upstream_cpps {
-        let file_name = cpp.file_name().unwrap();
-        // Avoid naming collision with adapter.cpp
-        let dest_file_name = if file_name == "adapter.cpp" {
-            format!("upstream_{}", file_name.to_string_lossy())
-        } else {
-            file_name.to_string_lossy().into_owned()
-        };
-        let dest = staging_src.join(&dest_file_name);
+        let rel = cpp.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(cpp.file_name().unwrap()));
+        let dest = staging_src.join(rel);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
         fs::copy(cpp, &dest)?;
 
         // Resilient compatibility patching for older / cached mod-coa-playerbots
-        if dest_file_name == "BotMgr.cpp" {
+        if dest.file_name().map(|n| n == "BotMgr.cpp").unwrap_or(false) {
             if let Ok(content) = fs::read_to_string(&dest) {
                 if content.contains("_GetPurchasedTabsSize") || content.contains("_CreateNewBankTab") {
                     let patched = content
@@ -513,20 +517,46 @@ pub fn build_module_from_source(
             }
         }
 
-        staged_cpp_paths.push(dest.to_string_lossy().replace('\\', "/"));
+        staged_cpp_paths.push(clean_path(&dest));
     }
 
-    // Collect include directories from upstream
-    let mut include_dirs = Vec::new();
-    include_dirs.push(staging_src.to_string_lossy().replace('\\', "/"));
-    include_dirs.push(module_source_dir.to_string_lossy().replace('\\', "/"));
-
+    // Also copy all headers (.h and .hpp) preserving directory structure
     let upstream_headers = collect_files_with_ext(module_source_dir, "h");
-    for h in upstream_headers {
+    for h in &upstream_headers {
+        let rel = h.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(h.file_name().unwrap()));
+        let dest = staging_src.join(rel);
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::copy(h, &dest);
+    }
+    let upstream_hpps = collect_files_with_ext(module_source_dir, "hpp");
+    for h in &upstream_hpps {
+        let rel = h.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(h.file_name().unwrap()));
+        let dest = staging_src.join(rel);
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::copy(h, &dest);
+    }
+
+    // Collect include directories from upstream and staging
+    let mut include_dirs = Vec::new();
+    include_dirs.push(clean_path(&staging_src));
+    include_dirs.push(clean_path(module_source_dir));
+
+    for h in upstream_headers.iter().chain(upstream_hpps.iter()) {
         if let Some(parent) = h.parent() {
-            let p_str = parent.to_string_lossy().replace('\\', "/");
-            if !include_dirs.contains(&p_str) {
-                include_dirs.push(p_str);
+            let p_clean = clean_path(parent);
+            if !include_dirs.contains(&p_clean) {
+                include_dirs.push(p_clean);
+            }
+            if let Ok(rel) = parent.strip_prefix(module_source_dir) {
+                let staged_parent = staging_src.join(rel);
+                let sp_clean = clean_path(&staged_parent);
+                if !include_dirs.contains(&sp_clean) {
+                    include_dirs.push(sp_clean);
+                }
             }
         }
     }
@@ -534,7 +564,7 @@ pub fn build_module_from_source(
     // 3. Write controlled CMakeLists.txt (eliminating D9025 /Zi vs /Z7 conflict)
     let sources_block = staged_cpp_paths.iter().map(|s| format!("  \"{}\"", s)).collect::<Vec<_>>().join("\n");
     let includes_block = include_dirs.iter().map(|s| format!("  \"{}\"", s)).collect::<Vec<_>>().join("\n");
-    let cmake_sdk_path = sdk_dir.replace('\\', "/");
+    let cmake_sdk_path = clean_path(Path::new(&sdk_dir));
 
     let controlled_cmake = format!(r#"cmake_minimum_required(VERSION 3.22)
 project(coa_plugin_{safe_target_name} LANGUAGES CXX)
@@ -576,14 +606,20 @@ set "PATH={ninja_dir};%PATH%"
 if errorlevel 1 exit /b 102
 "{cmake}" --build "{build_dir}" -- -j8
 if errorlevel 1 exit /b 103
-"#, vcvars64 = vcvars64, ninja_dir = ninja_dir, cmake = cmake, staging_dir = staging_dir.display(), build_dir = build_output_dir.display(), sdk_dir = sdk_dir);
+"#, vcvars64 = vcvars64, ninja_dir = ninja_dir, cmake = cmake, staging_dir = clean_path(&staging_dir), build_dir = clean_path(&build_output_dir), sdk_dir = clean_path(Path::new(&sdk_dir)));
 
     fs::write(&runner_bat, &runner_content)?;
 
     emit_progress("COMPILING", 45, "Compiling C++ sources via MSVC Cl.exe...", None);
 
-    // 5. Execute build command
-    let output = Command::new("cmd.exe")
+    // 5. Execute build command silently without console popup
+    let mut cmd = Command::new("cmd.exe");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = cmd
         .args(["/c", &runner_bat.to_string_lossy()])
         .output();
 
