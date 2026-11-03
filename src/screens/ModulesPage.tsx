@@ -428,26 +428,7 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
     icon: "plug",
   },
   
-  {
-    id: "solocraft",
-    name: "Solocraft",
-    repo: "https://github.com/azerothcore/mod-solocraft",
-    category: "scaling",
-    description: {
-      ru: "Масштабирование характеристик персонажа при одиночном прохождении группового контента.",
-      en: "Dynamically boosts player stats in group dungeons and raids for solo play.",
-    },
-    qualification: "BUILT",
-    tier: "Tier 1: Dynamic DLL",
-    verificationLevel: "L0-L2 PASS",
-    notes: {
-      ru: "Сборка и связывание успешны. Параметры настраиваются через конфигурационный файл.",
-      en: "Build and link successful. Configurable via settings.",
-    },
-    sqlRequired: true,
-    canInstall: true,
-    icon: "scaling",
-  },
+
 ];
 
 
@@ -888,6 +869,15 @@ export function ModulesPage({
     return parts.length >= 2 ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}` : clean;
   }
 
+  // Repositories incompatible with CoA forks (squid playerbots and integrated dungeon clear)
+  const EXCLUDED_COMMUNITY_SLUGS = new Set([
+    "mod-playerbots/mod-playerbots",
+    "azerothcore/mod-playerbots",
+    "jrad7/mod-dungeon-clear",
+    "nathanhandley/mod-ah-bot-plus",
+    "azerothcore/mod-ahbot",
+  ]);
+
   // Set of slugs from VERIFIED_CATALOG to avoid duplicate cards in community list
   const verifiedRepoSlugs = new Set(
     VERIFIED_CATALOG.map((m) => normalizeUrlSlug(m.repo))
@@ -911,9 +901,17 @@ export function ModulesPage({
   // Group B: AzerothCore Community Modules
   const filteredCommunityCatalog = (publicCatalog?.items ?? [])
     .filter((item) => {
-      // Exclude items already curated in Group A
+      // Exclude items already curated in Group A, or upstream forks replaced by CoA
       const slug = (item.full_name || item.name || "").toLowerCase();
-      if (verifiedRepoSlugs.has(slug) || verifiedRepoSlugs.has(normalizeUrlSlug(item.html_url))) {
+      const urlSlug = normalizeUrlSlug(item.html_url);
+      if (
+        verifiedRepoSlugs.has(slug) ||
+        verifiedRepoSlugs.has(urlSlug) ||
+        EXCLUDED_COMMUNITY_SLUGS.has(slug) ||
+        EXCLUDED_COMMUNITY_SLUGS.has(urlSlug) ||
+        item.name.toLowerCase() === "mod-playerbots" ||
+        item.name.toLowerCase() === "mod-dungeon-clear"
+      ) {
         return false;
       }
 

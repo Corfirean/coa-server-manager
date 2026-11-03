@@ -127,6 +127,30 @@
       "status": "RequiresAdapter",
       "is_recommended": false,
       "reason": "Redundant: CoA already provides a built-in wardrobe and transmog system configured in coa.conf."
+    },
+    {
+      "repo_slug": "mod-playerbots/mod-playerbots",
+      "status": "Blocked",
+      "is_recommended": false,
+      "reason": "Конфликт с ядром CoA: используйте SQUID's Playerbots (Zyth45/mod-playerbots) или CoA Companions, специально адаптированные под CoA."
+    },
+    {
+      "repo_slug": "azerothcore/mod-playerbots",
+      "status": "Blocked",
+      "is_recommended": false,
+      "reason": "Конфликт с ядром CoA: используйте SQUID's Playerbots (Zyth45/mod-playerbots) или CoA Companions, специально адаптированные под CoA."
+    },
+    {
+      "repo_slug": "jrad7/mod-dungeon-clear",
+      "status": "Blocked",
+      "is_recommended": false,
+      "reason": "Конфликт с ядром CoA: функционал прохождения подземелий уже встроен в SQUID's Playerbots и CoA Companions."
+    },
+    {
+      "repo_slug": "nathanhandley/mod-ah-bot-plus",
+      "status": "Blocked",
+      "is_recommended": false,
+      "reason": "Конфликт с ядром CoA: в ядро уже встроен официальный модуль Auction House Bot."
     }
   ]
 }
