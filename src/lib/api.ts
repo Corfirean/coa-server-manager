@@ -264,6 +264,47 @@ export interface VerificationStatus {
   l6_teardown: string;
 }
 
+export type CoaCompatibilityStatus =
+  | 'Recommended'
+  | 'Verified'
+  | 'RequiresAdapter'
+  | 'Unverified'
+  | 'Incompatible'
+  | 'Blocked';
+
+export interface PublicCatalogueItem {
+  id: string;
+  name: string;
+  owner: string;
+  repo: string;
+  description: string;
+  html_url: string;
+  default_branch: string;
+  stars: number;
+  forks: number;
+  open_issues: number;
+  pushed_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  topics: string[];
+  category: string;
+  author_name?: string | null;
+  license_spdx?: string | null;
+  coa_status: CoaCompatibilityStatus;
+  coa_notes?: string | null;
+  conflict_reason?: string | null;
+  is_curated_coa: boolean;
+}
+
+export interface PublicCatalogueResponse {
+  items: PublicCatalogueItem[];
+  cached_at: string;
+  is_offline: boolean;
+  etag?: string | null;
+  total_count: number;
+  recommended_count: number;
+}
+
 export interface CompatibilityReport {
   repository_path: string;
   repository_name: string;
@@ -729,6 +770,8 @@ export const api = {
   realmlistDelete: (id: string, profileId: string) => invoke<void>("realmlist_delete", { id, profileId }),
   realmlistActivate: (id: string, profileId: string) => invoke<string[]>("realmlist_activate", { id, profileId }),
   modulesList: (id: string) => invoke<ModuleView[]>("modules_list", { id }),
+  getPublicModuleCatalog: (forceRefresh = false) =>
+    invoke<PublicCatalogueResponse>("get_public_module_catalog", { forceRefresh }),
   analyzeGithubModule: (url: string, realmId: string) =>
     invoke<CompatibilityReport>("analyze_github_module", { url, realmId }),
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),

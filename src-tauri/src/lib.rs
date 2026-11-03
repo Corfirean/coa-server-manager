@@ -2821,6 +2821,18 @@ async fn analyze_github_module(
 }
 
 #[tauri::command]
+async fn get_public_module_catalog(
+    force_refresh: Option<bool>,
+) -> std::result::Result<coa_core::catalogue::PublicCatalogueResponse, UiError> {
+    let cache_dir = data_dir().join("catalogue");
+    let force = force_refresh.unwrap_or(false);
+    blocking(move || {
+        coa_core::catalogue::fetch_or_load_catalogue(&cache_dir, force)
+    })
+    .await
+}
+
+#[tauri::command]
 fn preview_toolchain_status() -> coa_core::build_engine::ToolchainStatus {
     coa_core::build_engine::detect_toolchain()
 }
@@ -3212,6 +3224,7 @@ pub fn run() {
             realmlist_activate,
             modules_list,
             analyze_github_module,
+            get_public_module_catalog,
             realm_profiles,
             realm_select,
             realm_simultaneous,
