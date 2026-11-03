@@ -261,27 +261,33 @@ pub fn resolve_module_identity(source_dir: &Path) -> (String, String, Option<Str
         (raw_name, None)
     };
 
-    let module_id = canonical_raw.trim_start_matches("mod-").replace('_', "-");
+    let raw_id = canonical_raw.trim_start_matches("mod-").replace('_', "-");
 
-    let display_name = match module_id.as_str() {
-        "npc-buffer" => "NPC Buffer".to_string(),
-        "ah-bot" => "Auction House Bot".to_string(),
-        "guildhouse" => "Guildhouse".to_string(),
-        "congrats-on-level" => "Congrats on Level".to_string(),
-        "npc-enchanter" => "NPC Enchanter".to_string(),
-        "reward-played-time" => "Reward Played Time".to_string(),
-        "transmog" => "Transmog".to_string(),
-        "solocraft" => "Solocraft".to_string(),
-        "autobalance" => "AutoBalance".to_string(),
-        "individual-progression" => "Individual Progression".to_string(),
-        "ale" => "AzerothCore Lua Engine (ALE)".to_string(),
-        "coa-playerbots" | "playerbots" | "companions" => "CoA Companions".to_string(),
-        "squid-playerbots" | "squid" => "SQUID's Playerbots".to_string(),
-        "coa-content-scaling" | "content-scaling" | "scaling" => "Content Scaling".to_string(),
-        "custom-races" => "Custom Races".to_string(),
-        "timeistime" => "TimeIsTime".to_string(),
+    let (module_id, display_name) = match raw_id.as_str() {
+        "coa-content-scaling" | "content-scaling" | "scaling" => {
+            ("content-scaling".to_string(), "Content Scaling".to_string())
+        }
+        "coa-playerbots" | "companions" => {
+            ("companions".to_string(), "CoA Companions".to_string())
+        }
+        "squid-playerbots" | "playerbots" | "squid" => {
+            ("playerbots".to_string(), "SQUID's Playerbots".to_string())
+        }
+        "npc-buffer" => ("npc-buffer".to_string(), "NPC Buffer".to_string()),
+        "ah-bot" => ("ah-bot".to_string(), "Auction House Bot".to_string()),
+        "guildhouse" => ("guildhouse".to_string(), "Guildhouse".to_string()),
+        "congrats-on-level" => ("congrats-on-level".to_string(), "Congrats on Level".to_string()),
+        "npc-enchanter" => ("npc-enchanter".to_string(), "NPC Enchanter".to_string()),
+        "reward-played-time" => ("reward-played-time".to_string(), "Reward Played Time".to_string()),
+        "transmog" => ("transmog".to_string(), "Transmog".to_string()),
+        "solocraft" => ("solocraft".to_string(), "Solocraft".to_string()),
+        "autobalance" => ("autobalance".to_string(), "AutoBalance".to_string()),
+        "individual-progression" => ("individual-progression".to_string(), "Individual Progression".to_string()),
+        "ale" => ("ale".to_string(), "AzerothCore Lua Engine (ALE)".to_string()),
+        "custom-races" => ("custom-races".to_string(), "Custom Races".to_string()),
+        "timeistime" | "time-is-time" => ("time-is-time".to_string(), "TimeIsTime".to_string()),
         other => {
-            other.split('-')
+            let pretty = other.split('-')
                 .map(|word| {
                     let mut chars = word.chars();
                     match chars.next() {
@@ -290,7 +296,8 @@ pub fn resolve_module_identity(source_dir: &Path) -> (String, String, Option<Str
                     }
                 })
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join(" ");
+            (other.to_string(), pretty)
         }
     };
 
@@ -489,6 +496,23 @@ pub fn build_module_from_source(
         };
         let dest = staging_src.join(&dest_file_name);
         fs::copy(cpp, &dest)?;
+
+        // Resilient compatibility patching for older / cached mod-coa-playerbots
+        if dest_file_name == "BotMgr.cpp" {
+            if let Ok(content) = fs::read_to_string(&dest) {
+                if content.contains("_GetPurchasedTabsSize") || content.contains("_CreateNewBankTab") {
+                    let patched = content
+                        .replace("guild->_GetPurchasedTabsSize()", "guild->GetPurchasedTabsSize()")
+                        .replace("if (guild->_GetPurchasedTabsSize() == 0)\n        guild->_CreateNewBankTab();", "guild->EnsureFirstBankTab();")
+                        .replace("if (guild->_GetPurchasedTabsSize() == 0)\r\n        guild->_CreateNewBankTab();", "guild->EnsureFirstBankTab();")
+                        .replace("guild->_CreateNewBankTab()", "guild->EnsureFirstBankTab()")
+                        .replace("Guild::BankTab const* tab = guild->GetBankTab(tabId);\n        if (!tab)\n            continue;\n        for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\n            if (Item const* item = tab->GetItem(slotId))", "for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\n            if (Item const* item = guild->GetBankItem(tabId, slotId))")
+                        .replace("Guild::BankTab const* tab = guild->GetBankTab(tabId);\r\n        if (!tab)\r\n            continue;\r\n        for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\r\n            if (Item const* item = tab->GetItem(slotId))", "for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\r\n            if (Item const* item = guild->GetBankItem(tabId, slotId))");
+                    let _ = fs::write(&dest, patched);
+                }
+            }
+        }
+
         staged_cpp_paths.push(dest.to_string_lossy().replace('\\', "/"));
     }
 

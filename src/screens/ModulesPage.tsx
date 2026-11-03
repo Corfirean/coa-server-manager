@@ -265,7 +265,7 @@ const VERIFIED_CATALOG: VerifiedCatalogModule[] = [
   {
     id: "playerbots",
     name: "SQUID's Playerbots",
-    repo: "https://github.com/Zyth45/mod-playerbots",
+    repo: "https://github.com/Corfirean/mod-playerbots",
     category: "official",
     description: {
       ru: "Альтернативная система ботов со случайными ботами и полным ИИ.",
@@ -625,6 +625,12 @@ export function ModulesPage({
   const [building, setBuilding] = useState(false);
   const [buildResult, setBuildResult] = useState<BuildResult | null>(null);
   const [buildLogs, setBuildLogs] = useState<string[]>([]);
+  const [buildProgress, setBuildProgress] = useState<{
+    step: string;
+    progress_pct: number;
+    message: string;
+    elapsedSeconds: number;
+  } | null>(null);
 
   // Installation & SQL confirmation modal
   const [installing, setInstalling] = useState(false);
@@ -840,7 +846,39 @@ export function ModulesPage({
     setBuilding(true);
     setActiveTab("builds");
     setBuildLogs(["[CSM Controlled Build Engine] Initializing build environment..."]);
+    setBuildProgress({
+      step: "PREPARING",
+      progress_pct: 10,
+      message: locale === "ru" ? "Инициализация среды сборки MSVC и SDK..." : "Initializing MSVC and SDK build environment...",
+      elapsedSeconds: 0,
+    });
+
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      setBuildProgress((prev) => (prev ? { ...prev, elapsedSeconds: elapsed } : null));
+    }, 100);
+
+    let unlisten: (() => void) | null = null;
     try {
+      try {
+        unlisten = await listen<{ step: string; progress_pct: number; message: string; log_line?: string }>(
+          "preview_build_progress",
+          (event) => {
+            const p = event.payload;
+            setBuildProgress((prev) => ({
+              step: p.step,
+              progress_pct: p.progress_pct,
+              message: p.message,
+              elapsedSeconds: prev ? prev.elapsedSeconds : (Date.now() - startTime) / 1000,
+            }));
+            if (p.log_line) {
+              setBuildLogs((logs) => [...logs, p.log_line!]);
+            }
+          }
+        );
+      } catch {}
+
       setBuildLogs((prev) => [
         ...prev,
         `Target module: ${target}`,
@@ -850,6 +888,12 @@ export function ModulesPage({
       setBuildResult(res);
       setBuildLogs(res.log_output);
       if (res.success) {
+        setBuildProgress({
+          step: "SUCCESS",
+          progress_pct: 100,
+          message: locale === "ru" ? "Сборка завершена успешно" : "Build completed successfully",
+          elapsedSeconds: (Date.now() - startTime) / 1000,
+        });
         setNotification(
           locale === "ru"
             ? `Сборка успешно завершена! DLL '${res.display_name || res.module_id}' квалифицирована: ${res.dll_sha256?.substring(0, 16)}...`
@@ -867,6 +911,8 @@ export function ModulesPage({
       setAnalysisError(errText);
       setBuildLogs((prev) => [...prev, `[FATAL BUILD ERROR]: ${errText}`]);
     } finally {
+      clearInterval(timer);
+      unlisten?.();
       setBuilding(false);
     }
   }
@@ -939,7 +985,8 @@ export function ModulesPage({
   }
 
   const isScalingInstalled = Boolean(
-    modules?.some((m) => m.id === "content-scaling" && m.installed)
+    modules?.some((m) => (m.id === "content-scaling" || m.id === "coa-content-scaling") && m.installed) ||
+    installedPlugins?.some((p) => p.id === "content-scaling" || p.id === "coa-content-scaling")
   );
 
   const installedModules = (modules?.filter((m) => m.installed) ?? []).filter((m) => {
@@ -1335,6 +1382,37 @@ export function ModulesPage({
           {locale === "ru" ? "Среда сборки & SDK" : "Environment & SDK"}
         </button>
       </div>
+
+      {/* Sticky Active Build Banner when user is outside the builds tab */}
+      {building && buildProgress && activeTab !== "builds" && (
+        <div
+          onClick={() => setActiveTab("builds")}
+          className="cursor-pointer rounded-lg border border-gold/40 bg-gold/10 p-3 flex items-center justify-between shadow transition-colors hover:bg-gold/15 animate-in fade-in"
+        >
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-4 w-4 animate-spin text-gold" />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gold">
+                  {locale === "ru" ? "Идет сборка модуля" : "Building module"}
+                </span>
+                <span className="text-xs text-zinc-300 font-mono">[{buildProgress.step}]</span>
+                <span className="text-xs text-muted">— {buildProgress.message}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-32 h-1.5 overflow-hidden rounded-full bg-black/60 border border-line/40">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-300"
+                style={{ width: `${Math.max(5, Math.min(100, buildProgress.progress_pct))}%` }}
+              />
+            </div>
+            <span className="font-mono text-xs font-bold text-gold">{buildProgress.progress_pct}%</span>
+            <span className="text-[11px] font-mono text-zinc-400">({buildProgress.elapsedSeconds.toFixed(1)}s)</span>
+          </div>
+        </div>
+      )}
 
       {/* TAB 0: INSTALLED MODULES */}
       {activeTab === "installed" && (
@@ -1851,10 +1929,20 @@ export function ModulesPage({
               <div className="grid gap-3 sm:grid-cols-2">
                 {filteredVerifiedCatalog.map((item) => {
                   const matchedModule = modules?.find(
-                    (m) => m.id === item.id || m.name.toLowerCase() === item.name.toLowerCase()
+                    (m) =>
+                      m.id === item.id ||
+                      m.id === `coa-${item.id}` ||
+                      m.id === `mod-coa-${item.id}` ||
+                      m.name.toLowerCase() === item.name.toLowerCase()
                   );
-                  const isInstalled = Boolean(matchedModule?.installed);
-                  const isEnabled = Boolean(matchedModule?.enabled);
+                  const matchedPlugin = installedPlugins?.find(
+                    (p) =>
+                      p.id === item.id ||
+                      p.id === `coa-${item.id}` ||
+                      p.name.toLowerCase() === item.name.toLowerCase()
+                  );
+                  const isInstalled = Boolean(matchedModule?.installed || matchedPlugin);
+                  const isEnabled = Boolean(matchedModule?.enabled ?? matchedPlugin?.enabled ?? false);
 
                   return (
                     <Card key={item.id} className="border-line bg-card p-4 flex flex-col justify-between space-y-3 hover:border-gold/30 transition-colors">
@@ -2474,6 +2562,36 @@ export function ModulesPage({
       {/* TAB 4: BUILDS & MSVC LOGS */}
       {activeTab === "builds" && (
         <div className="space-y-4">
+          {/* Active Build Progress Bar */}
+          {building && buildProgress && (
+            <Card className="border border-gold/40 bg-gold/5 p-4 space-y-3 shadow-lg">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-gold" />
+                  <span className="font-semibold text-ink uppercase tracking-wider">{buildProgress.step}</span>
+                  <span className="text-zinc-300">— {buildProgress.message}</span>
+                </div>
+                <div className="flex items-center gap-2 font-mono">
+                  <span className="text-gold font-bold">{buildProgress.progress_pct}%</span>
+                  <span className="text-zinc-400">({buildProgress.elapsedSeconds.toFixed(1)}s)</span>
+                </div>
+              </div>
+
+              {/* Animated Progress Track */}
+              <div className="h-2 w-full overflow-hidden rounded-full bg-black/60 border border-line/40">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 transition-all duration-300 ease-out"
+                  style={{ width: `${Math.max(5, Math.min(100, buildProgress.progress_pct))}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-1 border-t border-line/30 font-sans">
+                <span>{locale === "ru" ? "Используется Cl.exe & Ninja (MSVC x64 /MD)" : "Using Cl.exe & Ninja (MSVC x64 /MD)"}</span>
+                <span>{locale === "ru" ? "Прогресс сборки и линковки DLL" : "DLL build and link progress"}</span>
+              </div>
+            </Card>
+          )}
+
           {/* Build Result Card */}
           {buildResult && (
             <Card

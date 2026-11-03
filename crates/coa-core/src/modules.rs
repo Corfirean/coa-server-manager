@@ -249,19 +249,39 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     .or_else(|| r.plugins.get(&e.id.replace('-', "_")))
                     .or_else(|| r.plugins.get(&format!("mod-{}", e.id)))
                     .or_else(|| r.plugins.get(&format!("mod-coa-{}", e.id)))
+                    .or_else(|| r.plugins.get(&format!("coa-{}", e.id)))
+                    .or_else(|| r.plugins.get(&format!("coa_{}", e.id)))
+                    .or_else(|| match e.id.as_str() {
+                        "content-scaling" => r.plugins.get("coa-content-scaling").or_else(|| r.plugins.get("mod-coa-content-scaling")),
+                        "companions" => r.plugins.get("coa-playerbots").or_else(|| r.plugins.get("mod-coa-playerbots")),
+                        "playerbots" => r.plugins.get("squid-playerbots").or_else(|| r.plugins.get("mod-playerbots")),
+                        _ => None,
+                    })
             });
-            let dll_present = root.join("plugins").join(format!("{}.dll", e.id)).is_file()
-                || root.join("plugins").join(format!("{}.dll", e.id.replace('-', "_"))).is_file()
-                || root.join("plugins").join(format!("mod-{}.dll", e.id)).is_file()
-                || root.join("plugins").join(format!("mod-{}.dll", e.id.replace('-', "_"))).is_file()
-                || root.join("plugins").join(format!("mod-coa-{}.dll", e.id)).is_file()
-                || root.join("plugins").join(format!("mod_coa_{}.dll", e.id.replace('-', "_"))).is_file()
-                || root.join(".manager/plugins").join(format!("{}.dll", e.id)).is_file()
-                || root.join(".manager/plugins").join(format!("{}.dll", e.id.replace('-', "_"))).is_file()
-                || root.join(".manager/plugins").join(format!("mod-{}.dll", e.id)).is_file()
-                || root.join(".manager/plugins").join(format!("mod-{}.dll", e.id.replace('-', "_"))).is_file()
-                || root.join(".manager/plugins").join(format!("mod-coa-{}.dll", e.id)).is_file()
-                || root.join(".manager/plugins").join(format!("mod_coa_{}.dll", e.id.replace('-', "_"))).is_file();
+
+            let dll_candidates = [
+                root.join("plugins").join(format!("{}.dll", e.id)),
+                root.join("plugins").join(format!("{}.dll", e.id.replace('-', "_"))),
+                root.join("plugins").join(format!("coa-{}.dll", e.id)),
+                root.join("plugins").join(format!("coa_{}.dll", e.id.replace('-', "_"))),
+                root.join("plugins").join(format!("mod-{}.dll", e.id)),
+                root.join("plugins").join(format!("mod-{}.dll", e.id.replace('-', "_"))),
+                root.join("plugins").join(format!("mod-coa-{}.dll", e.id)),
+                root.join("plugins").join(format!("mod_coa_{}.dll", e.id.replace('-', "_"))),
+                // Subdirectory checks (plugins/{id}/{id}.dll)
+                root.join("plugins").join(&e.id).join(format!("{}.dll", e.id)),
+                root.join("plugins").join(format!("coa-{}", e.id)).join(format!("coa-{}.dll", e.id)),
+                root.join("plugins").join(format!("mod-{}", e.id)).join(format!("mod-{}.dll", e.id)),
+                root.join("plugins").join(format!("mod-coa-{}", e.id)).join(format!("mod-coa-{}.dll", e.id)),
+                // Special alias subdirectories
+                root.join("plugins").join("coa-content-scaling").join("coa-content-scaling.dll"),
+                root.join("plugins").join("coa-playerbots").join("coa-playerbots.dll"),
+                // .manager/plugins checks
+                root.join(".manager/plugins").join(format!("{}.dll", e.id)),
+                root.join(".manager/plugins").join(format!("coa-{}.dll", e.id)),
+                root.join(".manager/plugins").join(format!("mod-coa-{}.dll", e.id)),
+            ];
+            let dll_present = dll_candidates.iter().any(|p| p.is_file());
             let is_dynamic = plugin_entry.is_some() || dll_present;
 
             // 2. Classify ComponentType and determine installation strictly
@@ -279,18 +299,21 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     let se_plugin = plugin_reg.as_ref().and_then(|r| {
                         r.plugins.get("content-scaling")
                             .or_else(|| r.plugins.get("content_scaling"))
+                            .or_else(|| r.plugins.get("coa-content-scaling"))
                             .or_else(|| r.plugins.get("mod-coa-content-scaling"))
                     });
                     let se_dll = root.join("plugins").join("content-scaling.dll").is_file()
-                        || root.join("plugins").join("content_scaling.dll").is_file()
+                        || root.join("plugins").join("content-scaling").join("content-scaling.dll").is_file()
+                        || root.join("plugins").join("coa-content-scaling").join("coa-content-scaling.dll").is_file()
+                        || root.join("plugins").join("coa-content-scaling.dll").is_file()
                         || root.join("plugins").join("mod-coa-content-scaling.dll").is_file()
-                        || root.join("plugins").join("mod_coa_content_scaling.dll").is_file()
                         || root.join(".manager/plugins").join("content-scaling.dll").is_file()
+                        || root.join(".manager/plugins").join("coa-content-scaling.dll").is_file()
                         || root.join(".manager/plugins").join("mod-coa-content-scaling.dll").is_file();
                     se_plugin.is_some() || se_dll || (!is_modular_host && installed_commits.contains_key("scaling"))
                 };
 
-                let has_content = is_scaling_installed && (conf.is_file() || dist.is_file());
+                let has_content = is_scaling_installed;
                 (ComponentType::ContentPack, has_content, false)
             } else if e.id == "client-compat" {
                 (ComponentType::LogicalFeature, true, false)

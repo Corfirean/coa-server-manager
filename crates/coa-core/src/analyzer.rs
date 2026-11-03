@@ -936,7 +936,16 @@ pub fn parse_and_validate_github_url(url_str: &str) -> Result<(String, String, O
 /// - Symlinks and junctions rejected
 /// - Strictly read-only analysis: NO execution of CMake, build scripts, or SQL migrations
 pub fn analyze_github_repository(url_str: &str, cache_base_dir: Option<&Path>) -> Result<CompatibilityReport> {
-    let (owner, repo, ref_opt) = parse_and_validate_github_url(url_str)?;
+    let (mut owner, mut repo, mut ref_opt) = parse_and_validate_github_url(url_str)?;
+
+    // Redirect upstream unadapted playerbots to verified CoA fork
+    if (owner.eq_ignore_ascii_case("Zyth45") || owner.eq_ignore_ascii_case("azerothcore")) && repo.eq_ignore_ascii_case("mod-playerbots") {
+        owner = "Corfirean".into();
+        repo = "mod-playerbots".into();
+        if ref_opt.is_none() {
+            ref_opt = Some("coa".into());
+        }
+    }
 
     let base_cache = match cache_base_dir {
         Some(p) => p.to_path_buf(),

@@ -2944,6 +2944,7 @@ async fn preview_register_test_realm(
 
 #[tauri::command]
 async fn preview_build_module(
+    app: AppHandle,
     state: State<'_, AppState>,
     realm_id: String,
     source_url_or_path: String,
@@ -2958,22 +2959,32 @@ async fn preview_build_module(
     let realm_root = path_of(&state, &realm_id)?;
     let cache_dir = data_dir().join("github_cache");
 
+    let app_clone = app.clone();
+    let progress_cb: Box<dyn Fn(coa_core::build_engine::BuildProgressEvent) + Send + Sync> =
+        Box::new(move |event| {
+            let _ = app_clone.emit("preview_build_progress", &event);
+        });
+
     blocking(move || {
         let source_dir = if source_url_or_path.starts_with("http://") || source_url_or_path.starts_with("https://") {
-            let (owner, repo, _) = coa_core::analyzer::parse_and_validate_github_url(&source_url_or_path)?;
-            let repo_cache = cache_dir.join("github").join(&owner).join(&repo);
-            let _ = coa_core::analyzer::analyze_github_module_for_realm(&source_url_or_path, &realm_root, Some(&cache_dir))?;
-
-            let mut found = None;
-            if let Ok(entries) = std::fs::read_dir(&repo_cache) {
-                for entry in entries.flatten() {
-                    if entry.path().is_dir() && entry.path().join(".coa_tree_digest").is_file() {
-                        found = Some(entry.path());
-                        break;
+            let report = coa_core::analyzer::analyze_github_module_for_realm(&source_url_or_path, &realm_root, Some(&cache_dir))?;
+            let p = PathBuf::from(&report.repository_path);
+            if p.is_dir() {
+                p
+            } else {
+                let (owner, repo, _) = coa_core::analyzer::parse_and_validate_github_url(&source_url_or_path)?;
+                let repo_cache = cache_dir.join("github").join(&owner).join(&repo);
+                let mut found = None;
+                if let Ok(entries) = std::fs::read_dir(&repo_cache) {
+                    for entry in entries.flatten() {
+                        if entry.path().is_dir() && entry.path().join(".coa_tree_digest").is_file() {
+                            found = Some(entry.path());
+                            break;
+                        }
                     }
                 }
+                found.ok_or_else(|| coa_core::Error::Invalid("Failed to locate cached repository sources after intake".into()))?
             }
-            found.ok_or_else(|| coa_core::Error::Invalid("Failed to locate cached repository sources after intake".into()))?
         } else {
             let p = PathBuf::from(&source_url_or_path);
             if p.exists() {
@@ -3000,7 +3011,7 @@ async fn preview_build_module(
             }
         };
 
-        coa_core::build_engine::build_module_from_source(&source_dir, &realm_root, None, None)
+        coa_core::build_engine::build_module_from_source(&source_dir, &realm_root, None, Some(progress_cb))
             .map_err(Into::into)
     })
     .await
