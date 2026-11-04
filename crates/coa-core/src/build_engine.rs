@@ -134,8 +134,8 @@ pub fn detect_toolchain() -> ToolchainStatus {
         ninja_available,
         ninja_path,
         sdk_available,
+        sdk_abi_fingerprint: sdk_dir.as_deref().and_then(|d| sdk_abi_fingerprint(Path::new(d)).ok()),
         sdk_dir,
-        sdk_abi_fingerprint: Some("2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into()),
         ready,
         diagnostic_message,
     }
@@ -153,6 +153,51 @@ fn which_cmd(cmd_name: &str) -> Option<String> {
     None
 }
 
+/// The ABI fingerprint of an SDK, from the sdk.json written next to its cmake directory.
+fn sdk_abi_fingerprint(sdk_cmake_dir: &Path) -> Result<String> {
+    let candidates = [sdk_cmake_dir.join("sdk.json"), sdk_cmake_dir.join("..").join("sdk.json")];
+    let path = candidates.iter().find(|p| p.is_file()).ok_or_else(|| {
+        Error::Invalid(format!("CoA Plugin SDK at {} has no sdk.json", sdk_cmake_dir.display()))
+    })?;
+    let json: serde_json::Value = serde_json::from_slice(&fs::read(path)?)
+        .map_err(|e| Error::Invalid(format!("{}: {}", path.display(), e)))?;
+    json.get("abiFingerprint")
+        .and_then(|v| v.as_str())
+        .filter(|fp| fp.len() == 64 && fp.bytes().all(|c| c.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .ok_or_else(|| Error::Invalid(format!("{} has no valid abiFingerprint", path.display())))
+}
+
+/// The fingerprint in a plugin DLL's ".coapl" section ("COAPLUGIN1|<id>|<fingerprint>"), read from the
+/// file without loading it. None when the image has no such section or it is malformed.
+fn plugin_section_fingerprint(bytes: &[u8]) -> Option<String> {
+    let u16_at = |o: usize| bytes.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let u32_at = |o: usize| bytes.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let pe = u32_at(0x3C)? as usize;
+    if u32_at(pe)? != 0x0000_4550 {
+        return None;
+    }
+    let sections = u16_at(pe + 6)? as usize;
+    let first = pe + 24 + u16_at(pe + 20)? as usize;
+    for i in 0..sections.min(96) {
+        let at = first.checked_add(i * 40)?;
+        let name = bytes.get(at..at + 8)?;
+        if !name.starts_with(b".coapl") {
+            continue;
+        }
+        let size = u32_at(at + 8)?.min(u32_at(at + 16)?) as usize;
+        let raw = u32_at(at + 20)? as usize;
+        let data = bytes.get(raw..raw.checked_add(size)?)?;
+        let text = std::str::from_utf8(&data[..data.iter().position(|&c| c == 0).unwrap_or(data.len())]).ok()?;
+        let mut parts = text.split('|');
+        return match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some("COAPLUGIN1"), Some(_), Some(fp), None) if fp.len() == 64 => Some(fp.to_owned()),
+            _ => None,
+        };
+    }
+    None
+}
+
 /// Computes SHA-256 of file bytes.
 fn sha256_of_file(path: &Path) -> Result<String> {
     let bytes = fs::read(path)?;
@@ -160,85 +205,6 @@ fn sha256_of_file(path: &Path) -> Result<String> {
     hasher.update(&bytes);
     Ok(format!("{:x}", hasher.finalize()))
 }
-
-pub const COMPANIONS_SHIMS_CPP: &str = r#"#include "Player.h"
-#include "Unit.h"
-#include "ScriptMgr.h"
-#include "LFGMgr.h"
-#include "SpellAuraEffects.h"
-#include "training/TrainingArenaManager.h"
-#include "world/encounters/WorldEncounterDirector.h"
-
-// Compatibility implementations for internal worldserver symbols not exported in dynamic DLL ABI
-
-bool Player::HasQuestForItem(uint32, uint32, bool, bool*) const { return false; }
-uint32 Player::GetCorpseReclaimDelay(bool) const { return 30; }
-void Player::CastItemUseSpell(Item*, SpellCastTargets const&, uint8, uint32) {}
-
-namespace lfg {
-    uint32 LFGMgr::GetOptions() { return 0; }
-    static LfgLockMap _emptyLocks;
-    LfgLockMap const& LFGMgr::GetLockedDungeons(ObjectGuid) { return _emptyLocks; }
-    uint32 LFGMgr::GetDungeon(ObjectGuid, bool) { return 0; }
-}
-
-bool ScriptMgr::CanAccountCreateCharacter(uint32, uint8, uint8) { return true; }
-int AuraEffect::GetMiscValue() const { return 0; }
-int Unit::CalculateSpellDamage(Unit const*, SpellInfo const*, uint8, int const*) const { return 0; }
-uint32 Unit::SpellDamageBonusDone(Unit*, SpellInfo const*, uint32, DamageEffectType, uint8, float, uint32) { return 0; }
-uint32 Unit::SpellDamageBonusTaken(Unit*, SpellInfo const*, uint32, DamageEffectType, uint32) { return 0; }
-void Unit::SendPlaySpellVisual(uint32) {}
-
-void AddSC_coa_training() {}
-
-namespace CoaTraining {
-    std::atomic<bool> Enabled{false};
-    void Initialize() {}
-    void Command(ChatHandler*, std::string const&) {}
-    void Update(uint32) {}
-    void Shutdown() {}
-    bool Owns(ObjectGuid) { return false; }
-    bool Running(ObjectGuid) { return false; }
-    void RecordDamage(Unit*, Unit*, uint32) {}
-    void RecordHeal(Unit*, Unit*, uint32) {}
-    void RecordPeriodicDamage(Unit*, Unit*, uint32, uint32) {}
-    void RecordSpellDamage(Unit*, Unit*, uint32, uint32, bool) {}
-    void RecordSpellHeal(Unit*, Unit*, uint32, uint32) {}
-    void RecordAura(Unit*, uint32, ObjectGuid, char const*, uint32) {}
-    void BeginDecision(BotAI::CombatContext const&) {}
-    void Candidate(ObjectGuid, uint32, char const*, bool, float, char const*) {}
-    void EndDecision(ObjectGuid, uint32, float, uint32) {}
-    void CastResult(Player*, uint32, uint32, Unit*) {}
-    void RecordKill(Player*, Creature*) {}
-    void InterruptKick(Player*, uint32, Unit*, uint32, char const*, bool) {}
-    void RecordSpellLifecycle(Unit*, ObjectGuid, uint32, char const*, uint32, bool) {}
-}
-
-namespace WorldEncounterDirector {
-    void LoadConfig() {}
-    void Update(uint32) {}
-    bool UpdateBot(Player*, BrainState&, WorldPersona const&, uint32) { return false; }
-    bool IsBotInEncounter(ObjectGuid) { return false; }
-    bool IsEncounterTemporaryGroup(uint32) { return false; }
-    void OnBotSuspended(Player*, char const*) {}
-    void OnParticipantDeath(Unit*, Unit*) {}
-    void OnPvPKill(ObjectGuid, ObjectGuid) {}
-    void OnPlayerLogout(ObjectGuid) {}
-    void ForgetBot(ObjectGuid) {}
-    void ResetAll() {}
-    std::string DescribeBot(ObjectGuid) { return ""; }
-    std::string DescribeStats() { return ""; }
-    std::string DescribeActiveList() { return ""; }
-    std::string DescribeBountyAndNemesis(ObjectGuid) { return ""; }
-    bool ValidateEncounterCleanup(ObjectGuid, std::string&) { return true; }
-    void SetDebugLogging(bool) {}
-    bool IsDebugLogging() { return false; }
-    void ResetCooldowns(ObjectGuid) {}
-    bool ForceStartEncounter(EncounterType, Player*, std::string&) { return false; }
-    bool StopEncounter(uint64, std::string&) { return false; }
-    uint32 StopAllEncounters() { return 0; }
-}
-"#;
 
 /// Recursively collects all files with specified extension, skipping non-module directories.
 fn collect_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
@@ -575,14 +541,10 @@ pub fn build_module_from_source(
     let mut staged_cpp_paths = Vec::new();
     staged_cpp_paths.push(clean_path(&adapter_path));
 
-    let is_companions = module_id == "companions";
-
+    // Every source of the module is built as it is: a symbol the module needs from the core must be
+    // exported by worldserver.exe, never re-implemented (or stubbed) inside the plugin.
     for cpp in &upstream_cpps {
         let rel = cpp.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(cpp.file_name().unwrap()));
-        let rel_normalized = rel.to_string_lossy().replace('\\', "/");
-        if is_companions && (rel_normalized.contains("/training/") || rel_normalized.contains("/world/encounters/")) {
-            continue;
-        }
 
         let dest = staging_src.join(rel);
         if let Some(parent) = dest.parent() {
@@ -590,30 +552,9 @@ pub fn build_module_from_source(
         }
         fs::copy(cpp, &dest)?;
 
-        // Resilient compatibility patching for older / cached mod-coa-playerbots
-        if dest.file_name().map(|n| n == "BotMgr.cpp").unwrap_or(false) {
-            if let Ok(content) = fs::read_to_string(&dest) {
-                if content.contains("_GetPurchasedTabsSize") || content.contains("_CreateNewBankTab") {
-                    let patched = content
-                        .replace("guild->_GetPurchasedTabsSize()", "guild->GetPurchasedTabsSize()")
-                        .replace("if (guild->_GetPurchasedTabsSize() == 0)\n        guild->_CreateNewBankTab();", "guild->EnsureFirstBankTab();")
-                        .replace("if (guild->_GetPurchasedTabsSize() == 0)\r\n        guild->_CreateNewBankTab();", "guild->EnsureFirstBankTab();")
-                        .replace("guild->_CreateNewBankTab()", "guild->EnsureFirstBankTab()")
-                        .replace("Guild::BankTab const* tab = guild->GetBankTab(tabId);\n        if (!tab)\n            continue;\n        for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\n            if (Item const* item = tab->GetItem(slotId))", "for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\n            if (Item const* item = guild->GetBankItem(tabId, slotId))")
-                        .replace("Guild::BankTab const* tab = guild->GetBankTab(tabId);\r\n        if (!tab)\r\n            continue;\r\n        for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\r\n            if (Item const* item = tab->GetItem(slotId))", "for (uint8 slotId = 0; slotId < GUILD_BANK_MAX_SLOTS; ++slotId)\r\n            if (Item const* item = guild->GetBankItem(tabId, slotId))");
-                    let _ = fs::write(&dest, patched);
-                }
-            }
-        }
-
         staged_cpp_paths.push(clean_path(&dest));
     }
 
-    if is_companions {
-        let shims_path = staging_src.join("companions_shims.cpp");
-        fs::write(&shims_path, COMPANIONS_SHIMS_CPP)?;
-        staged_cpp_paths.push(clean_path(&shims_path));
-    }
 
     // Also copy all headers (.h and .hpp) preserving directory structure
     let upstream_headers = collect_files_with_ext(module_source_dir, "h");
@@ -791,7 +732,18 @@ if errorlevel 1 exit /b 103
     }
 
     let dll_sha256 = sha256_of_file(&expected_dll_path)?;
-    let host_abi_fingerprint = "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".to_string();
+    // The fingerprint the DLL was really built with (its .coapl section) must equal the SDK's; the host
+    // checks the same value against its own before loading the plugin.
+    let host_abi_fingerprint = sdk_abi_fingerprint(Path::new(&sdk_dir))?;
+    let dll_fingerprint = plugin_section_fingerprint(&dll_bytes).ok_or_else(|| {
+        Error::Invalid("Generated DLL has no .coapl plugin section (not built with the CoA Plugin SDK)".into())
+    })?;
+    if dll_fingerprint != host_abi_fingerprint {
+        return Err(Error::Invalid(format!(
+            "Generated DLL carries ABI fingerprint {} but the SDK is {}",
+            dll_fingerprint, host_abi_fingerprint
+        )));
+    }
 
     emit_progress("PACKAGING", 90, "Packaging plugin into CSM Plugin Store...", None);
 
@@ -889,6 +841,13 @@ fn chrono_now_iso() -> String {
 mod tests {
     use super::*;
 
+    /// The build engine runs one compilation at a time; the real-build tests take turns.
+    static REAL_BUILDS: Mutex<()> = Mutex::new(());
+
+    fn real_build_turn() -> std::sync::MutexGuard<'static, ()> {
+        REAL_BUILDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn test_detect_toolchain() {
         let tc = detect_toolchain();
@@ -920,6 +879,7 @@ mod tests {
 
     #[test]
     fn test_controlled_build_cohort_t01_t04() {
+        let _turn = real_build_turn();
         let lab_dir = Path::new("C:/games/coa-work/module-compat-lab");
         let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
 
@@ -960,6 +920,7 @@ mod tests {
 
     #[test]
     fn test_controlled_build_ah_bot() {
+        let _turn = real_build_turn();
         let lab_dir = Path::new("C:/games/coa-work/module-compat-lab");
         let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
 
@@ -992,6 +953,7 @@ mod tests {
 
     #[test]
     fn test_controlled_build_companions() {
+        let _turn = real_build_turn();
         let repo_dir = Path::new("C:/Users/Dion/AppData/Local/CSMModulesPreview/github_cache/github/Corfirean/mod-coa-playerbots/38c02202f01708ab5600931c9e3e2ee02a33e0ed");
         let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
 
@@ -1013,6 +975,7 @@ mod tests {
 
     #[test]
     fn test_controlled_build_squid_playerbots() {
+        let _turn = real_build_turn();
         let repo_dir = Path::new("C:/Users/Dion/AppData/Local/CSMModulesPreview/github_cache/github/Zyth45/mod-playerbots/3f916d45a4b55ce919bf69fee4a4ec75be12cffe");
         let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
 
