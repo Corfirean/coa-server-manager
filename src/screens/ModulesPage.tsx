@@ -673,12 +673,12 @@ export function ModulesPage({
 
   const loadToolchain = useCallback(async () => {
     try {
-      const tc = await api.previewToolchainStatus();
+      const tc = await api.previewToolchainStatus(serverId);
       setToolchain(tc);
     } catch (e) {
       console.error("Failed to load toolchain status", e);
     }
-  }, []);
+  }, [serverId]);
 
   const loadInstalledPlugins = useCallback(async () => {
     try {

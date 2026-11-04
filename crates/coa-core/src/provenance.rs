@@ -46,6 +46,53 @@ fn rva_to_offset(rva: u32, sections: &[(u32, u32, u32, u32)]) -> Option<usize> {
 }
 
 /// Parse PE headers and extract all exported symbols and metadata directly from binary bytes
+/// The ABI fingerprint in an image's ".coapl" section ("COAPLUGIN1|<id>|<fingerprint>"), read from the file
+/// without loading it. Plugin DLLs carry the fingerprint of the SDK they were built with; a plugin host
+/// worldserver.exe carries its own (id "worldserver"). None when there is no such section.
+pub fn coapl_fingerprint(bytes: &[u8]) -> Option<String> {
+    let u16_at = |o: usize| bytes.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let u32_at = |o: usize| bytes.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let pe = u32_at(0x3C)? as usize;
+    if u32_at(pe)? != 0x0000_4550 {
+        return None;
+    }
+    let sections = u16_at(pe + 6)? as usize;
+    let first = pe + 24 + u16_at(pe + 20)? as usize;
+    for i in 0..sections.min(96) {
+        let at = first.checked_add(i * 40)?;
+        if !bytes.get(at..at + 8)?.starts_with(b".coapl") {
+            continue;
+        }
+        let size = u32_at(at + 8)?.min(u32_at(at + 16)?) as usize;
+        let raw = u32_at(at + 20)? as usize;
+        let data = bytes.get(raw..raw.checked_add(size)?)?;
+        let text = std::str::from_utf8(&data[..data.iter().position(|&c| c == 0).unwrap_or(data.len())]).ok()?;
+        let mut parts = text.split('|');
+        return match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some("COAPLUGIN1"), Some(_), Some(fp), None) if fp.len() == 64 && fp.bytes().all(|c| c.is_ascii_hexdigit()) => {
+                Some(fp.to_owned())
+            }
+            _ => None,
+        };
+    }
+    None
+}
+
+/// `coapl_fingerprint` of a file on disk.
+pub fn file_abi_fingerprint(path: &Path) -> Option<String> {
+    fs::read(path).ok().and_then(|b| coapl_fingerprint(&b))
+}
+
+/// The plugin ABI the realm's worldserver.exe accepts. None for a server without a plugin host (or one
+/// built before hosts recorded their fingerprint).
+pub fn realm_host_fingerprint(realm_root: &Path) -> Option<String> {
+    ["Core/worldserver.exe", "worldserver.exe"]
+        .iter()
+        .map(|rel| realm_root.join(rel))
+        .find(|p| p.is_file())
+        .and_then(|p| file_abi_fingerprint(&p))
+}
+
 pub fn parse_pe_exports(bytes: &[u8]) -> Result<(String, bool, Vec<PeExportEntry>, Option<String>)> {
     if bytes.len() < 64 {
         return Err(Error::Invalid("File too small to be a PE image".into()));
@@ -113,18 +160,8 @@ pub fn parse_pe_exports(bytes: &[u8]) -> Result<(String, bool, Vec<PeExportEntry
         sections.push((sec_va, sec_vsize, sec_raw_ptr, sec_raw_size));
     }
 
-    // Extract embedded ABI fingerprint from binary bytes
-    let mut embedded_abi = None;
-    let known_fingerprints = [
-        "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883",
-        "e6c51ed94f3d74c48a45c7ec4efd7c7fb5777d99b6923434890532b011f222a0",
-    ];
-    for &fp in &known_fingerprints {
-        if bytes.windows(64).any(|w| w == fp.as_bytes()) {
-            embedded_abi = Some(fp.to_string());
-            break;
-        }
-    }
+    // The ABI fingerprint the image records in its ".coapl" section (plugins and plugin hosts).
+    let embedded_abi = coapl_fingerprint(bytes);
 
     // Parse Export Table
     let mut export_entries = Vec::new();
@@ -289,4 +326,31 @@ pub fn verify_worldserver_provenance(
         provenance_status: status,
         notes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coapl_fingerprint_reads_plugins_and_rejects_other_images() {
+        // A plugin built against sdk-v03 carries that SDK's fingerprint.
+        let dll = Path::new("C:/games/coa-work/plugin-spike/plugins/probe-missing/companions-38c0220/build/companions_38c0220.dll");
+        if dll.is_file() {
+            assert_eq!(
+                file_abi_fingerprint(dll).as_deref(),
+                Some("2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883")
+            );
+        }
+        // Not a PE file, a PE without the section, truncated input: no fingerprint, no panic.
+        assert_eq!(coapl_fingerprint(b"not a pe file"), None);
+        assert_eq!(coapl_fingerprint(&[]), None);
+        let notepad = Path::new("C:/Windows/System32/notepad.exe");
+        if let Ok(bytes) = fs::read(notepad) {
+            assert_eq!(coapl_fingerprint(&bytes), None);
+            for cut in [0x40, 0x200, 0x400, bytes.len() / 2] {
+                let _ = coapl_fingerprint(&bytes[..cut.min(bytes.len())]);
+            }
+        }
+    }
 }

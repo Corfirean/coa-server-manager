@@ -2955,8 +2955,13 @@ async fn get_public_module_catalog(
 }
 
 #[tauri::command]
-fn preview_toolchain_status() -> coa_core::build_engine::ToolchainStatus {
-    coa_core::build_engine::detect_toolchain()
+fn preview_toolchain_status(
+    state: State<'_, AppState>,
+    realm_id: Option<String>,
+) -> coa_core::build_engine::ToolchainStatus {
+    // The SDK depends on the realm's core: without a realm only the compiler tools are reported.
+    let realm_root = realm_id.and_then(|id| path_of(&state, &id).ok());
+    coa_core::build_engine::detect_toolchain_for(realm_root.as_deref())
 }
 
 #[tauri::command]
@@ -3049,10 +3054,42 @@ async fn preview_build_module(
             }
         };
 
-        coa_core::build_engine::build_module_from_source(&source_dir, &realm_root, None, Some(progress_cb))
+        // Dungeon Clear derives from SQUID's C++ classes, so both are built into the SQUID DLL: building
+        // either one builds that DLL, with Dungeon Clear in it when it is installed in this realm. The
+        // build cache keeps SQUID's objects, so a Dungeon Clear update recompiles only its own files.
+        let (module_id, _, _) = coa_core::build_engine::resolve_module_identity(&source_dir);
+        let dungeon_clear_installed = {
+            let dir = coa_core::plugins::modules_config_dir(&realm_root);
+            dir.join("mod_dungeon_clear.conf").is_file() || dir.join("mod_dungeon_clear.conf.dist").is_file()
+        };
+        let (primary, bundled) = match module_id.as_str() {
+            "dungeon-clear" => {
+                let squid = cached_catalog_tree(&cache_dir, "playerbots").ok_or_else(|| {
+                    coa_core::Error::Invalid("Dungeon Clear is built into SQUID's Playerbots: install SQUID's Playerbots first.".into())
+                })?;
+                (squid, vec![source_dir])
+            }
+            "playerbots" if dungeon_clear_installed => {
+                (source_dir, cached_catalog_tree(&cache_dir, "dungeon-clear").into_iter().collect())
+            }
+            _ => (source_dir, Vec::new()),
+        };
+
+        coa_core::build_engine::build_module_with_bundle(&primary, &bundled, &realm_root, None, Some(progress_cb))
             .map_err(Into::into)
     })
     .await
+}
+
+/// The newest cached source tree of a catalog module (fetched earlier by the module intake).
+fn cached_catalog_tree(cache_dir: &std::path::Path, catalog_id: &str) -> Option<PathBuf> {
+    let entry = coa_core::modules::catalog().into_iter().find(|e| e.id == catalog_id)?;
+    let (owner, repo, _) = coa_core::analyzer::parse_and_validate_github_url(&entry.repo).ok()?;
+    std::fs::read_dir(cache_dir.join("github").join(owner).join(repo)).ok()?
+        .flatten()
+        .filter(|e| e.path().join(".coa_tree_digest").is_file())
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
+        .map(|e| e.path())
 }
 
 #[tauri::command]
@@ -3127,7 +3164,9 @@ async fn preview_export_diagnostics(
     realm_id: Option<String>,
 ) -> std::result::Result<String, UiError> {
     let dir = data_dir();
-    let tc = coa_core::build_engine::detect_toolchain();
+    let tc = coa_core::build_engine::detect_toolchain_for(
+        realm_id.as_deref().and_then(|id| path_of(&state, id).ok()).as_deref(),
+    );
     let export_path = dir.join("diagnostics_report.json");
 
     let mut realms = Vec::new();
@@ -3204,6 +3243,8 @@ async fn preview_check_updates(
 ) -> std::result::Result<coa_core::solver::SolverVerdict, UiError> {
     let realm_root = path_of(&state, &realm_id)?;
     blocking(move || {
+        // What the installed worldserver.exe accepts, read from the binary (its .coapl section).
+        let installed_host_fp = coa_core::provenance::realm_host_fingerprint(&realm_root);
         let candidate_lock_path = std::env::var("COA_PREVIEW_LOCK_PATH")
             .map(std::path::PathBuf::from)
             .ok()
@@ -3212,10 +3253,6 @@ async fn preview_check_updates(
                 if p1.is_file() { return Some(p1); }
                 let p2 = realm_root.join(".manager").join("candidate-lock.json");
                 if p2.is_file() { return Some(p2); }
-                let p3 = std::path::PathBuf::from(r"C:\games\coa-server-build\updates\csm-preview-components.json");
-                if p3.is_file() { return Some(p3); }
-                let p4 = std::path::PathBuf::from(r"C:\games\coa-server-build\candidate-lock.json");
-                if p4.is_file() { return Some(p4); }
                 None
             });
         let candidate_host = if let Some(lock_path) = candidate_lock_path {
@@ -3234,7 +3271,7 @@ async fn preview_check_updates(
             coa_core::solver::HostManifest {
                 version: "0.7.1-preview".into(),
                 commit: "unknown".into(),
-                abi_fingerprint: "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into(),
+                abi_fingerprint: installed_host_fp.clone().unwrap_or_default(),
                 sdk_contract_version: "0.3.2".into(),
                 schema_version: "2026_10_28_00".into(),
             }
@@ -3243,7 +3280,7 @@ async fn preview_check_updates(
         let installed_host = coa_core::solver::HostManifest {
             version: "0.7.0".into(),
             commit: "installed_commit".into(),
-            abi_fingerprint: "2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into(),
+            abi_fingerprint: installed_host_fp.clone().unwrap_or_default(),
             sdk_contract_version: "0.3.2".into(),
             schema_version: "2026_10_28_00".into(),
         };
@@ -3256,7 +3293,7 @@ async fn preview_check_updates(
                 id: m.id.clone(),
                 name: m.name,
                 version: m.version.unwrap_or_else(|| "1.0.0".into()),
-                required_abi_fingerprint: Some("2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883".into()),
+                required_abi_fingerprint: coa_core::plugins::installed_plugin_fingerprint(&realm_root, &m.id),
                 required_sdk_contract: Some("0.3.2".into()),
                 min_host_version: Some("0.7.0".into()),
                 dependencies: vec![],

@@ -77,8 +77,87 @@ pub struct BuildResult {
     pub verification_status: Option<VerificationStatus>,
 }
 
-/// Detects available MSVC toolchain, CMake, Ninja, and CoA Plugin SDK.
+/// Where a realm keeps the plugin SDKs of its cores: `<realm>/.manager/sdk/<first 16 hex of the host
+/// fingerprint>/`. The full fingerprint is checked against the SDK's sdk.json; the short name keeps header
+/// paths in Ninja's dependency log under Windows' 260-character limit (beyond it Ninja cannot stat a
+/// header, treats it as changed and recompiles everything on every build).
+pub fn realm_sdk_store(realm_root: &Path) -> PathBuf {
+    realm_root.join(".manager").join("sdk")
+}
+
+/// The SDK directory of one host fingerprint inside the realm's store.
+pub fn realm_sdk_dir(realm_root: &Path, host_fp: &str) -> PathBuf {
+    realm_sdk_store(realm_root).join(&host_fp[..host_fp.len().min(16)])
+}
+
+/// The cmake directory of the SDK that matches the realm's installed worldserver.exe: a plugin built with
+/// any other SDK would be rejected by this host. None when the host records no ABI or no SDK for it is
+/// installed.
+pub fn realm_sdk_cmake_dir(realm_root: &Path) -> Option<PathBuf> {
+    let host_fp = crate::provenance::realm_host_fingerprint(realm_root)?;
+    let cmake = realm_sdk_dir(realm_root, &host_fp).join("cmake");
+    let ok = cmake.join("CoAPluginSDKConfig.cmake").is_file()
+        && sdk_abi_fingerprint(&cmake).ok().as_deref() == Some(host_fp.as_str());
+    ok.then_some(cmake)
+}
+
+/// Installs an SDK (a directory with sdk.json, cmake/, include/, lib/) for the realm's current core. The SDK
+/// must have been exported from that core: its fingerprint must equal the one worldserver.exe records.
+pub fn install_realm_sdk(realm_root: &Path, sdk_root: &Path) -> Result<PathBuf> {
+    let host_fp = crate::provenance::realm_host_fingerprint(realm_root).ok_or_else(|| {
+        Error::Invalid(format!(
+            "[SDK_HOST_UNKNOWN] The worldserver.exe of '{}' records no plugin ABI; it is not a plugin host.",
+            realm_root.display()
+        ))
+    })?;
+    let sdk_fp = sdk_abi_fingerprint(&sdk_root.join("cmake"))?;
+    if sdk_fp != host_fp {
+        return Err(Error::Invalid(format!(
+            "[SDK_HOST_MISMATCH] SDK '{}' is for ABI {}, the realm's core is {}.",
+            sdk_root.display(), sdk_fp, host_fp
+        )));
+    }
+    let store = realm_sdk_store(realm_root);
+    let dest = realm_sdk_dir(realm_root, &host_fp);
+    if realm_sdk_cmake_dir(realm_root).is_some() {
+        return Ok(dest);
+    }
+    fs::create_dir_all(&store)?;
+    let staging = store.join(format!(".incoming-{}", &host_fp[..host_fp.len().min(16)]));
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    copy_dir_all(sdk_root, &staging)?;
+    if dest.exists() {
+        fs::remove_dir_all(&dest)?;
+    }
+    fs::rename(&staging, &dest)?;
+    Ok(dest)
+}
+
+fn copy_dir_all(src: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// Detects the MSVC toolchain, CMake and Ninja, without a realm (so without an SDK unless
+/// `COA_PLUGIN_SDK_DIR` names one).
 pub fn detect_toolchain() -> ToolchainStatus {
+    detect_toolchain_for(None)
+}
+
+/// Detects the MSVC toolchain, CMake, Ninja, and the CoA Plugin SDK for `realm_root`'s core.
+/// `COA_PLUGIN_SDK_DIR` overrides the SDK (development only; the build still checks it against the host).
+pub fn detect_toolchain_for(realm_root: Option<&Path>) -> ToolchainStatus {
     let vcvars_candidates = [
         "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Auxiliary\\Build\\vcvars64.bat",
         "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat",
@@ -102,12 +181,8 @@ pub fn detect_toolchain() -> ToolchainStatus {
         .or_else(|| ninja_candidates.iter().find(|p| Path::new(p).is_file()).map(|s| s.to_string()))
         .or_else(|| which_cmd("ninja.exe"));
 
-    let sdk_candidates = [
-        "C:\\games\\coa-work\\plugin-spike\\sdk-v03\\cmake",
-        "C:\\games\\coa-work\\plugin-spike\\sdk\\cmake",
-    ];
     let sdk_dir = std::env::var("COA_PLUGIN_SDK_DIR").ok().filter(|p| Path::new(p).join("CoAPluginSDKConfig.cmake").is_file())
-        .or_else(|| sdk_candidates.iter().find(|p| Path::new(p).join("CoAPluginSDKConfig.cmake").is_file()).map(|s| s.to_string()));
+        .or_else(|| realm_root.and_then(realm_sdk_cmake_dir).map(|p| p.to_string_lossy().into_owned()));
 
     let msvc_available = vcvars64_path.is_some();
     let cmake_available = cmake_path.is_some();
@@ -116,13 +191,13 @@ pub fn detect_toolchain() -> ToolchainStatus {
     let ready = msvc_available && cmake_available && ninja_available && sdk_available;
 
     let diagnostic_message = if ready {
-        "MSVC, CMake, Ninja, and CoA Plugin SDK v0.3 are ready.".into()
+        "MSVC, CMake, Ninja, and the CoA Plugin SDK for this core are ready.".into()
     } else {
         let mut missing = Vec::new();
         if !msvc_available { missing.push("MSVC vcvars64.bat"); }
         if !cmake_available { missing.push("CMake"); }
         if !ninja_available { missing.push("Ninja"); }
-        if !sdk_available { missing.push("CoA Plugin SDK (CoAPluginSDKConfig.cmake)"); }
+        if !sdk_available { missing.push("CoA Plugin SDK for this realm's core"); }
         format!("Build toolchain incomplete. Missing: {}", missing.join(", "))
     };
 
@@ -168,34 +243,80 @@ fn sdk_abi_fingerprint(sdk_cmake_dir: &Path) -> Result<String> {
         .ok_or_else(|| Error::Invalid(format!("{} has no valid abiFingerprint", path.display())))
 }
 
-/// The fingerprint in a plugin DLL's ".coapl" section ("COAPLUGIN1|<id>|<fingerprint>"), read from the
-/// file without loading it. None when the image has no such section or it is malformed.
-fn plugin_section_fingerprint(bytes: &[u8]) -> Option<String> {
-    let u16_at = |o: usize| bytes.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
-    let u32_at = |o: usize| bytes.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-    let pe = u32_at(0x3C)? as usize;
-    if u32_at(pe)? != 0x0000_4550 {
-        return None;
+/// Copies `src` to `dest` only when the content differs, so an unchanged file keeps its timestamp and
+/// Ninja does not rebuild it.
+fn sync_file(src: &Path, dest: &Path) -> Result<()> {
+    let data = fs::read(src)?;
+    write_if_changed(dest, &data)
+}
+
+fn write_if_changed(path: &Path, data: &[u8]) -> Result<()> {
+    if fs::read(path).map(|old| old == data).unwrap_or(false) {
+        return Ok(());
     }
-    let sections = u16_at(pe + 6)? as usize;
-    let first = pe + 24 + u16_at(pe + 20)? as usize;
-    for i in 0..sections.min(96) {
-        let at = first.checked_add(i * 40)?;
-        let name = bytes.get(at..at + 8)?;
-        if !name.starts_with(b".coapl") {
-            continue;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, data)?;
+    Ok(())
+}
+
+/// Deletes staged sources that no longer exist upstream (renamed or removed files).
+fn remove_unstaged(dir: &Path, keep: &std::collections::HashSet<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(dir)?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            remove_unstaged(&path, keep)?;
+        } else if !keep.contains(&path) {
+            fs::remove_file(&path)?;
         }
-        let size = u32_at(at + 8)?.min(u32_at(at + 16)?) as usize;
-        let raw = u32_at(at + 20)? as usize;
-        let data = bytes.get(raw..raw.checked_add(size)?)?;
-        let text = std::str::from_utf8(&data[..data.iter().position(|&c| c == 0).unwrap_or(data.len())]).ok()?;
-        let mut parts = text.split('|');
-        return match (parts.next(), parts.next(), parts.next(), parts.next()) {
-            (Some("COAPLUGIN1"), Some(_), Some(fp), None) if fp.len() == 64 => Some(fp.to_owned()),
-            _ => None,
-        };
     }
-    None
+    Ok(())
+}
+
+/// The plugin id an analyzer-generated adapter declares.
+fn adapter_plugin_id(adapter_source: &str) -> Option<String> {
+    let marker = "COA_PLUGIN_DEFINE(\"";
+    let start = adapter_source.find(marker)? + marker.len();
+    let end = adapter_source[start..].find('"')?;
+    Some(adapter_source[start..start + end].to_string())
+}
+
+/// Adapter for modules whose shutdown work runs in hooks, and for bundles. A faulted plugin's hooks are
+/// suppressed but its lifecycle phases still run, so the bot modules save and log out their bots in
+/// onStopping as well (running it twice is harmless: the second pass finds no bot in the world).
+/// SQUID's world-thread queue is cleared in onDrainBeforeDbClose: its static destructor otherwise logs
+/// through the core's already destroyed Log at process exit (0xC0000005).
+fn lifecycle_adapter(module_id: &str, plugin_id: &str, loader: &str, bundled_loaders: &[String]) -> Option<String> {
+    let (includes, stopping, drain): (&[&str], &str, &str) = match module_id {
+        "companions" => (&["BotMgr.h"], "if (BotMgr::BotsEnabled())\n            sBotMgr->LogoutAllBots();", ""),
+        "playerbots" => (
+            &["RandomPlayerbotMgr.h", "PlayerbotWorldThreadProcessor.h", "PlayerbotCommandServer.h"],
+            "sRandomPlayerbotMgr.LogoutAllBots();",
+            "PlayerbotWorldThreadProcessor::instance().ClearQueue();\n        PlayerbotCommandServer::instance().Stop();",
+        ),
+        _ if !bundled_loaders.is_empty() => (&[], "", ""),
+        _ => return None,
+    };
+    let loaders: Vec<&str> = std::iter::once(loader).chain(bundled_loaders.iter().map(String::as_str)).collect();
+    let mut out = String::from("#include \"CoaPluginApi.h\"\n");
+    for h in includes {
+        out += &format!("#include \"{}\"\n", h);
+    }
+    out += "\n";
+    for l in &loaders {
+        out += &format!("void {}();\n", l);
+    }
+    out += "\nnamespace\n{\n    bool Register()\n    {\n";
+    for l in &loaders {
+        out += &format!("        {}();\n", l);
+    }
+    out += "        return true;\n    }\n\n    bool Startup()\n    {\n        return true;\n    }\n\n";
+    out += &format!("    void Stopping()\n    {{\n        {}\n    }}\n\n", stopping);
+    out += &format!("    bool Drain()\n    {{\n        {}\n        return true;\n    }}\n\n", drain);
+    out += "    void Finalize()\n    {\n    }\n}\n\n";
+    out += &format!("COA_PLUGIN_DEFINE(\"{}\", \"ext\", Register, Startup, Stopping, Drain, Finalize)\n", plugin_id);
+    Some(out)
 }
 
 /// Computes SHA-256 of file bytes.
@@ -353,6 +474,94 @@ pub fn resolve_module_identity(source_dir: &Path) -> (String, String, Option<Str
 }
 
 /// Parses MSVC compiler and linker error messages from stdout/stderr.
+/// Ninja records headers relative to the build directory and stats `<build dir>\<relative path>` with the
+/// classic Win32 API, which fails past 260 characters unless long paths are enabled. A header it cannot
+/// stat counts as changed, so every build silently becomes a full rebuild. Refuse such a layout up front.
+const NINJA_PATH_LIMIT: usize = 250;
+
+fn check_dependency_path_lengths(build_dir: &Path, sdk_cmake_dir: &Path) -> Result<()> {
+    let sdk_root = sdk_cmake_dir.parent().unwrap_or(sdk_cmake_dir);
+    let include = sdk_root.join("include");
+    let longest = longest_relative_file(&include);
+    let Some(longest) = longest else { return Ok(()) };
+    let header = include.join(&longest);
+    let worst = ninja_stat_path_len(build_dir, &header);
+    if worst > NINJA_PATH_LIMIT {
+        return Err(Error::Invalid(format!(
+            "[BUILD_PATH_TOO_LONG] Header paths would reach {} characters ({}), over the Windows limit Ninja can handle ({}). Move the server to a shorter folder (for example C:/CoA) or enable Windows long paths.",
+            worst, header.display(), NINJA_PATH_LIMIT
+        )));
+    }
+    Ok(())
+}
+
+/// The longest file path below `root`, relative to it.
+fn longest_relative_file(root: &Path) -> Option<PathBuf> {
+    let mut best: Option<PathBuf> = None;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let path = e.path();
+            if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                stack.push(path);
+            } else if let Ok(rel) = path.strip_prefix(root) {
+                if best.as_ref().map_or(true, |b| rel.as_os_str().len() > b.as_os_str().len()) {
+                    best = Some(rel.to_path_buf());
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Length of `<build dir>\<path of target relative to build dir>`, as Ninja forms it.
+fn ninja_stat_path_len(build_dir: &Path, target: &Path) -> usize {
+    let norm = |p: &Path| -> Vec<String> {
+        p.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).collect()
+    };
+    let (b, t) = (norm(build_dir), norm(target));
+    let common = b.iter().zip(t.iter()).take_while(|(x, y)| x == y).count();
+    if common == 0 {
+        return target.as_os_str().len(); // another drive: Ninja keeps the absolute path
+    }
+    let ups = b.len() - common;
+    let rest: usize = target.components().skip(common).map(|c| c.as_os_str().len() + 1).sum();
+    build_dir.as_os_str().len() + 1 + ups * 3 + rest.saturating_sub(1)
+}
+
+/// Parallel compile jobs: one per core, but no more than free RAM allows (a SQUID translation unit with
+/// /bigobj takes up to ~2.5 GB in cl.exe; running out of memory kills the build without an MSVC error).
+fn build_jobs() -> u32 {
+    let hw = crate::population::hardware();
+    let by_ram = (hw.free_ram_gb / 2.5).floor() as u32;
+    hw.cores.min(by_ram).clamp(1, 16)
+}
+
+/// A failure without a recognised MSVC diagnostic (out of memory, a crashed tool, a CMake error): the
+/// step that failed and the end of the log, so the user never sees an empty error list.
+fn unparsed_failure(exit_code: i32, logs: &[String], log_path: &Path) -> BuildErrorDiagnostic {
+    let step = match exit_code {
+        101 => "Visual Studio environment (vcvars64) could not be loaded",
+        102 => "CMake configuration failed",
+        103 => "Compilation or linking failed",
+        _ => "Build runner failed",
+    };
+    let tail: Vec<&str> = logs.iter().map(String::as_str)
+        .filter(|l| !l.contains("Note: including file") && !l.trim().is_empty())
+        .rev().take(30).collect::<Vec<_>>().into_iter().rev().collect();
+    BuildErrorDiagnostic {
+        file: log_path.to_string_lossy().into_owned(),
+        line: 0,
+        error_code: format!("BUILD_EXIT_{}", exit_code),
+        message: format!("{} (exit code {}). Last output:
+{}", step, exit_code, tail.join("
+")),
+        explanation: None,
+        resolution: Some(format!("Full log: {}", log_path.display())),
+    }
+}
+
 fn parse_msvc_errors(logs: &[String]) -> Vec<BuildErrorDiagnostic> {
     let mut diagnostics = Vec::new();
     for line in logs {
@@ -445,6 +654,23 @@ pub fn build_module_from_source(
     custom_staging_dir: Option<&Path>,
     progress_callback: Option<Box<dyn Fn(BuildProgressEvent) + Send>>,
 ) -> Result<BuildResult> {
+    build_module_with_bundle(module_source_dir, &[], realm_root, custom_staging_dir, progress_callback)
+}
+
+/// Builds `module_source_dir` into one plugin DLL, together with `bundled` source trees that must live
+/// in the same image (a module that derives from another module's C++ classes, such as Dungeon Clear
+/// on SQUID). Each bundled tree's loader is called from the plugin's registration.
+///
+/// The staging and build directories persist between builds (per realm and module): sources are
+/// synchronised file by file, unchanged files keep their timestamps, and Ninja recompiles only what
+/// changed. Updating a bundled module therefore recompiles only its files and relinks the DLL.
+pub fn build_module_with_bundle(
+    module_source_dir: &Path,
+    bundled: &[PathBuf],
+    realm_root: &Path,
+    custom_staging_dir: Option<&Path>,
+    progress_callback: Option<Box<dyn Fn(BuildProgressEvent) + Send>>,
+) -> Result<BuildResult> {
     let _lock = BUILD_LOCK.try_lock().map_err(|_| {
         Error::Invalid("Another module compilation is already in progress. Concurrent builds are restricted.".into())
     })?;
@@ -464,9 +690,19 @@ pub fn build_module_from_source(
     };
 
     emit_progress("PREPARING", 5, "Checking toolchain and build environment...", None);
-    let toolchain = detect_toolchain();
+    let toolchain = detect_toolchain_for(Some(realm_root));
     if !toolchain.ready {
         return Err(Error::Invalid(format!("[TOOLCHAIN_ERROR] {}", toolchain.diagnostic_message)));
+    }
+    // A plugin loads only on a host with the fingerprint it was built with: refuse to build one this
+    // realm would reject (possible only with a COA_PLUGIN_SDK_DIR override).
+    if let Some(host_fp) = crate::provenance::realm_host_fingerprint(realm_root) {
+        if toolchain.sdk_abi_fingerprint.as_deref() != Some(host_fp.as_str()) {
+            return Err(Error::Invalid(format!(
+                "[SDK_HOST_MISMATCH] The SDK is for ABI {}, this realm's core is {}.",
+                toolchain.sdk_abi_fingerprint.as_deref().unwrap_or("unknown"), host_fp
+            )));
+        }
     }
 
     let vcvars64 = toolchain.vcvars64_path.unwrap();
@@ -506,30 +742,31 @@ pub fn build_module_from_source(
 
     emit_progress("CONFIGURING", 30, "Generating controlled CMake recipe and staging sources...", None);
 
-    // 2. Prepare staging directory
-    let default_staging = std::env::temp_dir().join("coa_csm_preview_builds").join(&module_id);
-    let staging_dir = custom_staging_dir.map(PathBuf::from).unwrap_or(default_staging);
-    if staging_dir.exists() {
-        let _ = fs::remove_dir_all(&staging_dir);
+    // Every other loader the plugin must call: one per bundled source tree.
+    let mut bundled_loaders = Vec::new();
+    for tree in bundled {
+        match generate_adapter(tree)? {
+            AdapterGenerationResult::Success { canonical_loader, .. } => bundled_loaders.push(canonical_loader),
+            _ => {
+                return Err(Error::Invalid(format!(
+                    "[NO_LOADER_FOUND] Bundled sources at '{}' have no single Add*Scripts loader.",
+                    tree.display()
+                )))
+            }
+        }
     }
+    let plugin_id = adapter_plugin_id(&adapter_source).unwrap_or_else(|| module_id.clone());
+    let adapter_source = lifecycle_adapter(&module_id, &plugin_id, &canonical_loader, &bundled_loaders)
+        .unwrap_or(adapter_source);
+
+    // 2. Prepare the persistent staging directory
+    let default_staging = realm_root.join(".manager").join("build-cache").join(&module_id);
+    let staging_dir = custom_staging_dir.map(PathBuf::from).unwrap_or(default_staging);
     fs::create_dir_all(&staging_dir)?;
     let staging_src = staging_dir.join("src");
     fs::create_dir_all(&staging_src)?;
     let build_output_dir = staging_dir.join("build");
     fs::create_dir_all(&build_output_dir)?;
-
-    // Write adapter
-    let adapter_path = staging_src.join("adapter.cpp");
-    fs::write(&adapter_path, &adapter_source)?;
-
-    // Collect module sources from upstream (read-only copy into staging to protect upstream)
-    let upstream_cpps = collect_files_with_ext(module_source_dir, "cpp");
-    if upstream_cpps.is_empty() {
-        return Err(Error::Invalid(format!(
-            "No C++ (.cpp) source files found in '{}'",
-            module_source_dir.display()
-        )));
-    }
 
     // Helper to strip verbatim extended path prefix (\\?\) so CMake and MSVC can parse include dirs
     let clean_path = |p: &Path| -> String {
@@ -538,64 +775,61 @@ pub fn build_module_from_source(
         stripped.replace('\\', "/")
     };
 
-    let mut staged_cpp_paths = Vec::new();
-    staged_cpp_paths.push(clean_path(&adapter_path));
+    let adapter_path = staging_src.join("adapter.cpp");
+    write_if_changed(&adapter_path, adapter_source.as_bytes())?;
+    let mut staged: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    staged.insert(adapter_path.clone());
 
-    // Every source of the module is built as it is: a symbol the module needs from the core must be
-    // exported by worldserver.exe, never re-implemented (or stubbed) inside the plugin.
-    for cpp in &upstream_cpps {
-        let rel = cpp.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(cpp.file_name().unwrap()));
+    let mut staged_cpp_paths = vec![clean_path(&adapter_path)];
+    let mut include_dirs = vec![clean_path(&staging_src)];
 
-        let dest = staging_src.join(rel);
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::copy(cpp, &dest)?;
-
-        staged_cpp_paths.push(clean_path(&dest));
+    // Primary tree at the staging root, each bundled tree under bundle/<n>/. Every source is built as
+    // it is: a symbol a module needs from the core must be exported by worldserver.exe, never
+    // re-implemented (or stubbed) inside the plugin.
+    let mut trees: Vec<(PathBuf, PathBuf)> = vec![(module_source_dir.to_path_buf(), staging_src.clone())];
+    for (n, root) in bundled.iter().enumerate() {
+        // A bundled repository is built from its src/ (its tests and tools stay out).
+        let tree = if root.join("src").is_dir() { root.join("src") } else { root.clone() };
+        trees.push((tree, staging_src.join("bundle").join(n.to_string())));
     }
-
-
-    // Also copy all headers (.h and .hpp) preserving directory structure
-    let upstream_headers = collect_files_with_ext(module_source_dir, "h");
-    for h in &upstream_headers {
-        let rel = h.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(h.file_name().unwrap()));
-        let dest = staging_src.join(rel);
-        if let Some(parent) = dest.parent() {
-            let _ = fs::create_dir_all(parent);
+    let mut source_count = 0;
+    for (tree, dest_root) in &trees {
+        let cpps = collect_files_with_ext(tree, "cpp");
+        if cpps.is_empty() {
+            return Err(Error::Invalid(format!("No C++ (.cpp) source files found in '{}'", tree.display())));
         }
-        let _ = fs::copy(h, &dest);
-    }
-    let upstream_hpps = collect_files_with_ext(module_source_dir, "hpp");
-    for h in &upstream_hpps {
-        let rel = h.strip_prefix(module_source_dir).unwrap_or_else(|_| Path::new(h.file_name().unwrap()));
-        let dest = staging_src.join(rel);
-        if let Some(parent) = dest.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let _ = fs::copy(h, &dest);
-    }
-
-    // Collect include directories from upstream and staging
-    let mut include_dirs = Vec::new();
-    include_dirs.push(clean_path(&staging_src));
-    include_dirs.push(clean_path(module_source_dir));
-
-    for h in upstream_headers.iter().chain(upstream_hpps.iter()) {
-        if let Some(parent) = h.parent() {
-            let p_clean = clean_path(parent);
-            if !include_dirs.contains(&p_clean) {
-                include_dirs.push(p_clean);
+        source_count += cpps.len();
+        let headers: Vec<PathBuf> = collect_files_with_ext(tree, "h").into_iter()
+            .chain(collect_files_with_ext(tree, "hpp")).collect();
+        for file in cpps.iter().chain(headers.iter()) {
+            let rel = file.strip_prefix(tree).unwrap_or_else(|_| Path::new(file.file_name().unwrap()));
+            let dest = dest_root.join(rel);
+            sync_file(file, &dest)?;
+            staged.insert(dest.clone());
+            if file.extension().map(|e| e.eq_ignore_ascii_case("cpp")).unwrap_or(false) {
+                staged_cpp_paths.push(clean_path(&dest));
             }
-            if let Ok(rel) = parent.strip_prefix(module_source_dir) {
-                let staged_parent = staging_src.join(rel);
-                let sp_clean = clean_path(&staged_parent);
-                if !include_dirs.contains(&sp_clean) {
-                    include_dirs.push(sp_clean);
+        }
+        include_dirs.push(clean_path(tree));
+        for h in &headers {
+            if let Some(parent) = h.parent() {
+                let mut dirs = vec![parent.to_path_buf()];
+                if let Ok(rel) = parent.strip_prefix(tree) {
+                    dirs.push(dest_root.join(rel));
+                }
+                for dir in dirs {
+                    let d = clean_path(&dir);
+                    if !include_dirs.contains(&d) {
+                        include_dirs.push(d);
+                    }
                 }
             }
         }
     }
+    remove_unstaged(&staging_src, &staged)?;
+    check_dependency_path_lengths(&build_output_dir, Path::new(&sdk_dir))?;
+    emit_progress("CONFIGURING", 35, &format!(
+        "Staged {} source files ({} tree(s)); unchanged files are not recompiled.", source_count, trees.len()), None);
 
     // 3. Write controlled CMakeLists.txt (eliminating D9025 /Zi vs /Z7 conflict)
     let sources_block = staged_cpp_paths.iter().map(|s| format!("  \"{}\"", s)).collect::<Vec<_>>().join("\n");
@@ -624,11 +858,13 @@ target_compile_definitions({safe_target_name} PRIVATE
   NOMINMAX
 )
 if(MSVC)
-  target_compile_options({safe_target_name} PRIVATE /bigobj)
+  # /D_USE_MATH_DEFINES= (empty, identical to Define.h's): M_PI for sources that include <cmath> before
+  # any core header (Dungeon Clear documents why).
+  target_compile_options({safe_target_name} PRIVATE /bigobj /D_USE_MATH_DEFINES=)
 endif()
 "#, safe_target_name = safe_target_name, cmake_sdk_path = cmake_sdk_path, sources_block = sources_block, includes_block = includes_block);
 
-    fs::write(staging_dir.join("CMakeLists.txt"), &controlled_cmake)?;
+    write_if_changed(&staging_dir.join("CMakeLists.txt"), controlled_cmake.as_bytes())?;
 
     // 4. Create batch runner executing MSVC + CMake + Ninja with clean English UTF-8 output
     let ninja_dir = Path::new(&ninja).parent().unwrap_or(Path::new("")).to_string_lossy();
@@ -641,9 +877,9 @@ if errorlevel 1 exit /b 101
 set "PATH={ninja_dir};%PATH%"
 "{cmake}" -G Ninja -S "{staging_dir}" -B "{build_dir}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCoAPluginSDK_DIR="{sdk_dir}"
 if errorlevel 1 exit /b 102
-"{cmake}" --build "{build_dir}" -- -j8
+"{cmake}" --build "{build_dir}" -- -j{jobs}
 if errorlevel 1 exit /b 103
-"#, vcvars64 = vcvars64, ninja_dir = ninja_dir, cmake = cmake, staging_dir = clean_path(&staging_dir), build_dir = clean_path(&build_output_dir), sdk_dir = clean_path(Path::new(&sdk_dir)));
+"#, jobs = build_jobs(), vcvars64 = vcvars64, ninja_dir = ninja_dir, cmake = cmake, staging_dir = clean_path(&staging_dir), build_dir = clean_path(&build_output_dir), sdk_dir = clean_path(Path::new(&sdk_dir)));
 
     fs::write(&runner_bat, &runner_content)?;
 
@@ -680,7 +916,13 @@ if errorlevel 1 exit /b 103
         emit_progress("COMPILING", 65, "Compiler output", Some(line));
     }
 
-    let errors = parse_msvc_errors(&all_logs);
+    // The full log stays next to the build, so a failure can always be read afterwards.
+    let _ = fs::write(staging_dir.join("build.log"), all_logs.join("
+"));
+    let mut errors = parse_msvc_errors(&all_logs);
+    if exit_code != 0 && errors.is_empty() {
+        errors.push(unparsed_failure(exit_code, &all_logs, &staging_dir.join("build.log")));
+    }
 
     let expected_dll_path = build_output_dir.join(format!("{}.dll", safe_target_name));
     if exit_code != 0 || !expected_dll_path.is_file() {
@@ -735,7 +977,7 @@ if errorlevel 1 exit /b 103
     // The fingerprint the DLL was really built with (its .coapl section) must equal the SDK's; the host
     // checks the same value against its own before loading the plugin.
     let host_abi_fingerprint = sdk_abi_fingerprint(Path::new(&sdk_dir))?;
-    let dll_fingerprint = plugin_section_fingerprint(&dll_bytes).ok_or_else(|| {
+    let dll_fingerprint = crate::provenance::coapl_fingerprint(&dll_bytes).ok_or_else(|| {
         Error::Invalid("Generated DLL has no .coapl plugin section (not built with the CoA Plugin SDK)".into())
     })?;
     if dll_fingerprint != host_abi_fingerprint {
@@ -756,8 +998,9 @@ if errorlevel 1 exit /b 103
     let target_dll_path = store_dir.join(&target_dll_name);
     fs::copy(&expected_dll_path, &target_dll_path)?;
 
-    // Copy configs if any
-    let conf_files = collect_files_with_ext(module_source_dir, "dist");
+    // Copy configs if any (the bundled modules' too)
+    let package_roots: Vec<&Path> = std::iter::once(module_source_dir).chain(bundled.iter().map(PathBuf::as_path)).collect();
+    let conf_files: Vec<PathBuf> = package_roots.iter().flat_map(|r| collect_files_with_ext(r, "dist")).collect();
     let mut packaged_confs = Vec::new();
     for c in conf_files {
         let c_name = c.file_name().unwrap().to_string_lossy().into_owned();
@@ -767,7 +1010,7 @@ if errorlevel 1 exit /b 103
     }
 
     // Copy SQL if any
-    let sql_files = collect_files_with_ext(module_source_dir, "sql");
+    let sql_files: Vec<PathBuf> = package_roots.iter().flat_map(|r| collect_files_with_ext(r, "sql")).collect();
     let mut packaged_sqls = Vec::new();
     for s in sql_files {
         let s_name = s.file_name().unwrap().to_string_lossy().into_owned();
@@ -850,12 +1093,63 @@ mod tests {
 
     #[test]
     fn test_detect_toolchain() {
-        let tc = detect_toolchain();
+        let tc = detect_toolchain_for(Some(Path::new("C:/games/coa-work/plugin-spike/server-v03")));
         assert!(tc.msvc_available, "MSVC vcvars64.bat should be detected");
         assert!(tc.cmake_available, "CMake should be detected");
         assert!(tc.ninja_available, "Ninja should be detected");
         assert!(tc.sdk_available, "CoA Plugin SDK should be detected");
         assert!(tc.ready, "Complete toolchain should be ready");
+    }
+
+    #[test]
+    fn realm_sdk_is_chosen_by_the_host_fingerprint() {
+        let host = Path::new("C:/games/coa-work/plugin-spike/server-v03/worldserver.exe");
+        let Some(host_fp) = crate::provenance::file_abi_fingerprint(host) else { return };
+        let tmp = tempfile::tempdir().unwrap();
+        let realm = tmp.path().join("realm");
+        fs::create_dir_all(realm.join("Core")).unwrap();
+        fs::copy(host, realm.join("Core/worldserver.exe")).unwrap();
+        let fake_sdk = |name: &str, fp: &str| {
+            let dir = tmp.path().join(name);
+            fs::create_dir_all(dir.join("cmake")).unwrap();
+            fs::write(dir.join("cmake/CoAPluginSDKConfig.cmake"), "# sdk").unwrap();
+            fs::write(dir.join("sdk.json"), format!("{{\"abiFingerprint\":\"{}\"}}", fp)).unwrap();
+            dir
+        };
+        assert!(realm_sdk_cmake_dir(&realm).is_none());
+
+        // An SDK of another core is refused and changes nothing.
+        let other = fake_sdk("other", &"0".repeat(64));
+        let err = install_realm_sdk(&realm, &other).unwrap_err().to_string();
+        assert!(err.contains("SDK_HOST_MISMATCH"), "{err}");
+        assert!(realm_sdk_cmake_dir(&realm).is_none());
+
+        // The SDK of this core is installed under its fingerprint and found by the toolchain.
+        let right = fake_sdk("right", &host_fp);
+        let dest = install_realm_sdk(&realm, &right).unwrap();
+        assert_eq!(dest, realm_sdk_store(&realm).join(&host_fp[..16]));
+        assert_eq!(realm_sdk_cmake_dir(&realm), Some(dest.join("cmake")));
+        if std::env::var_os("COA_PLUGIN_SDK_DIR").is_none() {
+            let tc = detect_toolchain_for(Some(&realm));
+            assert_eq!(tc.sdk_abi_fingerprint.as_deref(), Some(host_fp.as_str()));
+            assert!(detect_toolchain().sdk_dir.is_none(), "no SDK without a realm");
+        }
+    }
+
+    #[test]
+    fn ninja_path_length_counts_the_walk_up_from_the_build_dir() {
+        let build = Path::new("C:/Users/u/AppData/Local/Temp/st/build");
+        let header = Path::new("C:/games/realm/.manager/sdk/0123456789abcdef/include/a.h");
+        // "C:/Users/u/AppData/Local/Temp/st/build" + "/" + "../" * 7 + "games/realm/.manager/sdk/0123456789abcdef/include/a.h"
+        let expected = build.as_os_str().len() + 1 + 7 * 3 + "games/realm/.manager/sdk/0123456789abcdef/include/a.h".len();
+        assert_eq!(ninja_stat_path_len(build, header), expected);
+        let tmp = tempfile::tempdir().unwrap();
+        let sdk = tmp.path().join("sdk");
+        fs::create_dir_all(sdk.join("cmake")).unwrap();
+        fs::create_dir_all(sdk.join("include").join("x".repeat(200))).unwrap();
+        fs::write(sdk.join("include").join("x".repeat(200)).join("y.h"), "").unwrap();
+        let err = check_dependency_path_lengths(&tmp.path().join("b"), &sdk.join("cmake")).unwrap_err().to_string();
+        assert!(err.contains("BUILD_PATH_TOO_LONG"), "{err}");
     }
 
     #[test]
@@ -993,5 +1287,64 @@ mod tests {
         let dll_p = PathBuf::from(res.dll_path.unwrap());
         assert!(dll_p.is_file(), "mod-playerbots DLL must exist");
         let _ = fs::remove_dir_all(&staging);
+    }
+
+    /// Dungeon Clear derives from SQUID's C++ classes, so it is bundled into the SQUID DLL. Its update
+    /// must not rebuild SQUID: the second build after a one-file change has to be a small fraction of
+    /// the first.
+    #[test]
+    fn test_controlled_build_squid_with_dungeon_clear_bundle_incremental() {
+        let _turn = real_build_turn();
+        let squid = Path::new("C:/Users/Dion/AppData/Local/CSMModulesPreview/github_cache/github/Zyth45/mod-playerbots/3f916d45a4b55ce919bf69fee4a4ec75be12cffe");
+        let dc_lab = Path::new("C:/games/coa-work/module-compat-lab/mod-dungeon-clear/src");
+        let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-v03");
+        if !squid.exists() || !dc_lab.exists() || !realm_root.join("worldserver.exe").is_file() {
+            return;
+        }
+
+        // A private copy of Dungeon Clear, so the test can change a file.
+        let dc = std::env::temp_dir().join("test_dc_src");
+        let _ = fs::remove_dir_all(&dc);
+        copy_tree(dc_lab, &dc);
+        let staging = std::env::temp_dir().join("tsdc");
+        let _ = fs::remove_dir_all(&staging);
+
+        let started = Instant::now();
+        let first = build_module_with_bundle(squid, &[dc.clone()], realm_root, Some(&staging), None)
+            .unwrap_or_else(|e| panic!("bundle build failed: {}", e));
+        let full = started.elapsed();
+        assert!(first.success, "bundle build must succeed: {:?}", first.errors);
+        let adapter = fs::read_to_string(staging.join("src").join("adapter.cpp")).unwrap();
+        assert!(adapter.contains("Addmod_playerbotsScripts();") && adapter.contains("Addmod_dungeon_clearScripts();"),
+            "adapter must register both modules:\n{}", adapter);
+        assert!(adapter.contains("ClearQueue()"), "SQUID's queue must be cleared in onDrainBeforeDbClose");
+
+        let loader = dc.join("mod_dungeon_clear_loader.cpp");
+        let mut text = fs::read_to_string(&loader).unwrap();
+        text.push_str("\n// incremental build test\n");
+        fs::write(&loader, text).unwrap();
+
+        let started = Instant::now();
+        let second = build_module_with_bundle(squid, &[dc.clone()], realm_root, Some(&staging), None)
+            .unwrap_or_else(|e| panic!("incremental bundle build failed: {}", e));
+        let incremental = started.elapsed();
+        assert!(second.success, "incremental build must succeed: {:?}", second.errors);
+        eprintln!("bundle build: full {:?}, after a one-file change {:?}", full, incremental);
+        assert!(incremental * 5 < full, "one-file change rebuilt too much: full {:?}, incremental {:?}", full, incremental);
+
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_dir_all(&dc);
+    }
+
+    fn copy_tree(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), &target).unwrap();
+            }
+        }
     }
 }

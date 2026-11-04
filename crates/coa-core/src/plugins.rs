@@ -176,6 +176,18 @@ pub fn cleanup_stale_staging(server: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The ABI fingerprint an installed plugin's DLL was built with (from its .coapl section).
+pub fn installed_plugin_fingerprint(server: &Path, id: &str) -> Option<String> {
+    let reg = load_registry(server).ok()?;
+    let entry = reg.plugins.get(id)?;
+    let dir = meta_dir(server).join(&entry.store_path);
+    fs::read_dir(&dir).ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().map(|x| x.eq_ignore_ascii_case("dll")).unwrap_or(false))
+        .and_then(|dll| crate::provenance::file_abi_fingerprint(&dll))
+}
+
 /// Load `.manager/plugins.json` directly without running recovery check.
 pub fn load_registry_direct(server: &Path) -> Result<PluginsRegistry> {
     let _ = cleanup_stale_staging(server);

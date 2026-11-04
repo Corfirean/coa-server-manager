@@ -844,7 +844,8 @@ export const api = {
   consoleRisk: (command: string) => invoke<"normal" | "dangerous">("console_risk", { command }),
   consoleCommand: (id: string, command: string, confirmed: boolean) => invoke<string>("console_command", { id, command, confirmed }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
-  previewToolchainStatus: () => invoke<ToolchainStatus>("preview_toolchain_status"),
+  previewToolchainStatus: (realmId?: string) =>
+    invoke<ToolchainStatus>("preview_toolchain_status", { realmId: realmId ?? null }),
   previewRegisterTestRealm: (path?: string) => invoke<ServerSummary>("preview_register_test_realm", { path: path ?? null }),
   previewBuildModule: (realmId: string, sourceUrlOrPath: string) =>
     invoke<BuildResult>("preview_build_module", { realmId, sourceUrlOrPath }),

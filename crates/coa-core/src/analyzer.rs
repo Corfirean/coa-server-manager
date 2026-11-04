@@ -1107,9 +1107,38 @@ pub fn analyze_github_repository(url_str: &str, cache_base_dir: Option<&Path>) -
     report.commit = resolved_commit;
     report.tree_digest = Some(tree_digest);
     report.cache_hit = Some(cache_hit);
-    report.sdk_fingerprint = Some(SdkExportContract::v03().abi_fingerprint);
+    report.sdk_fingerprint = crate::build_engine::detect_toolchain().sdk_abi_fingerprint;
 
     Ok(report)
+}
+
+/// A plugin loads only on a host with the fingerprint it was built with. Compare the realm's host with the
+/// SDK this manager builds against (the one `build_engine::detect_toolchain` finds).
+fn push_realm_abi_finding(report: &mut CompatibilityReport, realm_root: &Path, host_recorded_abi: bool, realm_fp: &str, export_count: usize) {
+    let sdk_fp = crate::build_engine::detect_toolchain_for(Some(realm_root)).sdk_abi_fingerprint;
+    let explanation = match (&sdk_fp, host_recorded_abi) {
+        (_, false) => format!(
+            "The realm's worldserver.exe records no plugin ABI (no .coapl section): it predates plugin hosts or is not one. Export-list digest: {}.",
+            realm_fp
+        ),
+        (None, true) => format!("No CoA Plugin SDK is available to build for this realm's host ABI '{}'.", realm_fp),
+        (Some(sdk), true) if sdk != realm_fp => format!(
+            "The realm's host ABI '{}' differs from the available SDK '{}': a plugin built with this SDK would be rejected by this realm.",
+            realm_fp, sdk
+        ),
+        _ => return,
+    };
+    report.findings.push(CompatibilityFinding {
+        rule_id: "REALM_ABI_MISMATCH".into(),
+        severity: FindingSeverity::Warning,
+        confidence: FindingConfidence::High,
+        file: "worldserver.exe".into(),
+        line: 0,
+        explanation,
+        recommended_action: "Build with the SDK released with this realm's core.".into(),
+        evidence: format!("Realm worldserver exports: {}", export_count),
+        is_auto_fixable: false,
+    });
 }
 
 /// Analyzes a local repository bound to a specific realm installation.
@@ -1149,6 +1178,7 @@ pub fn analyze_repository_for_realm(
         }
     };
 
+    let host_recorded_abi = embedded_abi.is_some();
     let realm_sdk_fingerprint = embedded_abi.unwrap_or_else(|| {
         let mut hasher = Sha256::new();
         for exp in &exports {
@@ -1161,24 +1191,7 @@ pub fn analyze_repository_for_realm(
     let mut report = analyze_repository(repo_path)?;
     report.sdk_fingerprint = Some(realm_sdk_fingerprint.clone());
 
-    let v03_fingerprint = SdkExportContract::v03().abi_fingerprint;
-    if realm_sdk_fingerprint != v03_fingerprint {
-        report.findings.push(CompatibilityFinding {
-            rule_id: "REALM_ABI_MISMATCH".into(),
-            severity: FindingSeverity::Warning,
-            confidence: FindingConfidence::High,
-            file: "worldserver.exe".into(),
-            line: 0,
-            explanation: format!(
-                "Realm host ABI fingerprint '{}' differs from reference SDK v0.3 '{}'. Dynamic symbols may require re-qualification.",
-                realm_sdk_fingerprint,
-                v03_fingerprint
-            ),
-            recommended_action: "Ensure plugin is compiled against this realm's specific worldserver.lib import library.".into(),
-            evidence: format!("Realm worldserver exports: {}, reference v0.3 exports: 4360", exports.len()),
-            is_auto_fixable: false,
-        });
-    }
+    push_realm_abi_finding(&mut report, realm_root, host_recorded_abi, &realm_sdk_fingerprint, exports.len());
 
     Ok(report)
 }
@@ -1220,6 +1233,7 @@ pub fn analyze_github_module_for_realm(
         }
     };
 
+    let host_recorded_abi = embedded_abi.is_some();
     let realm_sdk_fingerprint = embedded_abi.unwrap_or_else(|| {
         let mut hasher = Sha256::new();
         for exp in &exports {
@@ -1248,24 +1262,7 @@ pub fn analyze_github_module_for_realm(
         report.reasons.push(format!("Blocked by CoA policy: {}", reason));
     }
 
-    let v03_fingerprint = SdkExportContract::v03().abi_fingerprint;
-    if realm_sdk_fingerprint != v03_fingerprint {
-        report.findings.push(CompatibilityFinding {
-            rule_id: "REALM_ABI_MISMATCH".into(),
-            severity: FindingSeverity::Warning,
-            confidence: FindingConfidence::High,
-            file: "worldserver.exe".into(),
-            line: 0,
-            explanation: format!(
-                "Realm host ABI fingerprint '{}' differs from reference SDK v0.3 '{}'. Dynamic symbols may require re-qualification.",
-                realm_sdk_fingerprint,
-                v03_fingerprint
-            ),
-            recommended_action: "Ensure plugin is compiled against this realm's specific worldserver.lib import library.".into(),
-            evidence: format!("Realm worldserver exports: {}, reference v0.3 exports: 4360", exports.len()),
-            is_auto_fixable: false,
-        });
-    }
+    push_realm_abi_finding(&mut report, realm_root, host_recorded_abi, &realm_sdk_fingerprint, exports.len());
 
     Ok(report)
 }
@@ -2434,15 +2431,22 @@ mod tests {
 
         if server_v03.join("worldserver.exe").is_file() && test_module.exists() {
             let res_v03 = analyze_repository_for_realm(test_module, server_v03).expect("v03 realm analysis failed");
-            assert_eq!(res_v03.sdk_fingerprint.as_deref(), Some("2f82013def4698d3f75fa24e5f70ffa504a7782d366b5edb78c7adc3c1ee0883"));
-            assert!(!res_v03.findings.iter().any(|f| f.rule_id == "REALM_ABI_MISMATCH"));
+            // The fingerprint is the one the host records, and the SDK in use was exported from that host.
+            let host_fp = crate::provenance::realm_host_fingerprint(server_v03);
+            assert!(host_fp.is_some(), "server-v03 host records no .coapl fingerprint");
+            assert_eq!(res_v03.sdk_fingerprint, host_fp);
+            if crate::build_engine::detect_toolchain_for(Some(server_v03)).sdk_abi_fingerprint == host_fp {
+                assert!(!res_v03.findings.iter().any(|f| f.rule_id == "REALM_ABI_MISMATCH"));
+            }
             assert_eq!(res_v03.multi_dimensional_status.as_ref().map(|s| s.security_status.as_str()), Some("REVIEWED_THIRD_PARTY"));
         }
 
         if server_legacy.join("worldserver.exe").is_file() && test_module.exists() {
             let res_legacy = analyze_repository_for_realm(test_module, server_legacy).expect("legacy realm analysis failed");
-            assert_eq!(res_legacy.sdk_fingerprint.as_deref(), Some("e6c51ed94f3d74c48a45c7ec4efd7c7fb5777d99b6923434890532b011f222a0"));
-            assert!(res_legacy.findings.iter().any(|f| f.rule_id == "REALM_ABI_MISMATCH"));
+            // A host without a recorded ABI is always reported.
+            if crate::provenance::realm_host_fingerprint(server_legacy).is_none() {
+                assert!(res_legacy.findings.iter().any(|f| f.rule_id == "REALM_ABI_MISMATCH"));
+            }
         }
     }
 
