@@ -352,6 +352,9 @@ pub fn resolve_module_identity(source_dir: &Path) -> (String, String, Option<Str
         "squid-playerbots" | "playerbots" | "squid" => {
             ("playerbots".to_string(), "SQUID's Playerbots".to_string())
         }
+        "dungeon-clear" | "mod-dungeon-clear" => {
+            ("dungeon-clear".to_string(), "Dungeon Clear".to_string())
+        }
         "npc-buffer" => ("npc-buffer".to_string(), "NPC Buffer".to_string()),
         "ah-bot" => ("ah-bot".to_string(), "Auction House Bot".to_string()),
         "guildhouse" => ("guildhouse".to_string(), "Guildhouse".to_string()),
