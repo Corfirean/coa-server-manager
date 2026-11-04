@@ -96,9 +96,76 @@ pub fn realm_sdk_dir(realm_root: &Path, host_fp: &str) -> PathBuf {
 pub fn realm_sdk_cmake_dir(realm_root: &Path) -> Option<PathBuf> {
     let host_fp = crate::provenance::realm_host_fingerprint(realm_root)?;
     let cmake = realm_sdk_dir(realm_root, &host_fp).join("cmake");
-    let ok = cmake.join("CoAPluginSDKConfig.cmake").is_file()
-        && sdk_abi_fingerprint(&cmake).ok().as_deref() == Some(host_fp.as_str());
-    ok.then_some(cmake)
+    let ready = |cmake: &Path| {
+        cmake.join("CoAPluginSDKConfig.cmake").is_file()
+            && sdk_abi_fingerprint(cmake).ok().as_deref() == Some(host_fp.as_str())
+    };
+    if ready(&cmake) {
+        return Some(cmake);
+    }
+    // The core package ships its SDK as Core/plugin-sdk.zip; unpack it once into the store.
+    match unpack_bundled_sdk(realm_root, &host_fp) {
+        Ok(true) if ready(&cmake) => Some(cmake),
+        _ => None,
+    }
+}
+
+/// The SDK archive a core package ships next to worldserver.exe (repack and flat layouts).
+fn bundled_sdk_zip(realm_root: &Path) -> Option<PathBuf> {
+    [realm_root.join("Core").join("plugin-sdk.zip"), realm_root.join("plugin-sdk.zip")]
+        .into_iter()
+        .find(|p| p.is_file())
+}
+
+/// Unpacks the bundled SDK into the realm's store when it belongs to the installed host. Returns false when
+/// there is no bundled SDK or it is for another core (an update replaced worldserver.exe but not the zip).
+fn unpack_bundled_sdk(realm_root: &Path, host_fp: &str) -> Result<bool> {
+    use std::io::Read;
+    let Some(zip_path) = bundled_sdk_zip(realm_root) else { return Ok(false) };
+    let mut archive = zip::ZipArchive::new(fs::File::open(&zip_path)?)
+        .map_err(|e| Error::Invalid(format!("[SDK_ARCHIVE] {}: {}", zip_path.display(), e)))?;
+    let entry_name = |raw: &str| raw.replace('\\', "/");
+    let mut sdk_json = String::new();
+    {
+        let idx = (0..archive.len())
+            .find(|&i| archive.by_index(i).map(|e| entry_name(e.name()) == "sdk.json").unwrap_or(false));
+        let Some(idx) = idx else { return Ok(false) };
+        archive.by_index(idx).map_err(|e| Error::Invalid(e.to_string()))?.read_to_string(&mut sdk_json)?;
+    }
+    let zip_fp = serde_json::from_str::<serde_json::Value>(&sdk_json)
+        .ok()
+        .and_then(|v| v.get("abiFingerprint").and_then(|f| f.as_str()).map(str::to_owned));
+    if zip_fp.as_deref() != Some(host_fp) {
+        return Ok(false);
+    }
+    let store = realm_sdk_store(realm_root);
+    let staging = store.join(format!(".incoming-{}", &host_fp[..host_fp.len().min(16)]));
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| Error::Invalid(e.to_string()))?;
+        let name = entry_name(entry.name());
+        let rel = Path::new(&name);
+        if rel.is_absolute() || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            return Err(Error::Invalid(format!("[SDK_ARCHIVE] unsafe entry '{}' in {}", name, zip_path.display())));
+        }
+        let dest = staging.join(rel);
+        if name.ends_with('/') {
+            fs::create_dir_all(&dest)?;
+            continue;
+        }
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        std::io::copy(&mut entry, &mut fs::File::create(&dest)?)?;
+    }
+    let dest = realm_sdk_dir(realm_root, host_fp);
+    if dest.exists() {
+        fs::remove_dir_all(&dest)?;
+    }
+    fs::rename(&staging, &dest)?;
+    Ok(true)
 }
 
 /// Installs an SDK (a directory with sdk.json, cmake/, include/, lib/) for the realm's current core. The SDK
@@ -1134,6 +1201,36 @@ mod tests {
             assert_eq!(tc.sdk_abi_fingerprint.as_deref(), Some(host_fp.as_str()));
             assert!(detect_toolchain().sdk_dir.is_none(), "no SDK without a realm");
         }
+    }
+
+    #[test]
+    fn bundled_sdk_zip_is_unpacked_only_for_its_own_host() {
+        use std::io::Write;
+        let host = Path::new("C:/games/coa-work/plugin-spike/server-v03/worldserver.exe");
+        let Some(host_fp) = crate::provenance::file_abi_fingerprint(host) else { return };
+        let tmp = tempfile::tempdir().unwrap();
+        let realm = tmp.path().join("realm");
+        fs::create_dir_all(realm.join("Core")).unwrap();
+        fs::copy(host, realm.join("Core/worldserver.exe")).unwrap();
+        let write_zip = |fp: &str| {
+            let mut z = zip::ZipWriter::new(fs::File::create(realm.join("Core/plugin-sdk.zip")).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            z.start_file("sdk.json", opts).unwrap();
+            z.write_all(format!("{{\"abiFingerprint\":\"{}\"}}", fp).as_bytes()).unwrap();
+            // Windows PowerShell writes backslash-separated entry names.
+            z.start_file("cmake\\CoAPluginSDKConfig.cmake", opts).unwrap();
+            z.write_all(b"# sdk").unwrap();
+            z.finish().unwrap();
+        };
+
+        write_zip(&"0".repeat(64));
+        assert!(realm_sdk_cmake_dir(&realm).is_none(), "an SDK of another core must not be used");
+        assert!(!realm_sdk_dir(&realm, &host_fp).exists());
+
+        write_zip(&host_fp);
+        let cmake = realm_sdk_cmake_dir(&realm).expect("the bundled SDK of this core is unpacked");
+        assert_eq!(cmake, realm_sdk_dir(&realm, &host_fp).join("cmake"));
+        assert!(cmake.join("CoAPluginSDKConfig.cmake").is_file());
     }
 
     #[test]
