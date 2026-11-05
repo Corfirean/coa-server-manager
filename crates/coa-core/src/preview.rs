@@ -146,34 +146,9 @@ pub fn plan_sql_review(module_id: &str, report: &CompatibilityReport) -> Option<
     })
 }
 
-/// Installs a qualified build package into the realm's Plugin Store and enables it.
-/// Enforces Stop-Gate and SQL Review Gate.
-pub fn install_qualified_module(
-    realm_root: &Path,
-    module_id: &str,
-    version: &str,
-    apply_sql: bool,
-    sql_plan: Option<&SqlReviewPlan>,
-) -> Result<PreviewInstallResult> {
-    // 1. Enforce Stop-Gate
-    require_server_stopped(realm_root)?;
-
-    // 2. Check SQL Review Gate
-    if let Some(plan) = sql_plan {
-        if !apply_sql && plan.total_sql_files > 0 {
-            return Ok(PreviewInstallResult {
-                success: false,
-                module_id: module_id.to_string(),
-                display_name: module_id.to_string(),
-                enabled: false,
-                sql_applied: false,
-                message: "SQL Review required before activating module. User confirmation needed.".into(),
-                sql_plan: Some(plan.clone()),
-            });
-        }
-    }
-
-    // 3. Locate package in plugin store
+/// A module the build engine packaged into `.manager/plugin-store/<id>/<version>`: its metadata, DLL and
+/// configuration templates, ready for the registry.
+pub fn built_package(realm_root: &Path, module_id: &str, version: &str) -> Result<(PluginMetadata, Vec<u8>, Vec<(String, Vec<u8>)>)> {
     let store_dir = realm_root.join(".manager").join("plugin-store").join(module_id).join(version);
     let dll_name = format!("{}.dll", module_id);
     let dll_path = store_dir.join(&dll_name);
@@ -249,6 +224,40 @@ pub fn install_qualified_module(
         status: Some("release".into()),
         icon: None,
     };
+
+    Ok((meta, dll_bytes, dist_confs))
+}
+
+/// Installs a qualified build package into the realm's Plugin Store and enables it.
+/// Enforces Stop-Gate and SQL Review Gate.
+pub fn install_qualified_module(
+    realm_root: &Path,
+    module_id: &str,
+    version: &str,
+    apply_sql: bool,
+    sql_plan: Option<&SqlReviewPlan>,
+) -> Result<PreviewInstallResult> {
+    // 1. Enforce Stop-Gate
+    require_server_stopped(realm_root)?;
+
+    // 2. Check SQL Review Gate
+    if let Some(plan) = sql_plan {
+        if !apply_sql && plan.total_sql_files > 0 {
+            return Ok(PreviewInstallResult {
+                success: false,
+                module_id: module_id.to_string(),
+                display_name: module_id.to_string(),
+                enabled: false,
+                sql_applied: false,
+                message: "SQL Review required before activating module. User confirmation needed.".into(),
+                sql_plan: Some(plan.clone()),
+            });
+        }
+    }
+
+    // 3. Locate package in plugin store
+    let (meta, dll_bytes, dist_confs) = built_package(realm_root, module_id, version)?;
+    let display_name = meta.name.clone();
 
     let dist_confs_ref: Vec<(String, &[u8])> = dist_confs.iter().map(|(n, b)| (n.clone(), b.as_slice())).collect();
 

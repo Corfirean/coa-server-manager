@@ -832,6 +832,33 @@ pub fn build_module_from_source(
     build_module_with_bundle(module_source_dir, &[], realm_root, custom_staging_dir, progress_callback)
 }
 
+/// The sources a plugin was last built from, kept per realm so the manager can rebuild it on its own
+/// after a core update.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildRecipe {
+    pub schema: u32,
+    pub source_dir: PathBuf,
+    #[serde(default)]
+    pub bundled: Vec<PathBuf>,
+    #[serde(default)]
+    pub source_commit: Option<String>,
+}
+
+fn build_recipe_path(realm_root: &Path, module_id: &str) -> PathBuf {
+    crate::plugins::meta_dir(realm_root).join("build-recipes").join(format!("{module_id}.json"))
+}
+
+fn write_build_recipe(realm_root: &Path, module_id: &str, recipe: &BuildRecipe) -> Result<()> {
+    let path = build_recipe_path(realm_root, module_id);
+    fs::create_dir_all(path.parent().unwrap())?;
+    crate::fsx::atomic_write(&path, serde_json::to_string_pretty(recipe)?.as_bytes())?;
+    Ok(())
+}
+
+pub fn read_build_recipe(realm_root: &Path, module_id: &str) -> Option<BuildRecipe> {
+    serde_json::from_slice(&fs::read(build_recipe_path(realm_root, module_id)).ok()?).ok()
+}
+
 /// Builds `module_source_dir` into one plugin DLL, together with `bundled` source trees that must live
 /// in the same image (a module that derives from another module's C++ classes, such as Dungeon Clear
 /// on SQUID). Each bundled tree's loader is called from the plugin's registration.
@@ -1218,7 +1245,7 @@ if errorlevel 1 exit /b 103
         "dll_sha256": dll_sha256,
         "abi_fingerprint": host_abi_fingerprint,
         "master_loader": canonical_loader,
-        "compiler": "MSVC 19.51.36247 (x64 /MD)",
+        "compiler": toolchain.msvc_cl_version.as_deref().map(|v| format!("MSVC {v} (x64 /MD)")),
         "built_at_iso": chrono_now_iso(),
         "configs": packaged_confs,
         "sql_files": packaged_sqls,
@@ -1233,6 +1260,13 @@ if errorlevel 1 exit /b 103
         }
     });
     fs::write(store_dir.join("plugin.json"), serde_json::to_string_pretty(&manifest_content)?)?;
+    // What to rebuild from when the core changes (crate::rebuild).
+    write_build_recipe(realm_root, &module_id, &BuildRecipe {
+        schema: 1,
+        source_dir: module_source_dir.to_path_buf(),
+        bundled: bundled.to_vec(),
+        source_commit: source_commit.clone(),
+    })?;
 
     let duration = start_time.elapsed().as_secs_f64();
     emit_progress("SUCCESS", 100, "Module built, qualified and packaged successfully.", None);

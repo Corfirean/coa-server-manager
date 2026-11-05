@@ -1,6 +1,8 @@
 /** English is the source of truth: every key must exist here; other locales fall back to it. */
 const en = {
   "upd.preexistingCharacters": "Before the update, {n} character records already lacked race/class starting data. Unchanged records were preserved and did not block the update. Details are saved in diagnostics; these older inconsistencies have not been automatically repaired.",
+  "upd.modulesRebuilt": "Modules rebuilt for the new core: {list}.",
+  "upd.moduleOff": "Module {id} was switched off because it could not be built for the new core: {reason}. The server was updated without it.",
   "settings.autoManager": "Download updates in the background",
   "settings.startServer": "Start after updating",
   "settings.version": "Version {v}",

@@ -3,6 +3,8 @@ import type en from "./en";
 /** Français. Traduction provisoire ; à faire relire par un locuteur natif avant la publication. */
 const fr: Partial<Record<keyof typeof en, string>> = {
   "upd.preexistingCharacters": "Avant la mise à jour, {n} fiches de personnage n’avaient déjà pas de données de départ pour leur race/classe. Les fiches inchangées ont été conservées sans bloquer la mise à jour. Les détails sont dans le diagnostic ; ces incohérences anciennes n’ont pas été corrigées automatiquement.",
+  "upd.modulesRebuilt": "Modules recompilés pour le nouveau cœur : {list}.",
+  "upd.moduleOff": "Le module {id} a été désactivé, car il n’a pas pu être compilé pour le nouveau cœur : {reason}. Le serveur a été mis à jour sans lui.",
   "settings.autoManager": "Télécharger les mises à jour en arrière-plan",
   "settings.startServer": "Démarrer après la mise à jour",
   "settings.version": "Version {v}",

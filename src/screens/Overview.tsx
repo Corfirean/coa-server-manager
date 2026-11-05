@@ -551,6 +551,8 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
           </p>
         )}
         {upd.result && "committed" in upd.result && !!upd.result.preexistingCharacters && <p className="mt-3 text-sm text-warn" role="status">{t("upd.preexistingCharacters", { n: upd.result.preexistingCharacters })}</p>}
+        {upd.result && "committed" in upd.result && !!upd.result.modulesRebuilt?.length && <p className="mt-3 text-sm" role="status">{t("upd.modulesRebuilt", { list: upd.result.modulesRebuilt.join(", ") })}</p>}
+        {upd.result && "committed" in upd.result && upd.result.modulesOff?.map((m) => <p key={m.id} className="mt-3 text-sm text-warn" role="status">{t("upd.moduleOff", { id: m.id, reason: m.reason })}</p>)}
         {upd.available && upd.preview && (
           <div className="mt-4 rounded-md border border-gold/40 bg-gold/5 p-3 text-sm">
             <p>{t("overview.updateAvail", { to: upd.preview.to_version, from: upd.preview.from_version ?? "?" })}</p>

@@ -3,6 +3,8 @@ import type en from "./en";
 /** Español. Traducción provisional; debe revisarla un hablante nativo antes de publicarse. */
 const es: Partial<Record<keyof typeof en, string>> = {
   "upd.preexistingCharacters": "Antes de actualizar, a {n} registros de personaje ya les faltaban datos iniciales de raza/clase. Los registros sin cambios se conservaron y no bloquearon la actualización. Los detalles están en el diagnóstico; estas inconsistencias anteriores no se repararon automáticamente.",
+  "upd.modulesRebuilt": "Módulos recompilados para el nuevo núcleo: {list}.",
+  "upd.moduleOff": "El módulo {id} se desactivó porque no se pudo compilar para el nuevo núcleo: {reason}. El servidor se actualizó sin él.",
   "settings.autoManager": "Descargar actualizaciones en segundo plano",
   "settings.startServer": "Iniciar tras actualizar",
   "settings.version": "Versión {v}",

@@ -3,6 +3,8 @@ import type en from "./en";
 /** Deutsch. Entwurf einer Übersetzung; vor der Veröffentlichung von Muttersprachlern zu prüfen. */
 const de: Partial<Record<keyof typeof en, string>> = {
   "upd.preexistingCharacters": "Bereits vor dem Update fehlten bei {n} Charakterdatensätzen die Startdaten für Volk/Klasse. Unveränderte Datensätze wurden bewahrt und blockierten das Update nicht. Details stehen in der Diagnose; diese älteren Unstimmigkeiten wurden nicht automatisch behoben.",
+  "upd.modulesRebuilt": "Für den neuen Core neu gebaute Module: {list}.",
+  "upd.moduleOff": "Modul {id} wurde abgeschaltet, weil es sich nicht für den neuen Core bauen ließ: {reason}. Der Server wurde ohne es aktualisiert.",
   "settings.autoManager": "Updates im Hintergrund herunterladen",
   "settings.startServer": "Nach dem Update starten",
   "settings.version": "Version {v}",

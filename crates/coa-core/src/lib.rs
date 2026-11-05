@@ -60,6 +60,7 @@ pub mod race_availability;
 pub mod realm_registry;
 pub mod realmlist;
 pub mod realms;
+pub mod rebuild;
 pub mod registry;
 pub mod release;
 pub mod release_history;

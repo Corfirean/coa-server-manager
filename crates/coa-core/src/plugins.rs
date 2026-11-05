@@ -57,6 +57,10 @@ pub struct PluginEntry {
     pub deps: Vec<String>,
     #[serde(default = "yes")]
     pub required: bool,
+    /// Why the manager switched this plugin off by itself (it could not be rebuilt for the current
+    /// core). Such a plugin is rebuilt and switched back on after the next core change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled_reason: Option<String>,
 }
 
 /// The root registry document in `.manager/plugins.json`.
@@ -776,6 +780,7 @@ pub fn install(
         conf_files: meta.conf_files.clone(),
         deps: meta.deps.clone(),
         required: meta.required,
+        disabled_reason: None,
     };
 
     reg.plugins.insert(meta.id.clone(), entry);
@@ -830,6 +835,14 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
         if id == "playerbots" && reg.plugins.get("companions").map(|p| p.enabled).unwrap_or(false) {
             return Err(Error::BotModulesConflict);
         }
+        // The core refuses a plugin built for another core: it has to be rebuilt first.
+        if let (Some(host), Some(built)) = (crate::provenance::realm_host_fingerprint(server), installed_plugin_fingerprint(server, id)) {
+            if host != built {
+                return Err(Error::Invalid(format!(
+                    "Plugin '{id}' was built for a previous core; rebuild it before switching it on"
+                )));
+            }
+        }
 
         for dep in &entry.deps {
             if !reg.plugins.get(dep).map(|p| p.enabled).unwrap_or(false) {
@@ -849,7 +862,9 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
     }
 
     tx.set_phase(TransactionPhase::Applying)?;
-    reg.plugins.get_mut(id).unwrap().enabled = enabled;
+    let e = reg.plugins.get_mut(id).unwrap();
+    e.enabled = enabled;
+    e.disabled_reason = None;
     save_registry(server, &reg)?;
     check_crash_injection("after_registry_write");
 
@@ -880,6 +895,39 @@ pub fn set_enabled(server: &Path, id: &str, enabled: bool) -> Result<()> {
     check_crash_injection("before_commit");
     tx.commit()?;
     Ok(())
+}
+
+/// Switches a plugin off because it cannot run on the current core, together with every enabled plugin
+/// that depends on it, and records why. The core itself is never held back by a plugin.
+pub fn disable_with_reason(server: &Path, id: &str, reason: &str) -> Result<Vec<String>> {
+    require_server_stopped(server)?;
+    let mut tx = TxGuard::begin_op(server, PluginOpType::Disable, id)?;
+    let mut reg = load_registry_direct(server)?;
+    if !reg.plugins.contains_key(id) {
+        return Err(Error::Invalid(format!("Plugin '{id}' is not installed")));
+    }
+    let mut off = vec![id.to_string()];
+    let mut i = 0;
+    while i < off.len() {
+        let cur = off[i].clone();
+        for (other_id, other) in &reg.plugins {
+            if other.enabled && other.deps.contains(&cur) && !off.contains(other_id) {
+                off.push(other_id.clone());
+            }
+        }
+        i += 1;
+    }
+    tx.set_phase(TransactionPhase::Applying)?;
+    for (n, pid) in off.iter().enumerate() {
+        let e = reg.plugins.get_mut(pid).unwrap();
+        e.enabled = false;
+        e.disabled_reason = Some(if n == 0 { reason.to_string() } else { format!("depends on '{id}', which was switched off: {reason}") });
+    }
+    save_registry(server, &reg)?;
+    regenerate_lockfile(server, &reg)?;
+    tx.set_phase(TransactionPhase::Validating)?;
+    tx.commit()?;
+    Ok(off)
 }
 
 /// Update an installed plugin to a new version with 3-way configuration merge.
@@ -941,6 +989,7 @@ pub fn update(
         conf_files: new_meta.conf_files,
         deps: new_meta.deps,
         required: new_meta.required,
+        disabled_reason: None,
     };
 
     reg.plugins.insert(new_meta.id, updated_entry);

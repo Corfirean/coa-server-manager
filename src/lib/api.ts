@@ -6,6 +6,12 @@ const queuedUpdateCheck = updateCheckQueue<UpdatePreview>();
 export const REMOTE_CLIENT_ID = "@remote-client";
 export interface RemoteConnection { host: string; client_path: string | null }
 
+/** What an update did to an installed plugin on the new core (coa-core rebuild::ModuleRebuild). */
+export type ModuleRebuild =
+  | { result: "upToDate" | "reused"; id: string }
+  | { result: "rebuilt"; id: string; seconds: number }
+  | { result: "disabled"; id: string; reason: string; also: string[] };
+
 export type Classification = "healthy" | "partial" | "unknown-custom" | "incompatible";
 export type ItemStatus = "found" | "missing" | "attention";
 
@@ -798,7 +804,7 @@ export const api = {
   ),
   pendingUpdate: (id: string) => invoke<UpdateTxn | null>("pending_update", { id }),
   applyUpdate: (id: string, resolutions: Record<string, "keep" | "replace">, source?: string) =>
-    invoke<{ txn: UpdateTxn; preexisting_character_count?: number }>("apply_update", { id, source: source ?? null, resolutions }),
+    invoke<{ txn: UpdateTxn; preexisting_character_count?: number; modules?: ModuleRebuild[] }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
   population: (id: string) => invoke<Population | null>("get_population", { id }),

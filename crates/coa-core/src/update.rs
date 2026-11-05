@@ -116,6 +116,11 @@ pub trait Env {
     fn migrate(&self, manifest: &Manifest, staged_migrations: &Path) -> Result<ApplyReport>;
     /// Start the server and confirm it becomes healthy.
     fn validate(&self) -> Result<()>;
+    /// Bring installed plugins to the new core before it is started. Never fails the update: a plugin
+    /// that cannot be rebuilt is switched off and reported.
+    fn rebuild_plugins(&self, _report: &dyn Fn(&str, &str)) -> Vec<crate::rebuild::ModuleRebuild> {
+        Vec::new()
+    }
 }
 
 fn updates_dir(meta: &Path) -> PathBuf {
@@ -692,6 +697,9 @@ pub struct Outcome {
     pub txn: Txn,
     pub preexisting_character_count: usize,
     pub migrations: Option<ApplyReport>,
+    /// What happened to each installed plugin on the new core (rebuilt, reused or switched off).
+    #[serde(default)]
+    pub modules: Vec<crate::rebuild::ModuleRebuild>,
 }
 
 fn step(report: &dyn Fn(&str, u8), name: &str, pct: u8) {
@@ -916,6 +924,9 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
         }
     }
 
+    step(report, "Building modules for the new core", 80);
+    let modules = p.env.rebuild_plugins(&|id, what| report(&format!("{id}: {what}"), 80));
+
     step(report, "Starting the updated server", 85);
     // Core startup can apply SQL and write character data even when the package has no explicit migrations.
     txn.databases_started = true;
@@ -938,6 +949,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
             txn,
             preexisting_character_count,
             migrations: migrated,
+            modules,
         });
     }
 
@@ -949,6 +961,7 @@ pub fn apply(p: &Params, report: &dyn Fn(&str, u8)) -> Result<Outcome> {
         txn,
         preexisting_character_count,
         migrations: migrated,
+        modules,
     })
 }
 
@@ -1198,6 +1211,9 @@ fn restore_transaction(
     if saved_meta.exists() {
         fsx::atomic_write(&meta.join("install.json"), &fs::read(saved_meta)?)?;
     }
+    // Plugins may already have been rebuilt for the core that was just taken back out; the builds for
+    // the restored core are still in the plugin store and are put back (or rebuilt).
+    let _ = env.rebuild_plugins(&|_, _| {});
     Ok(())
 }
 
@@ -1703,6 +1719,17 @@ impl RepackEnv<'_> {
 }
 
 impl Env for RepackEnv<'_> {
+    fn rebuild_plugins(&self, report: &dyn Fn(&str, &str)) -> Vec<crate::rebuild::ModuleRebuild> {
+        match crate::rebuild::rebuild_for_current_core(self.root, report) {
+            Ok(done) => done,
+            Err(e) => {
+                tracing::warn!(error = %e, "plugins could not be brought to the new core");
+                report("modules", &format!("not rebuilt: {e}"));
+                Vec::new()
+            }
+        }
+    }
+
     fn recover_validation(&self) -> Result<()> {
         crate::update_isolation::restore(self.root, self.meta_dir)
     }

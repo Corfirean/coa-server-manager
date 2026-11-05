@@ -1,6 +1,8 @@
 /** Simplified Chinese localization (zh-CN) */
 const zh = {
   "upd.preexistingCharacters": "更新前已有 {n} 条角色记录缺少种族/职业初始数据。未变化的记录已保留，不会阻止更新。详情已保存到诊断报告；这些既有问题尚未自动修复。",
+  "upd.modulesRebuilt": "已为新核心重新编译的模块：{list}。",
+  "upd.moduleOff": "模块 {id} 无法为新核心编译，已被关闭：{reason}。服务器已在没有它的情况下完成更新。",
   "settings.autoManager": "在后台下载更新",
   "settings.startServer": "更新后启动",
   "settings.version": "版本 {v}",
