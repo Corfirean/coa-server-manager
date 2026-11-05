@@ -30,6 +30,16 @@ static BUILD_LOCK: Mutex<()> = Mutex::new(());
 pub struct ToolchainStatus {
     pub msvc_available: bool,
     pub vcvars64_path: Option<String>,
+    /// MSVC toolset directory passed to vcvars64 as `-vcvars_ver` (for example 14.44.35207).
+    #[serde(default)]
+    pub msvc_toolset: Option<String>,
+    /// Version of that toolset's cl.exe (for example 19.44.35229).
+    #[serde(default)]
+    pub msvc_cl_version: Option<String>,
+    /// The exact cl.exe version the realm's SDK was built with; plugins built with another one get
+    /// another ABI fingerprint and are refused by the core.
+    #[serde(default)]
+    pub required_cl_version: Option<String>,
     pub cmake_available: bool,
     pub cmake_path: Option<String>,
     pub ninja_available: bool,
@@ -225,31 +235,33 @@ pub fn detect_toolchain() -> ToolchainStatus {
 /// Detects the MSVC toolchain, CMake, Ninja, and the CoA Plugin SDK for `realm_root`'s core.
 /// `COA_PLUGIN_SDK_DIR` overrides the SDK (development only; the build still checks it against the host).
 pub fn detect_toolchain_for(realm_root: Option<&Path>) -> ToolchainStatus {
-    let vcvars_candidates = [
-        "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\VC\\Auxiliary\\Build\\vcvars64.bat",
-        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat",
-        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Auxiliary\\Build\\vcvars64.bat",
-        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvars64.bat",
-    ];
-    let vcvars64_path = std::env::var("COA_VCVARS64").ok().filter(|p| Path::new(p).is_file())
-        .or_else(|| vcvars_candidates.iter().find(|p| Path::new(p).is_file()).map(|s| s.to_string()));
+    let installs = visual_studio_installs();
+    let ide_tool = |rel: &str| installs.iter().map(|i| i.join(rel)).find(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned());
 
-    let cmake_candidates = [
-        "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
-    ];
     let cmake_path = std::env::var("COA_CMAKE").ok().filter(|p| Path::new(p).is_file())
-        .or_else(|| cmake_candidates.iter().find(|p| Path::new(p).is_file()).map(|s| s.to_string()))
+        .or_else(|| ide_tool("Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe"))
         .or_else(|| which_cmd("cmake.exe"));
-
-    let ninja_candidates = [
-        "C:\\Program Files\\Microsoft Visual Studio\\18\\Insiders\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja\\ninja.exe",
-    ];
     let ninja_path = std::env::var("COA_NINJA").ok().filter(|p| Path::new(p).is_file())
-        .or_else(|| ninja_candidates.iter().find(|p| Path::new(p).is_file()).map(|s| s.to_string()))
+        .or_else(|| ide_tool("Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja\\ninja.exe"))
         .or_else(|| which_cmd("ninja.exe"));
 
     let sdk_dir = std::env::var("COA_PLUGIN_SDK_DIR").ok().filter(|p| Path::new(p).join("CoAPluginSDKConfig.cmake").is_file())
         .or_else(|| realm_root.and_then(realm_sdk_cmake_dir).map(|p| p.to_string_lossy().into_owned()));
+
+    // The compiler must be the one the SDK names, to the build number: it is part of the fingerprint.
+    let required_cl_version = sdk_dir.as_deref().and_then(|d| sdk_cl_version(Path::new(d)));
+    let toolsets = msvc_toolsets(&installs);
+    let chosen = match &required_cl_version {
+        Some(want) => toolsets.iter().find(|t| &t.cl_version == want),
+        None => toolsets.iter().max_by(|a, b| version_key(&a.cl_version).cmp(&version_key(&b.cl_version))),
+    };
+    let (vcvars64_path, msvc_toolset, msvc_cl_version) = match std::env::var("COA_VCVARS64").ok().filter(|p| Path::new(p).is_file()) {
+        Some(over) => (Some(over), None, None),
+        None => match chosen {
+            Some(t) => (Some(t.vcvars64.to_string_lossy().into_owned()), Some(t.toolset.clone()), Some(t.cl_version.clone())),
+            None => (None, None, None),
+        },
+    };
 
     let msvc_available = vcvars64_path.is_some();
     let cmake_available = cmake_path.is_some();
@@ -261,7 +273,16 @@ pub fn detect_toolchain_for(realm_root: Option<&Path>) -> ToolchainStatus {
         "MSVC, CMake, Ninja, and the CoA Plugin SDK for this core are ready.".into()
     } else {
         let mut missing = Vec::new();
-        if !msvc_available { missing.push("MSVC vcvars64.bat"); }
+        let msvc_missing;
+        if !msvc_available {
+            msvc_missing = match &required_cl_version {
+                Some(want) => format!("MSVC {} (Visual Studio Build Tools with the toolset this core's SDK names; installed: {})",
+                    want, if toolsets.is_empty() { "none".to_string() } else {
+                        toolsets.iter().map(|t| t.cl_version.as_str()).collect::<Vec<_>>().join(", ") }),
+                None => "MSVC (Visual Studio Build Tools)".to_string(),
+            };
+            missing.push(msvc_missing.as_str());
+        }
         if !cmake_available { missing.push("CMake"); }
         if !ninja_available { missing.push("Ninja"); }
         if !sdk_available { missing.push("CoA Plugin SDK for this realm's core"); }
@@ -271,6 +292,9 @@ pub fn detect_toolchain_for(realm_root: Option<&Path>) -> ToolchainStatus {
     ToolchainStatus {
         msvc_available,
         vcvars64_path,
+        msvc_toolset,
+        msvc_cl_version,
+        required_cl_version,
         cmake_available,
         cmake_path,
         ninja_available,
@@ -281,6 +305,95 @@ pub fn detect_toolchain_for(realm_root: Option<&Path>) -> ToolchainStatus {
         ready,
         diagnostic_message,
     }
+}
+
+/// One installed MSVC toolset: the vcvars64.bat of its Visual Studio and the toolset directory name.
+#[derive(Debug, Clone)]
+struct MsvcToolset {
+    vcvars64: PathBuf,
+    toolset: String,
+    cl_version: String,
+}
+
+/// Installation folders of every Visual Studio / Build Tools product, found with vswhere (installed
+/// with any of them).
+fn visual_studio_installs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let pf86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| "C:\\Program Files (x86)".into());
+    let vswhere = Path::new(&pf86).join("Microsoft Visual Studio").join("Installer").join("vswhere.exe");
+    if vswhere.is_file() {
+        let mut cmd = Command::new(&vswhere);
+        cmd.args(["-all", "-prerelease", "-products", "*", "-sort", "-property", "installationPath", "-utf8"]);
+        hide_window(&mut cmd);
+        if let Ok(o) = cmd.output() {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let p = PathBuf::from(line.trim());
+                if !line.trim().is_empty() && p.is_dir() && !out.contains(&p) {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn hide_window(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
+
+/// Every MSVC x64 toolset under `installs`, with the version its cl.exe reports.
+fn msvc_toolsets(installs: &[PathBuf]) -> Vec<MsvcToolset> {
+    let mut out = Vec::new();
+    for inst in installs {
+        // A minimal Build Tools install (just the toolset component) has no vcvars64.bat; VsDevCmd.bat
+        // is always there and takes the same -vcvars_ver.
+        let Some(vcvars64) = [
+            inst.join("VC").join("Auxiliary").join("Build").join("vcvars64.bat"),
+            inst.join("Common7").join("Tools").join("VsDevCmd.bat"),
+        ].into_iter().find(|p| p.is_file()) else { continue };
+        let Ok(dirs) = fs::read_dir(inst.join("VC").join("Tools").join("MSVC")) else { continue };
+        for d in dirs.flatten() {
+            let cl = d.path().join("bin").join("Hostx64").join("x64").join("cl.exe");
+            if let Some(cl_version) = cl.is_file().then(|| cl_exe_version(&cl)).flatten() {
+                out.push(MsvcToolset { vcvars64: vcvars64.clone(), toolset: d.file_name().to_string_lossy().into_owned(), cl_version });
+            }
+        }
+    }
+    out
+}
+
+/// The version cl.exe prints in its banner (`19.44.35229`); the banner text itself is localised.
+fn cl_exe_version(cl: &Path) -> Option<String> {
+    let mut cmd = Command::new(cl);
+    hide_window(&mut cmd);
+    let o = cmd.output().ok()?;
+    parse_cl_version(&String::from_utf8_lossy(&o.stderr))
+}
+
+fn parse_cl_version(banner: &str) -> Option<String> {
+    banner.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .find(|w| w.starts_with("19.") && w.split('.').count() >= 3)
+        .map(|w| w.split('.').take(3).collect::<Vec<_>>().join("."))
+}
+
+/// The cl.exe version an SDK was built with, from its `compiler=MSVC-19.44.35229.0` ABI input.
+fn sdk_cl_version(sdk_cmake_dir: &Path) -> Option<String> {
+    let path = [sdk_cmake_dir.join("sdk.json"), sdk_cmake_dir.join("..").join("sdk.json")].into_iter().find(|p| p.is_file())?;
+    let json: serde_json::Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+    let compiler = json.get("abiInputs")?.as_array()?.iter()
+        .filter_map(|v| v.as_str())
+        .find_map(|i| i.strip_prefix("compiler=MSVC-"))?;
+    Some(compiler.split('.').take(3).collect::<Vec<_>>().join("."))
+}
+
+fn version_key(v: &str) -> Vec<u32> {
+    v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
 fn which_cmd(cmd_name: &str) -> Option<String> {
@@ -773,6 +886,11 @@ pub fn build_module_with_bundle(
     }
 
     let vcvars64 = toolchain.vcvars64_path.unwrap();
+    let dev_cmd = Path::new(&vcvars64).file_name().is_some_and(|n| n.eq_ignore_ascii_case("VsDevCmd.bat"));
+    let mut vcvars_ver = if dev_cmd { " -arch=amd64 -host_arch=amd64 -no_logo".to_string() } else { String::new() };
+    if let Some(t) = toolchain.msvc_toolset.as_deref() {
+        vcvars_ver.push_str(&format!(" -vcvars_ver={}", t));
+    }
     let cmake = toolchain.cmake_path.unwrap();
     let ninja = toolchain.ninja_path.unwrap();
     let sdk_dir = toolchain.sdk_dir.unwrap();
@@ -939,14 +1057,14 @@ endif()
     let runner_content = format!(r#"@echo off
 set "VSLANG=1033"
 chcp 65001 > nul
-call "{vcvars64}" > nul 2>&1
+call "{vcvars64}"{vcvars_ver} > nul 2>&1
 if errorlevel 1 exit /b 101
 set "PATH={ninja_dir};%PATH%"
 "{cmake}" -G Ninja -S "{staging_dir}" -B "{build_dir}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCoAPluginSDK_DIR="{sdk_dir}"
 if errorlevel 1 exit /b 102
 "{cmake}" --build "{build_dir}" -- -j{jobs}
 if errorlevel 1 exit /b 103
-"#, jobs = build_jobs(), vcvars64 = vcvars64, ninja_dir = ninja_dir, cmake = cmake, staging_dir = clean_path(&staging_dir), build_dir = clean_path(&build_output_dir), sdk_dir = clean_path(Path::new(&sdk_dir)));
+"#, jobs = build_jobs(), vcvars64 = vcvars64, vcvars_ver = vcvars_ver, ninja_dir = ninja_dir, cmake = cmake, staging_dir = clean_path(&staging_dir), build_dir = clean_path(&build_output_dir), sdk_dir = clean_path(Path::new(&sdk_dir)));
 
     fs::write(&runner_bat, &runner_content)?;
 
@@ -1431,6 +1549,41 @@ mod tests {
 
         let _ = fs::remove_dir_all(&staging);
         let _ = fs::remove_dir_all(&dc);
+    }
+
+    /// A core from CI (worldserver.exe + plugin-sdk.zip, nothing else) and a PC with that core's MSVC:
+    /// the manager unpacks the bundled SDK, picks the pinned toolset among the installed ones, and
+    /// builds SQUID + Dungeon Clear into a DLL this worldserver.exe accepts.
+    #[test]
+    fn ci_core_builds_the_dungeon_clear_bundle_with_the_pinned_compiler() {
+        let _turn = real_build_turn();
+        let squid = Path::new("C:/Users/Dion/AppData/Local/CSMModulesPreview/github_cache/github/Zyth45/mod-playerbots/3f916d45a4b55ce919bf69fee4a4ec75be12cffe");
+        let dc = Path::new("C:/games/coa-work/module-compat-lab/mod-dungeon-clear/src");
+        let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-ci");
+        if !squid.exists() || !dc.exists() || !realm_root.join("plugin-sdk.zip").is_file() {
+            return;
+        }
+        let tc = detect_toolchain_for(Some(realm_root));
+        eprintln!("toolchain: {:?}", tc);
+        assert!(tc.ready, "{}", tc.diagnostic_message);
+        assert_eq!(tc.msvc_cl_version, tc.required_cl_version, "the SDK's compiler must be chosen");
+
+        let staging = std::env::temp_dir().join("tsci");
+        let _ = fs::remove_dir_all(&staging);
+        let res = build_module_with_bundle(squid, &[dc.to_path_buf()], realm_root, Some(&staging), None)
+            .unwrap_or_else(|e| panic!("bundle build failed: {}", e));
+        assert!(res.success, "bundle build must succeed: {:?}", res.errors);
+        let host_fp = crate::provenance::realm_host_fingerprint(realm_root).unwrap();
+        assert_eq!(res.abi_fingerprint.as_deref(), Some(host_fp.as_str()));
+        eprintln!("built {} in {:.0} s, fingerprint {}", res.dll_path.unwrap_or_default(), res.duration_seconds, host_fp);
+    }
+
+    #[test]
+    fn cl_version_is_read_from_a_localised_banner() {
+        let ru = "\u{41e}\u{43f}\u{442}\u{438}\u{43c}\u{438}\u{437}\u{438}\u{440}\u{443}\u{44e}\u{449}\u{438}\u{439} \u{43a}\u{43e}\u{43c}\u{43f}\u{438}\u{43b}\u{44f}\u{442}\u{43e}\u{440} Microsoft (R) C/C++ \u{432}\u{435}\u{440}\u{441}\u{438}\u{438} 19.44.35229 \u{434}\u{43b}\u{44f} x64";
+        assert_eq!(parse_cl_version(ru).as_deref(), Some("19.44.35229"));
+        assert_eq!(parse_cl_version("Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36231.1 for x64").as_deref(), Some("19.51.36231"));
+        assert_eq!(parse_cl_version("no version here"), None);
     }
 
     fn copy_tree(from: &Path, to: &Path) {
