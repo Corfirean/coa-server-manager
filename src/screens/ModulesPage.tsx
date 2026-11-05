@@ -620,6 +620,8 @@ export function ModulesPage({
 
   // Toolchain state
   const [toolchain, setToolchain] = useState<ToolchainStatus | null>(null);
+  const [msvcInstalling, setMsvcInstalling] = useState(false);
+  const [msvcResult, setMsvcResult] = useState<{ ready: boolean; restart_required: boolean; message: string } | null>(null);
 
   // Controlled Build state
   const [building, setBuilding] = useState(false);
@@ -2774,7 +2776,47 @@ export function ModulesPage({
               <span>Host SDK ABI Fingerprint</span>
               <span className="font-mono text-muted">{toolchain.sdk_abi_fingerprint || "UNKNOWN"}</span>
             </div>
+            <div className="flex items-center justify-between rounded border border-line p-2.5">
+              <span>{locale === "ru" ? "Компилятор (нужен / выбран)" : "Compiler (required / selected)"}</span>
+              <span className="font-mono text-muted">
+                {toolchain.required_cl_version ? `cl ${toolchain.required_cl_version}` : "—"} / {toolchain.msvc_cl_version ? `cl ${toolchain.msvc_cl_version} (${toolchain.msvc_toolset ?? ""})` : "NOT FOUND"}
+              </span>
+            </div>
           </div>
+
+          {!toolchain.ready && (
+            <div className="space-y-2 rounded border border-line p-3 text-xs">
+              <p className="text-muted">
+                {locale === "ru"
+                  ? "Модули собираются на этом ПК тем же компилятором, что и ядро (MSVC 14.44). Менеджер скачает официальный установщик Visual Studio Build Tools с сайта Microsoft, проверит подпись Microsoft и откроет его с уже отмеченными компонентами. Условия Microsoft вы принимаете в окне установщика. Нужно около 4 ГБ на диске и права администратора."
+                  : "Modules are compiled on this PC with the same compiler as the core (MSVC 14.44). The Manager downloads the official Visual Studio Build Tools installer from Microsoft, checks Microsoft's signature and opens it with the components preselected. You accept Microsoft's terms in the installer window. About 4 GB of disk space and administrator rights are needed."}
+              </p>
+              <Button
+                size="sm"
+                disabled={msvcInstalling}
+                onClick={async () => {
+                  setMsvcInstalling(true);
+                  setMsvcResult(null);
+                  try {
+                    const out = await api.previewInstallMsvc(serverId);
+                    setMsvcResult(out);
+                    setToolchain(out.toolchain);
+                  } catch (e) {
+                    setMsvcResult({ ready: false, restart_required: false, message: String(e) });
+                  } finally {
+                    setMsvcInstalling(false);
+                  }
+                }}
+              >
+                {msvcInstalling
+                  ? (locale === "ru" ? "Идёт установка в окне Microsoft…" : "Installing in Microsoft's window…")
+                  : (locale === "ru" ? "Установить Build Tools (MSVC 14.44)" : "Install Build Tools (MSVC 14.44)")}
+              </Button>
+              {msvcResult && (
+                <p className={msvcResult.ready ? "text-ok" : "text-warn"} role="status">{msvcResult.message}</p>
+              )}
+            </div>
+          )}
         </Card>
       )}
 

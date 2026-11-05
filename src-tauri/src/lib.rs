@@ -2964,6 +2964,16 @@ fn preview_toolchain_status(
     coa_core::build_engine::detect_toolchain_for(realm_root.as_deref())
 }
 
+/// Runs Microsoft's Build Tools installer with the MSVC toolset this realm's core was built with.
+#[tauri::command]
+async fn preview_install_msvc(
+    state: State<'_, AppState>,
+    realm_id: Option<String>,
+) -> std::result::Result<coa_core::msvc_setup::MsvcSetupOutcome, UiError> {
+    let realm_root = realm_id.and_then(|id| path_of(&state, &id).ok());
+    blocking(move || coa_core::msvc_setup::install_build_tools(realm_root.as_deref())).await
+}
+
 #[tauri::command]
 async fn preview_register_test_realm(
     state: State<'_, AppState>,
@@ -3380,6 +3390,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             release_history,
             preview_toolchain_status,
+            preview_install_msvc,
             preview_register_test_realm,
             preview_build_module,
             preview_install_module,

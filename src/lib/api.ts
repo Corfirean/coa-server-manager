@@ -352,6 +352,10 @@ export interface ToolchainStatus {
   sdk_available: boolean;
   sdk_dir?: string | null;
   sdk_abi_fingerprint?: string | null;
+  /** MSVC toolset picked for builds, its cl.exe version, and the version this core's SDK requires. */
+  msvc_toolset?: string | null;
+  msvc_cl_version?: string | null;
+  required_cl_version?: string | null;
   ready: boolean;
   diagnostic_message: string;
 }
@@ -850,6 +854,8 @@ export const api = {
   consoleRisk: (command: string) => invoke<"normal" | "dangerous">("console_risk", { command }),
   consoleCommand: (id: string, command: string, confirmed: boolean) => invoke<string>("console_command", { id, command, confirmed }),
   previewPreset: (id: string, scope: Scope, preset: string) => invoke<PresetPreview>("preview_preset", { id, scope, preset }),
+  previewInstallMsvc: (realmId?: string) =>
+    invoke<{ ready: boolean; restart_required: boolean; message: string; toolchain: ToolchainStatus }>("preview_install_msvc", { realmId: realmId ?? null }),
   previewToolchainStatus: (realmId?: string) =>
     invoke<ToolchainStatus>("preview_toolchain_status", { realmId: realmId ?? null }),
   previewRegisterTestRealm: (path?: string) => invoke<ServerSummary>("preview_register_test_realm", { path: path ?? null }),
