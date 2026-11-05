@@ -40,6 +40,7 @@ pub mod health;
 pub mod install;
 pub mod layout;
 pub mod logging;
+pub mod server_logging;
 pub mod manifest;
 pub mod migrations;
 pub mod modules;

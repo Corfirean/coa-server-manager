@@ -1,12 +1,12 @@
 {
-  "core": "8b6bbd8610cd672d2823f40909f1c7ee95a83371",
-  "bots": "4f6cf99e6bf509ae2b178e993d1170cc7fe0cb0c",
+  "core": "14cf375f1e006770b330d3fb89201ace54bfca24",
+  "bots": "447558bc27d6bb447aaf10eefcb2e85ac2b15c32",
   "squid": "fa4cfd31997367b3e574a2b89b858c4669ff53fb",
   "notes": [
-    "Prevent crashes while players update Apex Hunt quest markers on different maps",
-    "Thin Human and Leper Troll characters retain their starting data after updates",
-    "Companions avoid rejected names and recover from forced rename login failures",
-    "Updated SQUID Playerbots to 2.8.2",
+    "Server startup waits for ports that Windows is still releasing",
+    "Normal Classic dungeons retain their authored damage at full party size",
+    "Companions avoid repeating unreachable routes in the open world",
     "Updated the reviewed CoA upstream snapshot"
-  ]
+  ],
+  "dungeon-clear": "9a9d09cf512e0a883af9cda6973445b81c123b13"
 }

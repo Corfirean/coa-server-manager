@@ -1255,6 +1255,27 @@ mod tests {
     }
 
     #[test]
+    fn dungeon_clear_requires_squid_and_stays_off_after_squid_is_reenabled() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path();
+        fs::create_dir_all(dir(root)).unwrap();
+        fs::write(dir(root).join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
+        fs::write(dir(root).join("mod_coa_playerbots.conf"), "CoaBots.Enable = 0\n").unwrap();
+        let dungeon = dir(root).join("mod_dungeon_clear.conf");
+        fs::write(&dungeon, "DungeonClear.Enable = 0\n").unwrap();
+        let cat = catalog();
+        assert!(set_enabled_in(&cat, root, root, "dungeon-clear", true).is_err());
+        assert!(!list_in(&cat, root).iter().find(|entry| entry.id == "dungeon-clear").unwrap().switchable);
+        set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
+        set_enabled_in(&cat, root, root, "dungeon-clear", true).unwrap();
+        assert!(read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
+        set_enabled_in(&cat, root, root, "playerbots", false).unwrap();
+        assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
+        set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
+        assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
+    }
+
+    #[test]
     fn bot_systems_are_mutually_exclusive_in_both_directions_and_manual_configs() {
         let d = tempfile::tempdir().unwrap();
         let root = d.path();
@@ -1921,26 +1942,5 @@ mod tests {
         set_enabled_in(&cat, &root, &meta, "npc-buffer", false).unwrap();
         let conf_content = fs::read_to_string(dir(&root).join("npc_buffer.conf")).unwrap();
         assert!(conf_content.contains("NpcBuffer.Enable = 0"));
-    }
-
-    #[test]
-    fn dungeon_clear_requires_squid_and_stays_off_after_squid_is_reenabled() {
-        let d = tempfile::tempdir().unwrap();
-        let root = d.path();
-        fs::create_dir_all(dir(root)).unwrap();
-        fs::write(dir(root).join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
-        fs::write(dir(root).join("mod_coa_playerbots.conf"), "CoaBots.Enable = 0\n").unwrap();
-        let dungeon = dir(root).join("mod_dungeon_clear.conf");
-        fs::write(&dungeon, "DungeonClear.Enable = 0\n").unwrap();
-        let cat = catalog();
-        assert!(set_enabled_in(&cat, root, root, "dungeon-clear", true).is_err());
-        assert!(!list_in(&cat, root).iter().find(|entry| entry.id == "dungeon-clear").unwrap().switchable);
-        set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
-        set_enabled_in(&cat, root, root, "dungeon-clear", true).unwrap();
-        assert!(read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
-        set_enabled_in(&cat, root, root, "playerbots", false).unwrap();
-        assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
-        set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
-        assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
     }
 }

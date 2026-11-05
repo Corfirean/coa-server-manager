@@ -41,6 +41,24 @@ struct Saved {
     sha256: Option<String>,
 }
 
+fn bot_files() -> Vec<String> {
+    ["", ".realms/secondary/", ".realms/reborn/"]
+        .into_iter()
+        .flat_map(|prefix| {
+            [
+                "mod_coa_playerbots.conf",
+                "mod_coa_playerbots.conf.dist",
+                "playerbots.conf",
+                "playerbots.conf.dist",
+                "mod_playerbots.conf",
+                "mod_playerbots.conf.dist",
+            ]
+            .into_iter()
+            .map(move |name| format!("{prefix}Core/configs/modules/{name}"))
+        })
+        .collect()
+}
+
 pub(crate) fn pending(meta: &Path) -> bool {
     meta.join("validation-configs.json").exists()
 }
@@ -52,15 +70,20 @@ pub(crate) fn begin(root: &Path, meta: &Path) -> Result<()> {
         ));
     }
     let mut saved = BTreeMap::new();
-    for rel in FILES {
-        let path = fsx::ensure_within(root, &fsx::safe_join(root, rel)?)?;
+    let modules = bot_files();
+    for rel in FILES
+        .iter()
+        .map(|rel| rel.to_string())
+        .chain(modules.iter().cloned())
+    {
+        let path = fsx::ensure_within(root, &fsx::safe_join(root, &rel)?)?;
         let bytes = if path.exists() {
             Some(fs::read(path)?)
         } else {
             None
         };
         let sha256 = bytes.as_ref().map(|b| fsx::sha256_bytes(b));
-        saved.insert(*rel, Saved { bytes, sha256 });
+        saved.insert(rel, Saved { bytes, sha256 });
     }
     let mut settings: serde_json::Value = fsx::read_json(&root.join("Settings/repack.json"))?;
     let mut realm: Option<serde_json::Value> = if root.join("Settings/realm-profile.json").exists()
@@ -101,14 +124,14 @@ pub(crate) fn begin(root: &Path, meta: &Path) -> Result<()> {
         }
     }
     let mut configs = Vec::new();
-    for rel in [
-        "Settings/worldserver.conf.template",
-        "Settings/authserver.conf.template",
-        "Core/configs/worldserver.conf",
-        "Core/configs/authserver.conf",
-    ] {
+    for rel in FILES.iter().copied().filter(|rel| {
+        rel.ends_with("worldserver.conf.template")
+            || rel.ends_with("authserver.conf.template")
+            || rel.ends_with("worldserver.conf")
+            || rel.ends_with("authserver.conf")
+    }) {
         let path = root.join(rel);
-        if !path.exists() && rel.ends_with(".template") {
+        if !path.exists() && rel.ends_with(".template") && !rel.starts_with(".realms/") {
             return Err(Error::Invalid(format!(
                 "Cannot isolate validation without {rel}."
             )));
@@ -118,9 +141,33 @@ pub(crate) fn begin(root: &Path, meta: &Path) -> Result<()> {
             conf.set("BindIP", "\"127.0.0.1\"", &[]);
             if rel.contains("worldserver") {
                 conf.set("Ra.IP", "\"127.0.0.1\"", &[]);
+                conf.set("CoA.ValidationMode", "1", &[]);
             }
             configs.push((path, conf.to_text()));
         }
+    }
+    for rel in modules {
+        let path = fsx::ensure_within(root, &fsx::safe_join(root, &rel)?)?;
+        if !path.exists() {
+            continue;
+        }
+        let mut conf = ConfFile::parse_bytes(&fs::read(&path)?)?;
+        let keys: &[&str] = if rel.contains("mod_coa_playerbots.") {
+            &[
+                "CoaBots.AutoLoginOnStartup",
+                "CoaBots.RandomSpawn.AutoLogin",
+            ]
+        } else {
+            &[
+                "AiPlayerbot.RandomBotAutologin",
+                "AiPlayerbot.BotAutologin",
+                "AiPlayerbot.DeleteRandomBotAccounts",
+            ]
+        };
+        for key in keys {
+            conf.set(key, "0", &[]);
+        }
+        configs.push((path, conf.to_text()));
     }
     fsx::atomic_write_json(&meta.join("validation-configs.json"), &saved)?;
     fsx::atomic_write_json(&root.join("Settings/repack.json"), &settings)?;
@@ -139,16 +186,20 @@ pub(crate) fn restore(root: &Path, meta: &Path) -> Result<()> {
     }
     let journal = meta.join("validation-configs.json");
     let saved: BTreeMap<String, Saved> = fsx::read_json(&journal)?;
-    // Previous managers could journal only the first two profiles. Recover those
-    // journals too, while continuing to reject missing or unknown legacy entries.
-    let legacy = saved.len() == FILES.len() - 1
+    let modules = bot_files();
+    let complete_core = FILES.iter().all(|rel| saved.contains_key(*rel));
+    let legacy_core = FILES
+        .iter()
+        .filter(|rel| **rel != "Settings/realm-profiles/reborn.json")
+        .all(|rel| saved.contains_key(*rel));
+    let current = complete_core
+        && saved.len() == FILES.len() + modules.len()
+        && modules.iter().all(|rel| saved.contains_key(rel));
+    let previous = complete_core && saved.len() == FILES.len();
+    let legacy = legacy_core
+        && saved.len() == FILES.len() - 1
         && !saved.contains_key("Settings/realm-profiles/reborn.json");
-    let required = if legacy {
-        &FILES[..FILES.len() - 1]
-    } else {
-        FILES
-    };
-    if saved.len() != required.len() || required.iter().any(|rel| !saved.contains_key(*rel)) {
+    if !(current || previous || legacy) {
         return Err(Error::Invalid(
             "Isolated validation configuration journal is incomplete.".into(),
         ));
@@ -262,5 +313,93 @@ mod tests {
         assert!(begin(&root, &meta).is_err());
         assert!(!pending(&meta));
         assert_eq!(fs::read(root.join(FILES[0])).unwrap(), before);
+    }
+
+    #[test]
+    fn bot_population_is_suppressed_in_all_realms_and_restored_exactly() {
+        let (_dir, root, meta) = fixture();
+        let companion = b"[worldserver]\r\n# owner settings\r\nCoaBots.Enable = 1\r\nCoaBots.AutoLoginOnStartup = 1\r\nCoaBots.RandomSpawn.AutoLogin = 1\r\nCoaBots.AutoLogin.MaxCount = 2000\r\n";
+        let squid = b"[worldserver]\nAiPlayerbot.Enabled = 1\nAiPlayerbot.RandomBotAutologin = 1\nAiPlayerbot.BotAutologin = 1\nAiPlayerbot.DeleteRandomBotAccounts = 1\n";
+        for rel in bot_files() {
+            fsx::atomic_write(
+                &root.join(&rel),
+                if rel.contains("mod_coa_playerbots.") {
+                    companion
+                } else {
+                    squid
+                },
+            )
+            .unwrap();
+        }
+        begin(&root, &meta).unwrap();
+        for rel in bot_files() {
+            let conf = ConfFile::parse_bytes(&fs::read(root.join(&rel)).unwrap()).unwrap();
+            if rel.contains("mod_coa_playerbots.") {
+                assert_eq!(conf.get("CoaBots.Enable"), Some("1"));
+                assert_eq!(conf.get("CoaBots.AutoLoginOnStartup"), Some("0"));
+                assert_eq!(conf.get("CoaBots.RandomSpawn.AutoLogin"), Some("0"));
+                assert_eq!(conf.get("CoaBots.AutoLogin.MaxCount"), Some("2000"));
+            } else {
+                assert_eq!(conf.get("AiPlayerbot.Enabled"), Some("1"));
+                assert_eq!(conf.get("AiPlayerbot.RandomBotAutologin"), Some("0"));
+                assert_eq!(conf.get("AiPlayerbot.BotAutologin"), Some("0"));
+                assert_eq!(conf.get("AiPlayerbot.DeleteRandomBotAccounts"), Some("0"));
+            }
+        }
+        restore(&root, &meta).unwrap();
+        for rel in bot_files() {
+            assert_eq!(
+                fs::read(root.join(&rel)).unwrap(),
+                if rel.contains("mod_coa_playerbots.") {
+                    companion.as_slice()
+                } else {
+                    squid.as_slice()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn validation_removes_only_module_configs_created_during_the_check() {
+        let (_dir, root, meta) = fixture();
+        let dist = root.join("Core/configs/modules/mod_coa_playerbots.conf.dist");
+        let active = root.join("Core/configs/modules/mod_coa_playerbots.conf");
+        let original = b"CoaBots.AutoLoginOnStartup = 1\n";
+        fsx::atomic_write(&dist, original).unwrap();
+        begin(&root, &meta).unwrap();
+        fs::copy(&dist, &active).unwrap();
+        restore(&root, &meta).unwrap();
+        assert!(!active.exists());
+        assert_eq!(fs::read(dist).unwrap(), original);
+    }
+
+    #[test]
+    fn previous_manager_journals_remain_recoverable() {
+        for without_reborn in [false, true] {
+            let (_dir, root, meta) = fixture();
+            begin(&root, &meta).unwrap();
+            let journal = meta.join("validation-configs.json");
+            let mut saved: BTreeMap<String, Saved> = fsx::read_json(&journal).unwrap();
+            saved.retain(|key, _| FILES.contains(&key.as_str()));
+            if without_reborn {
+                saved.remove("Settings/realm-profiles/reborn.json");
+            }
+            fsx::atomic_write_json(&journal, &saved).unwrap();
+            restore(&root, &meta).unwrap();
+            assert!(!pending(&meta));
+        }
+    }
+
+    #[test]
+    fn incomplete_bot_journal_blocks_restoration_before_writing() {
+        let (_dir, root, meta) = fixture();
+        begin(&root, &meta).unwrap();
+        let journal = meta.join("validation-configs.json");
+        let mut saved: BTreeMap<String, Saved> = fsx::read_json(&journal).unwrap();
+        saved.remove(&bot_files()[0]);
+        fsx::atomic_write_json(&journal, &saved).unwrap();
+        let before = fs::read(root.join(FILES[2])).unwrap();
+        assert!(restore(&root, &meta).is_err());
+        assert_eq!(fs::read(root.join(FILES[2])).unwrap(), before);
     }
 }

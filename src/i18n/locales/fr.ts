@@ -1085,6 +1085,13 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "stop.forceWarning": "La progression non enregistrée peut être perdue. Seuls les processus vérifiés de ce serveur seront arrêtés. La base de données reste active jusqu’à l’arrêt de tous les mondes.",
   "stop.cancel": "Annuler",
 
+  "serverLogs.title": "Journaux du serveur",
+  "serverLogs.description": "Choisissez la journalisation du monde et du serveur de connexion. Les changements prennent effet après un redémarrage. La configuration précédente est sauvegardée dans les instantanés des paramètres.",
+  "serverLogs.normal": "Normaux",
+  "serverLogs.errors": "Erreurs uniquement",
+  "serverLogs.off": "Désactivés",
+  "serverLogs.saved": "Enregistré. Redémarrez le serveur pour appliquer.",
+  "mod.requiresSquid": "Activez les bots SQUID pour utiliser Dungeon Clear.",
 };
 
 export default fr;

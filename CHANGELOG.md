@@ -8,6 +8,12 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.9 — 2026-11-04
+
+- Update and recovery checks use the temporary login port even with a Windows override.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.9) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.8...v0.9.9)
+
 ## 0.9.8 — 2026-11-01
 
 - Dungeon Clear can be enabled when SQUID bots are active.

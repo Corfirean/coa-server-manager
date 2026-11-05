@@ -1087,6 +1087,13 @@ const zh = {
   "stop.forceWarning": "玩家未保存的进度可能丢失。只会停止经验证属于此服务器的进程。所有世界停止后才会关闭数据库。",
   "stop.cancel": "取消",
 
+  "serverLogs.title": "服务器日志",
+  "serverLogs.description": "选择游戏世界和登录服务器的日志模式。重启服务器后生效。原配置会保存在设置快照中。",
+  "serverLogs.normal": "普通",
+  "serverLogs.errors": "仅错误",
+  "serverLogs.off": "关闭",
+  "serverLogs.saved": "已保存。重启服务器后生效。",
+  "mod.requiresSquid": "请先启用 SQUID 机器人，再使用 Dungeon Clear。",
 } as const;
 
 export default zh;

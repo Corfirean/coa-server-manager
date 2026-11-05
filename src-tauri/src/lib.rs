@@ -762,6 +762,20 @@ async fn get_settings(
 }
 
 #[tauri::command]
+async fn server_logging_preset(
+    state: State<'_, AppState>,
+    id: String,
+    preset: String,
+) -> std::result::Result<(), UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let meta = meta_dir(&root)?;
+        coa_core::server_logging::apply(&root, &meta, &preset)
+    }).await
+}
+
+#[tauri::command]
 async fn save_settings(
     state: State<'_, AppState>,
     id: String,
@@ -3406,6 +3420,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
+            server_logging_preset,
             release_history,
             preview_toolchain_status,
             preview_install_msvc,

@@ -1085,6 +1085,13 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "stop.forceWarning": "Ungespeicherter Spielfortschritt kann verloren gehen. Nur geprüfte Prozesse dieses Servers werden beendet. Die Datenbank läuft weiter, bis alle Welten beendet sind.",
   "stop.cancel": "Abbrechen",
 
+  "serverLogs.title": "Serverprotokolle",
+  "serverLogs.description": "Protokollierung für Spielwelt und Anmeldeserver wählen. Änderungen gelten nach einem Serverneustart. Die vorherige Konfiguration wird als Einstellungssicherung gespeichert.",
+  "serverLogs.normal": "Normal",
+  "serverLogs.errors": "Nur Fehler",
+  "serverLogs.off": "Aus",
+  "serverLogs.saved": "Gespeichert. Zum Anwenden den Server neu starten.",
+  "mod.requiresSquid": "Aktivieren Sie SQUID-Bots, um Dungeon Clear zu verwenden.",
 };
 
 export default de;
