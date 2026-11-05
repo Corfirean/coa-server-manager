@@ -9,6 +9,8 @@
 //!   coa-release export-baseline --server DIR --out DIR   (the three databases of a prepared server, for a Linux package)
 //!   coa-release sign        --dir DIR        (key: env COA_SIGNING_KEY, or ~/.coa-manager/signing/manifest-signing.key)
 //!   coa-release verify      --dir DIR        (against the public keys built into this tool)
+//!   coa-release derive-preview --stable DIR --core DIR --recommended FILE --version X --core-commit SHA
+//!                           --min-manager-version X --out DIR   (Modules Preview update from a stable update)
 //!   coa-release public-key                   (public half of the signing key, to embed in the app)
 
 use std::collections::HashMap;
@@ -297,6 +299,23 @@ fn run() -> Result<(), String> {
             coa_core::release_schema::verify_package(&dir, coa_core::signing::EMBEDDED_PUBLIC_KEY)
                 .map_err(e)?;
             println!("signature, archive contents and database schema contract OK");
+        }
+        "derive-preview" => {
+            let out = PathBuf::from(need(&a, "out")?);
+            let m = coa_core::release::derive_preview_update(
+                &coa_core::release::PreviewParams {
+                    stable: std::path::Path::new(need(&a, "stable")?),
+                    core: std::path::Path::new(need(&a, "core")?),
+                    recommended: std::path::Path::new(need(&a, "recommended")?),
+                    version: need(&a, "version")?.clone(),
+                    core_commit: need(&a, "core-commit")?.clone(),
+                    min_manager_version: need(&a, "min-manager-version")?.clone(),
+                    out: &out,
+                },
+                &|s| eprintln!("{s}"),
+            )
+            .map_err(e)?;
+            println!("preview update {} ({} files) in {}", m.version, m.files.len(), out.display());
         }
         "public-key" => {
             // The public half of the signing key (COA_SIGNING_KEY or the key file), for the app to embed.

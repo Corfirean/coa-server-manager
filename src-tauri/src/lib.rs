@@ -309,7 +309,17 @@ fn installation_source(custom: Option<String>) -> Result<Source> {
             .ok()
             .filter(|value| !value.trim().is_empty())
     });
-    select_installation_source(custom, || update_source(None))
+    // A new server is installed from the qualified stable image; the preview channel publishes updates only,
+    // so the preview core arrives as the first update (the same path every existing server takes).
+    select_installation_source(custom, stable_update_source)
+}
+
+fn stable_update_source() -> Result<Source> {
+    match coa_core::channels::resolve("stable") {
+        Ok(source) => Ok(source),
+        Err(Error::PackageNotPublished(_)) => Ok(Source::Url(DEFAULT_UPDATE_URL.into())),
+        Err(error) => Err(error),
+    }
 }
 
 fn select_installation_source(

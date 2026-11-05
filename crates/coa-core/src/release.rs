@@ -572,3 +572,106 @@ mod tests {
         );
     }
 }
+
+/// Input of `derive_preview_update`: a signed stable update package and the plugin-host core built from
+/// the same core commit.
+pub struct PreviewParams<'a> {
+    /// Folder with the stable release's manifest.json, manifest.json.sig and archive parts.
+    pub stable: &'a Path,
+    /// The plugin-host build: worldserver.exe, authserver.exe, plugin-sdk.zip and the DLLs they need.
+    pub core: &'a Path,
+    /// `Core/plugins/recommended.json` for the modules the stable release had built in.
+    pub recommended: &'a Path,
+    pub version: String,
+    pub core_commit: String,
+    pub min_manager_version: String,
+    pub out: &'a Path,
+}
+
+/// The Modules Preview update: the stable package of the same core commit with the core binaries replaced
+/// by the plugin host, its SDK and the recommended modules added. Database migrations, configuration and
+/// scripts stay exactly those of the stable release, so the preview core runs on the same database.
+/// The result is unsigned; `sign_manifest` signs it with the preview key.
+pub fn derive_preview_update(p: &PreviewParams, progress: &dyn Fn(&str)) -> Result<Manifest> {
+    crate::release_schema::verify_package(p.stable, crate::signing::EMBEDDED_PUBLIC_KEY)?;
+    let stable = Manifest::parse(&fs::read(p.stable.join("manifest.json"))?)?;
+    if stable.kind != Kind::Update {
+        return Err(Error::Invalid("The stable package is not an update package.".into()));
+    }
+    let preview_tuple = crate::manifest::parse_version(&p.version);
+    if preview_tuple.is_none() || preview_tuple <= crate::manifest::parse_version(&stable.version) {
+        return Err(Error::Invalid(format!(
+            "Preview version {} must be newer than the stable version {} it is made from.",
+            p.version, stable.version
+        )));
+    }
+    let work = p.out.with_file_name(format!("{}-staging", p.out.file_name().unwrap().to_string_lossy()));
+    let _ = fs::remove_dir_all(&work);
+    fs::create_dir_all(&work)?;
+    progress("Unpacking the stable package");
+    package::extract(p.stable, &stable, &work, &|_, _| {})?;
+
+    // The plugin host replaces the monolithic core; everything it ships next to the exe goes to Core/.
+    let mut replaced = 0;
+    for entry in fs::read_dir(p.core)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let lower = name.to_ascii_lowercase();
+        if !entry.path().is_file() || !(lower.ends_with(".exe") || lower.ends_with(".dll") || lower == "plugin-sdk.zip") {
+            continue;
+        }
+        fs::copy(entry.path(), fsx::safe_join(&work, &format!("Core/{name}"))?)?;
+        replaced += 1;
+    }
+    for required in ["Core/worldserver.exe", "Core/authserver.exe", "Core/plugin-sdk.zip"] {
+        if !fsx::safe_join(&work, required)?.is_file() {
+            return Err(Error::Invalid(format!("The plugin-host core has no {required}.")));
+        }
+    }
+    let host = crate::provenance::file_abi_fingerprint(&work.join("Core/worldserver.exe"))
+        .ok_or_else(|| Error::Invalid("Core/worldserver.exe is not a plugin host (no ABI fingerprint).".into()))?;
+    let rec: crate::rebuild::Recommended = serde_json::from_slice(&fs::read(p.recommended)?)
+        .map_err(|e| Error::Invalid(format!("recommended.json: {e}")))?;
+    if rec.schema != 1 {
+        return Err(Error::Invalid("recommended.json has an unknown schema.".into()));
+    }
+    let dst = fsx::safe_join(&work, "Core/plugins/recommended.json")?;
+    fs::create_dir_all(dst.parent().unwrap())?;
+    fs::copy(p.recommended, &dst)?;
+    progress(&format!("{replaced} core files replaced; plugin ABI {host}"));
+
+    let opts = BuildOptions {
+        kind: Kind::Update,
+        version: p.version.clone(),
+        core_commit: Some(p.core_commit.clone()),
+        built_at: chrono::Utc::now().to_rfc3339(),
+        part_size: package::DEFAULT_PART_SIZE,
+        bots_commit: stable.bots.as_ref().and_then(|b| b.commit.clone()),
+        migrations: stable.migrations.clone(),
+    };
+    let mut m = package::build(&work, p.out, &opts, &|s| progress(s))?;
+    m.min_manager_version = p.min_manager_version.clone();
+    m.compatibility = stable.compatibility.clone().map(|mut c| {
+        c.core_commit = p.core_commit.clone();
+        c.source_versions = vec![stable.version.clone()];
+        c.source_databases.clear();
+        c
+    });
+    fsx::atomic_write(&p.out.join("manifest.json"), serde_json::to_string_pretty(&m)?.as_bytes())?;
+    let _ = fs::remove_dir_all(&work);
+    Ok(m)
+}
+
+#[cfg(test)]
+mod preview_isolation {
+    /// Real package: COA_TEST_PREVIEW_PACKAGE is a signed preview update. The preview key accepts it, the
+    /// stable key (all a stable Manager knows) does not.
+    #[test]
+    fn a_preview_package_is_rejected_by_the_stable_key() {
+        let Ok(dir) = std::env::var("COA_TEST_PREVIEW_PACKAGE") else { return };
+        let dir = std::path::Path::new(&dir);
+        let manifest = std::fs::read(dir.join("manifest.json")).unwrap();
+        let sig = std::fs::read_to_string(dir.join("manifest.json.sig")).unwrap();
+        crate::signing::verify_exact(&manifest, &sig, crate::signing::PREVIEW_PUBLIC_KEY).unwrap();
+        assert!(crate::signing::verify_exact(&manifest, &sig, crate::signing::EMBEDDED_PUBLIC_KEY).is_err());
+    }
+}
