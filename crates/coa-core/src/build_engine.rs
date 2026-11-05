@@ -507,6 +507,12 @@ fn sha256_of_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Directories of a module repository that are never compiled into its plugin.
+pub(crate) fn is_unbuilt_dir(name: &str) -> bool {
+    matches!(name.to_ascii_lowercase().as_str(),
+        "tests" | "test" | "stubs" | "stub" | "pilot" | "tools" | "build" | ".git" | ".github" | "cmake")
+}
+
 /// Recursively collects all files with specified extension, skipping non-module directories.
 fn collect_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut results = Vec::new();
@@ -515,18 +521,7 @@ fn collect_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let n_lower = name.to_ascii_lowercase();
-                if n_lower == "tests"
-                    || n_lower == "test"
-                    || n_lower == "stubs"
-                    || n_lower == "stub"
-                    || n_lower == "pilot"
-                    || n_lower == "tools"
-                    || n_lower == "build"
-                    || n_lower == ".git"
-                    || n_lower == ".github"
-                    || n_lower == "cmake"
-                {
+                if is_unbuilt_dir(name) {
                     continue;
                 }
                 results.extend(collect_files_with_ext(&path, ext));
@@ -977,9 +972,17 @@ pub fn build_module_with_bundle(
         let tree = if root.join("src").is_dir() { root.join("src") } else { root.clone() };
         trees.push((tree, staging_src.join("bundle").join(n.to_string())));
     }
+    // A bundled tree inside the primary one (Content Scaling keeps its packs in content-packs/) is
+    // compiled once, as the bundle: compiling it with the primary tree too defines its symbols twice.
+    let bundled_roots: Vec<PathBuf> = bundled.iter().map(|b| b.canonicalize().unwrap_or_else(|_| b.clone())).collect();
+    let in_bundle = |f: &Path| {
+        let f = f.canonicalize().unwrap_or_else(|_| f.to_path_buf());
+        bundled_roots.iter().any(|b| f.starts_with(b))
+    };
     let mut source_count = 0;
-    for (tree, dest_root) in &trees {
-        let cpps = collect_files_with_ext(tree, "cpp");
+    for (n, (tree, dest_root)) in trees.iter().enumerate() {
+        let cpps: Vec<PathBuf> = collect_files_with_ext(tree, "cpp").into_iter()
+            .filter(|f| n > 0 || !in_bundle(f)).collect();
         if cpps.is_empty() {
             return Err(Error::Invalid(format!("No C++ (.cpp) source files found in '{}'", tree.display())));
         }
@@ -1551,31 +1554,42 @@ mod tests {
         let _ = fs::remove_dir_all(&dc);
     }
 
-    /// A core from CI (worldserver.exe + plugin-sdk.zip, nothing else) and a PC with that core's MSVC:
-    /// the manager unpacks the bundled SDK, picks the pinned toolset among the installed ones, and
-    /// builds SQUID + Dungeon Clear into a DLL this worldserver.exe accepts.
+    /// A core from CI (worldserver.exe + plugin-sdk.zip, nothing else, in COA_TEST_CI_REALM) and a PC
+    /// with that core's MSVC: the manager unpacks the bundled SDK, picks the pinned toolset among the
+    /// installed ones, and builds Companions, Content Scaling with its packs, and SQUID with Dungeon
+    /// Clear into DLLs this worldserver.exe accepts. Sources: COA_TEST_SRC_{COMPANIONS,SCALING,SQUID,DC}.
     #[test]
-    fn ci_core_builds_the_dungeon_clear_bundle_with_the_pinned_compiler() {
+    fn ci_core_builds_the_preview_modules_with_the_pinned_compiler() {
         let _turn = real_build_turn();
-        let squid = Path::new("C:/Users/Dion/AppData/Local/CSMModulesPreview/github_cache/github/Zyth45/mod-playerbots/3f916d45a4b55ce919bf69fee4a4ec75be12cffe");
-        let dc = Path::new("C:/games/coa-work/module-compat-lab/mod-dungeon-clear/src");
-        let realm_root = Path::new("C:/games/coa-work/plugin-spike/server-ci");
-        if !squid.exists() || !dc.exists() || !realm_root.join("plugin-sdk.zip").is_file() {
-            return;
-        }
-        let tc = detect_toolchain_for(Some(realm_root));
+        let var = |k: &str| std::env::var(k).ok().map(PathBuf::from).filter(|p| p.exists());
+        let Some(realm_root) = var("COA_TEST_CI_REALM") else { return };
+        let tc = detect_toolchain_for(Some(&realm_root));
         eprintln!("toolchain: {:?}", tc);
         assert!(tc.ready, "{}", tc.diagnostic_message);
         assert_eq!(tc.msvc_cl_version, tc.required_cl_version, "the SDK's compiler must be chosen");
+        let host_fp = crate::provenance::realm_host_fingerprint(&realm_root).unwrap();
 
-        let staging = std::env::temp_dir().join("tsci");
-        let _ = fs::remove_dir_all(&staging);
-        let res = build_module_with_bundle(squid, &[dc.to_path_buf()], realm_root, Some(&staging), None)
-            .unwrap_or_else(|e| panic!("bundle build failed: {}", e));
-        assert!(res.success, "bundle build must succeed: {:?}", res.errors);
-        let host_fp = crate::provenance::realm_host_fingerprint(realm_root).unwrap();
-        assert_eq!(res.abi_fingerprint.as_deref(), Some(host_fp.as_str()));
-        eprintln!("built {} in {:.0} s, fingerprint {}", res.dll_path.unwrap_or_default(), res.duration_seconds, host_fp);
+        let mut jobs: Vec<(&str, PathBuf, Vec<PathBuf>)> = Vec::new();
+        if let Some(c) = var("COA_TEST_SRC_COMPANIONS") { jobs.push(("companions", c, vec![])); }
+        if let Some(s) = var("COA_TEST_SRC_SCALING") {
+            let packs = ["mod-coa-tbc-content", "mod-coa-wotlk-content"].iter().map(|p| s.join("content-packs").join(p)).collect();
+            jobs.push(("content-scaling", s, packs));
+        }
+        if let (Some(sq), Some(dc)) = (var("COA_TEST_SRC_SQUID"), var("COA_TEST_SRC_DC")) { jobs.push(("squid+dungeon-clear", sq, vec![dc])); }
+        assert!(!jobs.is_empty(), "no module sources given");
+
+        let mut failed = Vec::new();
+        for (name, src, bundled) in &jobs {
+            let staging = std::env::temp_dir().join(format!("tci-{}", &name[..3]));
+            match build_module_with_bundle(src, bundled, &realm_root, Some(&staging), None) {
+                Ok(r) if r.success && r.abi_fingerprint.as_deref() == Some(host_fp.as_str()) =>
+                    eprintln!("OK   {}: {} in {:.0} s", name, r.dll_path.unwrap_or_default(), r.duration_seconds),
+                Ok(r) => { eprintln!("FAIL {}: {:?}", name, r.errors); failed.push(*name); }
+                Err(e) => { eprintln!("FAIL {}: {}", name, e); failed.push(*name); }
+            }
+        }
+        eprintln!("host fingerprint {}", host_fp);
+        assert!(failed.is_empty(), "failed: {:?}", failed);
     }
 
     #[test]

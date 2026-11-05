@@ -483,13 +483,18 @@ pub fn analyze_repository_with_contract(repo_path: &Path, contract: &SdkExportCo
                     has_entrypoint_adapter = true;
                 }
 
+                // A loader in a directory the build skips (tests, a reference pilot) is not a candidate:
+                // the plugin would call a function that is never compiled.
+                let built = !rel_path.split('/').rev().skip(1).any(crate::build_engine::is_unbuilt_dir);
+                let mut skipped_loaders = Vec::new();
+                let mut skipped_calls = std::collections::HashMap::new();
                 audit_cpp_file(
                     rel_path,
                     &content,
                     contract,
                     &mut hooks,
-                    &mut all_loaders,
-                    &mut loader_call_map,
+                    if built { &mut all_loaders } else { &mut skipped_loaders },
+                    if built { &mut loader_call_map } else { &mut skipped_calls },
                     &mut databases,
                     &mut findings,
                 );
