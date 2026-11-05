@@ -9,7 +9,7 @@ export interface RemoteConnection { host: string; client_path: string | null }
 /** What an update did to an installed plugin on the new core (coa-core rebuild::ModuleRebuild). */
 export type ModuleRebuild =
   | { result: "upToDate" | "reused"; id: string }
-  | { result: "rebuilt"; id: string; seconds: number }
+  | { result: "rebuilt" | "installed"; id: string; seconds: number }
   | { result: "disabled"; id: string; reason: string; also: string[] };
 
 export type Classification = "healthy" | "partial" | "unknown-custom" | "incompatible";

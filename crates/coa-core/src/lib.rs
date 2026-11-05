@@ -43,6 +43,7 @@ pub mod logging;
 pub mod manifest;
 pub mod migrations;
 pub mod modules;
+pub mod module_sources;
 pub mod msvc_setup;
 pub mod multiworld;
 mod mysql_snapshot;

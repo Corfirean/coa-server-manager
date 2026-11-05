@@ -3380,6 +3380,8 @@ static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
+    // Module sources fetched during updates land in the same cache as those the Modules page fetches.
+    coa_core::rebuild::set_source_cache(dir.join("github_cache"));
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show_main_window(app)

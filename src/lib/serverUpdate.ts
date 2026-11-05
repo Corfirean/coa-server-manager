@@ -106,7 +106,7 @@ export async function applyServerUpdate(id: string, opts?: { choices: Record<str
   try {
     const out = await api.applyUpdate(id, opts?.choices ?? {}, opts?.source);
     const mods = out.modules ?? [];
-    const rebuilt = mods.filter((m) => m.result === "rebuilt" || m.result === "reused").map((m) => m.id);
+    const rebuilt = mods.filter((m) => m.result === "rebuilt" || m.result === "reused" || m.result === "installed").map((m) => m.id);
     const off = mods.flatMap((m) => m.result === "disabled" ? [{ id: m.id, reason: m.reason }, ...m.also.map((a) => ({ id: a, reason: m.reason }))] : []);
     set(id, { result: out.txn.state === "committed" ? { committed: out.txn.to_version ?? "", ...(out.preexisting_character_count ? { preexistingCharacters: out.preexisting_character_count } : {}), ...(rebuilt.length ? { modulesRebuilt: rebuilt } : {}), ...(off.length ? { modulesOff: off } : {}) } : { pending: out.txn } });
     if (out.txn.state === "committed" && !wasRunning && !startAfterUpdate("server", id)) await api.stop(id).catch(() => undefined);
