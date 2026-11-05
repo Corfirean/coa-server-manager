@@ -455,6 +455,14 @@ fn remove_unstaged(dir: &Path, keep: &std::collections::HashSet<PathBuf>) -> Res
 }
 
 /// The plugin id an analyzer-generated adapter declares.
+/// `adapter_source` with the id in its COA_PLUGIN_DEFINE replaced by `plugin_id`.
+fn with_plugin_id(adapter_source: &str, plugin_id: &str) -> String {
+    match adapter_plugin_id(adapter_source) {
+        Some(old) => adapter_source.replacen(&format!("COA_PLUGIN_DEFINE(\"{old}\""), &format!("COA_PLUGIN_DEFINE(\"{plugin_id}\""), 1),
+        None => adapter_source.to_string(),
+    }
+}
+
 fn adapter_plugin_id(adapter_source: &str) -> Option<String> {
     let marker = "COA_PLUGIN_DEFINE(\"";
     let start = adapter_source.find(marker)? + marker.len();
@@ -962,9 +970,11 @@ pub fn build_module_with_bundle(
             }
         }
     }
-    let plugin_id = adapter_plugin_id(&adapter_source).unwrap_or_else(|| module_id.clone());
+    // The id inside the DLL is the one the registry and the plugin lock use: the core refuses a plugin
+    // whose .coapl id differs from its lock entry.
+    let plugin_id = module_id.clone();
     let adapter_source = lifecycle_adapter(&module_id, &plugin_id, &canonical_loader, &bundled_loaders)
-        .unwrap_or(adapter_source);
+        .unwrap_or_else(|| with_plugin_id(&adapter_source, &plugin_id));
 
     // 2. Prepare the persistent staging directory
     let default_staging = realm_root.join(".manager").join("build-cache").join(&module_id);
@@ -1199,6 +1209,13 @@ if errorlevel 1 exit /b 103
         return Err(Error::Invalid(format!(
             "Generated DLL carries ABI fingerprint {} but the SDK is {}",
             dll_fingerprint, host_abi_fingerprint
+        )));
+    }
+
+    let section = format!("COAPLUGIN1|{}|{}", module_id, dll_fingerprint);
+    if !dll_bytes.windows(section.len()).any(|w| w == section.as_bytes()) {
+        return Err(Error::Invalid(format!(
+            "Generated DLL does not identify itself as plugin '{}' (the core would refuse it)", module_id
         )));
     }
 
