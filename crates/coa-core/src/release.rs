@@ -649,7 +649,12 @@ pub fn derive_preview_update(p: &PreviewParams, progress: &dyn Fn(&str)) -> Resu
         migrations: stable.migrations.clone(),
     };
     let mut m = package::build(&work, p.out, &opts, &|s| progress(s))?;
-    m.min_manager_version = p.min_manager_version.clone();
+    // Never below what the stable content itself needs.
+    m.min_manager_version = if crate::manifest::parse_version(&stable.min_manager_version) > crate::manifest::parse_version(&p.min_manager_version) {
+        stable.min_manager_version.clone()
+    } else {
+        p.min_manager_version.clone()
+    };
     m.compatibility = stable.compatibility.clone().map(|mut c| {
         c.core_commit = p.core_commit.clone();
         c.source_versions = vec![stable.version.clone()];
