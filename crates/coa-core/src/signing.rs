@@ -9,7 +9,31 @@ use crate::error::{Error, Result};
 /// Public key baked into the application (private half lives only with the release maintainer / CI secret).
 pub const EMBEDDED_PUBLIC_KEY: &str = include_str!("../../../keys/manifest-signing.pub");
 
+/// The Modules Preview's own key: preview packages and the preview channel are signed with it, so a
+/// stable Manager (which knows only the key above) never accepts them. The preview Manager trusts both,
+/// because it starts from stable servers and stable packages.
+pub const PREVIEW_PUBLIC_KEY: &str = include_str!("../../../keys/preview-signing.pub");
+
+/// Checks `sig_b64` against `public_key_b64`; the embedded key stands for both keys this app trusts.
 pub fn verify(manifest_bytes: &[u8], sig_b64: &str, public_key_b64: &str) -> Result<()> {
+    let first = verify_exact(manifest_bytes, sig_b64, public_key_b64);
+    if first.is_err() && public_key_b64.trim() == EMBEDDED_PUBLIC_KEY.trim() {
+        return verify_exact(manifest_bytes, sig_b64, PREVIEW_PUBLIC_KEY).map_err(|_| first.unwrap_err());
+    }
+    first
+}
+
+/// The public half (base64) of a base64 Ed25519 seed.
+pub fn public_key_of(seed_b64: &str) -> Result<String> {
+    let seed: [u8; 32] = STANDARD
+        .decode(seed_b64.trim())
+        .map_err(|_| Error::Invalid("signing key is not base64".into()))?
+        .try_into()
+        .map_err(|_| Error::Invalid("signing key has the wrong length".into()))?;
+    Ok(STANDARD.encode(ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key().to_bytes()))
+}
+
+pub fn verify_exact(manifest_bytes: &[u8], sig_b64: &str, public_key_b64: &str) -> Result<()> {
     let bad = |m: &str| Error::InvalidManifest(format!("signature: {m}"));
     let key: [u8; 32] = STANDARD
         .decode(public_key_b64.trim())

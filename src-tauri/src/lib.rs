@@ -275,9 +275,15 @@ fn update_source(custom: Option<String>) -> Result<Source> {
     match pick {
         Some(p) if p.to_ascii_lowercase().starts_with("http") => Ok(Source::Url(p)),
         Some(p) => Ok(Source::Dir(PathBuf::from(p))),
-        None => match coa_core::channels::resolve("stable") {
+        // The Modules Preview follows its own signed channel; until the first preview release exists it
+        // falls back to the stable channel (a stable server is where every preview server starts).
+        None => match coa_core::channels::resolve("preview") {
             Ok(source) => Ok(source),
-            Err(Error::PackageNotPublished(_)) => Ok(Source::Url(DEFAULT_UPDATE_URL.into())),
+            Err(Error::PackageNotPublished(_)) => match coa_core::channels::resolve("stable") {
+                Ok(source) => Ok(source),
+                Err(Error::PackageNotPublished(_)) => Ok(Source::Url(DEFAULT_UPDATE_URL.into())),
+                Err(error) => Err(error),
+            },
             Err(error) => Err(error),
         },
     }

@@ -8,7 +8,8 @@
 //!   coa-release clean-base  --repack DIR --core DIR --tree DIR --out DIR [--bots DIR] [--data DIR]
 //!   coa-release export-baseline --server DIR --out DIR   (the three databases of a prepared server, for a Linux package)
 //!   coa-release sign        --dir DIR        (key: env COA_SIGNING_KEY, or ~/.coa-manager/signing/manifest-signing.key)
-//!   coa-release verify      --dir DIR        (against the public key built into this tool)
+//!   coa-release verify      --dir DIR        (against the public keys built into this tool)
+//!   coa-release public-key                   (public half of the signing key, to embed in the app)
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -297,12 +298,16 @@ fn run() -> Result<(), String> {
                 .map_err(e)?;
             println!("signature, archive contents and database schema contract OK");
         }
+        "public-key" => {
+            // The public half of the signing key (COA_SIGNING_KEY or the key file), for the app to embed.
+            println!("{}", coa_core::signing::public_key_of(&signing_key()?).map_err(e)?);
+        }
         "sign-channel" => {
             let pointer = coa_core::channels::Pointer {
                 schema: 1,
                 channel: need(&a, "channel")?.clone(),
                 version: need(&a, "version")?.clone(),
-                release_tag: format!("server-{}", need(&a, "version")?),
+                release_tag: coa_core::channels::release_tag(need(&a, "channel")?, need(&a, "version")?),
                 snapshot: need(&a, "snapshot")?.clone(),
             };
             let bytes = coa_core::channels::sign(&pointer, &signing_key()?).map_err(e)?;
