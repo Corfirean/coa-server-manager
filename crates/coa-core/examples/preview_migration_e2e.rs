@@ -114,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let text = std::fs::read_to_string(&conf)?;
     println!("after:  {after}");
     println!("setting kept: {}", text.lines().any(|l| l.trim() == changed));
-    for p in ["Core/plugins/plugins.lock", "Core/plugins/plugins.lock.json", "Core/logs/plugin-boot-report.json", "Core/Logs/plugin-boot-report.json"] {
+    for p in ["Core/plugins/plugins.lock", "Core/plugins/plugin-boot-report.json"] {
         if let Ok(t) = std::fs::read_to_string(root.join(p)) {
             println!("--- {p}\n{t}");
         }
