@@ -54,11 +54,12 @@ fn break_module(root: &Path, id: &str) -> Result<(), Box<dyn std::error::Error>>
     let recipe_path = coa_core::plugins::meta_dir(root).join("build-recipes").join(format!("{id}.json"));
     let mut recipe: serde_json::Value = serde_json::from_slice(&std::fs::read(&recipe_path)?)?;
     let src = PathBuf::from(recipe["source_dir"].as_str().ok_or("recipe has no source_dir")?);
-    // Short path on purpose (Ninja's path limit), next to the fixture, never inside the shared cache.
-    let broken = root.parent().unwrap().join(format!("brk-{id}"));
-    assert!(!broken.exists(), "{} already exists", broken.display());
-    copy_dir(&src, &broken)?;
-    let cpp = first_cpp(&broken.join("src")).ok_or("no .cpp in the module sources")?;
+    // Next to the fixture, never inside the shared cache. Same <repo>/<commit> tail as the cache, because the
+    // manager reads the module's identity from it: the build itself must be what fails.
+    let tail: PathBuf = src.components().rev().take(2).collect::<Vec<_>>().into_iter().rev().collect();
+    let broken = root.parent().unwrap().join("brk").join(tail);
+    copy_dir(&src, &broken)?; // a fresh copy over any earlier one
+    let cpp = ["src", "module/src"].iter().find_map(|d| first_cpp(&broken.join(d))).ok_or("no .cpp in the module sources")?;
     let text = std::fs::read_to_string(&cpp)?;
     std::fs::write(&cpp, format!("#error coa e2e: this module deliberately does not build\n{text}"))?;
     println!("broke {id}: {} (recipe now -> {})", cpp.display(), broken.display());
@@ -125,6 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let line = shown.iter().find(|m| m.contains(&format!("\"{id}\""))).cloned().unwrap_or_default();
         if broken.as_deref() == Some(id.as_str()) {
             assert!(line.starts_with("Disabled") && !e.enabled && e.disabled_reason.is_some(), "{id} must be switched off with a reason: {line}");
+            assert!(line.contains("does not build"), "{id} must be switched off because it does not build: {line}");
             assert!(!lock_after.contains(&format!("{id}|")), "{id} is still in plugins.lock");
         } else if lock_before.contains(&format!("{id}|")) {
             assert!(line.starts_with("Rebuilt") || line.starts_with("Reused"), "{id} was not rebuilt for the new core: {line}");

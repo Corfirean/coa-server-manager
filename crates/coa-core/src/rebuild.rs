@@ -99,6 +99,10 @@ fn bring_up_to_date(
     let started = std::time::Instant::now();
     let built = build_engine::build_module_with_bundle(&recipe.source_dir, &recipe.bundled, realm_root, None, None)
         .map_err(|e| e.to_string())?;
+    if !built.success {
+        // Never fall through to a package left by an earlier build: that one was made for the old core.
+        return Err(build_failure_reason(&built.errors));
+    }
     if built.module_id != id {
         return Err(format!("the sources now build module '{}', not '{id}'", built.module_id));
     }
@@ -110,6 +114,18 @@ fn bring_up_to_date(
         return Err("the rebuilt module does not match the installed core".into());
     }
     Ok(ModuleRebuild::Rebuilt { id: id.to_string(), seconds: started.elapsed().as_secs() })
+}
+
+/// Why a module did not build for the new core, from the compiler's first error.
+fn build_failure_reason(errors: &[build_engine::BuildErrorDiagnostic]) -> String {
+    match errors.first() {
+        Some(e) if !e.file.is_empty() => {
+            let file = e.file.rsplit(['/', '\\']).next().unwrap_or(&e.file);
+            format!("it does not build for the new core: {} ({file}:{}, {})", first_line(&e.message), e.line, e.error_code)
+        }
+        Some(e) => format!("it does not build for the new core: {}", first_line(&e.message)),
+        None => "it does not build for the new core".into(),
+    }
 }
 
 /// The store keeps every build by content hash: find one made for `host`.
@@ -454,6 +470,23 @@ mod tests {
         }
         let lock = fs::read_to_string(plugins::lockfile_path(realm)).unwrap();
         println!("{lock}");
+    }
+
+    #[test]
+    fn a_failed_build_names_the_compiler_error() {
+        let e = build_engine::BuildErrorDiagnostic {
+            file: "C:\\brk\\src\\PlayerbotAIConfig.cpp".into(),
+            line: 1,
+            error_code: "C1189".into(),
+            message: "#error: coa e2e: this module deliberately does not build\nmore".into(),
+            explanation: None,
+            resolution: None,
+        };
+        assert_eq!(
+            build_failure_reason(&[e]),
+            "it does not build for the new core: #error: coa e2e: this module deliberately does not build (PlayerbotAIConfig.cpp:1, C1189)"
+        );
+        assert_eq!(build_failure_reason(&[]), "it does not build for the new core");
     }
 
     #[test]
