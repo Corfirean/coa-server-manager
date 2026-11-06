@@ -49,17 +49,19 @@ fn parse_counts(out: &str) -> Result<Population> {
     })
 }
 
-/// Read-only query with the game's own database account. Requires the database to be running.
+/// Read-only query with the game's own database account. Routes automatically to the active realm's characters database.
 pub fn query(root: &Path) -> Result<Population> {
-    let db = Db::from_repack(root, Account::App)?;
-    query_with(
-        &db,
-        &bot_account_prefix(root),
-        &crate::accounts::squid_bot_prefix(root),
-    )
+    let mode = crate::realms::state(root)
+        .map(|s| s.active)
+        .unwrap_or(crate::realms::Mode::Coa);
+    query_for_realm(root, mode)
 }
 
 fn counts_sql(prefix: &str, squid_prefix: &str) -> Result<String> {
+    counts_sql_for_db("acore_characters", prefix, squid_prefix)
+}
+
+pub fn counts_sql_for_db(chars_db: &str, prefix: &str, squid_prefix: &str) -> Result<String> {
     if [prefix, squid_prefix]
         .iter()
         .any(|prefix| prefix.is_empty() || !prefix.chars().all(|c| c.is_ascii_alphanumeric()))
@@ -74,15 +76,30 @@ fn counts_sql(prefix: &str, squid_prefix: &str) -> Result<String> {
     let bots =
         format!("(UPPER(a.username) LIKE '{prefix}%' OR UPPER(a.username) LIKE '{squid_prefix}%')");
     Ok(format!(
-        "SELECT (SELECT COUNT(*) FROM acore_characters.characters WHERE online=1), \
-                (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND {bots}), \
-                (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE {bots});"
+        "SELECT (SELECT COUNT(*) FROM {chars_db}.characters WHERE online=1), \
+                (SELECT COUNT(*) FROM {chars_db}.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND {bots}), \
+                (SELECT COUNT(*) FROM {chars_db}.characters c JOIN acore_auth.account a ON a.id=c.account WHERE {bots});"
     ))
 }
 
 /// Read both supported bot populations, including SQUID random bots, without changing realm data.
 pub fn query_with(db: &Db, prefix: &str, squid_prefix: &str) -> Result<Population> {
     parse_counts(&db.query(&counts_sql(prefix, squid_prefix)?)?)
+}
+
+pub fn query_for_schema(db: &Db, chars_db: &str, prefix: &str, squid_prefix: &str) -> Result<Population> {
+    parse_counts(&db.query(&counts_sql_for_db(chars_db, prefix, squid_prefix)?)?)
+}
+
+pub fn query_for_realm(root: &Path, mode: crate::realms::Mode) -> Result<Population> {
+    let db = Db::from_repack(root, Account::App)?;
+    let schema = mode.schema("characters")?;
+    query_for_schema(
+        &db,
+        schema,
+        &bot_account_prefix(root),
+        &crate::accounts::squid_bot_prefix(root),
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]

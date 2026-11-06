@@ -1749,6 +1749,7 @@ async fn retry_update_validation(
 async fn get_population(
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<Option<coa_core::population::Population>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(tauri::async_runtime::spawn_blocking(move || {
@@ -1756,10 +1757,44 @@ async fn get_population(
         if o.mysql.state != coa_core::process::ServiceState::Running {
             return None;
         }
-        coa_core::population::query(&root).ok()
+        if let Some(mode) = realm {
+            coa_core::population::query_for_realm(&root, mode).ok()
+        } else {
+            coa_core::population::query(&root).ok()
+        }
     })
     .await
     .unwrap_or(None))
+}
+
+#[tauri::command]
+async fn companions_login_all(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let mut ra = Ra::connect(&root)?;
+        ra.login_all()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn companions_spawn_fleet(
+    state: State<'_, AppState>,
+    id: String,
+    race: u8,
+    level: u8,
+) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let mut ra = Ra::connect(&root)?;
+        ra.spawn_fleet(race, level)
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -1912,6 +1947,7 @@ async fn add_companions(
     state: State<'_, AppState>,
     id: String,
     count: u32,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionsResult, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
@@ -1921,6 +1957,14 @@ async fn add_companions(
                 "Choose between 1 and 2000 companions.".into(),
             ));
         }
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        let chars_db = match mode {
+            coa_core::realms::Mode::Coa => "acore_characters",
+            coa_core::realms::Mode::Wildcard => "acore_characters_wildcard",
+            coa_core::realms::Mode::Reborn => "acore_characters_reborn",
+        };
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
@@ -1934,7 +1978,7 @@ async fn add_companions(
                     .and_then(|s| s.value.as_u64())
             })
             .unwrap_or(0) as u32;
-        let already = coa_core::population::query(&root)
+        let already = coa_core::population::query_for_realm(&root, mode)
             .map(|p| p.bots_total)
             .unwrap_or(0);
         changes.insert(
@@ -1943,10 +1987,11 @@ async fn add_companions(
         );
         config::save(&root, &meta, Scope::Bots, &changes)?;
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
-        // Large batches while the server is stopped: create them in the database right now, fully equipped.
+        // Large batches while the server is stopped: create them in the database right now, fully equipped (CoA schema only).
         if o.world.state == coa_core::process::ServiceState::Stopped
             && o.auth.state == coa_core::process::ServiceState::Stopped
             && count >= coa_core::companions::OFFLINE_MIN
+            && mode == coa_core::realms::Mode::Coa
             && coa_core::companions::offline_factory(&root).is_some()
         {
             let started_db = o.mysql.state != coa_core::process::ServiceState::Running;
@@ -1957,10 +2002,10 @@ async fn add_companions(
                 }
             }
             let made = (|| -> Result<()> {
-                coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
-                    &root,
-                    coa_core::db::Account::Admin,
-                )?)?;
+                coa_core::companions::ensure_templates_for_schema(
+                    &coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?,
+                    chars_db,
+                )?;
                 coa_core::companions::offline_create(
                     &root,
                     &meta.join("logs").join("companions-offline.log"),
@@ -1982,11 +2027,10 @@ async fn add_companions(
         let mut baseline = None;
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
             // Older servers have no template characters to copy bots from: add them first.
-            coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
-                &root,
-                coa_core::db::Account::Admin,
-            )?)?;
-            baseline = coa_core::population::query(&root)
+            if let Ok(admin_db) = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin) {
+                let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, chars_db);
+            }
+            baseline = coa_core::population::query_for_realm(&root, mode)
                 .ok()
                 .map(|p| p.bots_total);
             Some(Ra::connect(&root)?.spawn_bots(count)?)
@@ -3484,6 +3528,8 @@ pub fn run() {
             companions_take_offline,
             companions_delete_all,
             companions_despawn_some,
+            companions_login_all,
+            companions_spawn_fleet,
             open_link,
             report_targets,
             companion_sizes,

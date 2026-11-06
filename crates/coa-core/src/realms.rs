@@ -185,8 +185,21 @@ pub fn view(root: &Path) -> Result<View> {
 }
 
 pub fn guard_module(root: &Path, id: &str) -> Result<()> {
-    // Multi-realm Playerbots 1.0 supports all realms (CoA, Wildcard, Reborn).
-    let _ = (root, id);
+    let s = state(root)?;
+    if matches!(id, "companions" | "playerbots") {
+        if let Ok(v) = view(root) {
+            if s.active == Mode::Wildcard && !v.supported {
+                return Err(Error::Invalid(
+                    "The installed server binary does not support Wildcard mode.".into(),
+                ));
+            }
+            if s.active == Mode::Reborn && !v.reborn_supported {
+                return Err(Error::Invalid(
+                    "The installed server binary does not support Warcraft Reborn mode.".into(),
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -295,18 +308,14 @@ fn wildcard_configs(mut files: Files) -> Result<Files> {
             }
         }
     }
-    set(
-        &mut files,
-        "Core/configs/modules/mod_coa_playerbots.conf",
-        "CoaBots.Enable",
-        "1",
-    )?;
-    set(
-        &mut files,
-        "Core/configs/modules/playerbots.conf",
-        "AiPlayerbot.Enabled",
-        "0",
-    )?;
+    // Preserve existing CoaBots.Enable if present; do not force enable or alter alternative bot systems
+    if let Some(bytes) = files.get("Core/configs/modules/mod_coa_playerbots.conf") {
+        if let Ok(conf) = ConfFile::parse_bytes(bytes) {
+            if conf.get("CoaBots.Enable") == Some("1") {
+                set(&mut files, "Core/configs/modules/mod_coa_playerbots.conf", "CoaBots.Enable", "1")?;
+            }
+        }
+    }
     Ok(files)
 }
 
@@ -334,18 +343,14 @@ fn reborn_configs(mut files: Files) -> Result<Files> {
             set(&mut files, path, "RealmID", "3")?;
         }
     }
-    set(
-        &mut files,
-        "Core/configs/modules/mod_coa_playerbots.conf",
-        "CoaBots.Enable",
-        "1",
-    )?;
-    set(
-        &mut files,
-        "Core/configs/modules/playerbots.conf",
-        "AiPlayerbot.Enabled",
-        "0",
-    )?;
+    // Preserve existing CoaBots.Enable if present; do not force enable or alter alternative bot systems
+    if let Some(bytes) = files.get("Core/configs/modules/mod_coa_playerbots.conf") {
+        if let Ok(conf) = ConfFile::parse_bytes(bytes) {
+            if conf.get("CoaBots.Enable") == Some("1") {
+                set(&mut files, "Core/configs/modules/mod_coa_playerbots.conf", "CoaBots.Enable", "1")?;
+            }
+        }
+    }
     Ok(files)
 }
 
@@ -920,11 +925,12 @@ mod tests {
                 .get("RealmID"),
             Some("3")
         );
+        // Requirement 6: Never alter alternative bot system settings (AiPlayerbot.Enabled) without explicit user choice
         assert_eq!(
             ConfFile::parse_bytes(&reborn["Core/configs/modules/playerbots.conf"])
                 .unwrap()
                 .get("AiPlayerbot.Enabled"),
-            Some("0")
+            Some("1")
         );
         write_configs(t.path(), &reborn).unwrap();
         write_configs(t.path(), &coa).unwrap();
@@ -1160,6 +1166,10 @@ CoA.GameModeMask = 0
         f.insert(
             "Core/configs/modules/mod-coa-content-scaling.conf".into(),
             b"[worldserver]\nCoAContentScaling.Enable = 1\n".to_vec(),
+        );
+        f.insert(
+            "Core/configs/modules/mod_coa_playerbots.conf".into(),
+            b"[worldserver]\nCoaBots.Enable = 1\n".to_vec(),
         );
         f.insert(
             "Settings/worldserver.conf.template".into(),

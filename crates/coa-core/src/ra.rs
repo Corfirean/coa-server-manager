@@ -249,6 +249,18 @@ impl Ra {
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
+    /// Ask the bot module to spawn a fleet of bots of specific race and level (.botcmd spawnfleet <race> <level>).
+    pub fn spawn_fleet(&mut self, race: u8, level: u8) -> Result<String> {
+        let out = self.bot_command(&format!("botcmd spawnfleet {race} {level}"))?;
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
+    /// Bring all offline bots online gradually (.botcmd loginall).
+    pub fn login_all(&mut self) -> Result<String> {
+        let out = self.bot_command("botcmd loginall")?;
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
     /// Set a new password for an existing account.
     pub fn set_account_password(&mut self, name: &str, password: &str) -> Result<()> {
         validate_account(name, password)?;
