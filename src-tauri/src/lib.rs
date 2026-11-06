@@ -2982,27 +2982,6 @@ async fn preview_install_msvc(
 }
 
 #[tauri::command]
-async fn preview_register_test_realm(
-    state: State<'_, AppState>,
-    path: Option<String>,
-) -> std::result::Result<ServerSummary, UiError> {
-    let target = path
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\games\coa-work\plugin-spike\server-v03"));
-
-    if !target.join("worldserver.exe").is_file() && !target.join("Core/worldserver.exe").is_file() {
-        return Err(UiError::from(coa_core::Error::Invalid(format!(
-            "Target path '{}' does not contain a valid worldserver.exe",
-            target.display()
-        ))));
-    }
-
-    let id = "test-realm-v03".to_string();
-    state.registry.register(&id, &target)?;
-    Ok(summary(id, target))
-}
-
-#[tauri::command]
 async fn preview_build_module(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -3401,7 +3380,6 @@ pub fn run() {
             release_history,
             preview_toolchain_status,
             preview_install_msvc,
-            preview_register_test_realm,
             preview_build_module,
             preview_install_module,
             preview_toggle_module,
@@ -3579,22 +3557,12 @@ pub fn run() {
             let portable = start_portable(&dir);
             let (control, host_control) = control_cmds::start(&dir, portable.clone());
             let registry = Registry::at(dir.join("installs.json"));
+            // Development only: an explicitly named test realm is registered into an empty list.
             if registry.list().map(|l| l.is_empty()).unwrap_or(true) {
-                let test_realm_path = std::env::var("COA_TEST_REALM_DIR")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| PathBuf::from(r"C:\games\CoA Server Preview"));
-                let target_realm = if test_realm_path.join("worldserver.exe").is_file() {
-                    Some(("preview-realm", test_realm_path))
-                } else {
-                    let spike_path = PathBuf::from(r"C:\games\coa-work\plugin-spike\server-v03");
-                    if spike_path.join("worldserver.exe").is_file() {
-                        Some(("test-realm-v03", spike_path))
-                    } else {
-                        None
+                if let Ok(path) = std::env::var("COA_TEST_REALM_DIR").map(PathBuf::from) {
+                    if path.join("worldserver.exe").is_file() {
+                        let _ = registry.register("preview-realm", &path);
                     }
-                };
-                if let Some((name, path)) = target_realm {
-                    let _ = registry.register(name, &path);
                 }
             }
             app.manage(AppState {

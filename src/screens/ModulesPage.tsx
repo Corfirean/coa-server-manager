@@ -10,7 +10,6 @@ import {
   Download,
   ExternalLink,
   Flame,
-  FolderPlus,
   Gavel,
   GitFork,
   Hammer,
@@ -791,25 +790,6 @@ export function ModulesPage({
     }
   }
 
-  async function registerTestRealm() {
-    setActionInProgress("register-realm");
-    setError(null);
-    try {
-      await api.previewRegisterTestRealm();
-      setNotification(
-        locale === "ru"
-          ? "Экспериментальный тестовый реалм server-v03 успешно зарегистрирован!"
-          : "Experimental server-v03 test realm registered successfully!"
-      );
-      onChanged?.();
-      await load();
-    } catch (e) {
-      setError(asUiError(e));
-    } finally {
-      setActionInProgress(null);
-    }
-  }
-
   async function exportDiagnostics() {
     setActionInProgress("export-diag");
     try {
@@ -1200,17 +1180,6 @@ export function ModulesPage({
           >
             <Download className="mr-1.5 h-3.5 w-3.5" />
             {locale === "ru" ? "Экспорт отчёта" : "Export Diagnostics"}
-          </Button>
-
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={registerTestRealm}
-            disabled={actionInProgress === "register-realm"}
-            className="text-xs text-gold hover:text-gold"
-          >
-            <FolderPlus className="mr-1.5 h-3.5 w-3.5" />
-            {locale === "ru" ? "Подключить test-realm-v03" : "Register test-realm-v03"}
           </Button>
         </div>
       </div>

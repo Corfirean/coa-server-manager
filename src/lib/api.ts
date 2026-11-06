@@ -859,7 +859,6 @@ export const api = {
     invoke<{ ready: boolean; restart_required: boolean; message: string; toolchain: ToolchainStatus }>("preview_install_msvc", { realmId: realmId ?? null }),
   previewToolchainStatus: (realmId?: string) =>
     invoke<ToolchainStatus>("preview_toolchain_status", { realmId: realmId ?? null }),
-  previewRegisterTestRealm: (path?: string) => invoke<ServerSummary>("preview_register_test_realm", { path: path ?? null }),
   previewBuildModule: (realmId: string, sourceUrlOrPath: string) =>
     invoke<BuildResult>("preview_build_module", { realmId, sourceUrlOrPath }),
   previewInstallModule: (realmId: string, moduleId: string, version: string, applySql: boolean) =>
