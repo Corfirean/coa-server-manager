@@ -19,37 +19,46 @@ pub fn seed_sql(base_guid: &str) -> String {
     format!("SET @G = {base_guid}; SET @ACC = {TEMPLATE_ACCOUNT};\n{SQL}")
 }
 
-/// Number of characters the bot module could use as templates (level 80, a CoA class, not account 1).
+/// Number of characters the bot module could use as templates.
 pub fn template_count(db: &Db) -> Result<u32> {
-    let n = db.query("SELECT COUNT(*) FROM acore_characters.characters WHERE account<>1 AND level>=80 AND class BETWEEN 12 AND 32;")?;
+    template_count_for_schema(db, "acore_characters")
+}
+
+pub fn template_count_for_schema(db: &Db, chars_db: &str) -> Result<u32> {
+    let n = db.query(&format!("SELECT COUNT(*) FROM {chars_db}.characters WHERE account<>1 AND level>=80;"))?;
     Ok(n.trim().parse().unwrap_or(0))
 }
 
-fn run_seed(db: &Db, base_guid: &str) -> Result<()> {
+fn run_seed(db: &Db, chars_db: &str, base_guid: &str) -> Result<()> {
     let file = std::env::temp_dir().join(format!(
         "coa-companion-templates-{}.sql",
         std::process::id()
     ));
     fs::write(&file, seed_sql(base_guid))?;
-    let r = db.run_sql_file("acore_characters", &file);
+    let r = db.run_sql_file(chars_db, &file);
     let _ = fs::remove_file(&file);
     r
 }
 
 /// Fresh databases (release tooling): the original guids.
 pub fn seed_fresh(db: &Db) -> Result<()> {
-    run_seed(db, "0")
+    run_seed(db, "acore_characters", "0")
 }
 
 /// An existing server without templates: add them far above the highest guid in use, so a running world can never
 /// hand a new character one of their guids. Returns whether anything was added.
 pub fn ensure_templates(db: &Db) -> Result<bool> {
-    if template_count(db)? > 0 {
+    ensure_templates_for_schema(db, "acore_characters")
+}
+
+pub fn ensure_templates_for_schema(db: &Db, chars_db: &str) -> Result<bool> {
+    if template_count_for_schema(db, chars_db)? > 0 {
         return Ok(false);
     }
     run_seed(
         db,
-        "(SELECT IFNULL(MAX(guid),0) FROM acore_characters.characters) + 100000",
+        chars_db,
+        &format!("(SELECT IFNULL(MAX(guid),0) FROM {chars_db}.characters) + 100000"),
     )?;
     Ok(true)
 }
