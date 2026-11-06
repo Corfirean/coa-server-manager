@@ -69,6 +69,8 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      # tauri::generate_context! needs ../dist; without a warm target cache the tests do not compile without it.
+      - run: npm run build
       - name: Tests
         run: cargo test --workspace --locked -- --test-threads=1
       - run: node --experimental-strip-types --test tools/*.test.mjs
