@@ -262,6 +262,12 @@ fn prepare(main: &Path, tree: Tree) -> Result<PathBuf> {
             &fsx::ensure_within(&second, &second.join("Core/reference"))?,
         )?;
     }
+    if main.join("Core/plugins").is_dir() {
+        copy_tree(
+            &main.join("Core/plugins"),
+            &fsx::ensure_within(&second, &second.join("Core/plugins"))?,
+        )?;
+    }
     for entry in fs::read_dir(main.join("Core"))? {
         let entry = entry?;
         if entry.file_type()?.is_file()

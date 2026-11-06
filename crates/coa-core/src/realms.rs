@@ -185,9 +185,8 @@ pub fn view(root: &Path) -> Result<View> {
 }
 
 pub fn guard_module(root: &Path, id: &str) -> Result<()> {
-    if state(root)?.active != Mode::Coa && matches!(id, "companions" | "playerbots") {
-        return Err(Error::Invalid("Bot class mechanics have not been validated for this realm. This module is unavailable on this realm.".into()));
-    }
+    // Multi-realm Playerbots 1.0 supports all realms (CoA, Wildcard, Reborn).
+    let _ = (root, id);
     Ok(())
 }
 
@@ -296,14 +295,12 @@ fn wildcard_configs(mut files: Files) -> Result<Files> {
             }
         }
     }
-    for (key, value) in [("CoaBots.Enable", "0"), ("CoaBots.AutoLoginOnStartup", "0")] {
-        set(
-            &mut files,
-            "Core/configs/modules/mod_coa_playerbots.conf",
-            key,
-            value,
-        )?;
-    }
+    set(
+        &mut files,
+        "Core/configs/modules/mod_coa_playerbots.conf",
+        "CoaBots.Enable",
+        "1",
+    )?;
     set(
         &mut files,
         "Core/configs/modules/playerbots.conf",
@@ -337,14 +334,12 @@ fn reborn_configs(mut files: Files) -> Result<Files> {
             set(&mut files, path, "RealmID", "3")?;
         }
     }
-    for (key, value) in [("CoaBots.Enable", "0"), ("CoaBots.AutoLoginOnStartup", "0")] {
-        set(
-            &mut files,
-            "Core/configs/modules/mod_coa_playerbots.conf",
-            key,
-            value,
-        )?;
-    }
+    set(
+        &mut files,
+        "Core/configs/modules/mod_coa_playerbots.conf",
+        "CoaBots.Enable",
+        "1",
+    )?;
     set(
         &mut files,
         "Core/configs/modules/playerbots.conf",
@@ -805,19 +800,7 @@ pub fn before_start(root: &Path) -> Result<()> {
                 "The installed server build does not support Wildcard.".into(),
             ));
         }
-        let path = root.join("Core/configs/modules/mod_coa_playerbots.conf");
-        let mut conf = ConfFile::parse_bytes(&fs::read(&path)?)?;
-        conf.set("CoaBots.Enable", "0", &[]);
-        fsx::atomic_write(&path, conf.to_text().as_bytes())?;
-        let path = root.join("Core/configs/modules/playerbots.conf");
-        let bytes = if path.exists() {
-            fs::read(&path)?
-        } else {
-            b"[worldserver]\n".to_vec()
-        };
-        let mut conf = ConfFile::parse_bytes(&bytes)?;
-        conf.set("AiPlayerbot.Enabled", "0", &[]);
-        fsx::atomic_write(&path, conf.to_text().as_bytes())?;
+        // Multi-realm Playerbots 1.0: bots are supported and enabled on all realms
     }
     Ok(())
 }
@@ -955,8 +938,8 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(guard_module(t.path(), "companions").is_err());
-        assert!(guard_module(t.path(), "playerbots").is_err());
+        assert!(guard_module(t.path(), "companions").is_ok());
+        assert!(guard_module(t.path(), "playerbots").is_ok());
         assert!(guard_module(t.path(), "content-scaling").is_ok());
     }
 
@@ -1188,7 +1171,7 @@ CoA.GameModeMask = 0
             f["Core/configs/modules/mod-coa-content-scaling.conf"]
         );
         let c = ConfFile::parse_bytes(&w["Core/configs/modules/mod_coa_playerbots.conf"]).unwrap();
-        assert_eq!(c.get("CoaBots.Enable"), Some("0"));
+        assert_eq!(c.get("CoaBots.Enable"), Some("1"));
         assert_eq!(
             ConfFile::parse_bytes(&w["Settings/worldserver.conf.template"])
                 .unwrap()
@@ -1260,14 +1243,8 @@ CoA.GameModeMask = 0
             },
         )
         .unwrap();
-        assert!(crate::modules::set_enabled(t.path(), t.path(), "companions", true).is_err());
-        assert!(crate::config::save(
-            t.path(),
-            t.path(),
-            crate::config::Scope::Bots,
-            &BTreeMap::new()
-        )
-        .is_err());
+        assert!(guard_module(t.path(), "companions").is_ok());
+        assert!(guard_module(t.path(), "playerbots").is_ok());
         assert!(guard_module(t.path(), "content-scaling").is_ok());
     }
 

@@ -9,6 +9,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const t = useT();
   const human = useHuman();
   const [sizes, setSizes] = useState<CompanionSizes | null>(null);
+  const [realmMode, setRealmMode] = useState<string | null>(null);
   const [pop, setPop] = useState<Population | null>(null);
   const [running, setRunning] = useState(false);
   const [choice, setChoice] = useState<string>("small");
@@ -24,6 +25,10 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const [startNote, setStartNote] = useState<string | null>(null);
   const [startBusy, setStartBusy] = useState(false);
   const [despawnN, setDespawnN] = useState("10");
+
+  useEffect(() => {
+    void api.realmProfiles(serverId).then((r) => setRealmMode(r.active)).catch(() => {});
+  }, [serverId]);
 
   useEffect(() => {
     void api
@@ -156,7 +161,14 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
 
   return (
     <Card className="mt-6 p-6">
-      <h2 className="font-semibold">{t("comp.title")}</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold">{t("comp.title")}</h2>
+        {realmMode && (
+          <span className="rounded bg-gold/15 px-2 py-0.5 text-xs font-medium text-gold uppercase tracking-wider">
+            {realmMode === "coa" ? "Conquest of Azeroth" : realmMode === "wildcard" ? "Wildcard" : "Warcraft Reborn"}
+          </span>
+        )}
+      </div>
       <p className="mt-1 text-sm text-muted">
         {pop
           ? t("comp.population", { online: pop.bots_online, total: pop.bots_total })
