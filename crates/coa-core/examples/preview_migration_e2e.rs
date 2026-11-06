@@ -85,11 +85,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if squid {
         // The owner switches the bots to SQUID (Companions off) and starts the server once: the launcher imports
         // SQUID's SQL into its own journals.
+        coa_core::modules::set_enabled(root, &meta, "companions", false)?;
         coa_core::modules::set_enabled(root, &meta, "playerbots", true)?;
         let started = coa_core::driver::run(root, coa_core::driver::Verb::StartAll)?;
         println!("stable with SQUID started: {}", started.ok);
-        let stopped = coa_core::driver::run(root, coa_core::driver::Verb::StopAll)?;
-        assert!(started.ok && stopped.ok, "the stable server with SQUID did not start and stop");
+        let mut stopped = coa_core::driver::run(root, coa_core::driver::Verb::StopAll)?;
+        if !stopped.ok {
+            // Known stable launcher behaviour: a stop right after SQUID starts its random bots can outlast the
+            // launcher's 90 s wait. The owner is told to try again; so does this test, and reports it.
+            println!("FINDING: first stop after the SQUID start failed: {}", stopped.output.trim());
+            stopped = coa_core::driver::run(root, coa_core::driver::Verb::StopAll)?;
+        }
+        assert!(started.ok && stopped.ok, "the stable server with SQUID did not start and stop: {}", stopped.output.trim());
     }
 
     // 3. Test data: an account with a character and a spell; a changed module setting.
