@@ -2,7 +2,7 @@
 //! registry; the frontend can never ask the backend to touch an arbitrary path (scan is read-only).
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 mod browse_preferences;
@@ -1062,9 +1062,12 @@ async fn install_new(
     dest: String,
     package: Option<String>,
     game_data: Option<String>,
-) -> std::result::Result<ServerSummary, UiError> {
+) -> std::result::Result<InstalledServer, UiError> {
     if platform::flavor() == Flavor::Docker {
-        return docker_install::install(app, state, dest, package, game_data).await;
+        // The plugin host is Windows-only for now: a Linux server keeps the classic core.
+        return docker_install::install(app, state, dest, package, game_data)
+            .await
+            .map(|summary| InstalledServer { summary, preview_core_error: None, modules_off: Vec::new() });
     }
     let cancel = Cancel::default();
     *state
@@ -1073,9 +1076,12 @@ async fn install_new(
         .map_err(|_| Error::Invalid("state poisoned".into()))? = Some(cancel.clone());
     let registry = Registry::at(data_dir().join("installs.json"));
     let dest_path = PathBuf::from(dest);
+    // A package the owner picked by hand is installed as it is; otherwise the new server goes straight on to the
+    // preview core, so it starts out with modules as plugins instead of the classic core with them built in.
+    let to_preview = package.as_deref().map_or(true, |p| p.trim().is_empty());
     let result = tauri::async_runtime::spawn_blocking(move || {
         let source = installation_source(package)?;
-        install::install_base(
+        let done = install::install_base(
             &install::Params {
                 source,
                 dest: dest_path,
@@ -1086,14 +1092,89 @@ async fn install_new(
             &|step| {
                 let _ = app.emit("install-progress", step);
             },
-        )
+        )?;
+        let (preview_core_error, modules_off) = match to_preview {
+            false => (None, Vec::new()),
+            true => match install_preview_core(&app, &PathBuf::from(&done.path)) {
+                Ok(off) => (None, off),
+                Err(e) => (Some(e), Vec::new()),
+            },
+        };
+        Ok::<_, Error>((done, preview_core_error, modules_off))
     })
     .await;
     if let Ok(mut c) = state.install_cancel.lock() {
         *c = None;
     }
-    let done = result.map_err(|e| Error::Invalid(e.to_string()))??;
-    Ok(summary(done.id, PathBuf::from(done.path)))
+    let (done, preview_core_error, modules_off) = result.map_err(|e| Error::Invalid(e.to_string()))??;
+    Ok(InstalledServer {
+        summary: summary(done.id, PathBuf::from(done.path)),
+        preview_core_error,
+        modules_off,
+    })
+}
+
+#[derive(Serialize)]
+struct InstalledServer {
+    #[serde(flatten)]
+    summary: ServerSummary,
+    /// Set when the server is installed but stayed on the classic core: why the preview core did not go on.
+    preview_core_error: Option<String>,
+    /// Modules that did not build for the preview core and were switched off, with the reason.
+    modules_off: Vec<String>,
+}
+
+/// Put the preview core on a server that was just installed from the stable image: the same signed update every
+/// existing server takes, including building the recommended modules as plugins. A failure leaves the classic core
+/// (the update rolls itself back) and is returned as text for the install screen; on success it returns the
+/// modules that did not build and were switched off (the core goes on regardless).
+fn install_preview_core(app: &AppHandle, root: &Path) -> std::result::Result<Vec<String>, String> {
+    let run = || -> Result<update::Outcome> {
+        let (dir, meta) = install_meta(root)?;
+        let src = coa_core::update_route::select(
+            &meta,
+            update_source(None)?,
+            coa_core::signing::EMBEDDED_PUBLIC_KEY,
+        )?
+        .source;
+        let env = update::RepackEnv {
+            root,
+            meta_dir: &dir,
+        };
+        update::apply(
+            &update::Params {
+                root,
+                meta_dir: &dir,
+                source: src,
+                trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY,
+                cancel: Cancel::default(),
+                resolutions: BTreeMap::new(),
+                env: &env,
+                fail_after_ops: None,
+            },
+            &|step, percent| {
+                let _ = app.emit(
+                    "install-progress",
+                    serde_json::json!({ "step": "Installing the modular core", "percent": percent, "detail": step }),
+                );
+            },
+        )
+    };
+    let outcome = run().map_err(|e| e.to_string())?;
+    if outcome.txn.state != update::State::Committed {
+        return Err(format!(
+            "the preview core update stopped in state {:?}; open Updates to finish or roll it back",
+            outcome.txn.state
+        ));
+    }
+    Ok(outcome
+        .modules
+        .iter()
+        .filter_map(|m| match m {
+            coa_core::rebuild::ModuleRebuild::Disabled { id, reason, .. } => Some(format!("{id}: {reason}")),
+            _ => None,
+        })
+        .collect())
 }
 
 #[tauri::command]

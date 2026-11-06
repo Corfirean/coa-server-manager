@@ -798,7 +798,7 @@ export const api = {
   accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),
   accountRename: (id: string, name: string, newName: string, password: string) => invoke<void>("account_rename", { id, name, newName, password }),
   accountDelete: (id: string, name: string) => invoke<void>("account_delete", { id, name }),
-  installNew: (dest: string, pkg?: string, gameData?: string) => invoke<ServerSummary>("install_new", { dest, package: pkg ?? null, gameData: gameData ?? null }),
+  installNew: (dest: string, pkg?: string, gameData?: string) => invoke<ServerSummary & { preview_core_error: string | null; modules_off: string[] }>("install_new", { dest, package: pkg ?? null, gameData: gameData ?? null }),
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),

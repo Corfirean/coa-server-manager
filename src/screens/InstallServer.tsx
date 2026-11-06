@@ -16,6 +16,7 @@ const STEP_KEYS: Record<string, Key> = {
   Unpacking: "install.step.unpacking",
   "Preparing database": "install.step.database",
   Finishing: "install.step.finishing",
+  "Installing the modular core": "install.step.modularCore",
 };
 
 type Phase = "choose" | "installing" | "done";
@@ -32,6 +33,8 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [pkg, setPkg] = useState("");
   const [installed, setInstalled] = useState<ServerSummary | null>(null);
+  const [classicCore, setClassicCore] = useState<string | null>(null);
+  const [modulesOff, setModulesOff] = useState<string[]>([]);
   const [showDetails, setShowDetails] = useState(false);
   // What this computer installs. A repack (Windows) needs nothing more than a folder; Docker (Linux) also needs the game data
   // folder and a package, and Docker itself.
@@ -87,8 +90,10 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
     setPhase("installing");
     setStep({ step: "Preparing your server", percent: 0, detail: null });
     try {
-      const s = await api.installNew(dest, pkg.trim() || undefined, docker ? gameData.trim() : undefined);
+      const { preview_core_error, modules_off, ...s } = await api.installNew(dest, pkg.trim() || undefined, docker ? gameData.trim() : undefined);
       setInstalled(s);
+      setClassicCore(preview_core_error);
+      setModulesOff(modules_off);
       setPhase("done");
     } catch (e) {
       setError(asUiError(e));
@@ -112,6 +117,7 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
             <div className="h-full rounded-full bg-gold transition-[width] duration-300" style={{ width: `${step.percent}%` }} />
           </div>
           {step.detail && <p className="mt-2 text-xs text-muted">{step.detail}</p>}
+          {step.step === "Installing the modular core" && <p className="mt-2 text-xs text-muted">{t("install.modularCoreHint")}</p>}
         </Card>
         {step.step === "Downloading server" && (
           <Button className="mt-4 self-start" variant="ghost" size="sm" onClick={() => void api.cancelInstall()}>
@@ -130,6 +136,20 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
         </div>
         <h1 className="mt-5 text-2xl font-semibold">{t("install.doneTitle")}</h1>
         <p className="mt-1 text-muted">{t("install.doneText")}</p>
+        {classicCore && (
+          <Card className="mt-6 border-warn/40 p-4 text-left" role="alert">
+            <p className="font-medium text-warn">{t("install.classicCoreTitle")}</p>
+            <p className="mt-1 text-sm text-muted">{t("install.classicCoreText")}</p>
+            <pre className="selectable mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs">{classicCore}</pre>
+          </Card>
+        )}
+        {modulesOff.length > 0 && (
+          <Card className="mt-6 border-warn/40 p-4 text-left" role="alert">
+            <p className="font-medium text-warn">{t("install.modulesOffTitle")}</p>
+            <p className="mt-1 text-sm text-muted">{t("install.modulesOffText")}</p>
+            <pre className="selectable mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs">{modulesOff.join("\n")}</pre>
+          </Card>
+        )}
         <Button className="mt-8" variant="primary" size="xl" onClick={() => void props.onDone(installed)}>
           {t("install.open")}
         </Button>
