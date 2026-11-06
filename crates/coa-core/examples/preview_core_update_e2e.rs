@@ -3,7 +3,8 @@
 //! module's sources are replaced (for this server only) by a copy that does not compile: the core update must
 //! still commit, the module must be switched off with a reason, and the world must start without it.
 //!
-//! usage: preview_core_update_e2e <existing folder ending in -fixture> <preview package dir> [break <module id>]
+//! usage: preview_core_update_e2e <existing folder ending in -fixture> <preview package dir> [break <module id>] [same-core]
+//! `same-core`: the package keeps the server's plugin ABI (a module the manager switched off is retried).
 //! The shared source cache is never modified: the broken copy lives next to the fixture.
 use std::path::{Path, PathBuf};
 
@@ -58,6 +59,10 @@ fn break_module(root: &Path, id: &str) -> Result<(), Box<dyn std::error::Error>>
     // manager reads the module's identity from it: the build itself must be what fails.
     let tail: PathBuf = src.components().rev().take(2).collect::<Vec<_>>().into_iter().rev().collect();
     let broken = root.parent().unwrap().join("brk").join(tail);
+    if src == broken {
+        println!("{id} already builds from the broken copy {}", broken.display());
+        return Ok(());
+    }
     copy_dir(&src, &broken)?; // a fresh copy over any earlier one
     let cpp = ["src", "module/src"].iter().find_map(|d| first_cpp(&broken.join(d))).ok_or("no .cpp in the module sources")?;
     let text = std::fs::read_to_string(&cpp)?;
@@ -70,7 +75,9 @@ fn break_module(root: &Path, id: &str) -> Result<(), Box<dyn std::error::Error>>
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    assert!(a.len() == 2 || (a.len() == 4 && a[2] == "break"), "usage: preview_core_update_e2e <fixture> <package dir> [break <id>]");
+    let same_core = a.last().is_some_and(|x| x == "same-core");
+    let a: Vec<String> = if same_core { a[..a.len() - 1].to_vec() } else { a };
+    assert!(a.len() == 2 || (a.len() == 4 && a[2] == "break"), "usage: preview_core_update_e2e <fixture> <package dir> [break <id>] [same-core]");
     let root = Path::new(&a[0]);
     assert!(a[0].ends_with("-fixture") && root.is_dir(), "an existing folder ending in -fixture is required");
     let broken = a.get(3).cloned();
@@ -119,7 +126,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env.ensure_stopped()?;
 
     assert_eq!(outcome.txn.state, update::State::Committed, "the core update must always commit");
-    assert_ne!(fp_before, fp_after, "the host fingerprint did not change");
+    if same_core {
+        assert_eq!(fp_before, fp_after, "same-core: the host fingerprint changed");
+    } else {
+        assert_ne!(fp_before, fp_after, "the host fingerprint did not change");
+    }
     assert_eq!(data_before, data_after, "accounts or characters changed");
     let shown: Vec<String> = outcome.modules.iter().map(|m| format!("{m:?}")).collect();
     for (id, e) in reg.plugins.iter().filter(|(_, e)| e.installed) {
@@ -129,7 +140,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert!(line.contains("does not build"), "{id} must be switched off because it does not build: {line}");
             assert!(!lock_after.contains(&format!("{id}|")), "{id} is still in plugins.lock");
         } else if lock_before.contains(&format!("{id}|")) {
-            assert!(line.starts_with("Rebuilt") || line.starts_with("Reused"), "{id} was not rebuilt for the new core: {line}");
+            let ok = line.starts_with("Rebuilt") || line.starts_with("Reused") || (same_core && line.starts_with("UpToDate"));
+            assert!(ok, "{id} was not rebuilt for the new core: {line}");
             assert!(e.enabled && lock_after.contains(&format!("{id}|")), "{id} is not loaded after the update");
         }
     }
