@@ -603,6 +603,24 @@ pub fn install_to_store(
     Ok(target)
 }
 
+/// The installed module whose build deploys exactly this module config template (`rel_path` is relative to the
+/// server, e.g. `Core/configs/modules/x.conf.dist`, and `sha256` is the file's current hash). A module build
+/// replaces the template that came with the package, so an update must not mistake it for the owner's edit.
+pub fn module_owned_dist(server: &Path, rel_path: &str, sha256: &str) -> Option<String> {
+    let rel = rel_path.replace('\\', "/");
+    let (dir, name) = rel.rsplit_once('/')?;
+    if !name.ends_with(".dist") || !(dir == "Core/configs/modules" || dir == "configs/modules") {
+        return None;
+    }
+    let base = name.strip_suffix(".dist")?;
+    let reg = load_registry(server).ok()?;
+    reg.plugins.iter().find_map(|(id, e)| {
+        let listed = e.installed && e.conf_files.iter().any(|c| c.strip_suffix(".dist").unwrap_or(c) == base);
+        let bytes = listed.then(|| fs::read(store_dir(server).join(id).join(&e.sha256).join(name)).ok()).flatten()?;
+        sha256_digest(&bytes).eq_ignore_ascii_case(sha256).then(|| id.clone())
+    })
+}
+
 /// Generate `Core/plugins/plugins.lock` and synchronize active files in `Core/plugins/` and `Core/configs/modules/`.
 pub fn regenerate_lockfile(server: &Path, reg: &PluginsRegistry) -> Result<()> {
     regenerate_lockfile_at(server, server, reg)

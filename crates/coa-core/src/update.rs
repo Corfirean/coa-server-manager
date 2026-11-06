@@ -419,6 +419,13 @@ pub fn plan(
                     Some("already up to date with Manager integration".into()),
                 )
             }
+            (ReplacePolicy::Replace | ReplacePolicy::ReplaceIfPristine, Some(c))
+                if !recorded.is_some_and(|r| r.eq_ignore_ascii_case(c))
+                    && crate::plugins::module_owned_dist(root, &f.path, c).is_some() =>
+            {
+                let id = crate::plugins::module_owned_dist(root, &f.path, c).unwrap_or_default();
+                (Action::Skip, Some(format!("provided by the {id} module")))
+            }
             (ReplacePolicy::Replace | ReplacePolicy::ReplaceIfPristine, Some(c)) => {
                 let manager_launcher = f.path == "Scripts/manage.py"
                     && recorded.is_some_and(|hash| {
@@ -2742,6 +2749,45 @@ mod tests {
         assert!(env.calls.borrow().is_empty());
         assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v1");
         assert!(pending_checked(&w.meta).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_config_template_a_module_build_deployed_is_not_the_owners_edit() {
+        let dist = "Core/configs/modules/mod-x.conf.dist";
+        let w = world(&[(dist, b"X.Enable = 1\n# package v2\n")], false);
+        // The previous update shipped its own template and recorded it ...
+        let mut meta: InstallMeta = serde_json::from_slice(&fs::read(w.meta.join("install.json")).unwrap()).unwrap();
+        meta.original_hashes.insert(dist.into(), fsx::sha256_bytes(b"X.Enable = 1\n# package v1\n"));
+        fsx::atomic_write_json(&w.meta.join("install.json"), &meta).unwrap();
+        // ... then the module built for that core deployed its own template over it.
+        let built = b"X.Enable = 1\n# from the module sources\n";
+        write(&w.root, dist, built);
+        let sha = "a".repeat(64);
+        write(&crate::plugins::store_dir(&w.root), &format!("x/{sha}/mod-x.conf.dist"), built);
+        let mut reg = crate::plugins::PluginsRegistry::default();
+        reg.plugins.insert("x".into(), crate::plugins::PluginEntry {
+            installed: true,
+            enabled: true,
+            version: "1".into(),
+            sha256: sha.clone(),
+            store_path: format!("plugin-store/x/{sha}"),
+            conf_files: vec!["mod-x.conf".into()],
+            deps: vec![],
+            required: false,
+            disabled_reason: None,
+        });
+        crate::plugins::save_registry(&w.root, &reg).unwrap();
+
+        let env = Fake::ok();
+        run(&w, &env, BTreeMap::new(), None).unwrap();
+        assert_eq!(read(&w, dist), built, "the module's template stays");
+        assert_eq!(read(&w, "Core/worldserver.exe"), b"world-v2", "the core update applied");
+
+        // A template the owner really edited is still their decision.
+        let w = world(&[(dist, b"X.Enable = 1\n# package v2\n")], false);
+        write(&w.root, dist, b"X.Enable = 0\n# my edit\n");
+        let e = run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap_err();
+        assert!(e.to_string().contains("need your decision"));
     }
 
     #[test]
