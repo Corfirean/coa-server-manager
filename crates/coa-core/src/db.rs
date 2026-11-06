@@ -337,6 +337,17 @@ impl Db {
             .map(|o| o.status.success()).unwrap_or(false)
     }
 
+    /// Ask the server to shut down cleanly (`mysqladmin shutdown`).
+    pub fn shutdown_server(&self) -> Result<()> {
+        let mut c = self.command("mysqladmin.exe");
+        c.arg("shutdown").arg("--connect-timeout=5");
+        let out = bounded_client_output(&mut c, b"", Instant::now() + Duration::from_secs(60))?;
+        if !out.status.success() {
+            return Err(self.fail(&out.stderr));
+        }
+        Ok(())
+    }
+
     pub(crate) fn with_read_deadline(mut self, deadline: Instant) -> Self {
         self.read_deadline = Some(deadline);
         self

@@ -1032,10 +1032,12 @@ export function ModulesPage({
     if (m.id === "tbc-content" || m.id === "wotlk-content") {
       return isScalingInstalled;
     }
-    return true;
+    // Dungeon Clear is part of SQUID's Playerbots (switched with it); its settings open from the SQUID card.
+    return m.id !== "dungeon-clear";
   });
+  const dungeonClear = modules?.find((m) => m.id === "dungeon-clear" && m.installed && m.has_settings) ?? null;
   const selectedModule = modules?.find((m) => m.id === openSettings) ?? null;
-  const selectedModuleIndex = installedModules.findIndex((m) => m.id === openSettings);
+  const selectedModuleIndex = installedModules.findIndex((m) => m.id === (openSettings === "dungeon-clear" ? "playerbots" : openSettings));
 
   // Normalize repo URL to "owner/repo" slug
   function normalizeUrlSlug(url: string): string {
@@ -1564,6 +1566,13 @@ export function ModulesPage({
                               : "Mutual exclusion: disables CoA Companions upon activation."}
                           </p>
                         )}
+                        {m.id === "playerbots" && dungeonClear && (
+                          <p className="mt-1 text-[11px] text-zinc-400">
+                            {locale === "ru"
+                              ? "Включает Dungeon Clear — тактику подземелий для ботов; включается и выключается вместе со SQUID."
+                              : "Includes Dungeon Clear, dungeon tactics for the bots; it is switched on and off with SQUID."}
+                          </p>
+                        )}
                       </div>
                       {m.installed && m.switchable && (
                         <button
@@ -1638,6 +1647,17 @@ export function ModulesPage({
                             className={cn("text-xs h-7 px-2.5", openSettings === m.id && "bg-gold/15 text-gold border border-gold/40")}
                           >
                             <Settings2 className="h-3.5 w-3.5 mr-1" aria-hidden /> {t("mod.settings")}
+                          </Button>
+                        )}
+                        {m.id === "playerbots" && m.installed && dungeonClear && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-expanded={openSettings === "dungeon-clear"}
+                            onClick={() => setOpenSettings(openSettings === "dungeon-clear" ? null : "dungeon-clear")}
+                            className={cn("text-xs h-7 px-2.5", openSettings === "dungeon-clear" && "bg-gold/15 text-gold border border-gold/40")}
+                          >
+                            <Settings2 className="h-3.5 w-3.5 mr-1" aria-hidden /> Dungeon Clear
                           </Button>
                         )}
                       </div>

@@ -1062,12 +1062,25 @@ async fn install_new(
     dest: String,
     package: Option<String>,
     game_data: Option<String>,
+    copy_from: Option<String>,
 ) -> std::result::Result<InstalledServer, UiError> {
+    let copy_from = copy_from.filter(|p| !p.trim().is_empty()).map(PathBuf::from);
     if platform::flavor() == Flavor::Docker {
+        if copy_from.is_some() {
+            return Err(Error::Invalid("A modular copy is made of a Windows server only.".into()).into());
+        }
         // The plugin host is Windows-only for now: a Linux server keeps the classic core.
         return docker_install::install(app, state, dest, package, game_data)
             .await
-            .map(|summary| InstalledServer { summary, preview_core_error: None, modules_off: Vec::new() });
+            .map(|summary| InstalledServer { summary, preview_core_error: None, modules_off: Vec::new(), copied: None });
+    }
+    if let Some(old) = &copy_from {
+        if !coa_core::modular_copy::is_classic(old) {
+            return Err(Error::Invalid("This server already has the modular core; add it as it is.".into()).into());
+        }
+    }
+    if std::fs::read_dir(&dest).is_ok_and(|mut d| d.next().is_some()) {
+        return Err(Error::Invalid("Choose a new or empty folder for the server: this one already has files.".into()).into());
     }
     let cancel = Cancel::default();
     *state
@@ -1077,14 +1090,15 @@ async fn install_new(
     let registry = Registry::at(data_dir().join("installs.json"));
     let dest_path = PathBuf::from(dest);
     // A package the owner picked by hand is installed as it is; otherwise the new server goes straight on to the
-    // preview core, so it starts out with modules as plugins instead of the classic core with them built in.
-    let to_preview = package.as_deref().map_or(true, |p| p.trim().is_empty());
+    // preview core. A new server starts with the bare core (modules are added later from the Modules page); a
+    // modular copy of a classic server gets the modules its old server had switched on.
+    let to_preview = package.as_deref().map_or(true, |p| p.trim().is_empty()) || copy_from.is_some();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let source = installation_source(package)?;
         let done = install::install_base(
             &install::Params {
                 source,
-                dest: dest_path,
+                dest: dest_path.clone(),
                 trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY,
                 registry: &registry,
                 cancel,
@@ -1093,25 +1107,61 @@ async fn install_new(
                 let _ = app.emit("install-progress", step);
             },
         )?;
+        let root = PathBuf::from(&done.path);
+        let copied = match &copy_from {
+            Some(old) => {
+                let report = coa_core::modular_copy::copy_data(old, &root, &|what| {
+                    let _ = app.emit(
+                        "install-progress",
+                        serde_json::json!({ "step": "Copying the old server's data", "percent": 100, "detail": what }),
+                    );
+                });
+                match report {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        // Nothing of the old server was changed; take away the half-made copy (this call created it).
+                        let _ = registry.unregister(&done.id);
+                        let _ = coa_core::driver::run(&root, Verb::StopAll);
+                        let _ = std::fs::remove_dir_all(&root);
+                        if let Ok(meta) = metadata_dir_for(&root) {
+                            let _ = std::fs::remove_dir_all(meta);
+                        }
+                        return Err(Error::Invalid(format!("The old server's data could not be copied: {e}")));
+                    }
+                }
+            }
+            None => {
+                if to_preview {
+                    coa_core::rebuild::decline_recommended(&root)?;
+                }
+                None
+            }
+        };
         let (preview_core_error, modules_off) = match to_preview {
             false => (None, Vec::new()),
-            true => match install_preview_core(&app, &PathBuf::from(&done.path)) {
+            true => match install_preview_core(&app, &root) {
                 Ok(off) => (None, off),
                 Err(e) => (Some(e), Vec::new()),
             },
         };
-        Ok::<_, Error>((done, preview_core_error, modules_off))
+        Ok::<_, Error>((done, preview_core_error, modules_off, copied))
     })
     .await;
     if let Ok(mut c) = state.install_cancel.lock() {
         *c = None;
     }
-    let (done, preview_core_error, modules_off) = result.map_err(|e| Error::Invalid(e.to_string()))??;
+    let (done, preview_core_error, modules_off, copied) = result.map_err(|e| Error::Invalid(e.to_string()))??;
     Ok(InstalledServer {
         summary: summary(done.id, PathBuf::from(done.path)),
         preview_core_error,
         modules_off,
+        copied,
     })
+}
+
+#[tauri::command]
+fn is_classic_server(path: String) -> bool {
+    coa_core::modular_copy::is_classic(Path::new(&path))
 }
 
 #[derive(Serialize)]
@@ -1122,6 +1172,8 @@ struct InstalledServer {
     preview_core_error: Option<String>,
     /// Modules that did not build for the preview core and were switched off, with the reason.
     modules_off: Vec<String>,
+    /// For a modular copy of a classic server: what was copied.
+    copied: Option<coa_core::modular_copy::CopyReport>,
 }
 
 /// Put the preview core on a server that was just installed from the stable image: the same signed update every
@@ -1160,7 +1212,8 @@ fn install_preview_core(app: &AppHandle, root: &Path) -> std::result::Result<Vec
             },
         )
     };
-    let outcome = run().map_err(|e| e.to_string())?;
+    // Unused ports while it runs: the server it was copied from (or any other) may be running on the same ones.
+    let outcome = coa_core::install::with_scratch_ports(root, run).map_err(|e| e.to_string())?;
     if outcome.txn.state != update::State::Committed {
         return Err(format!(
             "the preview core update stopped in state {:?}; open Updates to finish or roll it back",
@@ -3530,6 +3583,7 @@ pub fn run() {
             account_rename,
             account_delete,
             install_new,
+            is_classic_server,
             cancel_install,
             create_account,
             check_update,

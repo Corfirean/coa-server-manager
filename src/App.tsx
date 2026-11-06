@@ -19,6 +19,8 @@ function Main() {
   const [servers, setServers] = useState<ServerSummary[] | null>(null);
   const [view, setView] = useState<View>(initialView);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // A classic server the owner chose: the install screen makes a modular copy of it next to it.
+  const [copyFrom, setCopyFrom] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const list = await api.list().catch(() => []);
@@ -56,8 +58,13 @@ function Main() {
     return (
       <InstallServer
         canCancel
-        onCancel={() => setView(servers.length > 0 ? "add" : "welcome")}
+        copyFrom={copyFrom ?? undefined}
+        onCancel={() => {
+          setView(copyFrom ? "import" : servers.length > 0 ? "add" : "welcome");
+          setCopyFrom(null);
+        }}
         onDone={async (s) => {
+          setCopyFrom(null);
           await refresh();
           setActiveId(s.id);
           setView("welcome");
@@ -75,6 +82,10 @@ function Main() {
           await refresh();
           setActiveId(s.id);
           setView("welcome");
+        }}
+        onCopy={(path) => {
+          setCopyFrom(path);
+          setView("install");
         }}
       />
     );

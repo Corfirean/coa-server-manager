@@ -470,6 +470,14 @@ export interface AccountInfo {
   characters: number;
 }
 
+export interface CopyReport {
+  schemas: string[];
+  accounts: number;
+  characters: number;
+  config_files: string[];
+  read_from: string;
+}
+
 export interface InstallStep {
   step: string;
   percent: number;
@@ -798,7 +806,9 @@ export const api = {
   accountSetAccess: (id: string, name: string, level: number) => invoke<void>("account_set_access", { id, name, level }),
   accountRename: (id: string, name: string, newName: string, password: string) => invoke<void>("account_rename", { id, name, newName, password }),
   accountDelete: (id: string, name: string) => invoke<void>("account_delete", { id, name }),
-  installNew: (dest: string, pkg?: string, gameData?: string) => invoke<ServerSummary & { preview_core_error: string | null; modules_off: string[] }>("install_new", { dest, package: pkg ?? null, gameData: gameData ?? null }),
+  installNew: (dest: string, pkg?: string, gameData?: string, copyFrom?: string) =>
+    invoke<ServerSummary & { preview_core_error: string | null; modules_off: string[]; copied: CopyReport | null }>("install_new", { dest, package: pkg ?? null, gameData: gameData ?? null, copyFrom: copyFrom ?? null }),
+  isClassicServer: (path: string) => invoke<boolean>("is_classic_server", { path }),
   cancelInstall: () => invoke<void>("cancel_install"),
   createAccount: (id: string, username: string, password: string, administrator: boolean) =>
     invoke<void>("create_account", { id, username, password, administrator }),

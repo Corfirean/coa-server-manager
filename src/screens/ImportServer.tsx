@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, Check, Minus } from "lucide-react";
 import { api, asUiError, type Classification, type ScanReport, type ServerSummary, type UiError } from "@/lib/api";
@@ -17,10 +17,17 @@ export function ImportServer(props: {
   canCancel: boolean;
   onCancel: () => void;
   onAdded: (s: ServerSummary) => void | Promise<void>;
+  onCopy: (path: string) => void;
 }) {
   const t = useT();
   const human = useHuman();
   const [report, setReport] = useState<ScanReport | null>(null);
+  // A classic core (modules compiled in) is not added as it is: the Modules Preview makes a modular copy next to it.
+  const [classic, setClassic] = useState(false);
+  useEffect(() => {
+    setClassic(false);
+    if (report && report.classification !== "incompatible") void api.isClassicServer(report.path).then(setClassic).catch(() => setClassic(false));
+  }, [report]);
   const [error, setError] = useState<UiError | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -149,16 +156,28 @@ export function ImportServer(props: {
             </p>
           ))}
 
-          <div className="mt-5 flex items-center justify-between border-t border-line pt-4">
-            <p className="text-sm text-muted">{t("import.noChanges")}</p>
-            <Button
-              variant="primary"
-              onClick={add}
-              disabled={busy || report.classification === "incompatible"}
-            >
-              {t("import.add")}
-            </Button>
-          </div>
+          {classic ? (
+            <div className="mt-5 border-t border-line pt-4">
+              <p className="font-medium">{t("import.classic.title")}</p>
+              <p className="mt-1 text-sm text-muted">{t("import.classic.text")}</p>
+              <div className="mt-3 flex justify-end">
+                <Button variant="primary" disabled={busy} onClick={() => props.onCopy(report.path)}>
+                  {t("import.classic.copy")}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 flex items-center justify-between border-t border-line pt-4">
+              <p className="text-sm text-muted">{t("import.noChanges")}</p>
+              <Button
+                variant="primary"
+                onClick={add}
+                disabled={busy || report.classification === "incompatible"}
+              >
+                {t("import.add")}
+              </Button>
+            </div>
+          )}
         </Card>
       )}
     </main>

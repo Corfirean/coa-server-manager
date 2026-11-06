@@ -43,6 +43,7 @@ pub mod logging;
 pub mod server_logging;
 pub mod manifest;
 pub mod migrations;
+pub mod modular_copy;
 pub mod modules;
 pub mod module_sources;
 pub mod msvc_setup;

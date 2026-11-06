@@ -259,9 +259,32 @@ fn split_repo(repo: &str) -> std::result::Result<(&str, &str), String> {
         .ok_or_else(|| format!("invalid repository '{repo}'"))
 }
 
+/// Mark a server that starts with the bare core: the modules the core recommends are not installed on it
+/// (the owner adds modules from the Modules page). Taken into account the first time a plugin-host core
+/// arrives; after that every recommended module counts as dealt with.
+pub fn decline_recommended(realm_root: &Path) -> Result<()> {
+    let body = serde_json::json!({ "schema": 1, "handled": load_handled(realm_root), "declineAll": true });
+    fs::create_dir_all(plugins::meta_dir(realm_root))?;
+    crate::fsx::atomic_write(&handled_path(realm_root), serde_json::to_string_pretty(&body)?.as_bytes())
+}
+
+fn declined_all(realm_root: &Path) -> bool {
+    fs::read(handled_path(realm_root)).ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("declineAll")?.as_bool())
+        .unwrap_or(false)
+}
+
 fn install_recommended(realm_root: &Path, progress: &dyn Fn(&str, &str)) -> Vec<ModuleRebuild> {
     let Some(rec) = recommended(realm_root) else { return Vec::new() };
     let mut handled = load_handled(realm_root);
+    if declined_all(realm_root) {
+        for m in &rec.modules {
+            handled.entry(m.id.clone()).or_insert_with(|| "not installed: new server with the bare core".into());
+        }
+        save_handled(realm_root, &handled); // drops the mark: it applies to this first core only
+        return Vec::new();
+    }
     let mut out = Vec::new();
     for m in &rec.modules {
         let registry = plugins::load_registry(realm_root).unwrap_or_default();
@@ -453,6 +476,25 @@ mod tests {
         let handled = load_handled(server);
         assert!(handled["playerbots"].starts_with("not wanted"));
         assert!(!handled.contains_key("companions"));
+    }
+
+    #[test]
+    fn a_new_server_with_the_bare_core_installs_no_recommended_module() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = dir.path();
+        fs::create_dir_all(server.join("Core/configs/modules")).unwrap();
+        fs::create_dir_all(server.join("Core/plugins")).unwrap();
+        fs::write(server.join("Core/worldserver.exe"), image("worldserver", &"c".repeat(64))).unwrap();
+        decline_recommended(server).unwrap();
+        // the mark is written before the plugin-host core (and its recommended.json) arrives
+        fs::write(server.join("Core/plugins/recommended.json"), r#"{"schema":1,"modules":[
+            {"id":"companions","repo":"not-a-repo","commit":"0000000000000000000000000000000000000000"}]}"#).unwrap();
+        let out = rebuild_for_current_core(server, &|_, _| panic!("nothing is built")).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+        assert!(load_handled(server)["companions"].contains("bare core"));
+        assert!(!declined_all(server), "the mark applies to the first plugin-host core only");
+        // a later core change does not bring it back either
+        assert!(rebuild_for_current_core(server, &|_, _| panic!("nothing is built")).unwrap().is_empty());
     }
 
     /// Real run: COA_TEST_RECOMMENDED_REALM is a plugin-host realm with Core/plugins/recommended.json (or

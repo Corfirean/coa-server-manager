@@ -210,7 +210,7 @@ pub(crate) fn free_port() -> Result<u16> {
 
 /// Run `f` with the staging copy listening on unused ports, so an installation never collides with a server (or any
 /// other program) already using the shipped ports. The shipped ports are put back afterwards.
-pub(crate) fn with_scratch_ports<T>(root: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
+pub fn with_scratch_ports<T>(root: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
     const KEYS: [&str; 4] = ["mysqlPort", "authPort", "worldPort", "raPort"];
     let path = root.join("Settings/repack.json");
     let original: serde_json::Value = fsx::read_json(&path)?;
@@ -378,15 +378,18 @@ pub fn install_base(p: &Params, report: &dyn Fn(Step)) -> Result<Installed> {
         })?;
         say("Preparing database", 82, None);
         bootstrap_database(&staging_root)?;
-        crate::backup::with_database(&staging_root, |db| {
-            let problems = crate::schema_check::check(db, &staging_root)?;
-            if let Some(p) = problems.first() {
-                return Err(Error::Invalid(format!(
-                    "The packaged database is incomplete: {}.{}.{}: {}.",
-                    p.database, p.table, p.column, p.detail
-                )));
-            }
-            Ok(())
+        // On unused ports too: another server running on the shipped ports must not stop the installation.
+        with_scratch_ports(&staging_root, || {
+            crate::backup::with_database(&staging_root, |db| {
+                let problems = crate::schema_check::check(db, &staging_root)?;
+                if let Some(p) = problems.first() {
+                    return Err(Error::Invalid(format!(
+                        "The packaged database is incomplete: {}.{}.{}: {}.",
+                        p.database, p.table, p.column, p.detail
+                    )));
+                }
+                Ok(())
+            })
         })?;
         // 4. Commit: the only moment the destination changes. The marker stays until everything is done, so an
         // unfinished install can always be recognised as ours (and cleaned up), wherever it stopped.

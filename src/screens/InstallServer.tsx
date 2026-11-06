@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { api, asUiError, type InstallEnvironment, type InstallRequirements, type InstallStep, type Preflight, type ServerSummary, type UiError } from "@/lib/api";
+import { api, asUiError, type CopyReport, type InstallEnvironment, type InstallRequirements, type InstallStep, type Preflight, type ServerSummary, type UiError } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,14 +17,17 @@ const STEP_KEYS: Record<string, Key> = {
   "Preparing database": "install.step.database",
   Finishing: "install.step.finishing",
   "Installing the modular core": "install.step.modularCore",
+  "Copying the old server's data": "install.step.copying",
 };
 
 type Phase = "choose" | "installing" | "done";
 
-export function InstallServer(props: { canCancel: boolean; onCancel: () => void; onDone: (s: ServerSummary) => void | Promise<void> }) {
+export function InstallServer(props: { canCancel: boolean; copyFrom?: string; onCancel: () => void; onDone: (s: ServerSummary) => void | Promise<void> }) {
   const t = useT();
   const human = useHuman();
-  const [dest, setDest] = useState("C:\\Games\\CoA Server");
+  const copyFrom = props.copyFrom;
+  const [dest, setDest] = useState(copyFrom ? copyFrom.replace(/[\\/]+$/, "") + " (modular)" : "C:\\Games\\CoA Server");
+  const [copied, setCopied] = useState<CopyReport | null>(null);
   const [pre, setPre] = useState<Preflight | null>(null);
   const [req, setReq] = useState<InstallRequirements | null>(null);
   const [phase, setPhase] = useState<Phase>("choose");
@@ -90,8 +93,9 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
     setPhase("installing");
     setStep({ step: "Preparing your server", percent: 0, detail: null });
     try {
-      const { preview_core_error, modules_off, ...s } = await api.installNew(dest, pkg.trim() || undefined, docker ? gameData.trim() : undefined);
+      const { preview_core_error, modules_off, copied, ...s } = await api.installNew(dest, copyFrom ? undefined : pkg.trim() || undefined, docker ? gameData.trim() : undefined, copyFrom);
       setInstalled(s);
+      setCopied(copied);
       setClassicCore(preview_core_error);
       setModulesOff(modules_off);
       setPhase("done");
@@ -117,7 +121,7 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
             <div className="h-full rounded-full bg-gold transition-[width] duration-300" style={{ width: `${step.percent}%` }} />
           </div>
           {step.detail && <p className="mt-2 text-xs text-muted">{step.detail}</p>}
-          {step.step === "Installing the modular core" && <p className="mt-2 text-xs text-muted">{t("install.modularCoreHint")}</p>}
+          {step.step === "Installing the modular core" && copyFrom && <p className="mt-2 text-xs text-muted">{t("install.modularCoreHint")}</p>}
         </Card>
         {step.step === "Downloading server" && (
           <Button className="mt-4 self-start" variant="ghost" size="sm" onClick={() => void api.cancelInstall()}>
@@ -136,6 +140,11 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
         </div>
         <h1 className="mt-5 text-2xl font-semibold">{t("install.doneTitle")}</h1>
         <p className="mt-1 text-muted">{t("install.doneText")}</p>
+        {copied && (
+          <p className="mt-3 text-sm text-muted">
+            {t("install.copy.done", { accounts: copied.accounts, characters: copied.characters, settings: copied.config_files.length })}
+          </p>
+        )}
         {classicCore && (
           <Card className="mt-6 border-warn/40 p-4 text-left" role="alert">
             <p className="font-medium text-warn">{t("install.classicCoreTitle")}</p>
@@ -160,8 +169,9 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
   return (
     <main className="mx-auto flex h-full max-w-2xl flex-col justify-center gap-5 px-8 py-10">
       <div>
-        <h1 className="text-2xl font-semibold">{t("install.title")}</h1>
-        <p className="mt-1 text-muted">{t("install.subtitle")}</p>
+        <h1 className="text-2xl font-semibold">{copyFrom ? t("install.copy.title") : t("install.title")}</h1>
+        <p className="mt-1 text-muted">{copyFrom ? t("install.copy.subtitle") : t("install.subtitle")}</p>
+        {copyFrom && <p className="selectable mt-2 break-all text-sm">{t("install.copy.from")} {copyFrom}</p>}
       </div>
 
       <div>
@@ -233,7 +243,7 @@ export function InstallServer(props: { canCancel: boolean; onCancel: () => void;
         </Card>
       )}
 
-      {!docker && <div>
+      {!docker && !copyFrom && <div>
         <button onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced} className="flex cursor-pointer items-center gap-1 text-sm text-muted hover:text-ink">
           {showAdvanced ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
           {t("install.advanced")}

@@ -711,6 +711,17 @@ pub fn ensure_bot_exclusivity(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Dungeon Clear is part of SQUID's Playerbots (the plugin core builds it into the SQUID DLL): it goes on
+/// with SQUID, and off with it, wherever its config exists.
+fn switch_on_dungeon_clear_with_squid(cat: &[Entry], root: &Path, meta: &Path) {
+    if let Some(dc) = cat.iter().find(|entry| entry.id == "dungeon-clear") {
+        let name = conf_name(root, dc);
+        if dir(root).join(&name).exists() || dir(root).join(format!("{name}.dist")).exists() {
+            let _ = set_enabled_in(cat, root, meta, "dungeon-clear", true);
+        }
+    }
+}
+
 fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -> Result<()> {
     match entry_in(cat, id) {
         Ok(e) => {
@@ -770,6 +781,7 @@ fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -
             }
             if id == "playerbots" && on {
                 let _ = crate::plugins::record_squid_migrations_applied(root);
+                switch_on_dungeon_clear_with_squid(cat, root, meta);
             }
 
             tracing::info!(module = id, on, "module switched");
@@ -805,6 +817,9 @@ fn set_enabled_in(cat: &[Entry], root: &Path, meta: &Path, id: &str, on: bool) -
                         if cat.iter().any(|entry| entry.id == "dungeon-clear") {
                             let _ = set_enabled_in(cat, root, meta, "dungeon-clear", false);
                         }
+                    }
+                    if id == "playerbots" && on {
+                        switch_on_dungeon_clear_with_squid(cat, root, meta);
                     }
                     return Ok(());
                 }
@@ -1255,7 +1270,7 @@ mod tests {
     }
 
     #[test]
-    fn dungeon_clear_requires_squid_and_stays_off_after_squid_is_reenabled() {
+    fn dungeon_clear_requires_squid_and_follows_it() {
         let d = tempfile::tempdir().unwrap();
         let root = d.path();
         fs::create_dir_all(dir(root)).unwrap();
@@ -1266,13 +1281,13 @@ mod tests {
         let cat = catalog();
         assert!(set_enabled_in(&cat, root, root, "dungeon-clear", true).is_err());
         assert!(!list_in(&cat, root).iter().find(|entry| entry.id == "dungeon-clear").unwrap().switchable);
+        // part of SQUID: on with it, off with it, on again with it
         set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
-        set_enabled_in(&cat, root, root, "dungeon-clear", true).unwrap();
         assert!(read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
         set_enabled_in(&cat, root, root, "playerbots", false).unwrap();
         assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
         set_enabled_in(&cat, root, root, "playerbots", true).unwrap();
-        assert!(!read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
+        assert!(read(&dungeon).unwrap().get("DungeonClear.Enable").map(truthy).unwrap());
     }
 
     #[test]
