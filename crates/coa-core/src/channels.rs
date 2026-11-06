@@ -78,6 +78,29 @@ pub fn resolve(channel: &str) -> Result<Source> {
     )))
 }
 
+/// The stable release used when the stable pointer has not been published yet.
+pub const STABLE_FALLBACK_URL: &str =
+    "https://github.com/Corfirean/coa-server-build/releases/download/stable";
+
+/// Stable updates and installation images: the signed stable pointer, else the fixed stable release.
+pub fn stable_source() -> Result<Source> {
+    match resolve("stable") {
+        Ok(source) => Ok(source),
+        Err(Error::PackageNotPublished(_)) => Ok(Source::Url(STABLE_FALLBACK_URL.into())),
+        Err(error) => Err(error),
+    }
+}
+
+/// Where the Modules Preview Manager looks for server updates when none is chosen: its own signed channel,
+/// or the stable channel until a preview exists (a stable server is where every preview server starts).
+pub fn preview_update_source() -> Result<Source> {
+    match resolve("preview") {
+        Ok(source) => Ok(source),
+        Err(Error::PackageNotPublished(_)) => stable_source(),
+        Err(error) => Err(error),
+    }
+}
+
 pub fn sign(pointer: &Pointer, seed: &str) -> Result<Vec<u8>> {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use ed25519_dalek::{Signer, SigningKey};

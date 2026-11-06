@@ -3,7 +3,9 @@
 //! builds the recommended modules and starts the plugin-host core with them), and check that the data and the
 //! setting survived.
 //!
-//! usage: preview_migration_e2e <new folder ending in -fixture> <stable release URL> <preview package dir>
+//! usage: preview_migration_e2e <new folder ending in -fixture> <stable release URL> <preview package dir or URL> [squid]
+//! With `squid` the stable server runs SQUID's Playerbots (started once so its SQL is imported) before the update;
+//! SQUID's own SQL journals must come through unchanged.
 //! The server gets its own free ports before anything starts; it never uses another server's database.
 use std::path::Path;
 
@@ -26,9 +28,30 @@ fn fingerprint(root: &Path) -> String {
         FROM acore_auth.account a JOIN acore_characters.characters c ON c.account = a.id WHERE a.username = 'E2EPREVIEW'")
 }
 
+/// SQUID's journals and its database, read the same way before and after (absent tables read as "-").
+fn squid_journals(root: &Path) -> String {
+    let mut out = Vec::new();
+    for db in ["acore_characters", "acore_world", "acore_playerbots"] {
+        for t in ["coa_squid_migrations", "coa_squid_pending", "coa_bots_installed"] {
+            let exists = sql(root, &format!("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='{db}' AND TABLE_NAME='{t}'"));
+            if exists.trim() == "0" {
+                out.push(format!("{db}.{t}=-"));
+                continue;
+            }
+            let cols = sql(root, &format!("SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='{db}' AND TABLE_NAME='{t}'"));
+            out.push(format!("{db}.{t}={}", sql(root, &format!(
+                "SELECT CONCAT(COUNT(*), ':', COALESCE(SUM(CRC32(CONCAT_WS('|', {}))), 0)) FROM {db}.{t}", cols.trim()))
+                .trim()));
+        }
+    }
+    out.push(format!("playerbots tables={}", sql(root, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='acore_playerbots'").trim()));
+    out.join(" ")
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    assert_eq!(a.len(), 3, "usage: preview_migration_e2e <new-folder-fixture> <stable release URL> <preview package dir>");
+    assert!(a.len() == 3 || (a.len() == 4 && a[3] == "squid"), "usage: preview_migration_e2e <new-folder-fixture> <stable release URL> <preview package dir or URL> [squid]");
+    let squid = a.len() == 4;
     let root = Path::new(&a[0]);
     assert!(a[0].ends_with("-fixture") && !root.exists(), "a new folder ending in -fixture is required");
     let reg_dir = std::env::temp_dir().join("coa-preview-e2e-registry");
@@ -58,6 +81,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(&repack, serde_json::to_vec_pretty(&cfg)?)?;
     println!("ports {}", serde_json::json!({"mysql": cfg["mysqlPort"], "auth": cfg["authPort"], "world": cfg["worldPort"], "ra": cfg["raPort"]}));
 
+    let meta = coa_core::registry::metadata_dir_for(root)?;
+    if squid {
+        // The owner switches the bots to SQUID (Companions off) and starts the server once: the launcher imports
+        // SQUID's SQL into its own journals.
+        coa_core::modules::set_enabled(root, &meta, "playerbots", true)?;
+        let started = coa_core::driver::run(root, coa_core::driver::Verb::StartAll)?;
+        println!("stable with SQUID started: {}", started.ok);
+        let stopped = coa_core::driver::run(root, coa_core::driver::Verb::StopAll)?;
+        assert!(started.ok && stopped.ok, "the stable server with SQUID did not start and stop");
+    }
+
     // 3. Test data: an account with a character and a spell; a changed module setting.
     let cols = sql(root, "SELECT GROUP_CONCAT(CONCAT(COLUMN_NAME, ':', DATA_TYPE)) FROM information_schema.COLUMNS \
         WHERE TABLE_SCHEMA='acore_characters' AND TABLE_NAME='characters' AND IS_NULLABLE='NO' AND COLUMN_DEFAULT IS NULL");
@@ -82,11 +116,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let changed = format!("{} = 7", line.split(" = ").next().unwrap().trim());
     std::fs::write(&conf, text.replacen(&line, &changed, 1))?;
     let before = fingerprint(root);
+    let journals_before = squid_journals(root);
+    println!("squid journals before: {journals_before}");
     println!("before: {before}\nsetting: {changed}");
     assert!(!before.trim().is_empty());
 
     // 4. The preview update, through the production updater.
-    let meta = coa_core::registry::metadata_dir_for(root)?;
     let (_, info) = MetaDir::open(&meta)?;
     assert_eq!(coa_core::fsx::canonicalize_lenient(Path::new(&info.server_path))?, coa_core::fsx::canonicalize_lenient(root)?);
     let env = RepackEnv { root, meta_dir: &meta };
@@ -95,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &update::Params {
             root,
             meta_dir: &meta,
-            source: Source::Dir(a[2].clone().into()),
+            source: if a[2].starts_with("http") { Source::Url(a[2].clone()) } else { Source::Dir(a[2].clone().into()) },
             trusted_key: coa_core::signing::EMBEDDED_PUBLIC_KEY,
             cancel: Default::default(),
             resolutions: Default::default(),
@@ -111,6 +146,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Same data, same setting, plugin host with its modules.
     let after = fingerprint(root);
+    let journals_after = squid_journals(root);
+    println!("squid journals after:  {journals_after}");
     let text = std::fs::read_to_string(&conf)?;
     println!("after:  {after}");
     println!("setting kept: {}", text.lines().any(|l| l.trim() == changed));
@@ -123,6 +160,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(outcome.txn.state, update::State::Committed);
     assert_eq!(before, after, "seeded character data changed");
     assert!(text.lines().any(|l| l.trim() == changed), "module setting lost");
+    assert_eq!(journals_before, journals_after, "SQUID's journals changed");
+    let ids: Vec<String> = outcome.modules.iter().map(|m| format!("{m:?}")).collect();
+    let has = |id: &str| ids.iter().any(|m| m.contains(&format!("\"{id}\"")));
+    if squid {
+        assert!(has("playerbots") && !has("companions"), "SQUID server must get SQUID's Playerbots, not Companions: {ids:?}");
+    } else {
+        assert!(has("companions") && !has("playerbots"), "Companions server must get Companions, not SQUID: {ids:?}");
+    }
     println!("PASS");
     Ok(())
 }

@@ -263,11 +263,6 @@ async fn portable_launch(
     }
 }
 
-/// Where official server packages are published (created by the release pipeline, Phase 6).
-/// Where signed update packages are published; override with COA_UPDATE_SOURCE (URL or local package folder).
-const DEFAULT_UPDATE_URL: &str =
-    "https://github.com/Corfirean/coa-server-build/releases/download/stable";
-
 fn update_source(custom: Option<String>) -> Result<Source> {
     let pick = custom
         .filter(|s| !s.trim().is_empty())
@@ -275,17 +270,7 @@ fn update_source(custom: Option<String>) -> Result<Source> {
     match pick {
         Some(p) if p.to_ascii_lowercase().starts_with("http") => Ok(Source::Url(p)),
         Some(p) => Ok(Source::Dir(PathBuf::from(p))),
-        // The Modules Preview follows its own signed channel; until the first preview release exists it
-        // falls back to the stable channel (a stable server is where every preview server starts).
-        None => match coa_core::channels::resolve("preview") {
-            Ok(source) => Ok(source),
-            Err(Error::PackageNotPublished(_)) => match coa_core::channels::resolve("stable") {
-                Ok(source) => Ok(source),
-                Err(Error::PackageNotPublished(_)) => Ok(Source::Url(DEFAULT_UPDATE_URL.into())),
-                Err(error) => Err(error),
-            },
-            Err(error) => Err(error),
-        },
+        None => coa_core::channels::preview_update_source(),
     }
 }
 
@@ -311,15 +296,7 @@ fn installation_source(custom: Option<String>) -> Result<Source> {
     });
     // A new server is installed from the qualified stable image; the preview channel publishes updates only,
     // so the preview core arrives as the first update (the same path every existing server takes).
-    select_installation_source(custom, stable_update_source)
-}
-
-fn stable_update_source() -> Result<Source> {
-    match coa_core::channels::resolve("stable") {
-        Ok(source) => Ok(source),
-        Err(Error::PackageNotPublished(_)) => Ok(Source::Url(DEFAULT_UPDATE_URL.into())),
-        Err(error) => Err(error),
-    }
+    select_installation_source(custom, coa_core::channels::stable_source)
 }
 
 fn select_installation_source(
