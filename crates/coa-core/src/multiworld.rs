@@ -97,6 +97,58 @@ pub fn world_root(main: &Path, mode: Mode) -> PathBuf {
         .map_or_else(|| main.to_path_buf(), |t| tree_root(main, t))
 }
 
+#[derive(Debug, Clone)]
+pub struct BotOperationTarget {
+    pub world_root: PathBuf,
+    pub chars_db: &'static str,
+    pub ra_port: u16,
+    pub running: bool,
+    pub realm: Mode,
+}
+
+pub fn resolve_bot_operation_target(main: &Path, realm: Mode) -> Result<BotOperationTarget> {
+    let state = realms::state(main)?;
+    let chars_db = realm.schema("characters")?;
+
+    if realm == state.active {
+        let ports = crate::layout::read_ports(main);
+        let ra_port = ports.ra;
+        let status = process::observe(main, &ports);
+        let running = status.world.state != ServiceState::Stopped;
+        return Ok(BotOperationTarget {
+            world_root: main.to_path_buf(),
+            chars_db,
+            ra_port,
+            running,
+            realm,
+        });
+    }
+
+    let tree = Tree::ALL
+        .into_iter()
+        .find(|t| t.enabled(&state) && t.mode(state.active) == realm)
+        .ok_or_else(|| Error::Invalid(format!("Realm {} is not enabled in multiworld configuration.", realm.label())))?;
+
+    let root = tree_root(main, tree);
+    if !root.exists() {
+        return Err(Error::Invalid(format!("Multiworld directory for {} does not exist: {}", realm.label(), root.display())));
+    }
+
+    let ports = crate::layout::read_ports(&root);
+    let (_, default_ra) = tree.ports(&state);
+    let ra_port = if ports.ra != 0 { ports.ra } else { default_ra.unwrap_or(3444) };
+    let status = process::observe(&root, &ports);
+    let running = status.world.state != ServiceState::Stopped;
+
+    Ok(BotOperationTarget {
+        world_root: root,
+        chars_db,
+        ra_port,
+        running,
+        realm,
+    })
+}
+
 /// Any of the extra worlds is running or still stopping.
 pub fn is_running(main: &Path) -> bool {
     Tree::ALL.into_iter().any(|t| tree_running(main, t))

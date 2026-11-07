@@ -58,6 +58,23 @@ impl Ra {
         Self::connect_to(read_ports(root).ra, &cfg.ra_username, &cfg.ra_password)
     }
 
+    /// Connect to the loopback RA port of the target realm world server.
+    pub fn connect_target(main: &Path, realm: Option<crate::realms::Mode>) -> Result<Ra> {
+        let mode = realm.unwrap_or_else(|| {
+            crate::realms::view(main).map(|v| v.active).unwrap_or_default()
+        });
+        let target = crate::multiworld::resolve_bot_operation_target(main, mode)?;
+        if !target.running {
+            return Err(Error::Invalid(format!(
+                "Realm {} worldserver is stopped; cannot execute online bot operation.",
+                target.realm.label()
+            )));
+        }
+        let cfg: RaSettings = fsx::read_json(&main.join("Settings/repack.json"))
+            .map_err(|_| Error::Invalid("The server console settings could not be read.".into()))?;
+        Self::connect_to(target.ra_port, &cfg.ra_username, &cfg.ra_password)
+    }
+
     pub fn connect_to(port: u16, user: &str, password: &str) -> Result<Ra> {
         let addr: SocketAddr = ([127, 0, 0, 1], port).into();
         let mut stream =
@@ -275,6 +292,30 @@ impl Ra {
     /// Ask the bot module to spawn a fleet of bots of specific race and level (.botcmd spawnfleet <race> <level>).
     pub fn spawn_fleet(&mut self, race: u8, level: u8) -> Result<String> {
         let out = self.bot_command(&format!("botcmd spawnfleet {race} {level}"))?;
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
+    pub fn spawn_custom(
+        &mut self,
+        count: u32,
+        level: u8,
+        class_id: Option<u8>,
+        spec_id: Option<u32>,
+        archetype: Option<&str>,
+    ) -> Result<String> {
+        let mut cmd = format!("botcmd spawncustom {count} {level}");
+        if let Some(c) = class_id {
+            cmd.push_str(&format!(" {c}"));
+            if let Some(s) = spec_id {
+                cmd.push_str(&format!(" {s}"));
+                if let Some(a) = archetype {
+                    if !a.is_empty() {
+                        cmd.push_str(&format!(" {a}"));
+                    }
+                }
+            }
+        }
+        let out = self.bot_command(&cmd)?;
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
