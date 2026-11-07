@@ -650,7 +650,13 @@ export function ModulesPage({
   }, [menuOpen, serverId]);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [report, setReport] = useState<CompatibilityReport | null>(null);
+  const [report, setReportState] = useState<CompatibilityReport | null>(null);
+  // The build callbacks run after an await, when `report` in their closure may be older: they read this.
+  const reportRef = useRef<CompatibilityReport | null>(null);
+  const setReport = (r: CompatibilityReport | null) => {
+    reportRef.current = r;
+    setReportState(r);
+  };
 
   // Toolchain state
   const [toolchain, setToolchain] = useState<ToolchainStatus | null>(null);
@@ -912,26 +918,28 @@ export function ModulesPage({
           elapsedSeconds: (Date.now() - startTime) / 1000,
         });
 
-        // Automatically install if module doesn't require schema changes
+        // A module without SQL is installed right away; one with SQL waits for the owner to confirm it (installing
+        // it without its SQL would leave out what the SQL adds, such as the module's NPCs).
         let autoInstalled = false;
-        try {
-          await api.previewInstallModule(
-            serverId,
-            res.module_id,
-            res.version,
-            false
-          );
-          setNotification(
-            locale === "ru"
-              ? `Модуль '${res.display_name || res.module_id}' успешно собран и установлен!`
-              : `Module '${res.display_name || res.module_id}' successfully built and installed!`
-          );
-          await load();
-          setActiveTab("installed");
-          onChanged?.();
-          autoInstalled = true;
-        } catch {
-          // If auto-install requires manual SQL confirmation, keep build results visible
+        if ((reportRef.current?.sql_files.length ?? 0) > 0) {
+          setShowSqlDialog(true);
+          autoInstalled = true; // the confirmation dialog takes over; no "build succeeded" banner
+        } else {
+          try {
+            await api.previewInstallModule(serverId, res.module_id, res.version, false);
+            setNotification(
+              locale === "ru"
+                ? `Модуль '${res.display_name || res.module_id}' собран и установлен.`
+                : `Module '${res.display_name || res.module_id}' built and installed.`
+            );
+            closeLinkPanel();
+            await load();
+            setActiveTab("installed");
+            onChanged?.();
+            autoInstalled = true;
+          } catch {
+            // keep the build result visible: "Install" stays available
+          }
         }
 
         if (!autoInstalled) {
@@ -999,6 +1007,15 @@ export function ModulesPage({
     }
   }
 
+  /** After a module from a link is installed, the link panel and its analysis are done with. */
+  function closeLinkPanel() {
+    setReport(null);
+    setBuildResult(null);
+    setGithubUrl("");
+    setAnalysisError(null);
+    setShowUrlBar(false);
+  }
+
   async function performInstall(applySql: boolean) {
     if (!buildResult) return;
     setShowSqlDialog(false);
@@ -1012,6 +1029,7 @@ export function ModulesPage({
         applySql
       );
       setNotification(res.message);
+      closeLinkPanel();
       await load();
       setActiveTab("installed");
       onChanged?.();
@@ -2094,6 +2112,25 @@ export function ModulesPage({
             })}
           </div>
 
+          {(catalogFilter !== "all" || catalogCategory !== "all") && (
+            <p className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted">
+              {locale === "ru"
+                ? `Показано ${filteredVerifiedCatalog.length + filteredCommunityCatalog.length} из ${(searchedVerifiedCatalog.length + searchedCommunityCatalog.length)}: включён фильтр.`
+                : `Showing ${filteredVerifiedCatalog.length + filteredCommunityCatalog.length} of ${searchedVerifiedCatalog.length + searchedCommunityCatalog.length}: a filter is on.`}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setCatalogFilter("all");
+                  setCatalogCategory("all");
+                }}
+                className="h-6 border border-line px-2 text-xs"
+              >
+                {locale === "ru" ? "Показать все" : "Show all"}
+              </Button>
+            </p>
+          )}
+
           {filteredCommunityCatalog.length > communityDisplayLimit && (
             <div className="flex flex-col items-center gap-1.5 pt-1">
               <Button size="sm" variant="ghost" onClick={() => setCommunityDisplayLimit((prev) => prev + 50)} className="border border-line px-4 text-xs">
@@ -2550,7 +2587,20 @@ export function ModulesPage({
                   <ul className="space-y-1 font-mono text-[11px] text-zinc-300">
                     {report.sql_files.map((s, idx) => (
                       <li key={idx}>
-                        • {s.file_path} ({s.statement_count} statements)
+                        • {s.file.split(/[\\/]/).pop()}{" "}
+                        <span className="text-muted">
+                          ({s.target_schema === "unspecified" ? (locale === "ru" ? "база не указана" : "database not given") : s.target_schema}
+                          {", "}
+                          {[
+                            s.has_create_table && (locale === "ru" ? "создаёт таблицы" : "creates tables"),
+                            s.has_alter_table && (locale === "ru" ? "меняет таблицы" : "alters tables"),
+                            s.has_insert_replace && (locale === "ru" ? "добавляет данные" : "adds data"),
+                            s.has_delete_update && (locale === "ru" ? "меняет/удаляет данные" : "changes or deletes data"),
+                          ]
+                            .filter(Boolean)
+                            .join(", ") || (locale === "ru" ? `${s.line_count} строк` : `${s.line_count} lines`)}
+                          )
+                        </span>
                       </li>
                     ))}
                   </ul>

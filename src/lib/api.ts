@@ -342,7 +342,16 @@ export interface CompatibilityReport {
     has_duplicate_registration: boolean;
   };
   databases: Array<{ database_type: string; operation: string; file: string; line: number }>;
-  sql_files: Array<{ file_path: string; statement_count: number; tables_referenced: string[]; has_schema_mutation: boolean }>;
+  /** As the backend sends it (analyzer::SqlFileAudit). */
+  sql_files: Array<{
+    file: string;
+    target_schema: string;
+    has_create_table: boolean;
+    has_alter_table: boolean;
+    has_insert_replace: boolean;
+    has_delete_update: boolean;
+    line_count: number;
+  }>;
   core_patches: string[];
   has_cmakelists: boolean;
   has_entrypoint_adapter: boolean;
