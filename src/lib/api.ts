@@ -843,6 +843,7 @@ export const api = {
   installNew: (dest: string, pkg?: string, gameData?: string, copyFrom?: string) =>
     invoke<ServerSummary & { preview_core_error: string | null; modules_off: string[]; copied: CopyReport | null }>("install_new", { dest, package: pkg ?? null, gameData: gameData ?? null, copyFrom: copyFrom ?? null }),
   isClassicServer: (path: string) => invoke<boolean>("is_classic_server", { path }),
+  repoLastPush: (repos: string[]) => invoke<Record<string, string | null>>("repo_last_push", { repos }),
   buildCacheSummary: (id: string) => invoke<BuildCacheSummary>("build_cache_summary", { id }),
   buildCacheClear: (id: string, module: string | null, sources: boolean) =>
     invoke<number>("build_cache_clear", { id, module, sources }),

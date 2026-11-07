@@ -290,6 +290,60 @@ fn respond(items: Vec<PublicCatalogueItem>, overlay: &CoaOverlayDocument, cached
     }
 }
 
+/// Last push (`pushed_at`) of GitHub repositories given as `owner/name`, for modules the public catalogue does
+/// not list. Kept in `cache_file` for 12 hours; a repository GitHub does not answer for is `None` and asked
+/// again next time.
+pub fn repo_last_push(cache_file: &Path, repos: &[String]) -> Result<BTreeMap<String, Option<String>>> {
+    #[derive(Serialize, Deserialize, Default)]
+    struct Cache {
+        at: i64,
+        pushed: BTreeMap<String, String>,
+    }
+    let now = Utc::now().timestamp();
+    let mut cache: Cache = fs::read(cache_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    if now - cache.at > 12 * 3600 {
+        cache = Cache { at: now, pushed: BTreeMap::new() };
+    }
+    let name_ok = |s: Option<&str>| {
+        s.is_some_and(|s| !s.is_empty() && s.len() <= 100 && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')))
+    };
+    let valid = |r: &str| {
+        let mut parts = r.split('/');
+        name_ok(parts.next()) && name_ok(parts.next()) && parts.next().is_none()
+    };
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    let mut out = BTreeMap::new();
+    for repo in repos.iter().map(|r| r.trim().to_ascii_lowercase()).filter(|r| valid(r)) {
+        if let Some(v) = cache.pushed.get(&repo) {
+            out.insert(repo, Some(v.clone()));
+            continue;
+        }
+        let pushed = client
+            .get(format!("https://api.github.com/repos/{repo}"))
+            .header(reqwest::header::USER_AGENT, "CSM-Modules-Preview")
+            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+            .send()
+            .ok()
+            .filter(|r| r.status().is_success())
+            .and_then(|r| r.text().ok())
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|v| v.get("pushed_at")?.as_str().map(str::to_string));
+        if let Some(p) = &pushed {
+            cache.pushed.insert(repo.clone(), p.clone());
+        }
+        out.insert(repo, pushed);
+    }
+    if let Some(dir) = cache_file.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let _ = fsx::atomic_write_json(cache_file, &cache);
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedDocument {
     pub schema_version: u32,

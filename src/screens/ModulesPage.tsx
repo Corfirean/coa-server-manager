@@ -664,6 +664,13 @@ export function ModulesPage({
   const [showUrlBar, setShowUrlBar] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [cacheOpen, setCacheOpen] = useState(false);
+  // Last push of CoA's own module repositories (the public catalogue does not list them).
+  const [curatedPushed, setCuratedPushed] = useState<Record<string, string | null> | null>(null);
+  useEffect(() => {
+    if (activeTab !== "catalog" || curatedPushed !== null) return;
+    const repos = [...new Set(VERIFIED_CATALOG.map((m) => normalizeUrlSlug(m.repo)))];
+    void api.repoLastPush(repos).then(setCuratedPushed).catch(() => setCuratedPushed({}));
+  }, [activeTab, curatedPushed]);
   const [cacheBytes, setCacheBytes] = useState<number | null>(null);
   useEffect(() => {
     if (menuOpen) {
@@ -2033,7 +2040,7 @@ export function ModulesPage({
               };
               const cat = (publicCatalog?.categories ?? []).find((c) => c.code === curatedCategory(item.id));
               return (
-                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_80px_56px_auto]">
+                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_128px] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_176px_92px_60px_128px]">
                   <button onClick={() => setSelectedCatalogModule(item)} className="min-w-0 text-left">
                     <span className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium text-ink">{item.name}</span>
@@ -2042,7 +2049,17 @@ export function ModulesPage({
                     <span className="block truncate text-xs text-muted">{locale === "ru" ? item.description.ru : item.description.en}</span>
                   </button>
                   <span className="hidden truncate text-xs text-muted sm:block">{cat ? (locale === "ru" ? cat.ru : cat.en) : ""}</span>
-                  <span className="hidden text-xs text-muted sm:block" />
+                  {(() => {
+                    const pushed = curatedPushed?.[normalizeUrlSlug(item.repo)] ?? null;
+                    return (
+                      <span
+                        className={cn("hidden text-xs tabular-nums sm:block", isStale(pushed) ? "text-muted/50" : "text-muted")}
+                        title={pushed ? (locale === "ru" ? "Последний коммит: " : "Last commit: ") + formatDate(pushed) : undefined}
+                      >
+                        {curatedPushed === null ? "…" : timeAgo(pushed, locale)}
+                      </span>
+                    );
+                  })()}
                   <span className="hidden text-xs text-muted sm:block" />
                   <div className="flex justify-end">
                     {isInstalled ? (
@@ -2092,7 +2109,7 @@ export function ModulesPage({
               const isIncompatible = item.coa_status === "Incompatible";
               const cat = (publicCatalog?.categories ?? []).find((c) => c.code === (item.category ?? "other"));
               return (
-                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_80px_56px_auto]">
+                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_128px] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_176px_92px_60px_128px]">
                   <button onClick={() => setSelectedPublicModule(item)} className="min-w-0 text-left">
                     <span className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium text-ink">{item.name}</span>

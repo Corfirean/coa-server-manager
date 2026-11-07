@@ -3083,6 +3083,14 @@ async fn analyze_github_module(
     .await
 }
 
+/// Last push of GitHub repositories (`owner/name`), for modules that are not in the public catalogue (CoA's
+/// own). Answers are kept for 12 hours in the source cache; a repository GitHub does not answer for gets none.
+#[tauri::command]
+async fn repo_last_push(repos: Vec<String>) -> std::result::Result<BTreeMap<String, Option<String>>, UiError> {
+    let cache_file = data_dir().join("github_cache").join("repo-last-push.json");
+    blocking(move || coa_core::catalogue::repo_last_push(&cache_file, &repos)).await
+}
+
 /// What the module build cache of a server (and the shared source downloads) take on disk.
 #[tauri::command]
 async fn build_cache_summary(
@@ -3634,6 +3642,7 @@ pub fn run() {
             is_classic_server,
             build_cache_summary,
             build_cache_clear,
+            repo_last_push,
             cancel_install,
             create_account,
             check_update,
