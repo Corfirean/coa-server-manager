@@ -63,6 +63,24 @@
       "reason": "Already built into the CoA core (cross-faction battlegrounds); a separate DLL would load it a second time."
     },
     {
+      "repo_slug": "helias/mod-bg-battle-for-gilneas",
+      "status": "Incompatible",
+      "is_recommended": false,
+      "reason": "Needs the server's DBC files replaced (including Spell.dbc, which CoA ships its own of), a client patch and a modified wow.exe; written for AzerothCore 2019."
+    },
+    {
+      "repo_slug": "helias/mod-bg-twinpeaks",
+      "status": "Incompatible",
+      "is_recommended": false,
+      "reason": "Needs the server's DBC files replaced (CoA ships its own), a client patch and a modified wow.exe."
+    },
+    {
+      "repo_slug": "helias/mod-bg-slaveryvalley",
+      "status": "Incompatible",
+      "is_recommended": false,
+      "reason": "Needs the server's DBC files replaced (CoA ships its own) and a client patch."
+    },
+    {
       "repo_slug": "azerothcore/mod-learn-spells",
       "status": "Incompatible",
       "is_recommended": false,

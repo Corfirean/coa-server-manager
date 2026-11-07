@@ -3083,6 +3083,42 @@ async fn analyze_github_module(
     .await
 }
 
+/// What the module build cache of a server (and the shared source downloads) take on disk.
+#[tauri::command]
+async fn build_cache_summary(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::build_cache::CacheSummary, UiError> {
+    let root = path_of(&state, &id)?;
+    let sources = data_dir().join("github_cache");
+    blocking(move || Ok(coa_core::build_cache::summary(&root, Some(&sources)))).await
+}
+
+/// Remove the build cache of one module (`module`), of all modules (no `module`), and optionally the downloaded
+/// sources. Refused while a build runs on this server. Returns the bytes freed.
+#[tauri::command]
+async fn build_cache_clear(
+    state: State<'_, AppState>,
+    id: String,
+    module: Option<String>,
+    sources: bool,
+) -> std::result::Result<u64, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    let sources_dir = data_dir().join("github_cache");
+    blocking(move || {
+        let mut freed = 0;
+        if module.is_some() || !sources {
+            freed += coa_core::build_cache::clear(&root, module.as_deref())?;
+        }
+        if sources {
+            freed += coa_core::build_cache::clear_sources(&sources_dir)?;
+        }
+        Ok(freed)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn get_public_module_catalog(
     force_refresh: Option<bool>,
@@ -3131,6 +3167,8 @@ async fn preview_build_module(
 
     let realm_root = path_of(&state, &realm_id)?;
     let cache_dir = data_dir().join("github_cache");
+    // The build works in the module's build cache: clearing the cache waits for it.
+    let _guard = BusyGuard::acquire(&state, &realm_id)?;
 
     let app_clone = app.clone();
     let progress_cb: Box<dyn Fn(coa_core::build_engine::BuildProgressEvent) + Send + Sync> =
@@ -3594,6 +3632,8 @@ pub fn run() {
             account_delete,
             install_new,
             is_classic_server,
+            build_cache_summary,
+            build_cache_clear,
             cancel_install,
             create_account,
             check_update,

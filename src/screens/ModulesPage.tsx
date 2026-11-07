@@ -57,6 +57,8 @@ import { useHuman, useI18n, useSchemaText, type Key } from "@/i18n";
 import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField, retiredModuleKeys } from "@/lib/moduleSettings";
 import { AuctionTypes } from "@/screens/AuctionTypes";
 import { RaceAvailabilitySettings } from "@/screens/RaceAvailabilitySettings";
+import { BuildCacheDialog } from "@/screens/BuildCacheDialog";
+import { formatBytes } from "@/lib/utils";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 /** The GitHub mark */
@@ -639,6 +641,13 @@ export function ModulesPage({
   // "Add from a link" stays folded away until asked for; the menu holds the rarely used build tools.
   const [showUrlBar, setShowUrlBar] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [cacheOpen, setCacheOpen] = useState(false);
+  const [cacheBytes, setCacheBytes] = useState<number | null>(null);
+  useEffect(() => {
+    if (menuOpen) {
+      void api.buildCacheSummary(serverId).then((s) => setCacheBytes(s.total_bytes + s.sources_bytes)).catch(() => setCacheBytes(null));
+    }
+  }, [menuOpen, serverId]);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [report, setReport] = useState<CompatibilityReport | null>(null);
@@ -1236,6 +1245,17 @@ export function ModulesPage({
                 ))}
                 <button
                   role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setCacheOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-muted hover:bg-white/5 hover:text-ink"
+                >
+                  <Database className="h-4 w-4" /> {locale === "ru" ? "Кэш сборок" : "Build cache"}
+                  {cacheBytes !== null && <span className="ml-auto text-xs tabular-nums">{formatBytes(cacheBytes)}</span>}
+                </button>
+                <button
+                  role="menuitem"
                   disabled={actionInProgress === "export-diag"}
                   onClick={() => {
                     setMenuOpen(false);
@@ -1270,6 +1290,8 @@ export function ModulesPage({
           </button>
         </div>
       )}
+
+      {cacheOpen && <BuildCacheDialog serverId={serverId} locale={locale} onClose={() => setCacheOpen(false)} />}
 
       {/* Build tools: said only when something is missing */}
       {toolchain && activeTab !== "toolchain" && (() => {

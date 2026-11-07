@@ -11,6 +11,7 @@ pub mod accounts;
 pub mod allsettings;
 pub mod analyzer;
 pub mod backup;
+pub mod build_cache;
 pub mod build_engine;
 pub mod catalogue;
 pub mod channels;

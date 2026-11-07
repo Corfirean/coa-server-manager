@@ -61,10 +61,24 @@ pub fn fetch_pinned(owner: &str, repo: &str, sha: &str, cache_root: &Path) -> Re
     Ok(dest)
 }
 
+/// Game-client and media files a server module's build never reads (client patches, DBC/map data, textures,
+/// archives). Some repositories carry hundreds of MB of them next to a few KB of server code; they are left out
+/// of the sources, and their names listed in `.coa_skipped_assets`.
+fn is_client_asset(rel: &Path) -> bool {
+    const EXT: [&str; 22] = [
+        "mpq", "dbc", "db2", "adt", "wdt", "wdl", "wmo", "m2", "skin", "anim", "blp", "tga", "trs", "vmtile", "vmtree",
+        "mmap", "mmtile", "zip", "7z", "rar", "mp3", "ogg",
+    ];
+    rel.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| EXT.iter().any(|x| x.eq_ignore_ascii_case(e)))
+}
+
 /// Extracts a GitHub tar.gz (one top-level `<repo>-<sha>/` folder) into `dest`, files and folders only.
-fn unpack(reader: impl Read, dest: &Path) -> Result<()> {
+pub(crate) fn unpack(reader: impl Read, dest: &Path) -> Result<()> {
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(reader));
     let mut total = 0u64;
+    let mut skipped = Vec::new();
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.into_owned();
@@ -79,6 +93,8 @@ fn unpack(reader: impl Read, dest: &Path) -> Result<()> {
         let target = dest.join(&rel);
         if kind.is_dir() {
             fs::create_dir_all(&target)?;
+        } else if kind.is_file() && is_client_asset(&rel) {
+            skipped.push(rel.to_string_lossy().replace('\\', "/"));
         } else if kind.is_file() {
             total += entry.header().size()?;
             if total > MAX_ARCHIVE_BYTES {
@@ -89,6 +105,9 @@ fn unpack(reader: impl Read, dest: &Path) -> Result<()> {
             std::io::copy(&mut entry, &mut out)?;
         }
         // Links and special entries are not part of a module's sources: skipped.
+    }
+    if !skipped.is_empty() {
+        fs::write(dest.join(".coa_skipped_assets"), skipped.join("\n"))?;
     }
     Ok(())
 }
@@ -116,6 +135,24 @@ mod tests {
         unpack(&gz[..], dir.path()).unwrap();
         assert_eq!(fs::read(dir.path().join("src/a.cpp")).unwrap(), b"int a;");
         assert!(dir.path().join("conf/x.conf.dist").is_file());
+    }
+
+    #[test]
+    fn client_assets_are_left_out_and_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let gz = tar_gz(&[
+            ("mod-bg-abc/server-side/src/BG.cpp", b"int a;"),
+            ("mod-bg-abc/client-side/DBFilesClient/Spell.dbc", b"dbc"),
+            ("mod-bg-abc/client-data.zip", b"zip"),
+            ("mod-bg-abc/data/sql/db-world/bg.sql", b"SELECT 1;"),
+        ]);
+        unpack(&gz[..], dir.path()).unwrap();
+        assert!(dir.path().join("server-side/src/BG.cpp").is_file());
+        assert!(dir.path().join("data/sql/db-world/bg.sql").is_file());
+        assert!(!dir.path().join("client-side/DBFilesClient/Spell.dbc").exists());
+        assert!(!dir.path().join("client-data.zip").exists());
+        let listed = fs::read_to_string(dir.path().join(".coa_skipped_assets")).unwrap();
+        assert!(listed.contains("Spell.dbc") && listed.contains("client-data.zip"));
     }
 
     #[test]

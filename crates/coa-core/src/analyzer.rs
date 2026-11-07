@@ -1032,8 +1032,13 @@ pub fn analyze_github_repository(url_str: &str, cache_base_dir: Option<&Path>) -
     let marker_file = commit_cache_dir.join(".coa_tree_digest");
 
     let cache_hit = commit_cache_dir.exists() && marker_file.exists();
+    let pinned = resolved_commit.len() == 40 && resolved_commit.bytes().all(|b| b.is_ascii_hexdigit());
     let target_dir = if cache_hit {
         commit_cache_dir
+    } else if pinned {
+        // GitHub's archive of the exact commit, without the game-client files some repositories carry (they
+        // are not needed to build a server module and used to push such repositories over the size limit).
+        crate::module_sources::fetch_pinned(&owner, &repo, &resolved_commit, &base_cache)?
     } else {
         // Clone into temporary staging directory
         let staging_id = format!("{}_{}_{}", owner, repo, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());

@@ -977,8 +977,25 @@ pub fn build_module_with_bundle(
         .unwrap_or_else(|| with_plugin_id(&adapter_source, &plugin_id));
 
     // 2. Prepare the persistent staging directory
-    let default_staging = realm_root.join(".manager").join("build-cache").join(&module_id);
-    let staging_dir = custom_staging_dir.map(PathBuf::from).unwrap_or(default_staging);
+    // The Manager's own builds use the module's build cache (unpacked for the build, packed again afterwards);
+    // a caller-chosen folder is used as it is.
+    let staging_dir = match custom_staging_dir {
+        Some(p) => PathBuf::from(p),
+        None => crate::build_cache::prepare(realm_root, &module_id, &sdk_abi_fingerprint(Path::new(&sdk_dir))?)?,
+    };
+    struct PackAfter<'a>(Option<(&'a Path, String)>);
+    impl Drop for PackAfter<'_> {
+        fn drop(&mut self) {
+            if let Some((root, id)) = self.0.take() {
+                crate::build_cache::finish(root, &id);
+            }
+        }
+    }
+    let _pack_after = PackAfter(custom_staging_dir.is_none().then(|| (realm_root, module_id.clone())));
+    let log_path = match custom_staging_dir {
+        Some(_) => staging_dir.join("build.log"),
+        None => crate::build_cache::root(realm_root).join(format!("{module_id}.log")),
+    };
     fs::create_dir_all(&staging_dir)?;
     let staging_src = staging_dir.join("src");
     fs::create_dir_all(&staging_src)?;
@@ -1142,11 +1159,11 @@ if errorlevel 1 exit /b 103
     }
 
     // The full log stays next to the build, so a failure can always be read afterwards.
-    let _ = fs::write(staging_dir.join("build.log"), all_logs.join("
+    let _ = fs::write(&log_path, all_logs.join("
 "));
     let mut errors = parse_msvc_errors(&all_logs);
     if exit_code != 0 && errors.is_empty() {
-        errors.push(unparsed_failure(exit_code, &all_logs, &staging_dir.join("build.log")));
+        errors.push(unparsed_failure(exit_code, &all_logs, &log_path));
     }
 
     let expected_dll_path = build_output_dir.join(format!("{}.dll", safe_target_name));
