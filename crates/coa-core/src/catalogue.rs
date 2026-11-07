@@ -170,6 +170,124 @@ pub struct PublicCatalogueItem {
     pub coa_status_source: String, // "Overlay", "VerifiedCatalog", "AutoPublic"
     pub conflict_reason: Option<String>,
     pub is_coa_recommended: bool,
+    /// Functional category code (see `coa-module-categories.json`); "other" when nothing fits.
+    #[serde(default)]
+    pub category: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryInfo {
+    pub code: String,
+    pub ru: String,
+    pub en: String,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CategoryDocument {
+    categories: Vec<CategoryInfo>,
+    /// Owner-reviewed assignments (lowercase `owner/repo` -> category code).
+    repos: BTreeMap<String, String>,
+}
+
+static EMBEDDED_CATEGORIES_JSON: &str = include_str!("coa-module-categories.json");
+
+fn category_document() -> &'static CategoryDocument {
+    static DOC: std::sync::OnceLock<CategoryDocument> = std::sync::OnceLock::new();
+    DOC.get_or_init(|| {
+        serde_json::from_str(EMBEDDED_CATEGORIES_JSON).unwrap_or(CategoryDocument { categories: Vec::new(), repos: BTreeMap::new() })
+    })
+}
+
+pub fn categories() -> Vec<CategoryInfo> {
+    category_document().categories.clone()
+}
+
+/// Lowercase words of a text: letters and digits, so `mod-pvp-titles` gives `mod`, `pvp`, `titles`.
+fn words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric() && c != '+')
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn keyword_hits(keyword: &str, text_words: &[String]) -> usize {
+    let kw = words(keyword);
+    match kw.as_slice() {
+        [] => 0,
+        // one word: whole-word match; words of 4+ letters also match their plural or longer forms
+        [k] => text_words.iter().filter(|w| *w == k || (k.chars().count() >= 4 && w.starts_with(k.as_str()))).count(),
+        // a phrase: its words in a row
+        many => text_words.windows(many.len()).filter(|win| win.iter().zip(many).all(|(a, b)| a == b)).count(),
+    }
+}
+
+/// The category of a module: the owner-reviewed list first, then the keywords of each category against the
+/// repository's name (counted twice), description and topics; "other" when no keyword matches.
+pub fn categorize(slug: &str, name: &str, description: &str, topics: &[String]) -> String {
+    let doc = category_document();
+    if let Some(code) = doc.repos.get(&normalize_repo_slug(slug)) {
+        return code.clone();
+    }
+    let name_words = words(name);
+    let mut body = words(description);
+    for t in topics.iter().filter(|t| !t.starts_with("azerothcore") && !matches!(t.as_str(), "wow" | "wotlk" | "world-of-warcraft")) {
+        body.extend(words(t));
+    }
+    let mut best: Option<(&str, usize)> = None;
+    for c in &doc.categories {
+        let score: usize = c.keywords.iter().map(|k| 2 * keyword_hits(k, &name_words) + keyword_hits(k, &body)).sum();
+        if score > 0 && best.is_none_or(|(_, s)| score > s) {
+            best = Some((&c.code, score));
+        }
+    }
+    best.map(|(c, _)| c.to_string()).unwrap_or_else(|| "other".into())
+}
+
+/// Statuses and categories come from the current overlay and category list on every read, never from what a
+/// cache stored: a corrected overlay must show at once. Entries an earlier version made up for overlay rules the
+/// public catalogue does not contain (marked with the `coa-verified` topic) are dropped.
+fn finalize(items: Vec<PublicCatalogueItem>, overlay: &CoaOverlayDocument) -> Vec<PublicCatalogueItem> {
+    let rules: BTreeMap<String, &CoaOverlayRule> =
+        overlay.rules.iter().map(|r| (normalize_repo_slug(&r.repo_slug), r)).collect();
+    items
+        .into_iter()
+        .filter(|i| !i.topics.iter().any(|t| t == "coa-verified"))
+        .map(|mut i| {
+            let slug = normalize_repo_slug(&i.full_name);
+            match rules.get(&slug) {
+                Some(rule) => {
+                    i.coa_status = rule.status;
+                    i.coa_status_source = "Overlay".into();
+                    i.conflict_reason = rule.reason.clone();
+                    i.is_coa_recommended = rule.is_recommended || rule.status == CoaCompatibilityStatus::Recommended;
+                }
+                None => {
+                    i.coa_status = CoaCompatibilityStatus::Unverified;
+                    i.coa_status_source = "AutoPublic".into();
+                    i.conflict_reason = None;
+                    i.is_coa_recommended = false;
+                }
+            }
+            i.category = categorize(&slug, &i.name, &i.description, &i.topics);
+            i
+        })
+        .collect()
+}
+
+fn respond(items: Vec<PublicCatalogueItem>, overlay: &CoaOverlayDocument, cached_at: String, is_offline: bool, etag: Option<String>) -> PublicCatalogueResponse {
+    let items = finalize(items, overlay);
+    PublicCatalogueResponse {
+        total_count: items.len(),
+        recommended_count: items.iter().filter(|i| i.is_coa_recommended).count(),
+        cached_at,
+        is_offline,
+        etag,
+        items,
+        categories: categories().into_iter().map(|c| CategoryInfo { keywords: Vec::new(), ..c }).collect(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +309,8 @@ pub struct PublicCatalogueResponse {
     pub etag: Option<String>,
     pub total_count: usize,
     pub recommended_count: usize,
+    #[serde(default)]
+    pub categories: Vec<CategoryInfo>,
 }
 
 // ---------------------------------------------------------------------------
@@ -368,44 +488,14 @@ pub fn normalize_catalogue(
             coa_status_source: coa_source,
             conflict_reason: reason,
             is_coa_recommended: is_rec,
+            category: String::new(),
         });
     }
 
-    // 4. Also ensure any Recommended overlay rules that were not present in the public raw catalog
-    // are included so they are never lost
-    for rule in &overlay.rules {
-        let slug = normalize_repo_slug(&rule.repo_slug);
-        if seen_slugs.insert(slug.clone()) {
-            let parts: Vec<&str> = slug.split('/').collect();
-            let (owner, name) = if parts.len() >= 2 {
-                (parts[0].to_string(), parts[1].to_string())
-            } else {
-                ("corfirean".to_string(), slug.clone())
-            };
+    // Overlay rules for repositories the public catalogue does not list are not turned into entries: the
+    // catalogue shows only what azerothcore.org lists (CoA's own modules are in the Manager's curated list).
 
-            normalized.push(PublicCatalogueItem {
-                id: rule.repo_id.unwrap_or(0),
-                name: name.clone(),
-                full_name: slug.clone(),
-                owner,
-                html_url: format!("https://github.com/{}", slug),
-                description: rule.reason.clone().unwrap_or_default(),
-                stars: 0,
-                forks: 0,
-                default_branch: "master".to_string(),
-                pushed_at: None,
-                updated_at: None,
-                license: Some("AGPL-3.0".to_string()),
-                topics: vec!["azerothcore-module".to_string(), "coa-verified".to_string()],
-                coa_status: rule.status,
-                coa_status_source: "Overlay".to_string(),
-                conflict_reason: rule.reason.clone(),
-                is_coa_recommended: rule.is_recommended || rule.status == CoaCompatibilityStatus::Recommended,
-            });
-        }
-    }
-
-    // 5. Sort:
+    // 4. Sort:
     // Group A (Recommended/Verified) first, then by Stars desc, then by pushed_at desc
     normalized.sort_by(|a, b| {
         // Priority 1: Recommended modules first
@@ -461,15 +551,7 @@ pub fn fetch_or_load_catalogue(
             if let Ok(cached) = serde_json::from_str::<CachedDocument>(&content) {
                 let age = now_ts - cached.timestamp;
                 if age < DEFAULT_CACHE_TTL_SECS && !cached.items.is_empty() {
-                    let rec_count = cached.items.iter().filter(|i| i.is_coa_recommended).count();
-                    return Ok(PublicCatalogueResponse {
-                        total_count: cached.items.len(),
-                        recommended_count: rec_count,
-                        cached_at: cached.cached_at,
-                        is_offline: false,
-                        etag: cached.etag,
-                        items: cached.items,
-                    });
+                    return Ok(respond(cached.items, &overlay, cached.cached_at, false, cached.etag));
                 }
             }
         }
@@ -507,15 +589,7 @@ pub fn fetch_or_load_catalogue(
                             cached.timestamp = now_ts;
                             cached.cached_at = Utc::now().to_rfc3339();
                             let _ = fsx::atomic_write_json(&cache_file, &cached);
-                            let rec_count = cached.items.iter().filter(|i| i.is_coa_recommended).count();
-                            return Ok(PublicCatalogueResponse {
-                                total_count: cached.items.len(),
-                                recommended_count: rec_count,
-                                cached_at: cached.cached_at,
-                                is_offline: false,
-                                etag: cached.etag,
-                                items: cached.items,
-                            });
+                            return Ok(respond(cached.items, &overlay, cached.cached_at, false, cached.etag));
                         }
                     }
                 }
@@ -540,7 +614,6 @@ pub fn fetch_or_load_catalogue(
                 })?;
 
                 let items = normalize_catalogue(&raw, &overlay);
-                let rec_count = items.iter().filter(|i| i.is_coa_recommended).count();
                 let now_str = Utc::now().to_rfc3339();
 
                 let cached_doc = CachedDocument {
@@ -557,14 +630,7 @@ pub fn fetch_or_load_catalogue(
                     let _ = fs::write(&etag_file, tag);
                 }
 
-                return Ok(PublicCatalogueResponse {
-                    total_count: items.len(),
-                    recommended_count: rec_count,
-                    cached_at: now_str,
-                    is_offline: false,
-                    etag: new_etag,
-                    items,
-                });
+                return Ok(respond(items, &overlay, now_str, false, new_etag));
             }
 
             // If non-200 and non-304 HTTP status, fallback to existing cache if available
@@ -585,15 +651,7 @@ fn try_offline_fallback(
     if cache_file.is_file() {
         if let Ok(content) = fs::read_to_string(cache_file) {
             if let Ok(cached) = serde_json::from_str::<CachedDocument>(&content) {
-                let rec_count = cached.items.iter().filter(|i| i.is_coa_recommended).count();
-                return Ok(PublicCatalogueResponse {
-                    total_count: cached.items.len(),
-                    recommended_count: rec_count,
-                    cached_at: cached.cached_at,
-                    is_offline: true,
-                    etag: cached.etag.or(stored_etag),
-                    items: cached.items,
-                });
+                return Ok(respond(cached.items, overlay, cached.cached_at, true, cached.etag.or(stored_etag)));
             }
         }
     }
@@ -604,16 +662,7 @@ fn try_offline_fallback(
         organizations: BTreeMap::new(),
     };
     let items = normalize_catalogue(&empty_raw, overlay);
-    let rec_count = items.iter().filter(|i| i.is_coa_recommended).count();
-
-    Ok(PublicCatalogueResponse {
-        total_count: items.len(),
-        recommended_count: rec_count,
-        cached_at: Utc::now().to_rfc3339(),
-        is_offline: true,
-        etag: None,
-        items,
-    })
+    Ok(respond(items, overlay, Utc::now().to_rfc3339(), true, None))
 }
 
 // ---------------------------------------------------------------------------
@@ -808,6 +857,7 @@ mod tests {
                 coa_status_source: "CacheTest".into(),
                 conflict_reason: None,
                 is_coa_recommended: false,
+                category: String::new(),
             }
         ];
 
@@ -833,6 +883,56 @@ mod tests {
         let overlay = load_coa_overlay(None);
         let fallback_resp = try_offline_fallback(&cache_file, None, &overlay).expect("fallback must succeed");
         assert!(fallback_resp.is_offline);
-        assert!(!fallback_resp.items.is_empty(), "Fallback must supply overlay items even on corrupt cache");
+        // nothing is made up from overlay rules when there is no catalogue to show
+        assert!(fallback_resp.items.is_empty());
+    }
+
+    fn item(full_name: &str, name: &str, description: &str, topics: &[&str]) -> PublicCatalogueItem {
+        PublicCatalogueItem {
+            id: 1,
+            name: name.into(),
+            full_name: full_name.into(),
+            owner: full_name.split('/').next().unwrap().into(),
+            html_url: format!("https://github.com/{full_name}"),
+            description: description.into(),
+            stars: 0,
+            forks: 0,
+            default_branch: "master".into(),
+            pushed_at: None,
+            updated_at: None,
+            license: None,
+            topics: topics.iter().map(|t| t.to_string()).collect(),
+            coa_status: CoaCompatibilityStatus::Verified,
+            coa_status_source: "Overlay".into(),
+            conflict_reason: Some("stale".into()),
+            is_coa_recommended: true,
+            category: String::new(),
+        }
+    }
+
+    #[test]
+    fn statuses_come_from_the_current_overlay_not_the_cache_and_made_up_entries_are_dropped() {
+        let overlay = load_coa_overlay(None);
+        let cached = vec![
+            item("azerothcore/mod-duel-reset", "mod-duel-reset", "Duel reset module", &["azerothcore-module"]),
+            item("azerothcore/mod-cfbg", "mod-cfbg", "Cross-faction battlegrounds", &["azerothcore-module", "coa-verified"]),
+        ];
+        let out = finalize(cached, &overlay);
+        assert_eq!(out.len(), 1, "the made-up mod-cfbg entry is dropped");
+        assert_eq!(out[0].coa_status, CoaCompatibilityStatus::Unverified);
+        assert!(out[0].conflict_reason.is_none() && !out[0].is_coa_recommended);
+        assert_eq!(out[0].category, "pvp");
+    }
+
+    #[test]
+    fn modules_get_a_category_from_the_reviewed_list_or_keywords() {
+        // reviewed list (the owner's file)
+        assert_eq!(categorize("DustinHendrickson/mod-ollama-chat", "mod-ollama-chat", "", &[]), "bots");
+        // keywords: whole words, not parts of other words
+        assert_eq!(categorize("x/mod-arena-points", "mod-arena-points", "Gives arena points", &[]), "pvp");
+        assert_eq!(categorize("x/mod-guild-chat", "mod-guild-chat", "", &[]), "social");
+        assert_eq!(categorize("x/mod-maintain", "mod-maintain", "Maintains things", &[]), "other");
+        assert_eq!(categorize("x/mod-nothing", "mod-nothing", "", &["azerothcore-module".to_string(), "wotlk".to_string()]), "other");
+        assert!(categories().iter().any(|c| c.code == "other"));
     }
 }

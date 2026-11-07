@@ -13,9 +13,9 @@ import {
   Gavel,
   GitFork,
   Hammer,
-  Info,
   Layers,
   Loader2,
+  MoreHorizontal,
   Plug,
   Puzzle,
   RefreshCw,
@@ -480,6 +480,25 @@ function CoaStatusBadge({ status, conflictReason }: { status: CoaCompatibilitySt
   }
 }
 
+/** Categories of the curated CoA list (the public catalogue items get theirs from the backend). */
+const CURATED_CATEGORY: Record<string, string> = {
+  companions: "bots",
+  playerbots: "bots",
+  "content-scaling": "pve",
+  "tbc-content": "pve",
+  "wotlk-content": "pve",
+  "custom-races": "classes",
+  "time-is-time": "world",
+  "npc-buffer": "npc",
+  "npc-enchanter": "npc",
+  "ah-bot": "economy",
+  "congrats-on-level": "progression",
+  "reward-played-time": "progression",
+};
+function curatedCategory(id: string): string {
+  return CURATED_CATEGORY[id] ?? "other";
+}
+
 function humanizeRawError(raw: string, locale: string): string {
   if (raw.includes("[NO_LOADER_FOUND]")) {
     return locale === "ru"
@@ -603,6 +622,8 @@ export function ModulesPage({
   // Four groups that do not overlap: checked by CoA (curated list + community modules CoA recommends or verified),
   // the rest of the AzerothCore community, and modules known not to work with CoA.
   const [catalogFilter, setCatalogFilter] = useState<"all" | "verified" | "community" | "incompatible">("all");
+  const [catalogCategory, setCatalogCategory] = useState<string>("all");
+  const [allCategoryChips, setAllCategoryChips] = useState(false);
   const [selectedCatalogModule, setSelectedCatalogModule] = useState<VerifiedCatalogModule | null>(null);
 
   // Public AzerothCore Catalog state
@@ -615,6 +636,9 @@ export function ModulesPage({
 
   // GitHub Intake & Analysis state
   const [githubUrl, setGithubUrl] = useState("");
+  // "Add from a link" stays folded away until asked for; the menu holds the rarely used build tools.
+  const [showUrlBar, setShowUrlBar] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [report, setReport] = useState<CompatibilityReport | null>(null);
@@ -1111,24 +1135,36 @@ export function ModulesPage({
       return (a.name || "").localeCompare(b.name || "");
     });
 
+  // "Checked by CoA" is the Manager's own curated list only; a community module is "incompatible" when the overlay
+  // says so and "community" otherwise.
   type CatalogGroup = "verified" | "community" | "incompatible";
   const communityGroup = (status: string | undefined): CatalogGroup =>
-    status === "Recommended" || status === "Verified"
-      ? "verified"
-      : status === "Incompatible" || status === "Blocked"
-        ? "incompatible"
-        : "community";
-  // Counts follow the search, so each segment says how many modules it will show.
+    status === "Incompatible" || status === "Blocked" ? "incompatible" : "community";
+  const inCategory = (code: string) => catalogCategory === "all" || code === catalogCategory;
+  const inGroup = (group: CatalogGroup) => catalogFilter === "all" || group === catalogFilter;
+  // Each control counts what it would show with the other one as it is now.
   const catalogCounts: Record<"all" | CatalogGroup, number> = {
-    all: searchedVerifiedCatalog.length + searchedCommunityCatalog.length,
-    verified: searchedVerifiedCatalog.length + searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "verified").length,
-    community: searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "community").length,
-    incompatible: searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "incompatible").length,
+    verified: searchedVerifiedCatalog.filter((i) => inCategory(curatedCategory(i.id))).length,
+    community: searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "community" && inCategory(i.category ?? "other")).length,
+    incompatible: searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "incompatible" && inCategory(i.category ?? "other")).length,
+    all: 0,
   };
-  const filteredVerifiedCatalog =
-    catalogFilter === "all" || catalogFilter === "verified" ? searchedVerifiedCatalog : [];
-  const filteredCommunityCatalog =
-    catalogFilter === "all" ? searchedCommunityCatalog : searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === catalogFilter);
+  catalogCounts.all = catalogCounts.verified + catalogCounts.community + catalogCounts.incompatible;
+  const categoryCounts = new Map<string, number>();
+  for (const i of inGroup("verified") ? searchedVerifiedCatalog : []) {
+    const c = curatedCategory(i.id);
+    categoryCounts.set(c, (categoryCounts.get(c) ?? 0) + 1);
+  }
+  for (const i of searchedCommunityCatalog) {
+    if (!inGroup(communityGroup(i.coa_status))) continue;
+    const c = i.category ?? "other";
+    categoryCounts.set(c, (categoryCounts.get(c) ?? 0) + 1);
+  }
+  const catalogCategories = (publicCatalog?.categories ?? []).filter((c) => (categoryCounts.get(c.code) ?? 0) > 0 || c.code === catalogCategory);
+  const filteredVerifiedCatalog = inGroup("verified") ? searchedVerifiedCatalog.filter((i) => inCategory(curatedCategory(i.id))) : [];
+  const filteredCommunityCatalog = searchedCommunityCatalog.filter(
+    (i) => catalogFilter !== "verified" && inGroup(communityGroup(i.coa_status)) && inCategory(i.category ?? "other")
+  );
 
   // Helper to check whether any module/plugin is installed
   function checkModuleInstalled(repoOrId: string, name: string) {
@@ -1158,35 +1194,60 @@ export function ModulesPage({
 
   return (
     <div className="flex h-full flex-col p-6 space-y-4 max-w-6xl">
-      {/* Header & Sub-navigation */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-ink flex items-center gap-2">
-            <Plug className="h-6 w-6 text-gold" />
-            {locale === "ru" ? "Модули и плагины" : "Modules & Plugins"}
-            <span className="rounded bg-sky-500/20 px-2 py-0.5 text-xs font-mono font-medium text-sky-400">
-              MODULES PREVIEW
-            </span>
-          </h2>
-          <p className="mt-1 text-xs text-muted">
-            {locale === "ru"
-              ? "Автономная тестовая редакция для управления официальными модулями и установки сторонних модулей AzerothCore в виде DLL."
-              : "Standalone preview for official module management and dynamic third-party DLL plugin installation."}
-          </p>
-        </div>
-
-        {/* Global actions */}
-        <div className="flex items-center gap-2">
+      {/* Header: title, add-from-link, and a menu with the build tools */}
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-semibold">{locale === "ru" ? "Модули" : "Modules"}</h1>
+        <div className="relative flex items-center gap-2">
+          <Button size="sm" variant={showUrlBar ? "primary" : "ghost"} onClick={() => setShowUrlBar((v) => !v)} aria-expanded={showUrlBar} className="text-xs">
+            <GithubMark className="mr-1.5 h-3.5 w-3.5" />
+            {locale === "ru" ? "Добавить по ссылке" : "Add from a link"}
+          </Button>
           <Button
             size="sm"
             variant="ghost"
-            onClick={exportDiagnostics}
-            disabled={actionInProgress === "export-diag"}
-            className="text-xs"
+            aria-label={locale === "ru" ? "Ещё" : "More"}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+            className="h-8 w-8 p-0"
           >
-            <Download className="mr-1.5 h-3.5 w-3.5" />
-            {locale === "ru" ? "Экспорт отчёта" : "Export Diagnostics"}
+            <MoreHorizontal className="h-4 w-4" />
           </Button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
+              <div role="menu" className="absolute right-0 top-9 z-20 w-56 rounded-md border border-line bg-card p-1 text-sm shadow-lg">
+                {([
+                  ["builds", Terminal, locale === "ru" ? "Сборки и логи" : "Builds and logs"],
+                  ["toolchain", Shield, locale === "ru" ? "Среда сборки и SDK" : "Build tools and SDK"],
+                ] as const).map(([tab, Icon, label]) => (
+                  <button
+                    key={tab}
+                    role="menuitem"
+                    onClick={() => {
+                      setActiveTab(tab);
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-muted hover:bg-white/5 hover:text-ink"
+                  >
+                    <Icon className="h-4 w-4" /> {label}
+                    {tab === "builds" && building && <Loader2 className="ml-auto h-3.5 w-3.5 animate-spin text-gold" />}
+                  </button>
+                ))}
+                <button
+                  role="menuitem"
+                  disabled={actionInProgress === "export-diag"}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void exportDiagnostics();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-muted hover:bg-white/5 hover:text-ink"
+                >
+                  <Download className="h-4 w-4" /> {locale === "ru" ? "Экспорт отчёта" : "Export diagnostics"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1210,53 +1271,30 @@ export function ModulesPage({
         </div>
       )}
 
-      {/* Toolchain Health Status Bar */}
-      {toolchain && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 text-xs rounded border border-line bg-black/20 p-2.5">
-          <div className="flex items-center gap-2">
-            {toolchain.msvc_available ? (
-              <CheckCircle2 className="h-4 w-4 text-ok" />
-            ) : (
-              <XCircle className="h-4 w-4 text-bad" />
-            )}
-            <span>
-              MSVC (vcvars64): <strong>{toolchain.msvc_available ? "Ready" : "Missing"}</strong>
+      {/* Build tools: said only when something is missing */}
+      {toolchain && activeTab !== "toolchain" && (() => {
+        const missing = [
+          !toolchain.msvc_available && "MSVC",
+          !toolchain.cmake_available && "CMake",
+          !toolchain.ninja_available && "Ninja",
+          !toolchain.sdk_available && "Plugin SDK",
+        ].filter(Boolean) as string[];
+        return missing.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-warn/30 bg-warn/5 px-3 py-2 text-xs" role="status">
+            <span className="flex items-center gap-2 text-warn">
+              <AlertTriangle className="h-4 w-4" />
+              {locale === "ru" ? "Для сборки модулей не хватает: " : "Missing for building modules: "}
+              {missing.join(", ")}
             </span>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setActiveTab("toolchain")}>
+              {locale === "ru" ? "Подробнее" : "Details"}
+            </Button>
           </div>
-          <div className="flex items-center gap-2">
-            {toolchain.cmake_available ? (
-              <CheckCircle2 className="h-4 w-4 text-ok" />
-            ) : (
-              <XCircle className="h-4 w-4 text-bad" />
-            )}
-            <span>
-              CMake: <strong>{toolchain.cmake_available ? "Ready" : "Missing"}</strong>
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {toolchain.ninja_available ? (
-              <CheckCircle2 className="h-4 w-4 text-ok" />
-            ) : (
-              <XCircle className="h-4 w-4 text-bad" />
-            )}
-            <span>
-              Ninja: <strong>{toolchain.ninja_available ? "Ready" : "Missing"}</strong>
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {toolchain.sdk_available ? (
-              <CheckCircle2 className="h-4 w-4 text-ok" />
-            ) : (
-              <XCircle className="h-4 w-4 text-bad" />
-            )}
-            <span>
-              Plugin SDK v0.3: <strong>{toolchain.sdk_available ? "Ready" : "Missing"}</strong>
-            </span>
-          </div>
-        </div>
-      )}
+        ) : null;
+      })()}
 
-      {/* GitHub URL Intake Bar on General Modules Screen */}
+      {/* Add from a GitHub link: folded away until asked for, or while a build from it is in progress */}
+      {(showUrlBar || report || analysisError || building) && (
       <Card className="border-line bg-card/60 p-3.5 shadow-sm">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <div className="relative flex-1">
@@ -1369,69 +1407,33 @@ export function ModulesPage({
           </div>
         )}
       </Card>
+      )}
 
-      {/* Tabs Header */}
-      <div className="flex flex-wrap border-b border-line gap-2">
-        <button
-          onClick={() => setActiveTab("installed")}
-          className={cn(
-            "flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
-            activeTab === "installed"
-              ? "border-gold text-gold"
-              : "border-transparent text-muted hover:text-ink"
-          )}
-        >
-          <Plug className="h-4 w-4" />
-          {locale === "ru" ? "Установленные модули" : "Installed Modules"}
-          {installedModules.length > 0 && (
-            <span className="rounded-full bg-gold/15 text-gold text-[11px] px-1.5 py-0.2 font-mono">
-              {installedModules.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab("catalog")}
-          className={cn(
-            "flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
-            activeTab === "catalog"
-              ? "border-gold text-gold"
-              : "border-transparent text-muted hover:text-ink"
-          )}
-        >
-          <Layers className="h-4 w-4" />
-          {locale === "ru" ? "Каталог модулей" : "Modules Catalog"}
-          <span className="rounded-full bg-white/10 text-muted text-[11px] px-1.5 py-0.2 font-mono">
-            {publicCatalog ? publicCatalog.total_count : `${VERIFIED_CATALOG.length}+`}
+      {/* Tabs, styled like the settings page; the build tools open from the menu with a way back */}
+      <div className="flex flex-wrap items-end gap-1 border-b border-line" role="tablist">
+        {([
+          ["installed", locale === "ru" ? "Установленные" : "Installed", installedModules.length],
+          ["catalog", locale === "ru" ? "Каталог" : "Catalog", publicCatalog ? catalogCounts.all : null],
+        ] as const).map(([tab, label, count]) => (
+          <button
+            key={tab}
+            role="tab"
+            aria-selected={activeTab === tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm",
+              activeTab === tab ? "border-gold text-ink" : "border-transparent text-muted hover:text-ink"
+            )}
+          >
+            {label}
+            {count !== null && count > 0 && <span className="ml-1.5 text-xs text-muted tabular-nums">{count}</span>}
+          </button>
+        ))}
+        {(activeTab === "builds" || activeTab === "toolchain") && (
+          <span className="-mb-px border-b-2 border-gold px-3 py-2 text-sm text-ink">
+            {activeTab === "builds" ? (locale === "ru" ? "Сборки и логи" : "Builds and logs") : (locale === "ru" ? "Среда сборки и SDK" : "Build tools and SDK")}
           </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("builds")}
-          className={cn(
-            "flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
-            activeTab === "builds"
-              ? "border-gold text-gold"
-              : "border-transparent text-muted hover:text-ink"
-          )}
-        >
-          <Terminal className="h-4 w-4" />
-          {locale === "ru" ? "Сборка & логи MSVC" : "Builds & MSVC Logs"}
-          {building && <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />}
-        </button>
-
-        <button
-          onClick={() => setActiveTab("toolchain")}
-          className={cn(
-            "flex items-center gap-2 border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
-            activeTab === "toolchain"
-              ? "border-gold text-gold"
-              : "border-transparent text-muted hover:text-ink"
-          )}
-        >
-          <Shield className="h-4 w-4" />
-          {locale === "ru" ? "Среда сборки & SDK" : "Environment & SDK"}
-        </button>
+        )}
       </div>
 
       {/* Sticky Active Build Banner when user is outside the builds tab */}
@@ -1830,550 +1832,258 @@ export function ModulesPage({
       {/* TAB 1: AZEROTHCORE & COA MODULE CATALOG */}
       {activeTab === "catalog" && (
         <div className="space-y-5">
-          {/* Top header & offline/refresh bar */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-base font-semibold text-ink flex items-center gap-2">
-                <Layers className="h-5 w-5 text-gold" />
-                {locale === "ru" ? "Каталог модулей AzerothCore & CoA" : "AzerothCore & CoA Module Catalogue"}
-              </h3>
-              <p className="text-xs text-muted mt-0.5">
-                {locale === "ru"
-                  ? "Рекомендованные модули Conquest of Azeroth и публичный каталог сообщества AzerothCore (500+ модулей)."
-                  : "Curated Conquest of Azeroth modules alongside the official AzerothCore community catalog (500+ modules)."}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void loadPublicCatalog(true)}
-                disabled={publicLoading}
-                className="text-xs h-7 px-2.5 text-muted hover:text-ink border border-line"
-                title={locale === "ru" ? "Принудительно обновить каталог из сети" : "Force refresh catalogue from remote"}
-              >
-                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", publicLoading && "animate-spin text-gold")} />
-                {locale === "ru" ? "Обновить каталог" : "Refresh"}
-              </Button>
-            </div>
-          </div>
-
           {/* Offline notice banner */}
           {publicCatalog?.is_offline && (
-            <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
-              <div className="flex items-center gap-2.5">
-                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-                <span>
-                  {locale === "ru"
-                    ? `Автономный режим: официальный каталог загружен из локального кэша (${formatDate(publicCatalog.cached_at)})`
-                    : `Offline mode: official catalog loaded from local cache (${formatDate(publicCatalog.cached_at)})`}
-                </span>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void loadPublicCatalog(true)}
-                disabled={publicLoading}
-                className="h-6 text-xs text-amber-300 hover:text-white"
-              >
-                <RefreshCw className={cn("h-3 w-3 mr-1", publicLoading && "animate-spin")} />
+            <div className="flex items-center justify-between rounded border border-warn/30 bg-warn/5 px-3 py-2 text-xs text-warn">
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {locale === "ru"
+                  ? `Нет связи: каталог из кэша от ${formatDate(publicCatalog.cached_at)}`
+                  : `Offline: catalogue from the cache of ${formatDate(publicCatalog.cached_at)}`}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => void loadPublicCatalog(true)} disabled={publicLoading} className="h-6 text-xs">
                 {locale === "ru" ? "Повторить" : "Retry"}
               </Button>
             </div>
           )}
 
-          {/* Catalog error notice */}
           {publicError && (
-            <div className="flex items-center justify-between rounded-lg border border-bad/40 bg-bad/10 px-4 py-2.5 text-xs text-bad">
+            <div className="flex items-center justify-between rounded border border-bad/40 bg-bad/10 px-3 py-2 text-xs text-bad">
               <span>{publicError}</span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void loadPublicCatalog(true)}
-                disabled={publicLoading}
-                className="h-6 text-xs text-bad hover:text-white"
-              >
+              <Button size="sm" variant="ghost" onClick={() => void loadPublicCatalog(true)} disabled={publicLoading} className="h-6 text-xs">
                 {locale === "ru" ? "Повторить" : "Retry"}
               </Button>
             </div>
           )}
 
-          {/* Controls: Filter pills, Search, Sort */}
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between border-b border-line pb-3">
-            {/* Filter: one segmented control, groups that do not overlap */}
-            <div
-              role="radiogroup"
-              aria-label={locale === "ru" ? "Показать модули" : "Show modules"}
-              className="inline-flex self-start overflow-hidden rounded-md border border-line text-xs"
+          {/* Search, compatibility, sort, refresh */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[220px] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-muted" />
+              <input
+                type="text"
+                value={catalogQuery}
+                onChange={(e) => setCatalogQuery(e.target.value)}
+                placeholder={locale === "ru" ? "Поиск по названию, автору, тегу" : "Search by name, author, topic"}
+                aria-label={locale === "ru" ? "Поиск по каталогу" : "Search the catalogue"}
+                className="selectable w-full rounded-md border border-line bg-bg py-2 pl-8 pr-3 text-sm text-ink placeholder:text-muted/60 focus:border-gold focus:outline-none"
+              />
+            </div>
+            <select
+              value={catalogFilter}
+              onChange={(e) => setCatalogFilter(e.target.value as typeof catalogFilter)}
+              aria-label={locale === "ru" ? "Совместимость" : "Compatibility"}
+              className="rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-ink focus:border-gold focus:outline-none"
             >
-              {([
-                ["all", locale === "ru" ? "Все" : "All"],
-                ["verified", locale === "ru" ? "Проверено CoA" : "Checked by CoA"],
-                ["community", locale === "ru" ? "Сообщество" : "Community"],
-                ["incompatible", locale === "ru" ? "Несовместимые" : "Incompatible"],
-              ] as const).map(([key, label], index) => (
-                <button
-                  key={key}
-                  role="radio"
-                  aria-checked={catalogFilter === key}
-                  onClick={() => setCatalogFilter(key)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 transition-colors",
-                    index > 0 && "border-l border-line",
-                    catalogFilter === key ? "bg-gold/15 text-gold font-medium" : "text-muted hover:bg-white/5 hover:text-ink"
-                  )}
-                >
-                  {label}
-                  <span className={cn("tabular-nums", catalogFilter === key ? "text-gold/80" : "text-muted/70")}>
-                    {catalogCounts[key]}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* Search and Sort */}
-            <div className="flex items-center gap-2">
-              <div className="relative min-w-[220px]">
-                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted" />
-                <input
-                  type="text"
-                  value={catalogQuery}
-                  onChange={(e) => setCatalogQuery(e.target.value)}
-                  placeholder={
-                    locale === "ru"
-                      ? "Поиск по каталогу (название, автор, тег)..."
-                      : "Search catalogue (name, author, topic)..."
-                  }
-                  className="w-full rounded-md border border-line bg-bg pl-8 pr-3 py-1.5 text-xs text-ink placeholder:text-muted/60 focus:border-gold focus:outline-none"
-                />
-              </div>
-
-              <label className="flex items-center gap-1.5 text-xs text-muted">
-                {locale === "ru" ? "Сортировка:" : "Sort:"}
-                <select
-                  value={catalogSort}
-                  onChange={(e) => setCatalogSort(e.target.value as "stars" | "name" | "updated")}
-                  className="rounded-md border border-line bg-bg px-2.5 py-1.5 text-xs text-ink focus:border-gold focus:outline-none"
-                >
-                  <option value="stars">{locale === "ru" ? "по звёздам" : "stars"}</option>
-                  <option value="updated">{locale === "ru" ? "по обновлению" : "recently updated"}</option>
-                  <option value="name">{locale === "ru" ? "по имени (А–Я)" : "name (A–Z)"}</option>
-                </select>
-              </label>
-            </div>
+              <option value="all">{locale === "ru" ? `Совместимость: все (${catalogCounts.all})` : `Compatibility: all (${catalogCounts.all})`}</option>
+              <option value="verified">{locale === "ru" ? `Проверено CoA (${catalogCounts.verified})` : `Checked by CoA (${catalogCounts.verified})`}</option>
+              <option value="community">{locale === "ru" ? `Сообщество (${catalogCounts.community})` : `Community (${catalogCounts.community})`}</option>
+              <option value="incompatible">{locale === "ru" ? `Несовместимые (${catalogCounts.incompatible})` : `Incompatible (${catalogCounts.incompatible})`}</option>
+            </select>
+            <select
+              value={catalogSort}
+              onChange={(e) => setCatalogSort(e.target.value as "stars" | "name" | "updated")}
+              aria-label={locale === "ru" ? "Сортировка" : "Sort"}
+              className="rounded-md border border-line bg-bg px-2.5 py-2 text-xs text-ink focus:border-gold focus:outline-none"
+            >
+              <option value="stars">{locale === "ru" ? "по звёздам" : "by stars"}</option>
+              <option value="updated">{locale === "ru" ? "по обновлению" : "recently updated"}</option>
+              <option value="name">{locale === "ru" ? "по имени" : "by name"}</option>
+            </select>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void loadPublicCatalog(true)}
+              disabled={publicLoading}
+              aria-label={locale === "ru" ? "Обновить каталог" : "Refresh the catalogue"}
+              title={locale === "ru" ? "Обновить каталог" : "Refresh the catalogue"}
+              className="h-8 w-8 p-0"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", publicLoading && "animate-spin text-gold")} />
+            </Button>
           </div>
 
-          {/* GROUP A: RECOMMENDED FOR COA (ALWAYS ON TOP) */}
-          {filteredVerifiedCatalog.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between border-b border-gold/30 pb-2">
-                <div className="flex items-center gap-2">
-                  <Star className="h-4 w-4 text-gold fill-gold" />
-                  <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">
-                    {locale === "ru" ? "Рекомендовано" : "Recommended"}
-                  </h4>
-                  <span className="rounded-full bg-gold/20 text-gold px-2 py-0.5 text-[11px] font-mono font-medium">
-                    {filteredVerifiedCatalog.length}
-                  </span>
-                </div>
-                <span className="text-[11px] text-muted">
-                  {locale === "ru" ? "Проверенная интеграция и оптимизация для CoA" : "Verified compatibility and optimization for CoA"}
-                </span>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {filteredVerifiedCatalog.map((item) => {
-                  const matchedModule = modules?.find(
-                    (m) =>
-                      m.id === item.id ||
-                      m.id === `coa-${item.id}` ||
-                      m.id === `mod-coa-${item.id}` ||
-                      m.name.toLowerCase() === item.name.toLowerCase()
-                  );
-                  const matchedPlugin = installedPlugins?.find(
-                    (p) =>
-                      p.id === item.id ||
-                      p.id === `coa-${item.id}` ||
-                      p.name.toLowerCase() === item.name.toLowerCase()
-                  );
-                  const isInstalled = Boolean(matchedModule?.installed || matchedPlugin);
-                  const isEnabled = Boolean(matchedModule?.enabled ?? matchedPlugin?.enabled ?? false);
-
+          {/* Categories */}
+          {catalogCategories.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs" role="radiogroup" aria-label={locale === "ru" ? "Категория" : "Category"}>
+              {[{ code: "all", ru: "Все", en: "All" }, ...catalogCategories]
+                .filter((c, index) => allCategoryChips || index <= 8 || c.code === catalogCategory)
+                .map((c) => {
+                  const on = catalogCategory === c.code;
+                  const count = c.code === "all" ? catalogCounts.all : (categoryCounts.get(c.code) ?? 0);
                   return (
-                    <Card key={item.id} className="border-line bg-card p-4 flex flex-col justify-between space-y-3 hover:border-gold/30 transition-colors">
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-start gap-3">
-                            <Tile icon={item.icon || (item.isOfficial ? "bot" : "plug")} off={!isInstalled || !isEnabled} />
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-semibold text-ink text-sm">{item.name}</h4>
-                                <span className="rounded bg-gold/15 text-gold border border-gold/40 px-1.5 py-0.2 text-[10px] font-semibold">
-                                  ★ CoA
-                                </span>
-                              </div>
-                              <span className="font-mono text-[11px] text-muted">({item.id})</span>
-                              <p className="text-xs text-muted mt-1">{locale === "ru" ? item.description.ru : item.description.en}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Qualification Badges */}
-                        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
-                          {item.qualification === "OPTIMIZED_COA" || item.isOfficial ? (
-                            <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 px-2 py-0.5 font-medium">
-                              ✓ {locale === "ru" ? "Оптимизировано" : "Optimized"}
-                            </span>
-                          ) : item.qualification === "INSTALL_VERIFIED" ? (
-                            <span className="rounded bg-ok/10 text-ok border border-ok/30 px-2 py-0.5 font-medium">
-                              ✓ INSTALL_VERIFIED
-                            </span>
-                          ) : item.qualification === "LINK_VERIFIED" ? (
-                            <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/30 px-2 py-0.5 font-medium">
-                              ✓ LINK_VERIFIED
-                            </span>
-                          ) : (
-                            <span className="rounded bg-teal-500/10 text-teal-300 border border-teal-500/30 px-2 py-0.5 font-medium">
-                              ● BUILT
-                            </span>
-                          )}
-
-                          <span className="rounded bg-white/5 text-muted px-2 py-0.5 font-mono">{item.tier}</span>
-                          {item.sqlRequired && (
-                            <span className="rounded bg-black/40 text-muted px-1.5 py-0.5 font-mono">SQL</span>
-                          )}
-                        </div>
-
-                        <p className="mt-2 text-[11px] text-zinc-400 font-sans border-t border-line/40 pt-2">
-                          {locale === "ru" ? item.notes.ru : item.notes.en}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center justify-between border-t border-line/60 pt-3">
-                        <button
-                          onClick={() => void api.openLink(item.repo)}
-                          className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
-                        >
-                          <GithubMark className="h-3.5 w-3.5" />
-                          <span>GitHub</span>
-                        </button>
-
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSelectedCatalogModule(item)}
-                            className="text-xs h-7 px-2"
-                          >
-                            <Info className="h-3.5 w-3.5 mr-1" />
-                            {locale === "ru" ? "Подробнее" : "Details"}
-                          </Button>
-
-                          {isInstalled ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-ok font-medium mr-1">
-                                ✓ {locale === "ru" ? (isEnabled ? "Включен" : "Установлен") : (isEnabled ? "Active" : "Installed")}
-                              </span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  if (matchedModule) {
-                                    setOpenSettings(matchedModule.id);
-                                  }
-                                  setActiveTab("installed");
-                                }}
-                                className="text-xs h-7 px-2.5 border border-gold/40 text-gold hover:bg-gold/10"
-                              >
-                                <Settings2 className="h-3.5 w-3.5 mr-1" />
-                                {locale === "ru" ? "Настроить" : "Configure"}
-                              </Button>
-                            </div>
-                          ) : item.id === "tbc-content" || item.id === "wotlk-content" ? (
-                            !isScalingInstalled ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled
-                                className="text-xs h-7 px-2.5 border border-line text-muted/60 cursor-not-allowed"
-                              >
-                                {locale === "ru" ? "Требуется Content Scaling" : "Requires Content Scaling"}
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="primary"
-                                onClick={async () => {
-                                  try {
-                                    await api.moduleSetEnabled(serverId, item.id, true);
-                                    setChanged(true);
-                                    await load();
-                                    setOpenSettings(item.id);
-                                    setActiveTab("installed");
-                                    onChanged?.();
-                                  } catch (e) {
-                                    setError(asUiError(e));
-                                  }
-                                }}
-                                className="text-xs h-7 px-3"
-                              >
-                                <Plug className="h-3.5 w-3.5 mr-1" />
-                                {locale === "ru" ? "Включить" : "Enable"}
-                              </Button>
-                            )
-                          ) : item.id === "time-is-time" ? (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={async () => {
-                                try {
-                                  await api.moduleSetEnabled(serverId, "time-is-time", true);
-                                  setChanged(true);
-                                  await load();
-                                  setOpenSettings("time-is-time");
-                                  setActiveTab("installed");
-                                  onChanged?.();
-                                } catch (e) {
-                                  setError(asUiError(e));
-                                }
-                              }}
-                              className="text-xs h-7 px-3"
-                            >
-                              <Plug className="h-3.5 w-3.5 mr-1" />
-                              {locale === "ru" ? "Включить" : "Enable"}
-                            </Button>
-                          ) : item.id === "custom-races" ? (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={() => {
-                                setActiveTab("installed");
-                                setOpenSettings("custom-races");
-                              }}
-                              className="text-xs h-7 px-3 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-black font-medium"
-                            >
-                              <Download className="h-3.5 w-3.5 mr-1" />
-                              {locale === "ru" ? "Установить патч" : "Install Patch"}
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="primary"
-                              onClick={() => void handleBuildAndInstall(item.repo)}
-                              disabled={building}
-                              className="text-xs h-7 px-3 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-black font-medium"
-                            >
-                              <Hammer className="h-3.5 w-3.5 mr-1" />
-                              {locale === "ru" ? "Собрать и установить" : "Build & Install"}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
+                    <button
+                      key={c.code}
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setCatalogCategory(c.code)}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 transition-colors",
+                        on ? "border-gold/50 bg-gold/15 text-gold" : "border-line text-muted hover:text-ink"
+                      )}
+                    >
+                      {locale === "ru" ? c.ru : c.en}
+                      {c.code !== "all" && <span className="ml-1 tabular-nums opacity-70">{count}</span>}
+                    </button>
                   );
                 })}
-              </div>
+              {catalogCategories.length > 8 && (
+                <button onClick={() => setAllCategoryChips((v) => !v)} className="px-1.5 py-1 text-muted underline-offset-2 hover:text-ink hover:underline">
+                  {allCategoryChips ? (locale === "ru" ? "свернуть" : "fewer") : (locale === "ru" ? `ещё ${catalogCategories.length - 8}` : `${catalogCategories.length - 8} more`)}
+                </button>
+              )}
             </div>
           )}
 
-          {/* GROUP B: AZEROTHCORE COMMUNITY MODULES */}
-          <div className="space-y-3 pt-3">
-            <div className="flex items-center justify-between border-b border-line pb-2">
-              <div className="flex items-center gap-2">
-                <Puzzle className="h-4 w-4 text-sky-400" />
-                <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">
-                  {locale === "ru" ? "Каталог AzerothCore" : "AzerothCore Catalogue"}
-                </h4>
-                <span className="rounded-full bg-white/10 text-muted px-2 py-0.5 text-[11px] font-mono font-medium">
-                  {filteredCommunityCatalog.length}
-                </span>
-              </div>
+          {publicLoading && !publicCatalog && (
+            <div className="flex items-center gap-2 p-4 text-xs text-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-gold" />
+              {locale === "ru" ? "Загрузка каталога AzerothCore…" : "Loading the AzerothCore catalogue…"}
+            </div>
+          )}
+
+          {/* The list: CoA's own modules first, then the AzerothCore catalogue */}
+          <div className="divide-y divide-line rounded-lg border border-line">
+            {filteredVerifiedCatalog.length + filteredCommunityCatalog.length === 0 && !publicLoading && (
+              <p className="p-6 text-center text-xs text-muted">{locale === "ru" ? "Ничего не найдено." : "Nothing found."}</p>
+            )}
+
+            {filteredVerifiedCatalog.map((item) => {
+              const matchedModule = modules?.find(
+                (m) => m.id === item.id || m.id === `coa-${item.id}` || m.id === `mod-coa-${item.id}` || m.name.toLowerCase() === item.name.toLowerCase()
+              );
+              const matchedPlugin = installedPlugins?.find(
+                (p) => p.id === item.id || p.id === `coa-${item.id}` || p.name.toLowerCase() === item.name.toLowerCase()
+              );
+              const isInstalled = Boolean(matchedModule?.installed || matchedPlugin);
+              const isEnabled = Boolean(matchedModule?.enabled ?? matchedPlugin?.enabled ?? false);
+              const enable = async (id: string) => {
+                try {
+                  await api.moduleSetEnabled(serverId, id, true);
+                  setChanged(true);
+                  await load();
+                  setOpenSettings(id);
+                  setActiveTab("installed");
+                  onChanged?.();
+                } catch (e) {
+                  setError(asUiError(e));
+                }
+              };
+              const cat = (publicCatalog?.categories ?? []).find((c) => c.code === curatedCategory(item.id));
+              return (
+                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_60px_auto]">
+                  <button onClick={() => setSelectedCatalogModule(item)} className="min-w-0 text-left">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-ink">{item.name}</span>
+                      <span className="shrink-0 rounded border border-gold/40 bg-gold/10 px-1.5 text-[10px] font-semibold text-gold">CoA</span>
+                    </span>
+                    <span className="block truncate text-xs text-muted">{locale === "ru" ? item.description.ru : item.description.en}</span>
+                  </button>
+                  <span className="hidden truncate text-xs text-muted sm:block">{cat ? (locale === "ru" ? cat.ru : cat.en) : ""}</span>
+                  <span className="hidden text-xs text-muted sm:block" />
+                  <div className="flex justify-end">
+                    {isInstalled ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (matchedModule) setOpenSettings(matchedModule.id);
+                          setActiveTab("installed");
+                        }}
+                        className="h-7 px-2.5 text-xs text-ok"
+                      >
+                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                        {locale === "ru" ? (isEnabled ? "Включён" : "Установлен") : isEnabled ? "Active" : "Installed"}
+                      </Button>
+                    ) : (item.id === "tbc-content" || item.id === "wotlk-content") && !isScalingInstalled ? (
+                      <span className="px-2 text-xs text-muted">{locale === "ru" ? "Нужен Content Scaling" : "Needs Content Scaling"}</span>
+                    ) : item.id === "tbc-content" || item.id === "wotlk-content" || item.id === "time-is-time" ? (
+                      <Button size="sm" variant="primary" onClick={() => void enable(item.id)} className="h-7 px-3 text-xs">
+                        {locale === "ru" ? "Включить" : "Enable"}
+                      </Button>
+                    ) : item.id === "custom-races" ? (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => {
+                          setActiveTab("installed");
+                          setOpenSettings("custom-races");
+                        }}
+                        className="h-7 px-3 text-xs"
+                      >
+                        {locale === "ru" ? "Установить патч" : "Install patch"}
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="primary" onClick={() => void handleBuildAndInstall(item.repo)} disabled={building} className="h-7 px-3 text-xs">
+                        {locale === "ru" ? "Собрать" : "Build"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {filteredCommunityCatalog.slice(0, communityDisplayLimit).map((item) => {
+              const status = checkModuleInstalled(item.html_url, item.name);
+              const isBlocked = item.coa_status === "Blocked";
+              const isIncompatible = item.coa_status === "Incompatible";
+              const cat = (publicCatalog?.categories ?? []).find((c) => c.code === (item.category ?? "other"));
+              return (
+                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_60px_auto]">
+                  <button onClick={() => setSelectedPublicModule(item)} className="min-w-0 text-left">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-ink">{item.name}</span>
+                      <span className="shrink-0 truncate font-mono text-[11px] text-muted">{item.owner}</span>
+                      {(isBlocked || isIncompatible) && (
+                        <span
+                          className={cn("shrink-0 rounded px-1.5 text-[10px]", isBlocked ? "bg-bad/15 text-bad" : "bg-warn/15 text-warn")}
+                          title={item.conflict_reason ?? undefined}
+                        >
+                          {isBlocked ? (locale === "ru" ? "заблокирован" : "blocked") : locale === "ru" ? "несовместим" : "incompatible"}
+                        </span>
+                      )}
+                    </span>
+                    <span className="block truncate text-xs text-muted">
+                      {(isBlocked || isIncompatible) && item.conflict_reason ? item.conflict_reason : item.description || (locale === "ru" ? "Без описания" : "No description")}
+                    </span>
+                  </button>
+                  <span className="hidden truncate text-xs text-muted sm:block">{cat ? (locale === "ru" ? cat.ru : cat.en) : ""}</span>
+                  <span className="hidden items-center gap-1 text-xs text-muted tabular-nums sm:flex">
+                    <Star className="h-3 w-3" /> {item.stars}
+                  </span>
+                  <div className="flex justify-end">
+                    {status.installed ? (
+                      <Button size="sm" variant="ghost" onClick={() => setActiveTab("installed")} className="h-7 px-2.5 text-xs text-ok">
+                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                        {locale === "ru" ? (status.enabled ? "Включён" : "Установлен") : status.enabled ? "Active" : "Installed"}
+                      </Button>
+                    ) : isBlocked || isIncompatible ? (
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedPublicModule(item)} className="h-7 px-2.5 text-xs text-muted">
+                        {locale === "ru" ? "Почему" : "Why"}
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="ghost" onClick={() => void handleBuildAndInstall(item.html_url)} disabled={building} className="h-7 border border-line px-3 text-xs">
+                        {locale === "ru" ? "Собрать" : "Build"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {filteredCommunityCatalog.length > communityDisplayLimit && (
+            <div className="flex flex-col items-center gap-1.5 pt-1">
+              <Button size="sm" variant="ghost" onClick={() => setCommunityDisplayLimit((prev) => prev + 50)} className="border border-line px-4 text-xs">
+                {locale === "ru" ? "Показать ещё" : "Show more"}
+              </Button>
               <span className="text-[11px] text-muted">
-                {locale === "ru" ? "Официальный каталог azerothcore.org" : "Official azerothcore.org catalogue"}
+                {locale === "ru"
+                  ? `Показано ${communityDisplayLimit} из ${filteredCommunityCatalog.length}`
+                  : `Showing ${communityDisplayLimit} of ${filteredCommunityCatalog.length}`}
               </span>
             </div>
-
-            {publicLoading && !publicCatalog && (
-              <div className="flex items-center justify-center p-8 text-muted text-xs gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-gold" />
-                <span>{locale === "ru" ? "Загрузка каталога AzerothCore..." : "Loading AzerothCore catalogue..."}</span>
-              </div>
-            )}
-
-            {filteredCommunityCatalog.length === 0 && !publicLoading && (
-              <div className="rounded-lg border border-line bg-card/40 p-8 text-center text-xs text-muted">
-                {locale === "ru" ? "Модули сообщества по заданным фильтрам не найдены." : "No community modules match the active filters."}
-              </div>
-            )}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {filteredCommunityCatalog.slice(0, communityDisplayLimit).map((item) => {
-                const status = checkModuleInstalled(item.html_url, item.name);
-                const isBlocked = item.coa_status === "Blocked";
-                const isIncompatible = item.coa_status === "Incompatible";
-
-                return (
-                  <Card
-                    key={item.id}
-                    className={cn(
-                      "border-line bg-card p-4 flex flex-col justify-between space-y-3 transition-colors",
-                      isBlocked && "border-bad/30 bg-bad/5",
-                      isIncompatible && "border-warn/30"
-                    )}
-                  >
-                    <div>
-                      {/* Card Header: Icon, Name, Metrics */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-3">
-                          <Tile icon="plug" off={!status.installed || !status.enabled} />
-                          <div>
-                            <h4 className="font-semibold text-ink text-sm flex items-center gap-2">
-                              {item.name}
-                            </h4>
-                            <span className="font-mono text-[11px] text-muted">{item.full_name}</span>
-                            <p className="text-xs text-muted mt-1 line-clamp-2">
-                              {item.description || (locale === "ru" ? "Нет описания репозитория." : "No description provided.")}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Status and Metric Badges */}
-                      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <CoaStatusBadge status={item.coa_status} conflictReason={item.conflict_reason} />
-
-                        <span className="rounded bg-black/40 text-muted px-2 py-0.5 font-mono flex items-center gap-1">
-                          <Star className="h-3 w-3 text-gold fill-gold" />
-                          {item.stars}
-                        </span>
-
-                        <span className="rounded bg-black/40 text-muted px-2 py-0.5 font-mono flex items-center gap-1">
-                          <GitFork className="h-3 w-3" />
-                          {item.forks}
-                        </span>
-
-                        {item.license && (
-                          <span className="rounded bg-white/5 text-muted px-1.5 py-0.5 font-mono">
-                            {item.license}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Conflict / Engineering Notes */}
-                      {item.conflict_reason && (isBlocked || isIncompatible) ? (
-                        <div className="mt-2.5 rounded bg-bad/10 border border-bad/30 p-2 text-[11px] text-bad flex items-start gap-1.5">
-                          <Ban className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                          <span>{item.conflict_reason}</span>
-                        </div>
-                      ) : item.conflict_reason ? (
-                        // A note on a module that works (for example why CoA recommends it) is not a warning.
-                        <p className="mt-2 border-t border-line/40 pt-2 text-[11px] text-muted">{item.conflict_reason}</p>
-                      ) : item.topics.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-line/40 pt-2">
-                          {item.topics.slice(0, 3).map((topic) => (
-                            <span key={topic} className="rounded bg-white/5 px-1.5 py-0.2 font-mono text-[10px] text-muted">
-                              #{topic}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {/* Card Footer: GitHub Link, Details, Action */}
-                    <div className="flex items-center justify-between border-t border-line/60 pt-3">
-                      <button
-                        onClick={() => void api.openLink(item.html_url)}
-                        className="flex items-center gap-1.5 text-xs text-muted hover:text-ink"
-                      >
-                        <GithubMark className="h-3.5 w-3.5" />
-                        <span>GitHub</span>
-                      </button>
-
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setSelectedPublicModule(item)}
-                          className="text-xs h-7 px-2"
-                        >
-                          <Info className="h-3.5 w-3.5 mr-1" />
-                          {locale === "ru" ? "Подробнее" : "Details"}
-                        </Button>
-
-                        {status.installed ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] text-ok font-medium mr-1">
-                              ✓ {locale === "ru" ? (status.enabled ? "Включен" : "Установлен") : (status.enabled ? "Active" : "Installed")}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setActiveTab("installed")}
-                              className="text-xs h-7 px-2.5 border border-gold/40 text-gold hover:bg-gold/10"
-                            >
-                              <Settings2 className="h-3.5 w-3.5 mr-1" />
-                              {locale === "ru" ? "Настроить" : "Configure"}
-                            </Button>
-                          </div>
-                        ) : isBlocked ? (
-                          <Button
-                            size="sm"
-                            disabled
-                            variant="ghost"
-                            className="text-xs h-7 px-2.5 bg-bad/10 text-bad border border-bad/30 cursor-not-allowed opacity-60"
-                            title={item.conflict_reason || (locale === "ru" ? "Модуль заблокирован из-за конфликта с ядром CoA" : "Module blocked")}
-                          >
-                            <Ban className="h-3.5 w-3.5 mr-1" />
-                            {locale === "ru" ? "Заблокирован" : "Blocked"}
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            onClick={() => void handleBuildAndInstall(item.html_url)}
-                            disabled={building}
-                            className={cn(
-                              "text-xs h-7 px-3",
-                              isIncompatible && "bg-warn/80 hover:bg-warn text-black"
-                            )}
-                          >
-                            <Hammer className="h-3.5 w-3.5 mr-1" />
-                            {isIncompatible
-                              ? locale === "ru"
-                                ? "Собрать (с риском)"
-                                : "Build (Risky)"
-                              : locale === "ru"
-                              ? "Собрать и установить"
-                              : "Build & Install"}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-
-            {/* Pagination / Load more button */}
-            {filteredCommunityCatalog.length > communityDisplayLimit && (
-              <div className="flex flex-col items-center justify-center pt-4 pb-2 gap-1.5">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setCommunityDisplayLimit((prev) => prev + 24)}
-                  className="text-xs border border-line px-4"
-                >
-                  {locale === "ru" ? "Показать ещё (+24 модуля)" : "Load More (+24 modules)"}
-                </Button>
-                <span className="text-[11px] text-muted">
-                  {locale === "ru"
-                    ? `Показано ${Math.min(communityDisplayLimit, filteredCommunityCatalog.length)} из ${filteredCommunityCatalog.length}`
-                    : `Showing ${Math.min(communityDisplayLimit, filteredCommunityCatalog.length)} of ${filteredCommunityCatalog.length}`}
-                </span>
-              </div>
-            )}
-          </div>
+          )}
 
           {/* Details Modal for Verified Modules */}
           {selectedCatalogModule && (
@@ -2419,6 +2129,9 @@ export function ModulesPage({
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-line">
+                  <Button size="sm" variant="ghost" onClick={() => void api.openLink(selectedCatalogModule.repo)} className="mr-auto">
+                    <GithubMark className="mr-1.5 h-3.5 w-3.5" /> GitHub
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => setSelectedCatalogModule(null)}>
                     {locale === "ru" ? "Закрыть" : "Close"}
                   </Button>

@@ -299,6 +299,14 @@ export interface PublicCatalogueItem {
   coa_status_source: string;
   conflict_reason?: string | null;
   is_coa_recommended: boolean;
+  /** Functional category code; "other" when nothing fits. */
+  category?: string;
+}
+
+export interface CatalogueCategory {
+  code: string;
+  ru: string;
+  en: string;
 }
 
 export interface PublicCatalogueResponse {
@@ -308,6 +316,7 @@ export interface PublicCatalogueResponse {
   etag?: string | null;
   total_count: number;
   recommended_count: number;
+  categories?: CatalogueCategory[];
 }
 
 export interface CompatibilityReport {
