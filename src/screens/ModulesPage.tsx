@@ -600,7 +600,9 @@ export function ModulesPage({
 
   // Catalog search & filter
   const [catalogQuery, setCatalogQuery] = useState("");
-  const [catalogFilter, setCatalogFilter] = useState<string>("all");
+  // Four groups that do not overlap: checked by CoA (curated list + community modules CoA recommends or verified),
+  // the rest of the AzerothCore community, and modules known not to work with CoA.
+  const [catalogFilter, setCatalogFilter] = useState<"all" | "verified" | "community" | "incompatible">("all");
   const [selectedCatalogModule, setSelectedCatalogModule] = useState<VerifiedCatalogModule | null>(null);
 
   // Public AzerothCore Catalog state
@@ -1061,10 +1063,7 @@ export function ModulesPage({
   );
 
   // Group A: Recommended / Verified for CoA
-  const filteredVerifiedCatalog = VERIFIED_CATALOG.filter((item) => {
-    if (catalogFilter === "official" && !item.isOfficial) return false;
-    if (catalogFilter === "verified" && item.isOfficial) return false;
-    if (catalogFilter === "community" || catalogFilter === "incompatible") return false;
+  const searchedVerifiedCatalog = VERIFIED_CATALOG.filter((item) => {
     if (!catalogQuery.trim()) return true;
     const q = catalogQuery.toLowerCase();
     return (
@@ -1076,7 +1075,7 @@ export function ModulesPage({
   });
 
   // Group B: AzerothCore Community Modules
-  const filteredCommunityCatalog = (publicCatalog?.items ?? [])
+  const searchedCommunityCatalog = (publicCatalog?.items ?? [])
     .filter((item) => {
       // Exclude items already curated in Group A, or upstream forks replaced by CoA
       const slug = (item.full_name || item.name || "").toLowerCase();
@@ -1090,20 +1089,6 @@ export function ModulesPage({
         item.name.toLowerCase() === "mod-dungeon-clear"
       ) {
         return false;
-      }
-
-      // Filter by category / status
-      if (catalogFilter === "official" || catalogFilter === "verified") {
-        return false;
-      }
-      if (catalogFilter === "recommended") {
-        if (item.coa_status !== "Recommended" && item.coa_status !== "Verified") return false;
-      }
-      if (catalogFilter === "community") {
-        if (item.coa_status === "Incompatible" || item.coa_status === "Blocked") return false;
-      }
-      if (catalogFilter === "incompatible") {
-        if (item.coa_status !== "Incompatible" && item.coa_status !== "Blocked") return false;
       }
 
       if (!catalogQuery.trim()) return true;
@@ -1125,6 +1110,25 @@ export function ModulesPage({
       }
       return (a.name || "").localeCompare(b.name || "");
     });
+
+  type CatalogGroup = "verified" | "community" | "incompatible";
+  const communityGroup = (status: string | undefined): CatalogGroup =>
+    status === "Recommended" || status === "Verified"
+      ? "verified"
+      : status === "Incompatible" || status === "Blocked"
+        ? "incompatible"
+        : "community";
+  // Counts follow the search, so each segment says how many modules it will show.
+  const catalogCounts: Record<"all" | CatalogGroup, number> = {
+    all: searchedVerifiedCatalog.length + searchedCommunityCatalog.length,
+    verified: searchedVerifiedCatalog.length + searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "verified").length,
+    community: searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "community").length,
+    incompatible: searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === "incompatible").length,
+  };
+  const filteredVerifiedCatalog =
+    catalogFilter === "all" || catalogFilter === "verified" ? searchedVerifiedCatalog : [];
+  const filteredCommunityCatalog =
+    catalogFilter === "all" ? searchedCommunityCatalog : searchedCommunityCatalog.filter((i) => communityGroup(i.coa_status) === catalogFilter);
 
   // Helper to check whether any module/plugin is installed
   function checkModuleInstalled(repoOrId: string, name: string) {
@@ -1897,64 +1901,35 @@ export function ModulesPage({
 
           {/* Controls: Filter pills, Search, Sort */}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between border-b border-line pb-3">
-            {/* Filter pills */}
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <button
-                onClick={() => setCatalogFilter("all")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors",
-                  catalogFilter === "all" ? "bg-gold text-black font-semibold" : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                {locale === "ru" ? "Все" : "All"} ({filteredVerifiedCatalog.length + filteredCommunityCatalog.length})
-              </button>
-              <button
-                onClick={() => setCatalogFilter("recommended")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors flex items-center gap-1",
-                  catalogFilter === "recommended" ? "bg-gold/90 text-black font-semibold" : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                <Star className="h-3 w-3 fill-current" />
-                {locale === "ru" ? "Рекомендовано CoA" : "CoA Recommended"}
-              </button>
-              <button
-                onClick={() => setCatalogFilter("official")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors",
-                  catalogFilter === "official" ? "bg-sky-400 text-black font-semibold" : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                {locale === "ru" ? "Оптимизированы" : "Optimized"} ({VERIFIED_CATALOG.filter((c) => c.isOfficial).length})
-              </button>
-              <button
-                onClick={() => setCatalogFilter("verified")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors",
-                  catalogFilter === "verified" ? "bg-ok text-black font-semibold" : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                {locale === "ru" ? "Проверенные DLL" : "Verified DLLs"} ({VERIFIED_CATALOG.filter((c) => !c.isOfficial).length})
-              </button>
-              <button
-                onClick={() => setCatalogFilter("community")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors",
-                  catalogFilter === "community" ? "bg-teal-400 text-black font-semibold" : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                {locale === "ru" ? "Сообщество AC" : "AC Community"}
-              </button>
-              <button
-                onClick={() => setCatalogFilter("incompatible")}
-                className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors flex items-center gap-1",
-                  catalogFilter === "incompatible" ? "bg-warn text-black font-semibold" : "bg-black/30 text-muted hover:text-ink"
-                )}
-              >
-                <AlertTriangle className="h-3 w-3" />
-                {locale === "ru" ? "Несовместимые" : "Incompatible / Blocked"}
-              </button>
+            {/* Filter: one segmented control, groups that do not overlap */}
+            <div
+              role="radiogroup"
+              aria-label={locale === "ru" ? "Показать модули" : "Show modules"}
+              className="inline-flex self-start overflow-hidden rounded-md border border-line text-xs"
+            >
+              {([
+                ["all", locale === "ru" ? "Все" : "All"],
+                ["verified", locale === "ru" ? "Проверено CoA" : "Checked by CoA"],
+                ["community", locale === "ru" ? "Сообщество" : "Community"],
+                ["incompatible", locale === "ru" ? "Несовместимые" : "Incompatible"],
+              ] as const).map(([key, label], index) => (
+                <button
+                  key={key}
+                  role="radio"
+                  aria-checked={catalogFilter === key}
+                  onClick={() => setCatalogFilter(key)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 transition-colors",
+                    index > 0 && "border-l border-line",
+                    catalogFilter === key ? "bg-gold/15 text-gold font-medium" : "text-muted hover:bg-white/5 hover:text-ink"
+                  )}
+                >
+                  {label}
+                  <span className={cn("tabular-nums", catalogFilter === key ? "text-gold/80" : "text-muted/70")}>
+                    {catalogCounts[key]}
+                  </span>
+                </button>
+              ))}
             </div>
 
             {/* Search and Sort */}
@@ -1974,15 +1949,18 @@ export function ModulesPage({
                 />
               </div>
 
-              <select
-                value={catalogSort}
-                onChange={(e) => setCatalogSort(e.target.value as "stars" | "name" | "updated")}
-                className="rounded-md border border-line bg-bg px-2.5 py-1.5 text-xs text-ink focus:border-gold focus:outline-none"
-              >
-                <option value="stars">★ {locale === "ru" ? "По звёздам" : "By Stars"}</option>
-                <option value="updated">🕒 {locale === "ru" ? "По обновлению" : "Recently Updated"}</option>
-                <option value="name">🔤 {locale === "ru" ? "По имени (A-Z)" : "Name (A-Z)"}</option>
-              </select>
+              <label className="flex items-center gap-1.5 text-xs text-muted">
+                {locale === "ru" ? "Сортировка:" : "Sort:"}
+                <select
+                  value={catalogSort}
+                  onChange={(e) => setCatalogSort(e.target.value as "stars" | "name" | "updated")}
+                  className="rounded-md border border-line bg-bg px-2.5 py-1.5 text-xs text-ink focus:border-gold focus:outline-none"
+                >
+                  <option value="stars">{locale === "ru" ? "по звёздам" : "stars"}</option>
+                  <option value="updated">{locale === "ru" ? "по обновлению" : "recently updated"}</option>
+                  <option value="name">{locale === "ru" ? "по имени (А–Я)" : "name (A–Z)"}</option>
+                </select>
+              </label>
             </div>
           </div>
 
