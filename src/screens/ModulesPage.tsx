@@ -588,6 +588,28 @@ function formatDate(dateStr?: string | null): string {
   }
 }
 
+const DAY_MS = 86_400_000;
+
+/** "3 days ago", "5 mo ago", "2 y ago" from a repository's last push. */
+function timeAgo(dateStr: string | null | undefined, locale: string): string {
+  if (!dateStr) return "—";
+  const t = Date.parse(dateStr);
+  if (Number.isNaN(t)) return "—";
+  const days = Math.max(0, Math.floor((Date.now() - t) / DAY_MS));
+  const ru = locale === "ru";
+  if (days < 1) return ru ? "сегодня" : "today";
+  if (days < 31) return ru ? `${days} дн. назад` : `${days} d ago`;
+  if (days < 365) return ru ? `${Math.floor(days / 30)} мес. назад` : `${Math.floor(days / 30)} mo ago`;
+  const years = Math.floor(days / 365);
+  return ru ? `${years} ${years === 1 ? "год" : years < 5 ? "года" : "лет"} назад` : `${years} y ago`;
+}
+
+/** No commit for two years: probably written for a much older core. */
+function isStale(dateStr: string | null | undefined): boolean {
+  const t = dateStr ? Date.parse(dateStr) : NaN;
+  return !Number.isNaN(t) && Date.now() - t > 2 * 365 * DAY_MS;
+}
+
 export function ModulesPage({
   serverId,
   onChanged,
@@ -2011,7 +2033,7 @@ export function ModulesPage({
               };
               const cat = (publicCatalog?.categories ?? []).find((c) => c.code === curatedCategory(item.id));
               return (
-                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_60px_auto]">
+                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_80px_56px_auto]">
                   <button onClick={() => setSelectedCatalogModule(item)} className="min-w-0 text-left">
                     <span className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium text-ink">{item.name}</span>
@@ -2020,6 +2042,7 @@ export function ModulesPage({
                     <span className="block truncate text-xs text-muted">{locale === "ru" ? item.description.ru : item.description.en}</span>
                   </button>
                   <span className="hidden truncate text-xs text-muted sm:block">{cat ? (locale === "ru" ? cat.ru : cat.en) : ""}</span>
+                  <span className="hidden text-xs text-muted sm:block" />
                   <span className="hidden text-xs text-muted sm:block" />
                   <div className="flex justify-end">
                     {isInstalled ? (
@@ -2069,7 +2092,7 @@ export function ModulesPage({
               const isIncompatible = item.coa_status === "Incompatible";
               const cat = (publicCatalog?.categories ?? []).find((c) => c.code === (item.category ?? "other"));
               return (
-                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_60px_auto]">
+                <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_150px_80px_56px_auto]">
                   <button onClick={() => setSelectedPublicModule(item)} className="min-w-0 text-left">
                     <span className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium text-ink">{item.name}</span>
@@ -2088,6 +2111,12 @@ export function ModulesPage({
                     </span>
                   </button>
                   <span className="hidden truncate text-xs text-muted sm:block">{cat ? (locale === "ru" ? cat.ru : cat.en) : ""}</span>
+                  <span
+                    className={cn("hidden text-xs tabular-nums sm:block", isStale(item.pushed_at) ? "text-muted/50" : "text-muted")}
+                    title={item.pushed_at ? (locale === "ru" ? "Последний коммит: " : "Last commit: ") + formatDate(item.pushed_at) : undefined}
+                  >
+                    {timeAgo(item.pushed_at, locale)}
+                  </span>
                   <span className="hidden items-center gap-1 text-xs text-muted tabular-nums sm:flex">
                     <Star className="h-3 w-3" /> {item.stars}
                   </span>
