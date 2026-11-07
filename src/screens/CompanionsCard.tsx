@@ -16,10 +16,31 @@ import {
   type RealmMode,
   type RealmProfiles,
   type UiError,
+  type WildcardArchetypeDto,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useT } from "@/i18n";
+
+function formatRole(roles: number): string {
+  const parts: string[] = [];
+  if (roles & 1) parts.push("Tank");
+  if (roles & 2) parts.push("Melee");
+  if (roles & 4) parts.push("Ranged");
+  if (roles & 8) parts.push("Healer");
+  return parts.join("/") || "DPS";
+}
+
+function formatStat(stat: number): string {
+  switch (stat) {
+    case 0: return "Strength";
+    case 1: return "Agility";
+    case 2: return "Stamina";
+    case 3: return "Intellect";
+    case 4: return "Spirit";
+    default: return "All";
+  }
+}
 
 export function CompanionsCard({ serverId }: { serverId: string }) {
   const t = useT();
@@ -39,6 +60,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const [selectedClass, setSelectedClass] = useState<string>("all");
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [selectedArchetype, setSelectedArchetype] = useState<string>("all");
+  const [wildcardArchetypes, setWildcardArchetypes] = useState<WildcardArchetypeDto[]>([]);
 
   // Operational state
   const [busy, setBusy] = useState(false);
@@ -82,6 +104,20 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
       setTargetLevel(maxLevelForRealm);
     }
   }, [selectedRealm, maxLevelForRealm, targetLevel]);
+
+  // Load wildcard archetypes dynamically from target characters db
+  useEffect(() => {
+    if (selectedRealm === "wildcard") {
+      api.getWildcardArchetypes(serverId)
+        .then((archs) => setWildcardArchetypes(archs))
+        .catch(() => {});
+      if (selectedClass === "all") {
+        setSelectedClass("10");
+      }
+    } else {
+      setSelectedArchetype("all");
+    }
+  }, [serverId, selectedRealm]);
 
   // Load startup settings
   useEffect(() => {
@@ -163,7 +199,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
         const out = await api.spawnBotFleet(serverId, race, targetLevel, selectedRealm);
         setNote(out || `Spawned level ${targetLevel} fleet`);
       } else {
-        const classNum = selectedClass !== "all" ? parseInt(selectedClass, 10) : undefined;
+        const classNum = selectedClass !== "all" ? parseInt(selectedClass, 10) : (selectedRealm === "wildcard" ? 10 : undefined);
         let specNum: number | undefined = undefined;
         if (selectedRole === "tank") {
           if (selectedRealm === "reborn") {
@@ -601,12 +637,11 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
               <option value="all">Auto / Integral Archetype</option>
               {selectedRealm === "wildcard" && (
                 <>
-                  <option value="bear">Bear Tank (Guardian)</option>
-                  <option value="murlock">Mur-Lock (Unholy/Frost)</option>
-                  <option value="firesage">Fire Sage (Fire/Ele)</option>
-                  <option value="forestwarden">Forest Warden (Nature/Feral)</option>
-                  <option value="bleedrogue">Bleed Rogue / Berserker</option>
-                  <option value="holypal">Holy Paladin / Healer</option>
+                  {wildcardArchetypes.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({formatRole(b.roles)}) [{formatStat(b.primary_stat)}]
+                    </option>
+                  ))}
                 </>
               )}
               {selectedRealm === "reborn" && (
