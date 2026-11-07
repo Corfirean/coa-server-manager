@@ -1,12 +1,17 @@
 {
-  "core": "14cf375f1e006770b330d3fb89201ace54bfca24",
-  "bots": "447558bc27d6bb447aaf10eefcb2e85ac2b15c32",
-  "squid": "fa4cfd31997367b3e574a2b89b858c4669ff53fb",
+  "core": "bd4263d26f99ff051017373e3b4fc35518b8df90",
+  "bots": "0588a8e5cdfe54f81fe47bbb40fc9f75d29662e3",
+  "squid": "75d1784f66f3c731340a96f72bfbd301974b6ab4",
+  "dungeon-clear": "081a04f4208056dbb90717a5d10fe1e593943d5b",
   "notes": [
-    "Server startup waits for ports that Windows is still releasing",
-    "Normal Classic dungeons retain their authored damage at full party size",
-    "Companions avoid repeating unreachable routes in the open world",
-    "Updated the reviewed CoA upstream snapshot"
-  ],
-  "dungeon-clear": "9a9d09cf512e0a883af9cda6973445b81c123b13"
+    "Login server startup works when Windows does not list its listening port",
+    "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear",
+    "Electrocutioner is used up by Electrocute and no longer makes it look ready too early",
+    "The Dungeon Finder boss objective survives a relog",
+    "Vanilla dungeon bosses no longer sleep or mind control tanks and healers",
+    "Classic dungeons scale only for Dungeon Finder groups",
+    "Darkmaster Gandling raises Risen Students only at 52% health",
+    "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an",
+    "Scaled loot previews survive a map change"
+  ]
 }

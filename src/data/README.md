@@ -36,3 +36,7 @@ Manager 0.9.8 preparation refreshes the bundled server history through 0.261030.
 The two reviewed upcoming records are in `tools/reviewed-manager-notes.json` and
 `tools/reviewed-server-notes.json`; every new note has all five translations.
 These files describe preparation and do not add unpublished releases to canonical history.
+
+Manager 0.9.10 refreshes the bundled server history through 0.261104.94 from
+canonical build commit `a9c6b17c8c1a295680fda4ad4bcdde266357264d` on 2026-11-08.
+The reviewed upcoming Manager and server records carry translations in all five languages.

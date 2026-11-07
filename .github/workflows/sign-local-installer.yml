@@ -1,0 +1,72 @@
+name: sign-local-installer
+on:
+  push:
+    branches: [release/20261108-manager]
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful manager-local run in coa-server-build
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  sign:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify local build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          run = os.environ['BUILD_RUN']
+          if not run.isdigit():
+              raise RuntimeError('Invalid build run')
+          data = json.loads(subprocess.check_output(['gh', 'api', f'repos/Corfirean/coa-server-build/actions/runs/{run}']))
+          if data['conclusion'] != 'success' or data['path'] != '.github/workflows/manager-local.yml':
+              raise RuntimeError('Not a successful local Manager build')
+          subprocess.run(['gh', 'run', 'download', run, '-R', 'Corfirean/coa-server-build', '-n', 'unsigned-manager-windows', '-D', '_prepared-manager'], check=True)
+          from pathlib import Path
+          import hashlib
+          root = Path('_prepared-manager')
+          meta = json.loads((root / 'prepared-source.json').read_text())
+          version = json.loads(Path('package.json').read_text())['version']
+          name = meta['installer']
+          if Path(name).name != name or meta['source'] != os.environ['GITHUB_SHA'] or meta['version'] != version or str(meta['run']) != run:
+              raise RuntimeError('Installer identity differs')
+          if hashlib.sha256((root / name).read_bytes()).hexdigest() != meta['sha256']:
+              raise RuntimeError('Installer hash differs')
+          PY
+      - run: npm ci
+      - name: Sign exact locally compiled bytes
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          const root = '_prepared-manager/';
+          const meta = JSON.parse(readFileSync(root + 'prepared-source.json'));
+          execFileSync('node_modules/.bin/tauri', ['signer', 'sign', '--app-version', meta.version, root + meta.installer], {stdio: 'inherit'});
+          if (createHash('sha256').update(readFileSync(root + meta.installer)).digest('hex') !== meta.sha256) throw new Error('Signed bytes changed');
+          const signature = readFileSync(root + meta.installer + '.sig', 'utf8').trim();
+          const url = `https://github.com/Corfirean/coa-server-manager/releases/download/v${meta.version}/${encodeURIComponent(meta.installer)}`;
+          writeFileSync(root + 'latest.json', JSON.stringify({version: meta.version, notes: 'See the release notes.', pub_date: new Date().toISOString(), platforms: {'windows-x86_64': {signature, url}}}, null, 2) + '\n');
+          meta.signingRun = process.env.GITHUB_RUN_ID;
+          writeFileSync(root + 'prepared-source.json', JSON.stringify(meta, null, 2) + '\n');
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-manager-windows
+          path: _prepared-manager/*
+          retention-days: 14
+          if-no-files-found: error
