@@ -258,7 +258,8 @@
       "Classic dungeons scale only for Dungeon Finder groups": "Классические подземелья масштабируются только для групп поиска подземелий",
       "Darkmaster Gandling raises Risen Students only at 52% health": "Тёмный магистр Гандлинг поднимает восставших студентов только при 52% здоровья",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Драконы Затонувшего храма появляются только после Аватары Хаккара и Джаммал’ана",
-      "Scaled loot previews survive a map change": "Предпросмотр масштабированной добычи сохраняется при смене карты"
+      "Scaled loot previews survive a map change": "Предпросмотр масштабированной добычи сохраняется при смене карты",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots обновлён до 2.9.4"
     },
     "de": {
       "Restrict new characters by custom race without changing existing characters": "Neue Charaktere nach zusätzlichem Volk beschränken, ohne bestehende Charaktere zu ändern",
@@ -316,7 +317,8 @@
       "Classic dungeons scale only for Dungeon Finder groups": "Klassische Dungeons skalieren nur für Gruppen der Dungeonsuche",
       "Darkmaster Gandling raises Risen Students only at 52% health": "Dunkelmeister Gandling erweckt auferstandene Studenten erst bei 52 % Gesundheit",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Die Drachen im Versunkenen Tempel erscheinen erst nach dem Avatar von Hakkar und Jammal’an",
-      "Scaled loot previews survive a map change": "Die Vorschau skalierter Beute bleibt beim Kartenwechsel erhalten"
+      "Scaled loot previews survive a map change": "Die Vorschau skalierter Beute bleibt beim Kartenwechsel erhalten",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots auf 2.9.4 aktualisiert"
     },
     "fr": {
       "Restrict new characters by custom race without changing existing characters": "Restreignez les races supplémentaires des nouveaux personnages sans modifier les personnages existants",
@@ -374,7 +376,8 @@
       "Classic dungeons scale only for Dungeon Finder groups": "Les donjons classiques ne s’adaptent que pour les groupes de la recherche de donjons",
       "Darkmaster Gandling raises Risen Students only at 52% health": "Le sombre maître Gandling ne relève les étudiants qu’à 52 % de ses points de vie",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Les dragons du Temple englouti n’apparaissent qu’après l’Avatar d’Hakkar et Jammal’an",
-      "Scaled loot previews survive a map change": "L’aperçu du butin adapté est conservé lors d’un changement de carte"
+      "Scaled loot previews survive a map change": "L’aperçu du butin adapté est conservé lors d’un changement de carte",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots passe en version 2.9.4"
     },
     "es": {
       "Restrict new characters by custom race without changing existing characters": "Restringe las razas adicionales de personajes nuevos sin modificar los existentes",
@@ -432,7 +435,8 @@
       "Classic dungeons scale only for Dungeon Finder groups": "Las mazmorras clásicas solo se ajustan para grupos del buscador de mazmorras",
       "Darkmaster Gandling raises Risen Students only at 52% health": "El Maestro Oscuro Gandling solo alza a los estudiantes resucitados al 52 % de salud",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Los dragones del Templo Sumergido solo aparecen después del Avatar de Hakkar y Jammal’an",
-      "Scaled loot previews survive a map change": "La vista previa del botín ajustado se conserva al cambiar de mapa"
+      "Scaled loot previews survive a map change": "La vista previa del botín ajustado se conserva al cambiar de mapa",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots se actualiza a 2.9.4"
     },
     "zh": {
       "Restrict new characters by custom race without changing existing characters": "限制新角色可选的自定义种族，不影响现有角色",
@@ -490,7 +494,8 @@
       "Classic dungeons scale only for Dungeon Finder groups": "经典地下城仅对通过地下城查找器组成的队伍进行缩放",
       "Darkmaster Gandling raises Risen Students only at 52% health": "黑暗院长加丁仅在生命值降至 52% 时唤起复活的学生",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "沉没的神庙中的巨龙仅在哈卡的化身和迦玛兰之后出现",
-      "Scaled loot previews survive a map change": "缩放后的战利品预览在切换地图后仍会保留"
+      "Scaled loot previews survive a map change": "缩放后的战利品预览在切换地图后仍会保留",
+      "Updated SQUID Playerbots to 2.9.4": "已将 SQUID Playerbots 更新至 2.9.4"
     }
   }
 }

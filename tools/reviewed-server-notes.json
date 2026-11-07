@@ -1,17 +1,30 @@
 {
-  "core": "bd4263d26f99ff051017373e3b4fc35518b8df90",
-  "bots": "0588a8e5cdfe54f81fe47bbb40fc9f75d29662e3",
-  "squid": "75d1784f66f3c731340a96f72bfbd301974b6ab4",
-  "dungeon-clear": "081a04f4208056dbb90717a5d10fe1e593943d5b",
+  "components": {
+    "core": {
+      "repository": "Corfirean/azerothcore-wotlk-coa",
+      "sha": "85ecc2122efd4bc168e750ab35c3e3e8d9c49735"
+    },
+    "upstream": {
+      "repository": "jealous-sound/azerothcore-wotlk-coa",
+      "sha": "f8955cb9b29042c359a938ff732e4b608dd62ea5"
+    },
+    "bots": {
+      "repository": "Corfirean/mod-coa-playerbots",
+      "sha": "0588a8e5cdfe54f81fe47bbb40fc9f75d29662e3"
+    },
+    "scaling": {
+      "repository": "Corfirean/mod-coa-content-scaling",
+      "sha": "3c2febf636bd09087bb278e381b975271a70fdf6"
+    },
+    "build": {
+      "repository": "Corfirean/coa-server-build",
+      "sha": "ccb121b2a050e9f6eae4e5798dbca1c4ee66264f"
+    }
+  },
   "notes": [
     "Login server startup works when Windows does not list its listening port",
     "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear",
-    "Electrocutioner is used up by Electrocute and no longer makes it look ready too early",
-    "The Dungeon Finder boss objective survives a relog",
-    "Vanilla dungeon bosses no longer sleep or mind control tanks and healers",
-    "Classic dungeons scale only for Dungeon Finder groups",
-    "Darkmaster Gandling raises Risen Students only at 52% health",
-    "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an",
-    "Scaled loot previews survive a map change"
+    "Updated SQUID Playerbots to 2.9.4",
+    "Updated the reviewed CoA upstream snapshot"
   ]
 }
