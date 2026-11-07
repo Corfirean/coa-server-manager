@@ -1771,11 +1771,12 @@ async fn get_population(
 async fn companions_login_all(
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<String, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
-        let mut ra = Ra::connect(&root)?;
+        let mut ra = Ra::connect_target(&root, realm)?;
         ra.login_all()
     })
     .await
@@ -1787,11 +1788,12 @@ async fn companions_spawn_fleet(
     id: String,
     race: u8,
     level: u8,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<String, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
-        let mut ra = Ra::connect(&root)?;
+        let mut ra = Ra::connect_target(&root, realm)?;
         ra.spawn_fleet(race, level)
     })
     .await
@@ -1807,11 +1809,12 @@ struct CompanionAction {
 async fn companions_stop_spawning(
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
         Ok(CompanionAction {
-            count: Ra::connect(&root)?.cancel_spawning()?,
+            count: Ra::connect_target(&root, realm)?.cancel_spawning()?,
         })
     })
     .await
@@ -1821,12 +1824,12 @@ async fn companions_stop_spawning(
 async fn companions_take_offline(
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
-        let mut ra = Ra::connect(&root)?;
-        // Anything still waiting to be created must not come back right after.
+        let mut ra = Ra::connect_target(&root, realm)?;
         let _ = ra.cancel_spawning();
         Ok(CompanionAction {
             count: ra.despawn_all()?,
@@ -1835,13 +1838,12 @@ async fn companions_take_offline(
     .await
 }
 
-/// Log `count` randomly chosen online companions out to lower the load. Uses the per-bot command that every server
-/// build has, so it works on older builds too.
 #[tauri::command]
 async fn companions_despawn_some(
     state: State<'_, AppState>,
     id: String,
     count: u32,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
@@ -1849,13 +1851,18 @@ async fn companions_despawn_some(
         if !(1..=5000).contains(&count) {
             return Err(Error::Invalid("Choose a number between 1 and 5000.".into()));
         }
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        let target = coa_core::multiworld::resolve_bot_operation_target(&root, mode)?;
         let prefix = coa_core::population::bot_account_prefix(&root).to_uppercase();
         let db = coa_core::db::Db::from_repack(&root, coa_core::db::Account::App)?;
         let rows = db.query(&format!(
-            "SELECT c.guid FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account              WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%' ORDER BY RAND() LIMIT {count};"
+            "SELECT c.guid FROM {}.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%' ORDER BY RAND() LIMIT {count};",
+            target.chars_db
         ))?;
         let guids: Vec<u64> = rows.lines().filter_map(|l| l.trim().parse().ok()).collect();
-        let mut ra = Ra::connect(&root)?;
+        let mut ra = Ra::connect_target(&root, Some(mode))?;
         let mut done = 0;
         for g in guids {
             if ra.despawn_bot(g).unwrap_or(false) {
@@ -1867,31 +1874,35 @@ async fn companions_despawn_some(
     .await
 }
 
-/// Delete every companion for good. A recovery point of the characters and accounts is saved first.
 #[tauri::command]
 async fn companions_delete_all(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        let target = coa_core::multiworld::resolve_bot_operation_target(&root, mode)?;
         let meta = meta_dir(&root)?;
         backup::create(
             &root,
             &meta,
             Kind::Quick,
             Trigger::BeforeDangerousChange,
-            Some("before deleting all companions".into()),
+            Some(format!("before deleting all {} companions", target.realm.label())),
             &|step| {
                 let _ = app.emit("backup-progress", step);
             },
         )?;
-        let before = coa_core::population::query(&root)
+        let before = coa_core::population::query_for_realm(&root, mode)
             .map(|p| p.bots_total)
             .unwrap_or(0);
-        let mut ra = Ra::connect(&root)?;
+        let mut ra = Ra::connect_target(&root, Some(mode))?;
         let _ = ra.cancel_spawning();
         ra.purge_all()?;
         Ok(CompanionAction { count: before })
@@ -1948,6 +1959,10 @@ async fn add_companions(
     id: String,
     count: u32,
     realm: Option<coa_core::realms::Mode>,
+    level: Option<u8>,
+    class_id: Option<u8>,
+    spec_id: Option<u32>,
+    archetype: Option<String>,
 ) -> std::result::Result<CompanionsResult, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
@@ -1960,15 +1975,10 @@ async fn add_companions(
         let mode = realm.unwrap_or_else(|| {
             coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
         });
-        let chars_db = match mode {
-            coa_core::realms::Mode::Coa => "acore_characters",
-            coa_core::realms::Mode::Wildcard => "acore_characters_wildcard",
-            coa_core::realms::Mode::Reborn => "acore_characters_reborn",
-        };
+        let target = coa_core::multiworld::resolve_bot_operation_target(&root, mode)?;
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
-        // Every companion, old and new, should come back at the next start, so the start-up limit only ever grows here.
         let existing_max = config::load(&root, Scope::Bots)
             .ok()
             .and_then(|v| {
@@ -1986,56 +1996,22 @@ async fn add_companions(
             Value::from(existing_max.max(already + count).min(5000)),
         );
         config::save(&root, &meta, Scope::Bots, &changes)?;
-        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
-        // Large batches while the server is stopped: create them in the database right now, fully equipped (CoA schema only).
-        if o.world.state == coa_core::process::ServiceState::Stopped
-            && o.auth.state == coa_core::process::ServiceState::Stopped
-            && count >= coa_core::companions::OFFLINE_MIN
-            && mode == coa_core::realms::Mode::Coa
-            && coa_core::companions::offline_factory(&root).is_some()
-        {
-            let started_db = o.mysql.state != coa_core::process::ServiceState::Running;
-            if started_db {
-                let out = driver::run(&root, Verb::StartMysql)?;
-                if !out.ok {
-                    return Err(Error::Invalid("The database could not be started.".into()));
-                }
-            }
-            let made = (|| -> Result<()> {
-                coa_core::companions::ensure_templates_for_schema(
-                    &coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?,
-                    chars_db,
-                )?;
-                coa_core::companions::offline_create(
-                    &root,
-                    &meta.join("logs").join("companions-offline.log"),
-                    count,
-                )?;
-                Ok(())
-            })();
-            if started_db {
-                let _ = driver::run(&root, Verb::StopAll);
-            }
-            made?;
-            tracing::info!(count, "companions created offline");
-            return Ok(CompanionsResult {
-                spawned: None,
-                created: Some(count),
-                baseline: None,
-            });
-        }
+
         let mut baseline = None;
-        let spawned = if o.world.state == coa_core::process::ServiceState::Running {
-            // Older servers have no template characters to copy bots from: add them first.
+        let spawned = if target.running {
             if let Ok(admin_db) = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin) {
-                let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, chars_db);
+                let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, target.chars_db);
             }
             baseline = coa_core::population::query_for_realm(&root, mode)
                 .ok()
                 .map(|p| p.bots_total);
-            Some(Ra::connect(&root)?.spawn_bots(count)?)
+            let mut ra = Ra::connect_target(&root, Some(mode))?;
+            if let Some(lvl) = level {
+                Some(ra.spawn_custom(count, lvl, class_id, spec_id, archetype.as_deref())?)
+            } else {
+                Some(ra.spawn_bots(count)?)
+            }
         } else {
-            // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
             coa_core::fsx::atomic_write_json(
                 &meta.join("companions.pending.json"),
                 &serde_json::json!({ "count": count }),

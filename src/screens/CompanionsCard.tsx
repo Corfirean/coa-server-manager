@@ -55,8 +55,9 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
 
   const activeServerRealm = profiles?.active ?? "coa";
   const isViewingActiveRealm = selectedRealm === activeServerRealm;
+  const isRealmOperational = isViewingActiveRealm || running;
 
-  const maxLevelForRealm = selectedRealm === "reborn" ? 60 : 80;
+  const maxLevelForRealm = 60;
 
   // Load realm profiles
   const loadProfiles = async () => {
@@ -158,12 +159,27 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
     setNote(null);
     try {
       if (spawnMode === "fleet") {
-        // Fleet spawn: race 1 (Human) or 2 (Orc)
         const race = 1;
-        const out = await api.spawnBotFleet(serverId, race, targetLevel);
+        const out = await api.spawnBotFleet(serverId, race, targetLevel, selectedRealm);
         setNote(out || `Spawned level ${targetLevel} fleet`);
       } else {
-        const r = await api.addCompanions(serverId, count, selectedRealm);
+        const classNum = selectedClass !== "all" ? parseInt(selectedClass, 10) : undefined;
+        let specNum: number | undefined = undefined;
+        if (selectedRole === "tank") {
+          if (selectedRealm === "reborn") {
+            specNum = (classNum === 7 || classNum === 9 || classNum === 11) ? 4 : (classNum === 2 ? 2 : classNum === 1 ? 3 : 1);
+          } else if (selectedRealm === "wildcard") {
+            specNum = 1;
+          }
+        } else if (selectedRole === "healer") {
+          if (selectedRealm === "reborn") {
+            specNum = (classNum === 2 || classNum === 5) ? 1 : (classNum === 7 || classNum === 11 ? 3 : 1);
+          } else if (selectedRealm === "wildcard") {
+            specNum = 2;
+          }
+        }
+        const archStr = selectedArchetype !== "all" ? selectedArchetype : undefined;
+        const r = await api.addCompanions(serverId, count, selectedRealm, targetLevel, classNum, specNum, archStr);
         if (r.spawned && r.baseline !== null) {
           setJob({ baseline: r.baseline, target: count, since: Date.now() });
         }
@@ -186,7 +202,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   // Bring offline bots online
   const handleLoginAll = () =>
     act(async () => {
-      const out = await api.loginAllCompanions(serverId);
+      const out = await api.loginAllCompanions(serverId, selectedRealm);
       await fetchPopulation();
       return out || "All available offline bots queued for login.";
     });
@@ -194,7 +210,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   // Stop queued creations
   const stopCreating = () =>
     act(async () => {
-      const r = await api.stopSpawning(serverId);
+      const r = await api.stopSpawning(serverId, selectedRealm);
       setJob(null);
       await fetchPopulation();
       return t("comp.stopped", { n: r.count });
@@ -204,7 +220,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const takeOffline = () => {
     if (!window.confirm(t("comp.offlineConfirm"))) return;
     void act(async () => {
-      const r = await api.takeOffline(serverId);
+      const r = await api.takeOffline(serverId, selectedRealm);
       setJob(null);
       await fetchPopulation();
       return t("comp.offlineDone2", { n: r.count });
@@ -216,7 +232,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const dnValid = Number.isInteger(dn) && dn >= 1 && dn <= 5000;
   const despawnSome = () =>
     act(async () => {
-      const r = await api.despawnSome(serverId, dn);
+      const r = await api.despawnSome(serverId, dn, selectedRealm);
       await fetchPopulation();
       return t("comp.despawnSomeDone", { n: r.count });
     });
@@ -225,7 +241,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
   const deleteAll = () => {
     if (!window.confirm(t("comp.deleteConfirm", { n: pop?.bots_total ?? 0 }))) return;
     void act(async () => {
-      await api.deleteAllCompanions(serverId);
+      await api.deleteAllCompanions(serverId, selectedRealm);
       setJob(null);
       await fetchPopulation();
       return t("comp.deleteDone");
@@ -514,17 +530,27 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
               <option value="all">All Realm Classes</option>
               {selectedRealm === "coa" && (
                 <>
-                  <option value="12">Guardian</option>
-                  <option value="13">Starcaller</option>
-                  <option value="14">Demon Hunter</option>
-                  <option value="15">Necromancer</option>
-                  <option value="16">Monk</option>
-                  <option value="17">Pyromancer</option>
-                  <option value="18">Chronomancer</option>
-                  <option value="19">Cultist</option>
-                  <option value="20">Runemaster</option>
-                  <option value="21">Primalist</option>
-                  <option value="22">Tinker</option>
+                  <option value="12">Barbarian</option>
+                  <option value="13">Witch Doctor</option>
+                  <option value="14">Felsworn</option>
+                  <option value="15">Witch Hunter</option>
+                  <option value="16">Stormbringer</option>
+                  <option value="17">Knight of Xoroth</option>
+                  <option value="18">Guardian</option>
+                  <option value="19">Templar</option>
+                  <option value="20">Bloodmage</option>
+                  <option value="21">Ranger</option>
+                  <option value="22">Chronomancer</option>
+                  <option value="23">Necromancer</option>
+                  <option value="24">Pyromancer</option>
+                  <option value="25">Cultist</option>
+                  <option value="26">Starcaller</option>
+                  <option value="27">Tinker</option>
+                  <option value="28">Venomancer</option>
+                  <option value="29">Reaper</option>
+                  <option value="30">Sun Cleric</option>
+                  <option value="31">Runemaster</option>
+                  <option value="32">Primalist</option>
                 </>
               )}
               {selectedRealm === "wildcard" && (
@@ -605,7 +631,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
         <div className="flex flex-wrap items-center gap-3 pt-2">
           <Button
             variant="primary"
-            disabled={busy || !valid || job !== null || !isViewingActiveRealm}
+            disabled={busy || !valid || job !== null || !isRealmOperational}
             onClick={() => void handleSpawn()}
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -617,7 +643,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
           {running && pop && pop.bots_total > pop.bots_online && (
             <Button
               variant="secondary"
-              disabled={busy || job !== null || !isViewingActiveRealm}
+              disabled={busy || job !== null || !isRealmOperational}
               onClick={() => void handleLoginAll()}
               title="Bring all created bots online"
             >
