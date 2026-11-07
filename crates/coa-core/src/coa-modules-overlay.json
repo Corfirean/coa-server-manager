@@ -58,33 +58,9 @@
     },
     {
       "repo_slug": "azerothcore/mod-cfbg",
-      "status": "Verified",
+      "status": "Incompatible",
       "is_recommended": false,
-      "reason": "Cross-faction battlegrounds system. Built into CoA core fork."
-    },
-    {
-      "repo_slug": "azerothcore/mod-duel-reset",
-      "status": "Verified",
-      "is_recommended": false,
-      "reason": "Resets health, mana, cooldowns and auras after duels. Verified dynamic DLL."
-    },
-    {
-      "repo_slug": "azerothcore/mod-pvp-titles",
-      "status": "Verified",
-      "is_recommended": false,
-      "reason": "Classic PvP rank titles awarded based on honorable kills."
-    },
-    {
-      "repo_slug": "azerothcore/mod-starter-guild",
-      "status": "Verified",
-      "is_recommended": false,
-      "reason": "Automatically invites newly created characters into a designated starter guild."
-    },
-    {
-      "repo_slug": "azerothcore/mod-skip-dk-starting-area",
-      "status": "Verified",
-      "is_recommended": false,
-      "reason": "Allows Death Knights to skip the Scarlet Enclave starter zone."
+      "reason": "Already built into the CoA core (cross-faction battlegrounds); a separate DLL would load it a second time."
     },
     {
       "repo_slug": "azerothcore/mod-learn-spells",

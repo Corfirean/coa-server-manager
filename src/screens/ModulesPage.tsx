@@ -2261,11 +2261,14 @@ export function ModulesPage({
                       </div>
 
                       {/* Conflict / Engineering Notes */}
-                      {item.conflict_reason ? (
+                      {item.conflict_reason && (isBlocked || isIncompatible) ? (
                         <div className="mt-2.5 rounded bg-bad/10 border border-bad/30 p-2 text-[11px] text-bad flex items-start gap-1.5">
                           <Ban className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                           <span>{item.conflict_reason}</span>
                         </div>
+                      ) : item.conflict_reason ? (
+                        // A note on a module that works (for example why CoA recommends it) is not a warning.
+                        <p className="mt-2 border-t border-line/40 pt-2 text-[11px] text-muted">{item.conflict_reason}</p>
                       ) : item.topics.length > 0 ? (
                         <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-line/40 pt-2">
                           {item.topics.slice(0, 3).map((topic) => (
