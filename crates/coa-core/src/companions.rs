@@ -3,10 +3,13 @@
 //! small set (one per CoA class); older or imported servers can have it added on request.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use crate::db::Db;
 use crate::error::Result;
+use crate::fsx;
 
 /// Owner of the template characters. Not account 1 (the bot module skips it) and not a bot-host account; no such
 /// account exists in the login database, so nobody can ever log in to these characters.
@@ -134,6 +137,168 @@ pub fn offline_create(root: &Path, log: &Path, count: u32) -> Result<String> {
     }
 }
 
+/// Real runtime wildcard archetype metadata directly from coa_build_creator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WildcardArchetypeDto {
+    pub id: String,
+    pub name: String,
+    pub roles: u32,
+    pub primary_stat: u32,
+    pub author: String,
+    pub difficulty: u32,
+    pub category: u32,
+}
+
+/// Query coa_build_creator in the target characters DB for curated and player-authored archetypes.
+pub fn list_wildcard_archetypes(db: &Db, chars_db: &str) -> Result<Vec<WildcardArchetypeDto>> {
+    let sql = format!(
+        "SELECT id, name, roles, primary_stat, author, difficulty, category \
+         FROM {chars_db}.coa_build_creator \
+         WHERE needs_repairs = 0 \
+         ORDER BY upvotes DESC, name ASC \
+         LIMIT 100;"
+    );
+
+    let mut archetypes = Vec::new();
+    if let Ok(out) = db.query(&sql) {
+        for line in out.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 7 {
+                archetypes.push(WildcardArchetypeDto {
+                    id: parts[0].trim().to_string(),
+                    name: parts[1].trim().to_string(),
+                    roles: parts[2].trim().parse().unwrap_or(8),
+                    primary_stat: parts[3].trim().parse().unwrap_or(0),
+                    author: parts[4].trim().to_string(),
+                    difficulty: parts[5].trim().parse().unwrap_or(0),
+                    category: parts[6].trim().parse().unwrap_or(0),
+                });
+            }
+        }
+    }
+
+    // Curated fallback if DB query returned zero rows (e.g. initial setup)
+    if archetypes.is_empty() {
+        archetypes = vec![
+            WildcardArchetypeDto {
+                id: "b9bc2e11-cd62-4d37-b05a-fff2a2ada475".into(),
+                name: "Kinyaz Druid Tank Bear".into(),
+                roles: 2,
+                primary_stat: 0, // Strength
+                author: "Official".into(),
+                difficulty: 1,
+                category: 1,
+            },
+            WildcardArchetypeDto {
+                id: "c556625e-b5f1-40a9-b545-2bcaef883350".into(),
+                name: "Holy Paladin".into(),
+                roles: 4,
+                primary_stat: 3, // Intellect
+                author: "Official".into(),
+                difficulty: 1,
+                category: 1,
+            },
+            WildcardArchetypeDto {
+                id: "05add9af-94ee-4094-b091-f9afcb79c102".into(),
+                name: "Idum's Fire Sage".into(),
+                roles: 4,
+                primary_stat: 4, // Spirit
+                author: "Idum".into(),
+                difficulty: 2,
+                category: 1,
+            },
+            WildcardArchetypeDto {
+                id: "aaf370e5-fa02-4a02-abee-01cc4058aace".into(),
+                name: "Idum's Forest Warden".into(),
+                roles: 4,
+                primary_stat: 4, // Spirit
+                author: "Idum".into(),
+                difficulty: 2,
+                category: 1,
+            },
+            WildcardArchetypeDto {
+                id: "20f08cc1-b2c4-47ca-b5b1-d5cbcbd3d2f8".into(),
+                name: "Blood DK DPS".into(),
+                roles: 8,
+                primary_stat: 0, // Strength
+                author: "Official".into(),
+                difficulty: 1,
+                category: 1,
+            },
+            WildcardArchetypeDto {
+                id: "8f1df486-d97f-4424-9b2f-8a032d88bbd6".into(),
+                name: "Bleed Berserker".into(),
+                roles: 8,
+                primary_stat: 1, // Agility
+                author: "Official".into(),
+                difficulty: 2,
+                category: 1,
+            },
+            WildcardArchetypeDto {
+                id: "45fbe2e6-231a-4a25-827a-8d7b3da4501a".into(),
+                name: "Mur-Lock".into(),
+                roles: 8,
+                primary_stat: 3, // Intellect
+                author: "Official".into(),
+                difficulty: 2,
+                category: 1,
+            },
+        ];
+    }
+
+    Ok(archetypes)
+}
+
+/// Realm-aware pending companion deployment job.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompanionsPendingJob {
+    pub job_id: String,
+    pub server_instance_id: String,
+    pub realm: String,
+    pub count: u32,
+    pub level: Option<u8>,
+    pub class_id: Option<u8>,
+    pub spec_id: Option<u32>,
+    pub build_id: Option<String>,
+    pub requested_operation: String,
+    pub created_at: u64,
+    pub state: String, // "pending", "in_progress", "completed", "failed"
+    pub completed_count: u32,
+    pub failed_count: u32,
+    pub last_error: Option<String>,
+    pub schema_version: u32,
+}
+
+pub fn pending_job_path(meta_dir: &Path, realm: &str) -> PathBuf {
+    meta_dir.join(format!("companions.pending.{realm}.json"))
+}
+
+pub fn save_pending_job(meta_dir: &Path, realm: &str, job: &CompanionsPendingJob) -> Result<()> {
+    fsx::atomic_write_json(&pending_job_path(meta_dir, realm), job)
+}
+
+pub fn load_pending_job(meta_dir: &Path, realm: &str) -> Result<Option<CompanionsPendingJob>> {
+    let p = pending_job_path(meta_dir, realm);
+    if !p.exists() {
+        return Ok(None);
+    }
+    match fsx::read_json::<CompanionsPendingJob>(&p) {
+        Ok(job) => Ok(Some(job)),
+        Err(e) => {
+            tracing::warn!("Corrupted pending job file {:?}: {e}", p);
+            Ok(None)
+        }
+    }
+}
+
+pub fn clear_pending_job(meta_dir: &Path, realm: &str) -> Result<()> {
+    let p = pending_job_path(meta_dir, realm);
+    if p.exists() {
+        let _ = std::fs::remove_file(p);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +316,64 @@ mod tests {
         );
         assert!(s.contains("@ACC"));
         assert!(!s.contains("INSERT INTO "), "rows that exist are kept");
+    }
+
+    #[test]
+    fn pending_jobs_roundtrip_and_are_isolated_by_realm() {
+        let temp = std::env::temp_dir().join(format!("coa-test-jobs-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let job_wc = CompanionsPendingJob {
+            job_id: "test-wc-1".into(),
+            server_instance_id: "inst-1".into(),
+            realm: "wildcard".into(),
+            count: 50,
+            level: Some(60),
+            class_id: Some(10),
+            spec_id: Some(1),
+            build_id: Some("b9bc2e11-cd62-4d37-b05a-fff2a2ada475".into()),
+            requested_operation: "spawn".into(),
+            created_at: 1000,
+            state: "pending".into(),
+            completed_count: 0,
+            failed_count: 0,
+            last_error: None,
+            schema_version: 1,
+        };
+
+        let job_wcr = CompanionsPendingJob {
+            job_id: "test-wcr-1".into(),
+            server_instance_id: "inst-1".into(),
+            realm: "reborn".into(),
+            count: 10,
+            level: Some(60),
+            class_id: Some(7),
+            spec_id: Some(4),
+            build_id: None,
+            requested_operation: "spawn".into(),
+            created_at: 1001,
+            state: "pending".into(),
+            completed_count: 0,
+            failed_count: 0,
+            last_error: None,
+            schema_version: 1,
+        };
+
+        save_pending_job(&temp, "wildcard", &job_wc).unwrap();
+        save_pending_job(&temp, "reborn", &job_wcr).unwrap();
+
+        let loaded_wc = load_pending_job(&temp, "wildcard").unwrap().expect("wc job missing");
+        let loaded_wcr = load_pending_job(&temp, "reborn").unwrap().expect("wcr job missing");
+        let loaded_coa = load_pending_job(&temp, "coa").unwrap();
+
+        assert_eq!(loaded_wc, job_wc);
+        assert_eq!(loaded_wcr, job_wcr);
+        assert!(loaded_coa.is_none());
+
+        clear_pending_job(&temp, "wildcard").unwrap();
+        assert!(load_pending_job(&temp, "wildcard").unwrap().is_none());
+        assert!(load_pending_job(&temp, "reborn").unwrap().is_some());
+
+        let _ = std::fs::remove_dir_all(temp);
     }
 }

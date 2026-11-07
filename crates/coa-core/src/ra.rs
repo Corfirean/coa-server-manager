@@ -547,43 +547,23 @@ impl Ra {
 
 
     pub fn spawn_custom(
-
         &mut self,
-
         count: u32,
-
         level: u8,
-
         class_id: Option<u8>,
-
         spec_id: Option<u32>,
-
         archetype: Option<&str>,
-
     ) -> Result<String> {
-
+        let c = class_id.unwrap_or(0);
+        let s = spec_id.unwrap_or(0);
+        let a = archetype.unwrap_or("").trim();
         let mut cmd = format!("botcmd spawncustom {count} {level}");
-
-        if let Some(c) = class_id {
-
+        if !a.is_empty() {
+            cmd.push_str(&format!(" {c} {s} {a}"));
+        } else if s > 0 {
+            cmd.push_str(&format!(" {c} {s}"));
+        } else if c > 0 {
             cmd.push_str(&format!(" {c}"));
-
-            if let Some(s) = spec_id {
-
-                cmd.push_str(&format!(" {s}"));
-
-                if let Some(a) = archetype {
-
-                    if !a.is_empty() {
-
-                        cmd.push_str(&format!(" {a}"));
-
-                    }
-
-                }
-
-            }
-
         }
 
         let out = self.bot_command(&cmd)?;

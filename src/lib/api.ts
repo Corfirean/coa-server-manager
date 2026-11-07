@@ -528,6 +528,16 @@ export interface CompanionSizes {
   sizes: { id: string; title: string; bots: number; warning: string | null }[];
 }
 
+export interface WildcardArchetypeDto {
+  id: string;
+  name: string;
+  roles: number;
+  primary_stat: number;
+  author: string;
+  difficulty: number;
+  category: number;
+}
+
 export interface ClientInfo {
   path: string;
   executable: string;
@@ -840,6 +850,7 @@ export const api = {
       spec_id: specId ?? null,
       archetype: archetype ?? null,
     }),
+  getWildcardArchetypes: (id: string) => invoke<WildcardArchetypeDto[]>("get_wildcard_archetypes", { id }),
   clientGraphics: (id: string) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_graphics", { id }),
   clientSetGraphics: (id: string, name: string, disabled: boolean) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_set_graphics", { id, name, disabled }),
   clientInfo: (id: string) => invoke<ClientInfo | null>("client_info", { id }),
