@@ -172,6 +172,7 @@
     "Corfirean/coa-server-manager:20261030-window-lifecycle.md",
     "Corfirean/coa-server-manager:20261031-dungeon-clear-dependency.md",
     "Corfirean/coa-server-manager:20261031-launcher-diagnostics-export.md",
+    "Corfirean/coa-server-manager:20261031-recover-client-patch-downloads.md",
     "Corfirean/coa-server-manager:20261031-server-logging-controls.md",
     "Corfirean/coa-server-manager:20261031-validation-bot-population.md",
     "Corfirean/coa-server-manager:20261031-validation-mysql-reuse.md",
@@ -900,6 +901,17 @@
       ],
       "commit": "173248efbe24da9b4c1b5ca12fa7580fcd1e8ea7",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.8...v0.9.9"
+    },
+    {
+      "tag": "v0.9.10",
+      "version": "0.9.10",
+      "date": "2026-11-08",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.10",
+      "notes": [
+        "Custom Races patch installation recovers from interrupted downloads"
+      ],
+      "commit": "711f378ae82f75d3fc64368c042889c773315c54",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.9...v0.9.10"
     }
   ]
 }
