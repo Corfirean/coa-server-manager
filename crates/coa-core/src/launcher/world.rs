@@ -2,13 +2,15 @@
 //! and the detailed-logging switch (`debug_logs`).
 //!
 //! A world is started through a supervisor process that outlives the caller: it starts `worldserver.exe`, keeps
-//! the relay running while the world runs, and stops the relay when the world ends. The relay itself is still
-//! the Python `BugReport/relay.py`, run through the repack's Python, until it is ported too.
+//! the relay running while the world runs, and stops the relay when the world ends. The supervisor is
+//! `coa-launcher.exe watch-world`, or `manage.py watch-world` on a repack that does not ship it yet (both write
+//! the same records). The relay itself is still the Python `BugReport/relay.py`, run through the repack's
+//! Python, until it is ported too.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::error::{Error, Result};
+use crate::error::{Error, ErrorCode, Result};
 use crate::launcher::services::{self, ensure_free, mysql, spawn, start_mysql, wait_ready, Progress};
 use crate::launcher::spawn::Proc;
 use crate::launcher::{settings::Settings, squid, state};
@@ -31,54 +33,120 @@ pub fn wait_relay(root: &Path) -> Result<()> {
     Err(Error::Invalid("Bug-report relay is not ready; check BugReport/Logs/relay.log.".into()))
 }
 
-/// Start the world (and its database). `supervisor` is the launcher executable that runs `watch-world`.
-pub fn start_world(root: &Path, cfg: &Settings, offset: i32, supervisor: &Path, progress: Progress) -> Result<()> {
+/// The process that runs `watch-world` for a started world.
+#[derive(Debug, Clone)]
+pub enum Supervisor {
+    /// `coa-launcher.exe` (this crate's launcher).
+    Launcher(PathBuf),
+    /// The repack's Python with `Scripts/manage.py`.
+    Python { python: PathBuf, script: PathBuf },
+}
+
+impl Supervisor {
+    /// The supervisor a repack ships: `Scripts/coa-launcher.exe` when present, otherwise its Python launcher.
+    pub fn of(root: &Path) -> Result<Supervisor> {
+        let exe = root.join("Scripts/coa-launcher.exe");
+        if exe.is_file() {
+            return Ok(Supervisor::Launcher(exe));
+        }
+        let python = squid::package_root(root).join("Runtime/python/python.exe");
+        let script = root.join("Scripts/manage.py");
+        if python.is_file() && script.is_file() {
+            return Ok(Supervisor::Python { python, script });
+        }
+        Err(Error::Service(
+            ErrorCode::ServerFilesIncomplete,
+            "This server has no world supervisor (Scripts/coa-launcher.exe or Scripts/manage.py). Repair its program files.".into(),
+        ))
+    }
+}
+
+/// How long a world may take to open both of its listeners, together: slow worlds (many bots, a cold disk) are
+/// common, and the limit must not depend on the bot module.
+const WORLD_STARTUP_SECONDS: u64 = 1500;
+
+/// Wait until the world's console answers a command (it can listen before it accepts logins).
+fn wait_console(root: &Path, cfg: &Settings, until: Instant) -> Result<()> {
+    let mut last = String::new();
+    while Instant::now() < until {
+        if state::running(root, "world").is_none() {
+            return Err(Error::Service(
+                ErrorCode::StartupFailed,
+                "World startup failed: worldserver stopped before its console accepted commands.".into(),
+            ));
+        }
+        match crate::ra::Ra::connect_to(cfg.ra_port, &cfg.ra_username, &cfg.ra_password).and_then(|mut ra| ra.run("server info")) {
+            Ok(_) => return Ok(()),
+            Err(e) => last = e.to_string(),
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Err(Error::Service(ErrorCode::StartupFailed, format!("World startup failed: its console is still starting. {last}")))
+}
+
+fn seconds_until(until: Instant) -> u64 {
+    until.saturating_duration_since(Instant::now()).as_secs()
+}
+
+/// Start the world (and its database, unless it is shared), and wait until its console accepts commands.
+pub fn start_world(root: &Path, cfg: &Settings, offset: i32, supervisor: &Supervisor, progress: Progress) -> Result<()> {
     start_mysql(root, cfg, progress)?;
     squid::validate_bots(root)?;
-    let seconds = squid::startup_timeout(root);
+    let until = Instant::now() + Duration::from_secs(squid::startup_timeout(root).max(WORLD_STARTUP_SECONDS));
     if state::running(root, "world").is_some() {
         if state::running(root, "supervisor").is_none() {
-            return Err(Error::Invalid("Worldserver has no repack supervisor. Use Stop_All_Server.bat before restarting it.".into()));
+            return Err(Error::Service(
+                ErrorCode::WorldserverAlreadyRunning,
+                "Worldserver has no repack supervisor. Use Stop_All_Server.bat before restarting it.".into(),
+            ));
         }
-        wait_ready(root, "world", cfg.world_port, seconds)?;
+        wait_ready(root, "world", cfg.world_port, seconds_until(until))?;
         wait_relay(root)?;
+        wait_console(root, cfg, until)?;
         progress("Worldserver and bug-report relay are already running.");
         return Ok(());
     }
     ensure_free(cfg.world_port, progress)?;
     ensure_free(cfg.ra_port, progress)?;
     if state::running(root, "supervisor").is_some() || state::running(root, "relay").is_some() {
-        return Err(Error::Invalid("The previous world/relay shutdown is still finishing. Try again shortly.".into()));
+        return Err(Error::Service(
+            ErrorCode::OperationInProgress,
+            "The previous world/relay shutdown is still finishing. Try again shortly.".into(),
+        ));
     }
     squid::prepare_playerbots(root, cfg.mysql_port, &|sql| mysql(root, Some(sql), None), progress)?;
     progress("Starting worldserver and its bug-report relay...");
     let _ = std::fs::remove_file(stop_relay_flag(root));
     let offset_text = offset.to_string();
     let root_text = root.to_string_lossy().into_owned();
-    spawn(
-        root,
-        "supervisor",
-        supervisor,
-        &["--root", &root_text, "--port-offset", &offset_text, "watch-world"],
-        root,
-        &root.join("Core/Logs/supervisor.log"),
-    )?;
-    let until = Instant::now() + Duration::from_secs(20);
-    while state::running(root, "world").is_none() && Instant::now() < until {
+    let log = root.join("Core/Logs/supervisor.log");
+    match supervisor {
+        Supervisor::Launcher(exe) => {
+            spawn(root, "supervisor", exe, &["--root", &root_text, "--port-offset", &offset_text, "watch-world"], root, &log, &cfg.env_remove)?
+        }
+        Supervisor::Python { python, script } => {
+            let script = script.to_string_lossy().into_owned();
+            spawn(root, "supervisor", python, &["-B", &script, "--port-offset", &offset_text, "watch-world"], root, &log, &cfg.env_remove)?
+        }
+    };
+    let first = Instant::now() + Duration::from_secs(20);
+    while state::running(root, "world").is_none() && Instant::now() < first {
         if state::running(root, "supervisor").is_none() {
-            return Err(Error::Invalid("World startup failed; check Core/Logs/supervisor.log.".into()));
+            return Err(Error::Service(ErrorCode::StartupFailed, "World startup failed; check Core/Logs/supervisor.log.".into()));
         }
         std::thread::sleep(Duration::from_millis(250));
     }
-    wait_ready(root, "world", cfg.world_port, seconds)?;
-    wait_ready(root, "world", cfg.ra_port, seconds)?;
+    wait_ready(root, "world", cfg.world_port, seconds_until(until))?;
+    wait_ready(root, "world", cfg.ra_port, seconds_until(until))?;
     wait_relay(root)?;
+    wait_console(root, cfg, until)?;
     progress("Worldserver and automatic bug reporting are ready.");
     Ok(())
 }
 
 fn spawn_child(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, log: &Path) -> Result<Proc> {
-    let child = crate::launcher::spawn::start(exe, args, cwd, log)?;
+    // The supervisor was started with the environment its services should have.
+    let child = crate::launcher::spawn::start(exe, args, cwd, log, &[])?;
     state::record(root, name, child.pid)?;
     Ok(child)
 }

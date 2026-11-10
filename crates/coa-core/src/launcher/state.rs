@@ -67,7 +67,7 @@ impl ControlLock {
                 _ => " Owner information is unavailable.".into(),
             };
             if Instant::now() >= deadline {
-                return Err(Error::Invalid(format!("Another start/stop action is in progress.{detail}")));
+                return Err(Error::Service(crate::error::ErrorCode::OperationInProgress, format!("Another start/stop action is in progress.{detail}")));
             }
             if !announced {
                 progress(&format!("Waiting for the current server action.{detail}"));

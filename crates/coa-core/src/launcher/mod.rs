@@ -11,6 +11,7 @@
 //! State files are written with a flush to disk before they replace the old ones (`manage.py` did not, and a
 //! power cut could leave a zero-filled record that stopped every later start).
 
+pub mod ops;
 pub mod render;
 pub mod services;
 pub mod settings;

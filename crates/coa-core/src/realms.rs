@@ -614,7 +614,12 @@ pub fn prepare_launcher(root: &Path) -> Result<()> {
     if crate::docker::is_docker(root) {
         return Ok(());
     }
+    // The Manager starts servers itself; this keeps the repack's own Python launcher (its .bat files) on the
+    // active realm. A repack without that launcher has nothing to adapt.
     let path = root.join("Scripts/manage.py");
+    if !path.is_file() {
+        return Ok(());
+    }
     let source = fs::read_to_string(&path)?;
     let patched = patch_launcher(&source)?;
     if patched != source {
@@ -1161,8 +1166,9 @@ CoA.GameModeMask = 0
     fn a_docker_server_has_no_launcher_to_adapt() {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir_all(d.path().join("Settings")).unwrap();
-        // No Scripts/manage.py anywhere: on a repack this fails, on a Docker server there is nothing to do.
-        assert!(prepare_launcher(d.path()).is_err());
+        // No Scripts/manage.py anywhere: neither a repack without the Python launcher nor a Docker server has
+        // anything to adapt.
+        assert!(prepare_launcher(d.path()).is_ok());
         fs::write(
             d.path().join("Settings/docker.json"),
             br#"{"project":"t1"}"#,

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::error::{Error, Result};
+use crate::error::{Error, ErrorCode, Result};
 use crate::launcher::{settings::Settings, state};
 use crate::process::ProcessIdentity;
 
@@ -24,9 +24,10 @@ fn hidden(cmd: &mut Command) -> &mut Command {
     cmd
 }
 
-/// Start `exe` with its output appended to `log`, and record it as `name`.
-pub fn spawn(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, log: &Path) -> Result<ProcessIdentity> {
-    let child = crate::launcher::spawn::start(exe, args, cwd, log)?;
+/// Start `exe` with its output appended to `log`, and record it as `name`. `env_remove` are variables of this
+/// process the service must not see.
+pub fn spawn(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, log: &Path, env_remove: &[String]) -> Result<ProcessIdentity> {
+    let child = crate::launcher::spawn::start(exe, args, cwd, log, env_remove)?;
     state::record(root, name, child.pid)
 }
 
@@ -50,10 +51,10 @@ pub fn ensure_free(port: u16, progress: Progress) -> Result<()> {
         owners.dedup();
         if owners.iter().any(|p| *p != 0) {
             let list: Vec<String> = owners.iter().map(u32::to_string).collect();
-            return Err(Error::Invalid(format!(
-                "Port {port} is already used (PID {}). Stop the other server or change Settings/repack.json.",
-                list.join(", ")
-            )));
+            return Err(Error::Service(
+                ErrorCode::PortInUse,
+                format!("Port {port} is already used (PID {}). Stop the other server or change Settings/repack.json.", list.join(", ")),
+            ));
         }
         match sys::exclusive_bind(port) {
             Ok(()) => return Ok(()),
@@ -111,13 +112,14 @@ pub fn wait_ready(root: &Path, name: &str, port: u16, seconds: u64) -> Result<()
             return Ok(());
         }
         if state::running(root, name).is_none() {
-            return Err(Error::Invalid(format!("{name} stopped during startup. Check its log.")));
+            return Err(Error::Service(ErrorCode::StartupFailed, format!("{name} stopped during startup. Check its log.")));
         }
         std::thread::sleep(Duration::from_millis(500));
     }
-    Err(Error::Invalid(format!(
-        "{name} is still starting: its expected TCP listener on port {port} was not found; check its log."
-    )))
+    Err(Error::Service(
+        ErrorCode::StartupFailed,
+        format!("{name} is still starting: its expected TCP listener on port {port} was not found; check its log."),
+    ))
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -191,6 +193,12 @@ pub fn mysql(root: &Path, sql: Option<&str>, admin: Option<&str>) -> Result<Stri
 // ---------------------------------------------------------------------------------------------------------------
 
 pub fn start_mysql(root: &Path, cfg: &Settings, progress: Progress) -> Result<()> {
+    if cfg.shared_database {
+        // An extra world uses the main folder's database; it must already run.
+        return mysql(root, None, Some("ping")).map(|_| ()).map_err(|e| {
+            Error::Service(ErrorCode::DatabaseNotRunning, format!("The main server's database is not running. {e}"))
+        });
+    }
     if state::running(root, "mysql").is_some() {
         wait_ready(root, "mysql", cfg.mysql_port, 300)?;
         mysql(root, None, Some("ping"))?;
@@ -199,18 +207,18 @@ pub fn start_mysql(root: &Path, cfg: &Settings, progress: Progress) -> Result<()
     }
     ensure_free(cfg.mysql_port, progress)?;
     if !root.join("mysql/data/mysql").is_dir() {
-        return Err(Error::Invalid("The packaged database is missing. Extract the complete repack.".into()));
+        return Err(Error::Service(ErrorCode::ServerFilesIncomplete, "The packaged database is missing. Extract the complete repack.".into()));
     }
     progress("Starting MySQL...");
     let ini = format!("--defaults-file={}", root.join("mysql/my.ini").display());
-    spawn(root, "mysql", &root.join("mysql/bin/mysqld.exe"), &[&ini, "--no-monitor"], &root.join("mysql"), &root.join("mysql/logs/startup.log"))?;
+    spawn(root, "mysql", &root.join("mysql/bin/mysqld.exe"), &[&ini, "--no-monitor"], &root.join("mysql"), &root.join("mysql/logs/startup.log"), &cfg.env_remove)?;
     wait_ready(root, "mysql", cfg.mysql_port, 300)?;
     mysql(root, None, Some("ping"))?;
     mysql(
         root,
         Some(&format!(
-            "UPDATE acore_auth.realmlist SET name='AzerothCore',address='127.0.0.1',localAddress='127.0.0.1',port={} WHERE id=1;",
-            cfg.world_port
+            "UPDATE acore_auth.realmlist SET name='{}',address='127.0.0.1',localAddress='127.0.0.1',port={} WHERE id={};",
+            cfg.realm.name, cfg.world_port, cfg.realm.id
         )),
         None,
     )?;
@@ -226,9 +234,9 @@ pub fn start_auth(root: &Path, cfg: &Settings, progress: Progress) -> Result<()>
     }
     ensure_free(cfg.auth_port, progress)?;
     // An interrupted world startup can leave flag 3, which authserver excludes.
-    mysql(root, Some("UPDATE acore_auth.realmlist SET flag=0 WHERE id=1;"), None)?;
+    mysql(root, Some(&format!("UPDATE acore_auth.realmlist SET flag=0 WHERE id={};", cfg.realm.id)), None)?;
     progress("Starting authserver...");
-    spawn(root, "auth", &root.join("Core/authserver.exe"), &["-c", "configs/authserver.conf"], &root.join("Core"), &root.join("Core/Logs/auth-console.log"))?;
+    spawn(root, "auth", &root.join("Core/authserver.exe"), &["-c", "configs/authserver.conf"], &root.join("Core"), &root.join("Core/Logs/auth-console.log"), &cfg.env_remove)?;
     wait_ready(root, "auth", cfg.auth_port, 60)
 }
 
@@ -248,9 +256,40 @@ pub fn wait_stopped(record: &ProcessIdentity, seconds: u64) -> bool {
     !crate::process::is_alive(record)
 }
 
-/// Stop everything of this repack, world first (gracefully through its console), its database last.
+/// The recorded world, when it is this folder's own `Core/worldserver.exe` (never stop a process only because a
+/// record names it).
+fn owned_world(root: &Path) -> Result<Option<ProcessIdentity>> {
+    let Some(world) = state::running(root, "world") else { return Ok(None) };
+    let expected = root.join("Core/worldserver.exe");
+    let same = std::fs::canonicalize(&world.exe).ok().zip(std::fs::canonicalize(&expected).ok()).is_some_and(|(a, b)| a == b);
+    if !same {
+        return Err(Error::Invalid("World process ownership could not be verified; the database was left running.".into()));
+    }
+    Ok(Some(world))
+}
+
+/// Stop this folder's world without its console (unsaved progress since the last save is lost).
+fn stop_world_process(world: &ProcessIdentity) -> Result<()> {
+    terminate(world).map_err(|_| Error::Invalid("Worldserver could not be stopped safely; its database was left running.".into()))?;
+    if !wait_stopped(world, 90) {
+        return Err(Error::Invalid("Worldserver is still stopping; its database was left running.".into()));
+    }
+    Ok(())
+}
+
+/// Stop the world at once, then everything else as [`stop_all`] does. Only when the user asked for it.
+pub fn force_stop_all(root: &Path, cfg: &Settings, progress: Progress) -> Result<()> {
+    if let Some(world) = owned_world(root)? {
+        stop_world_process(&world)?;
+        progress("Force-stopped this server's verified world process; unsaved progress may be lost.");
+    }
+    stop_all(root, cfg, progress)
+}
+
+/// Stop everything of this repack, world first (gracefully through its console), its database last. An extra
+/// world leaves the shared database alone.
 pub fn stop_all(root: &Path, cfg: &Settings, progress: Progress) -> Result<()> {
-    if let Some(world) = state::running(root, "world") {
+    if let Some(world) = owned_world(root)? {
         let asked = ready(root, "world", cfg.ra_port)
             .then(|| crate::ra::Ra::connect_to(cfg.ra_port, &cfg.ra_username, &cfg.ra_password))
             .and_then(|r| r.ok())
@@ -259,7 +298,7 @@ pub fn stop_all(root: &Path, cfg: &Settings, progress: Progress) -> Result<()> {
             Some(Ok(())) => progress("Graceful world shutdown requested."),
             _ => {
                 progress("World console unavailable; stopping this repack's recorded world process.");
-                terminate(&world)?;
+                stop_world_process(&world)?;
             }
         }
         if !wait_stopped(&world, 90) {
@@ -283,7 +322,7 @@ pub fn stop_all(root: &Path, cfg: &Settings, progress: Progress) -> Result<()> {
             return Err(Error::Invalid("Authserver did not stop.".into()));
         }
     }
-    if let Some(database) = state::running(root, "mysql") {
+    if let Some(database) = state::running(root, "mysql").filter(|_| !cfg.shared_database) {
         let shutdown = mysql(root, None, Some("shutdown"));
         if !wait_stopped(&database, 60) {
             shutdown?;

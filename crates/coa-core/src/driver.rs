@@ -1,11 +1,10 @@
-//! Start/stop of a repack-shaped installation by delegating to the repack's own supervisor
-//! (`Runtime\python\python.exe Scripts\manage.py <verb>`), which already implements config rendering, the
-//! bug-report relay, RA graceful shutdown and readiness. Observation stays native (see `process`).
+//! Start/stop of a repack-shaped installation through the repack launcher in this crate
+//! ([`crate::launcher`]): config rendering, the services, the world supervisor, graceful shutdown and readiness.
+//! It writes the same `.state` records as the repack's `Scripts/manage.py`, so the server's own `.bat` files and
+//! this Manager can be used on the same folder. Observation stays native (see `process`).
 
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::sync::Mutex;
 
 use serde::Serialize;
 
@@ -22,22 +21,13 @@ pub enum Verb {
 }
 
 impl Verb {
-    fn arg(self) -> &'static str {
+    fn action(self) -> crate::launcher::ops::Action {
+        use crate::launcher::ops::Action;
         match self {
-            Verb::StartAll => "start-all",
-            Verb::StartMysql => "start-mysql",
-            Verb::StartWorld => "start-world",
-            Verb::StopAll => "stop-all",
-        }
-    }
-
-    fn timeout(self, _root: &Path) -> Duration {
-        match self {
-            // Includes database startup, optional bot provisioning and the shared 25-minute
-            // world/console wait in launcher_bridge.py, even for older installed scripts.
-            Verb::StartAll | Verb::StartWorld => Duration::from_secs(3600),
-            Verb::StartMysql => Duration::from_secs(360),
-            Verb::StopAll => Duration::from_secs(240),
+            Verb::StartAll => Action::StartAll,
+            Verb::StartMysql => Action::StartMysql,
+            Verb::StartWorld => Action::StartWorld,
+            Verb::StopAll => Action::StopAll,
         }
     }
 }
@@ -52,41 +42,14 @@ pub struct DriverOutcome {
     pub output: String,
 }
 
-/// Map the launcher's own messages onto stable error codes. Unknown text stays `Unknown` (details remain visible).
-pub fn translate(output: &str) -> ErrorCode {
-    let o = output.to_lowercase();
-    if o.contains("is already used") {
-        ErrorCode::PortInUse
-    } else if o.contains("another start/stop action is in progress")
-        || o.contains("shutdown is still finishing")
-    {
-        ErrorCode::OperationInProgress
-    } else if o.contains("packaged database is missing")
-        || o.contains("extract the complete repack")
-    {
-        ErrorCode::ServerFilesIncomplete
-    } else if o.contains("stopped during startup")
-        || o.contains("is still starting")
-        || o.contains("world startup failed")
-    {
-        ErrorCode::StartupFailed
-    } else if o.contains("invalid port") || o.contains("unresolved placeholder") {
-        ErrorCode::InvalidConfigValue
-    } else {
-        ErrorCode::Unknown
-    }
-}
-
-fn launcher(root: &Path) -> Result<(PathBuf, PathBuf)> {
-    let python = root.join("Runtime/python/python.exe");
-    let script = root.join("Scripts/manage.py");
-    if !python.is_file() || !script.is_file() {
+fn has_launcher_settings(root: &Path) -> Result<()> {
+    if !root.join("Settings/repack.json").is_file() {
         return Err(Error::Invalid(
             "This server has no CoA Repack launcher; start/stop is not available for it yet."
                 .into(),
         ));
     }
-    Ok((python, script))
+    Ok(())
 }
 
 /// Run a launcher verb to completion (blocking; call from a worker thread).
@@ -205,108 +168,51 @@ fn run_inner_mode(
     if matches!(verb, Verb::StartAll | Verb::StartWorld) {
         crate::modules::ensure_bot_exclusivity(&root)?;
     }
-    let (python, script) = launcher(&root)?;
+    has_launcher_settings(&root)?;
     prepare_headless_world(&root, verb)?;
-    let original = std::fs::read_to_string(&script)?;
-    let patched = patch_launcher_imports(&original)?;
-    if original != patched {
-        fsx::atomic_write(&script, patched.as_bytes())?;
-        if let Ok(dir) = crate::registry::metadata_dir_for(&root) {
-            if let Ok((_, mut meta)) = crate::registry::MetaDir::open(&dir) {
-                if meta.original_hashes.get("Scripts/manage.py")
-                    == Some(&fsx::sha256_bytes(original.as_bytes()))
-                {
-                    meta.original_hashes.insert(
-                        "Scripts/manage.py".into(),
-                        fsx::sha256_bytes(patched.as_bytes()),
-                    );
-                    fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
-                }
-            }
-        }
-    }
-    discard_damaged_launcher_state(&root);
     if matches!(verb, Verb::StopAll | Verb::StartMysql | Verb::StartAll) {
         recover_mysql_launcher_state(&root, verb != Verb::StopAll)?;
     }
     if force {
         recover_world_for_forced_stop(&root)?;
     }
-    let mut cmd = Command::new(&python);
-    if validating_update {
-        // Isolated startup must use the port from its temporary auth config.
-        cmd.env_remove("AC_REALM_SERVER_PORT");
-    }
-    cmd.arg("-B")
-        .arg("-c")
-        .arg(LAUNCH_SCRIPT)
-        .arg(&script)
-        .arg(if force { "force-stop-all" } else { verb.arg() })
-        .current_dir(&root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    tracing::info!(?verb, root = %root.display(), "driver: starting launcher verb");
-    let mut child = cmd.spawn()?;
-    let mut stdout = child.stdout.take().expect("piped");
-    let mut stderr = child.stderr.take().expect("piped");
-    let out_t = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = stdout.read_to_string(&mut s);
-        s
-    });
-    let err_t = std::thread::spawn(move || {
-        let mut s = String::new();
-        let _ = stderr.read_to_string(&mut s);
-        s
-    });
-    let deadline = Instant::now() + verb.timeout(&root);
-    let status = loop {
-        if let Some(st) = child.try_wait()? {
-            break Some(st);
-        }
-        if Instant::now() > deadline {
-            // Never kill the servers themselves: only abandon the launcher process we spawned.
-            let _ = child.kill();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    };
-    let mut output = out_t.join().unwrap_or_default();
-    output.push_str(&err_t.join().unwrap_or_default());
-    let mut output = output.trim().to_string();
-    if status.is_none() {
-        output.push_str(&format!(
-            "\nLauncher {} exceeded its {} second deadline; check the server logs.",
-            verb.arg(),
-            verb.timeout(&root).as_secs()
-        ));
-    }
-    let (ok, exit_code) = match status {
-        Some(st) => (st.success(), st.code()),
-        None => (false, None),
-    };
-    let code = if ok {
-        None
+    let action = if force {
+        crate::launcher::ops::Action::ForceStopAll
     } else {
-        // Log evidence beats the launcher's generic "stopped during startup" message.
-        let base = if status.is_none() {
-            ErrorCode::StartupFailed
-        } else {
-            translate(&output)
-        };
-        match base {
-            ErrorCode::StartupFailed | ErrorCode::Unknown => {
-                Some(crate::health::diagnose_installation(&root).unwrap_or(base))
+        verb.action()
+    };
+    tracing::info!(?verb, root = %root.display(), "driver: starting launcher action");
+    let lines = Mutex::new(Vec::<String>::new());
+    let progress = |line: &str| {
+        tracing::info!(?verb, "launcher: {line}");
+        lines.lock().unwrap_or_else(|e| e.into_inner()).push(line.to_string());
+    };
+    let result = crate::launcher::Settings::load(&root, 0).and_then(|mut cfg| {
+        if validating_update {
+            // Isolated startup must use the port from its temporary auth config.
+            cfg.env_remove.push("AC_REALM_SERVER_PORT".into());
+        }
+        crate::launcher::ops::run(&root, &cfg, 0, action, None, &progress)
+    });
+    let mut output = lines.into_inner().unwrap_or_else(|e| e.into_inner()).join("\n");
+    let ok = result.is_ok();
+    let code = match &result {
+        Ok(()) => None,
+        Err(error) => {
+            if !output.is_empty() {
+                output.push('\n');
             }
-            other => Some(other),
+            output.push_str(&format!("ERROR: {error}"));
+            // Log evidence beats a generic "stopped during startup".
+            match error.code() {
+                ErrorCode::StartupFailed | ErrorCode::Unknown => Some(
+                    crate::health::diagnose_installation(&root).unwrap_or(error.code()),
+                ),
+                other => Some(other),
+            }
         }
     };
+    let exit_code = Some(if ok { 0 } else { 1 });
     if code == Some(ErrorCode::PortInUse) {
         let observed = crate::process::observe(&root, &crate::layout::read_ports(&root));
         for service in [&observed.mysql, &observed.auth, &observed.world]
@@ -374,35 +280,6 @@ fn prepare_headless_world(root: &Path, verb: Verb) -> Result<()> {
     Ok(())
 }
 
-/// The launcher keeps one JSON record per service in `.state`. A crash or power loss while it writes one can leave
-/// a file of the right length that holds only zero bytes (NTFS keeps the length but not the data), and the launcher
-/// then dies on every start with an unreadable record. Such a file carries no information, so remove it: the
-/// launcher treats a missing record as "not running". Only empty or all-zero `*.json` files are touched.
-pub(crate) fn discard_damaged_launcher_state(root: &Path) -> Vec<PathBuf> {
-    let mut removed = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root.join(".state")) else {
-        return removed;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path
-            .extension()
-            .is_none_or(|e| !e.eq_ignore_ascii_case("json"))
-            || !path.is_file()
-        {
-            continue;
-        }
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        if bytes.iter().all(|b| *b == 0) && std::fs::remove_file(&path).is_ok() {
-            tracing::warn!(file = %path.display(), bytes = bytes.len(), "driver: removed a launcher state file damaged by an interrupted write");
-            removed.push(path);
-        }
-    }
-    removed
-}
-
 /// A lost launcher record must not hide this installation's running MySQL from
 /// graceful shutdown. Adopt only the exact executable owning its configured port.
 fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()> {
@@ -453,8 +330,8 @@ fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()
     Ok(())
 }
 
-const LAUNCH_SCRIPT: &str = include_str!("launcher_bridge.py");
-
+/// The import fix older Managers wrote into `Scripts/manage.py` (needed only to run it through their bridge). It
+/// is no longer applied; it stays so that file checks still recognise a file it changed.
 pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
     let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
     if !text.contains("from squid_playerbots import") || text.contains(line) {
@@ -608,7 +485,7 @@ mod tests {
             text.contains("launcher request failed before completion")
                 && text.contains("in progress")
         );
-        assert!(!text.contains("starting launcher verb"));
+        assert!(!text.contains("starting launcher action"));
     }
 
     #[test]
@@ -665,78 +542,10 @@ mod tests {
     }
 
     #[test]
-    fn slow_world_startup_has_time_with_either_bot_system_without_extending_shutdown() {
-        let folder = tempfile::tempdir().unwrap();
-        let modules = folder.path().join("Core/configs/modules");
-        std::fs::create_dir_all(&modules).unwrap();
-        std::fs::write(
-            modules.join("playerbots.conf.dist"),
-            "AiPlayerbot.Enabled = 1\n",
-        )
-        .unwrap();
-        assert_eq!(
-            Verb::StartAll.timeout(folder.path()),
-            Duration::from_secs(3600)
-        );
-        assert_eq!(
-            Verb::StopAll.timeout(folder.path()),
-            Duration::from_secs(240)
-        );
-        std::fs::write(modules.join("playerbots.conf"), "AiPlayerbot.Enabled = 0\n").unwrap();
-        assert_eq!(
-            Verb::StartWorld.timeout(folder.path()),
-            Duration::from_secs(3600)
-        );
-        assert_eq!(
-            Verb::StartMysql.timeout(folder.path()),
-            Duration::from_secs(360)
-        );
-    }
-
-    #[test]
-    fn zero_filled_launcher_state_is_discarded_and_valid_state_is_kept() {
-        let folder = tempfile::tempdir().unwrap();
-        let state = folder.path().join(".state");
-        std::fs::create_dir_all(&state).unwrap();
-        std::fs::write(state.join("mysql.json"), vec![0u8; 116]).unwrap();
-        std::fs::write(state.join("configuration.json"), Vec::<u8>::new()).unwrap();
-        std::fs::write(state.join("world.json"), "{\"pid\": 4}\n").unwrap();
-        std::fs::write(state.join("stop-relay"), Vec::<u8>::new()).unwrap();
-        std::fs::write(state.join("auth.json"), "{\"pid\": 0}").unwrap();
-        let mut removed: Vec<_> = discard_damaged_launcher_state(folder.path())
-            .iter()
-            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        removed.sort();
-        assert_eq!(removed, ["configuration.json", "mysql.json"]);
-        assert!(
-            state.join("world.json").exists()
-                && state.join("auth.json").exists()
-                && state.join("stop-relay").exists()
-        );
-        assert!(discard_damaged_launcher_state(folder.path()).is_empty());
-        assert!(discard_damaged_launcher_state(&folder.path().join("missing")).is_empty());
-    }
-
-    #[test]
-    fn translates_known_launcher_messages() {
-        assert_eq!(
-            translate("RuntimeError: Port 8085 is already used. Stop the other server"),
-            ErrorCode::PortInUse
-        );
-        assert_eq!(
-            translate("Another start/stop action is in progress."),
-            ErrorCode::OperationInProgress
-        );
-        assert_eq!(
-            translate("The packaged database is missing. Extract the complete repack."),
-            ErrorCode::ServerFilesIncomplete
-        );
-        assert_eq!(
-            translate("world stopped during startup. Check its log."),
-            ErrorCode::StartupFailed
-        );
-        assert_eq!(translate("Exit code -1073741819"), ErrorCode::Unknown);
+    fn launcher_failures_carry_their_error_code() {
+        let e = Error::Service(ErrorCode::PortInUse, "Port 8085 is already used (PID 4).".into());
+        assert_eq!(e.code(), ErrorCode::PortInUse);
+        assert_eq!(e.to_string(), "Port 8085 is already used (PID 4).");
     }
 
     #[test]

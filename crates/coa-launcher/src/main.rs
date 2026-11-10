@@ -8,10 +8,11 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use coa_core::launcher::{render, services, settings::Settings, state, world};
+use coa_core::launcher::ops::{self, Action};
+use coa_core::launcher::{services, settings::Settings, state, world};
 
-const ACTIONS: [&str; 17] = [
-    "start-all", "start-mysql", "start-auth", "start-world", "stop-all", "status", "status-json", "create-account",
+const ACTIONS: [&str; 18] = [
+    "start-all", "start-mysql", "start-auth", "start-world", "stop-all", "force-stop-all", "status", "status-json", "create-account",
     "create-account-once", "console", "ra-once", "prepare", "watch-world", "relay-worker", "debug-logs-on",
     "debug-logs-off", "debug-logs-status",
 ];
@@ -184,10 +185,12 @@ fn run(args: Args) -> Result<(), String> {
         }
         _ => {}
     }
-    {
-        let _lock = state::ControlLock::acquire(root, &args.action, Duration::from_secs(30), &|m| say(m)).map_err(e)?;
-        match args.action.as_str() {
-            "status" => {
+    match args.action.as_str() {
+        "status" | "status-json" => {
+            let _lock = state::ControlLock::acquire(root, &args.action, Duration::from_secs(30), &|m| say(m)).map_err(e)?;
+            if args.action == "status-json" {
+                say(&services::status(root).to_string());
+            } else {
                 for name in ["mysql", "auth", "world", "relay"] {
                     let line = match state::running(root, name) {
                         Some(r) => format!("{name:12} running (PID {})", r.pid),
@@ -195,34 +198,14 @@ fn run(args: Args) -> Result<(), String> {
                     };
                     say(&line);
                 }
-                return Ok(());
             }
-            "status-json" => {
-                say(&services::status(root).to_string());
-                return Ok(());
-            }
-            "stop-all" => return services::stop_all(root, &cfg, &|m| say(m)).map_err(e),
-            _ => {}
-        }
-        if matches!(args.action.as_str(), "start-all" | "start-world") {
-            coa_core::launcher::squid::validate_bots(root).map_err(e)?;
-        }
-        render::prepare(root, &cfg).map_err(e)?;
-        if args.action == "prepare" {
             return Ok(());
         }
-        let progress = |m: &str| say(m);
-        if matches!(args.action.as_str(), "start-all" | "start-mysql") {
-            services::start_mysql(root, &cfg, &progress).map_err(e)?;
-        }
-        if matches!(args.action.as_str(), "start-all" | "start-auth") {
-            services::start_auth(root, &cfg, &progress).map_err(e)?;
-        }
-        if matches!(args.action.as_str(), "start-all" | "start-world") {
-            let me = std::env::current_exe().map_err(|x| x.to_string())?;
-            world::start_world(root, &cfg, args.offset, &me, &progress).map_err(e)?;
-        }
+        _ => {}
     }
+    let action = Action::parse(&args.action).ok_or_else(usage)?;
+    let me = world::Supervisor::Launcher(std::env::current_exe().map_err(|x| x.to_string())?);
+    ops::run(root, &cfg, args.offset, action, Some(&me), &|m| say(m)).map_err(e)?;
     if args.action.starts_with("start-") {
         say("Use Stop_All_Server.bat to shut down this repack safely.");
     }

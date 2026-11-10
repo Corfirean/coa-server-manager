@@ -106,7 +106,11 @@ pub fn prepare(root: &Path, config: &Settings) -> Result<Vec<PathBuf>> {
         ("WORLD_PORT", config.world_port.to_string()),
         ("RA_PORT", config.ra_port.to_string()),
     ];
-    for (key, db) in [("LoginDatabaseInfo", "acore_auth"), ("WorldDatabaseInfo", "acore_world"), ("CharacterDatabaseInfo", "acore_characters")] {
+    for (key, db) in [
+        ("LoginDatabaseInfo", "acore_auth"),
+        ("WorldDatabaseInfo", config.realm.world_db),
+        ("CharacterDatabaseInfo", config.realm.characters_db),
+    ] {
         values.push((key, format!("127.0.0.1;{mysql_port};acore;{app_password};{db}")));
     }
     let mut written = Vec::new();
@@ -127,10 +131,10 @@ pub fn prepare(root: &Path, config: &Settings) -> Result<Vec<PathBuf>> {
         unresolved.sort();
         unresolved.dedup();
         if !unresolved.is_empty() {
-            return Err(Error::Invalid(format!(
-                "An unresolved placeholder remains in Settings/{name}.template: {}",
-                unresolved.join(", ")
-            )));
+            return Err(Error::Service(
+                crate::error::ErrorCode::InvalidConfigValue,
+                format!("An unresolved placeholder remains in Settings/{name}.template: {}", unresolved.join(", ")),
+            ));
         }
         // these three keep "\n" (Python wrote them with newline="\n")
         std::fs::write(root.join(target), text.as_bytes())?;

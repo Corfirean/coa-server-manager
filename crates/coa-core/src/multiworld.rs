@@ -176,7 +176,6 @@ fn set_tree(main: &Path, tree: Tree, enabled: bool) -> Result<realms::View> {
                 }
             }
         }
-        secondary_launcher(&fs::read_to_string(main.join("Scripts/manage.py"))?)?;
     }
     let status = process::observe(main, &crate::layout::read_ports(main));
     if status.world.state != ServiceState::Stopped
@@ -349,25 +348,18 @@ fn prepare(main: &Path, tree: Tree) -> Result<PathBuf> {
             ..Default::default()
         },
     )?;
-    let source = fs::read_to_string(main.join("Scripts/manage.py"))?;
-    let source = secondary_launcher(&source)?;
-    fsx::atomic_write(&second.join("Scripts/manage.py"), source.as_bytes())?;
-    Ok(second)
-}
-
-fn secondary_launcher(source: &str) -> Result<String> {
-    let marker = "def start_world(config, offset):\n    start_mysql(config)";
-    let source = source.replace("\r\n", "\n");
-    if !source.contains(marker) {
-        return Err(Error::Invalid(
-            "The launcher does not support a shared database world. Update the server first."
-                .into(),
-        ));
+    // The world supervisor and the bug-report relay of the extra world (the launcher itself runs in the Manager
+    // and knows that this world shares the main database).
+    for script in ["Scripts/coa-launcher.exe", "Scripts/manage.py"] {
+        let target = second.join(script);
+        if main.join(script).is_file() {
+            fs::create_dir_all(second.join("Scripts"))?;
+            fsx::atomic_write(&target, &fs::read(main.join(script))?)?;
+        } else if target.exists() {
+            fs::remove_file(&target)?;
+        }
     }
-    Ok(source.replace(
-        marker,
-        "def start_world(config, offset):\n    mysql(admin=\"ping\")",
-    ))
+    Ok(second)
 }
 
 fn start_tree(main: &Path, tree: Tree) -> Result<()> {
@@ -408,7 +400,7 @@ pub fn start(main: &Path) -> Result<()> {
 
 fn stop_tree(main: &Path, tree: Tree) -> Result<()> {
     let second = tree_root(main, tree);
-    if !second.join("Scripts/manage.py").exists() {
+    if !second.join("Settings/repack.json").exists() {
         if tree_running(main, tree) {
             return Err(Error::Invalid(format!(
                 "The running {}'s launcher is missing. The shared database was left running.",
@@ -504,13 +496,5 @@ mod tests {
         };
         assert!(err.contains(expected), "{err}");
         assert!(!realms::state(t.path()).unwrap().with_reborn);
-    }
-
-    #[test]
-    fn secondary_never_starts_the_shared_database() {
-        let patched = secondary_launcher("def start_world(config, offset):\r\n    start_mysql(config)\r\n    wait_ready('world', 8086)\r\n").unwrap();
-        assert!(patched.contains("mysql(admin=\"ping\")"));
-        assert!(!patched.contains("start_mysql(config)"));
-        assert!(secondary_launcher("def start_world(): pass").is_err());
     }
 }
