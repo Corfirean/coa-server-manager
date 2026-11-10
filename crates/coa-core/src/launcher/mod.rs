@@ -12,7 +12,10 @@
 //! power cut could leave a zero-filled record that stopped every later start).
 
 pub mod render;
+pub mod services;
 pub mod settings;
+pub mod squid;
 pub mod state;
+pub mod world;
 
 pub use settings::Settings;

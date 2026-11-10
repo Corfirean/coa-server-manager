@@ -88,6 +88,15 @@ impl Ra {
         self.command(c)
     }
 
+    /// Send a command the server does not answer before it closes the console (`server shutdown`), and return at
+    /// once.
+    pub fn send_without_answer(mut self, cmd: &str) -> Result<()> {
+        let c = crate::console::check_command(cmd)?;
+        self.stream.write_all(format!("{c}\r\n").as_bytes())?;
+        self.stream.flush()?;
+        Ok(())
+    }
+
     fn command(&mut self, cmd: &str) -> Result<String> {
         debug_assert!(!cmd.contains(['\r', '\n']));
         self.stream.write_all(format!("{cmd}\r\n").as_bytes())?;
