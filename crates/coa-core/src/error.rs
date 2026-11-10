@@ -24,6 +24,9 @@ pub enum Error {
     UnknownInstallation(String),
     #[error("{0}")]
     Invalid(String),
+    /// A server start or stop failed for a reason the UI can explain (the repack launcher's own errors).
+    #[error("{1}")]
+    Service(ErrorCode, String),
     #[error("package not published: {0}")]
     PackageNotPublished(String),
     #[error("download server unreachable: {0}")]
@@ -199,6 +202,7 @@ impl Error {
             Error::PackageNotPublished(_) => ErrorCode::PackageNotPublished,
             Error::NetworkUnreachable(_) => ErrorCode::NetworkUnreachable,
             Error::BotModulesConflict => ErrorCode::BotModulesConflict,
+            Error::Service(code, _) => *code,
             Error::CompanionTemplatesMissing => ErrorCode::CompanionTemplatesMissing,
             Error::CompanionCommandUnsupported => ErrorCode::CompanionCommandUnsupported,
             _ => ErrorCode::Unknown,

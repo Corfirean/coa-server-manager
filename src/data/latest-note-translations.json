@@ -37,7 +37,8 @@
       "Update validation keeps MySQL running between compatible checks": "При проверке обновления MySQL продолжает работать между совместимыми проверками",
       "Choose normal logs, errors only or no server logs in maintenance settings": "Выбирайте обычные логи, только ошибки или отключение логов в настройках обслуживания",
       "Diagnostic exports include launcher stages and lock owner records": "В архив диагностики входят этапы лаунчера и записи о владельцах блокировок",
-      "Update and recovery checks use the temporary login port even with a Windows override": "Проверка обновления и восстановления использует временный порт входа даже при переопределении в Windows"
+      "Update and recovery checks use the temporary login port even with a Windows override": "Проверка обновления и восстановления использует временный порт входа даже при переопределении в Windows",
+      "Custom Races patch installation recovers from interrupted downloads": "Установка патчей дополнительных рас восстанавливается после прерывания загрузки"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -76,7 +77,8 @@
       "Update validation keeps MySQL running between compatible checks": "Bei der Update-Validierung bleibt MySQL zwischen kompatiblen Prüfungen aktiv",
       "Choose normal logs, errors only or no server logs in maintenance settings": "In den Wartungseinstellungen normale Protokolle, nur Fehler oder keine Serverprotokolle wählen",
       "Diagnostic exports include launcher stages and lock owner records": "Diagnoseexporte enthalten Launcher-Schritte und aufgezeichnete Sperrbesitzer",
-      "Update and recovery checks use the temporary login port even with a Windows override": "Update- und Wiederherstellungsprüfungen verwenden den temporären Anmeldeport auch bei einer Windows-Vorgabe"
+      "Update and recovery checks use the temporary login port even with a Windows override": "Update- und Wiederherstellungsprüfungen verwenden den temporären Anmeldeport auch bei einer Windows-Vorgabe",
+      "Custom Races patch installation recovers from interrupted downloads": "Die Installation zusätzlicher Völker setzt unterbrochene Downloads fort"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -115,7 +117,8 @@
       "Update validation keeps MySQL running between compatible checks": "La validation des mises à jour garde MySQL actif entre les vérifications compatibles",
       "Choose normal logs, errors only or no server logs in maintenance settings": "Choisissez les journaux normaux, les erreurs uniquement ou aucun journal dans les paramètres de maintenance",
       "Diagnostic exports include launcher stages and lock owner records": "Les exports de diagnostic incluent les étapes de lancement et les propriétaires des verrous",
-      "Update and recovery checks use the temporary login port even with a Windows override": "Les contrôles de mise à jour et de restauration utilisent le port de connexion temporaire même si Windows en impose un autre"
+      "Update and recovery checks use the temporary login port even with a Windows override": "Les contrôles de mise à jour et de restauration utilisent le port de connexion temporaire même si Windows en impose un autre",
+      "Custom Races patch installation recovers from interrupted downloads": "L’installation des races supplémentaires reprend les téléchargements interrompus"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -154,7 +157,8 @@
       "Update validation keeps MySQL running between compatible checks": "La validación de actualizaciones mantiene MySQL activo entre comprobaciones compatibles",
       "Choose normal logs, errors only or no server logs in maintenance settings": "Elige registros normales, solo errores o ningún registro en los ajustes de mantenimiento",
       "Diagnostic exports include launcher stages and lock owner records": "Los archivos de diagnóstico incluyen las etapas del lanzador y los propietarios de bloqueos",
-      "Update and recovery checks use the temporary login port even with a Windows override": "Las comprobaciones de actualización y recuperación usan el puerto temporal de acceso aunque Windows indique otro"
+      "Update and recovery checks use the temporary login port even with a Windows override": "Las comprobaciones de actualización y recuperación usan el puerto temporal de acceso aunque Windows indique otro",
+      "Custom Races patch installation recovers from interrupted downloads": "La instalación de razas adicionales se recupera de descargas interrumpidas"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -193,7 +197,8 @@
       "Update validation keeps MySQL running between compatible checks": "更新验证会在兼容的检查步骤之间保持 MySQL 运行",
       "Choose normal logs, errors only or no server logs in maintenance settings": "在维护设置中选择普通日志、仅错误或关闭服务器日志",
       "Diagnostic exports include launcher stages and lock owner records": "诊断导出包含启动器阶段和锁所属进程记录",
-      "Update and recovery checks use the temporary login port even with a Windows override": "即使 Windows 指定了其他端口，更新和恢复检查也会使用临时登录端口"
+      "Update and recovery checks use the temporary login port even with a Windows override": "即使 Windows 指定了其他端口，更新和恢复检查也会使用临时登录端口",
+      "Custom Races patch installation recovers from interrupted downloads": "自定义种族补丁安装可从中断的下载中恢复"
     }
   },
   "server": {
@@ -244,7 +249,17 @@
       "Startup and shutdown keep bounded diagnostics of launcher stages": "При запуске и остановке сохраняется ограниченная по объёму диагностика этапов лаунчера",
       "Database shutdown succeeds when MySQL closes its connection before replying": "Остановка базы завершается успешно, если MySQL закрыл соединение до отправки ответа",
       "Server startup waits for ports that Windows is still releasing": "При запуске сервер ждёт, пока Windows освободит порт",
-      "Companions avoid repeating unreachable routes in the open world": "В открытом мире спутники перестают повторять непроходимые маршруты"
+      "Companions avoid repeating unreachable routes in the open world": "В открытом мире спутники перестают повторять непроходимые маршруты",
+      "Login server startup works when Windows does not list its listening port": "Сервер входа запускается, даже если Windows не показывает его прослушиваемый порт",
+      "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear": "Обновлены SQUID’s Playerbots до 2.9.4 и Dungeon Clear",
+      "Electrocutioner is used up by Electrocute and no longer makes it look ready too early": "Electrocute расходует Electrocutioner и больше не выглядит готовым раньше времени",
+      "The Dungeon Finder boss objective survives a relog": "Цель убийства босса в поиске подземелий сохраняется после повторного входа",
+      "Vanilla dungeon bosses no longer sleep or mind control tanks and healers": "Боссы классических подземелий больше не усыпляют и не подчиняют танков и лекарей",
+      "Classic dungeons scale only for Dungeon Finder groups": "Классические подземелья масштабируются только для групп поиска подземелий",
+      "Darkmaster Gandling raises Risen Students only at 52% health": "Тёмный магистр Гандлинг поднимает восставших студентов только при 52% здоровья",
+      "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Драконы Затонувшего храма появляются только после Аватары Хаккара и Джаммал’ана",
+      "Scaled loot previews survive a map change": "Предпросмотр масштабированной добычи сохраняется при смене карты",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots обновлён до 2.9.4"
     },
     "de": {
       "Restrict new characters by custom race without changing existing characters": "Neue Charaktere nach zusätzlichem Volk beschränken, ohne bestehende Charaktere zu ändern",
@@ -293,7 +308,17 @@
       "Startup and shutdown keep bounded diagnostics of launcher stages": "Start und Herunterfahren speichern begrenzte Diagnosedaten der Launcher-Schritte",
       "Database shutdown succeeds when MySQL closes its connection before replying": "Das Herunterfahren der Datenbank gelingt auch, wenn MySQL die Verbindung vor der Antwort schließt",
       "Server startup waits for ports that Windows is still releasing": "Beim Start wartet der Server, bis Windows den Port freigibt",
-      "Companions avoid repeating unreachable routes in the open world": "Gefährten meiden in der offenen Welt wiederholte Versuche auf unpassierbaren Routen"
+      "Companions avoid repeating unreachable routes in the open world": "Gefährten meiden in der offenen Welt wiederholte Versuche auf unpassierbaren Routen",
+      "Login server startup works when Windows does not list its listening port": "Der Anmeldeserver startet auch ohne Eintrag seines lauschenden Ports in Windows",
+      "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear": "SQUID’s Playerbots auf 2.9.4 aktualisiert und Dungeon Clear erneuert",
+      "Electrocutioner is used up by Electrocute and no longer makes it look ready too early": "Electrocute verbraucht Electrocutioner und erscheint nicht mehr vorzeitig einsatzbereit",
+      "The Dungeon Finder boss objective survives a relog": "Das Bossziel der Dungeonsuche bleibt nach erneutem Einloggen erhalten",
+      "Vanilla dungeon bosses no longer sleep or mind control tanks and healers": "Bosse klassischer Dungeons versetzen Tanks und Heiler nicht mehr in Schlaf oder Gedankenkontrolle",
+      "Classic dungeons scale only for Dungeon Finder groups": "Klassische Dungeons skalieren nur für Gruppen der Dungeonsuche",
+      "Darkmaster Gandling raises Risen Students only at 52% health": "Dunkelmeister Gandling erweckt auferstandene Studenten erst bei 52 % Gesundheit",
+      "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Die Drachen im Versunkenen Tempel erscheinen erst nach dem Avatar von Hakkar und Jammal’an",
+      "Scaled loot previews survive a map change": "Die Vorschau skalierter Beute bleibt beim Kartenwechsel erhalten",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots auf 2.9.4 aktualisiert"
     },
     "fr": {
       "Restrict new characters by custom race without changing existing characters": "Restreignez les races supplémentaires des nouveaux personnages sans modifier les personnages existants",
@@ -342,7 +367,17 @@
       "Startup and shutdown keep bounded diagnostics of launcher stages": "Le démarrage et l’arrêt conservent un diagnostic limité des étapes de lancement",
       "Database shutdown succeeds when MySQL closes its connection before replying": "L’arrêt de la base réussit même si MySQL ferme la connexion avant de répondre",
       "Server startup waits for ports that Windows is still releasing": "Au démarrage, le serveur attend que Windows libère le port",
-      "Companions avoid repeating unreachable routes in the open world": "Les compagnons évitent de reprendre les chemins impraticables en monde ouvert"
+      "Companions avoid repeating unreachable routes in the open world": "Les compagnons évitent de reprendre les chemins impraticables en monde ouvert",
+      "Login server startup works when Windows does not list its listening port": "Le serveur de connexion démarre même si Windows ne répertorie pas son port d’écoute",
+      "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear": "SQUID’s Playerbots passe en version 2.9.4 et Dungeon Clear est actualisé",
+      "Electrocutioner is used up by Electrocute and no longer makes it look ready too early": "Electrocute consomme Electrocutioner et ne paraît plus disponible trop tôt",
+      "The Dungeon Finder boss objective survives a relog": "L’objectif de boss de la recherche de donjons est conservé après reconnexion",
+      "Vanilla dungeon bosses no longer sleep or mind control tanks and healers": "Les boss des donjons classiques n’endorment plus les tanks et soigneurs et ne contrôlent plus leur esprit",
+      "Classic dungeons scale only for Dungeon Finder groups": "Les donjons classiques ne s’adaptent que pour les groupes de la recherche de donjons",
+      "Darkmaster Gandling raises Risen Students only at 52% health": "Le sombre maître Gandling ne relève les étudiants qu’à 52 % de ses points de vie",
+      "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Les dragons du Temple englouti n’apparaissent qu’après l’Avatar d’Hakkar et Jammal’an",
+      "Scaled loot previews survive a map change": "L’aperçu du butin adapté est conservé lors d’un changement de carte",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots passe en version 2.9.4"
     },
     "es": {
       "Restrict new characters by custom race without changing existing characters": "Restringe las razas adicionales de personajes nuevos sin modificar los existentes",
@@ -391,7 +426,17 @@
       "Startup and shutdown keep bounded diagnostics of launcher stages": "El inicio y la parada guardan diagnósticos limitados de las etapas del lanzador",
       "Database shutdown succeeds when MySQL closes its connection before replying": "La parada de la base de datos se completa aunque MySQL cierre la conexión antes de responder",
       "Server startup waits for ports that Windows is still releasing": "Al iniciarse, el servidor espera a que Windows libere el puerto",
-      "Companions avoid repeating unreachable routes in the open world": "Los compañeros evitan repetir rutas intransitables en el mundo abierto"
+      "Companions avoid repeating unreachable routes in the open world": "Los compañeros evitan repetir rutas intransitables en el mundo abierto",
+      "Login server startup works when Windows does not list its listening port": "El servidor de acceso arranca aunque Windows no muestre su puerto de escucha",
+      "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear": "SQUID’s Playerbots se actualiza a 2.9.4 y se renueva Dungeon Clear",
+      "Electrocutioner is used up by Electrocute and no longer makes it look ready too early": "Electrocute consume Electrocutioner y ya no parece disponible antes de tiempo",
+      "The Dungeon Finder boss objective survives a relog": "El objetivo de jefe del buscador de mazmorras se conserva al volver a entrar",
+      "Vanilla dungeon bosses no longer sleep or mind control tanks and healers": "Los jefes de mazmorras clásicas ya no duermen ni controlan mentalmente a tanques y sanadores",
+      "Classic dungeons scale only for Dungeon Finder groups": "Las mazmorras clásicas solo se ajustan para grupos del buscador de mazmorras",
+      "Darkmaster Gandling raises Risen Students only at 52% health": "El Maestro Oscuro Gandling solo alza a los estudiantes resucitados al 52 % de salud",
+      "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Los dragones del Templo Sumergido solo aparecen después del Avatar de Hakkar y Jammal’an",
+      "Scaled loot previews survive a map change": "La vista previa del botín ajustado se conserva al cambiar de mapa",
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots se actualiza a 2.9.4"
     },
     "zh": {
       "Restrict new characters by custom race without changing existing characters": "限制新角色可选的自定义种族，不影响现有角色",
@@ -440,7 +485,17 @@
       "Startup and shutdown keep bounded diagnostics of launcher stages": "启动和关闭时会保留大小受限的启动器阶段诊断日志",
       "Database shutdown succeeds when MySQL closes its connection before replying": "即使 MySQL 在回复前关闭连接，数据库关闭操作也能正确完成",
       "Server startup waits for ports that Windows is still releasing": "服务器启动时会等待 Windows 释放端口",
-      "Companions avoid repeating unreachable routes in the open world": "伙伴在开放世界中会避免反复尝试无法通行的路线"
+      "Companions avoid repeating unreachable routes in the open world": "伙伴在开放世界中会避免反复尝试无法通行的路线",
+      "Login server startup works when Windows does not list its listening port": "即使 Windows 未列出监听端口，登录服务器也能启动",
+      "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear": "已将 SQUID’s Playerbots 更新至 2.9.4，并更新 Dungeon Clear",
+      "Electrocutioner is used up by Electrocute and no longer makes it look ready too early": "Electrocute 会消耗 Electrocutioner，且不再过早显示为可用",
+      "The Dungeon Finder boss objective survives a relog": "地下城查找器的首领目标在重新登录后仍会保留",
+      "Vanilla dungeon bosses no longer sleep or mind control tanks and healers": "经典地下城首领不再使坦克和治疗者沉睡或受到精神控制",
+      "Classic dungeons scale only for Dungeon Finder groups": "经典地下城仅对通过地下城查找器组成的队伍进行缩放",
+      "Darkmaster Gandling raises Risen Students only at 52% health": "黑暗院长加丁仅在生命值降至 52% 时唤起复活的学生",
+      "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "沉没的神庙中的巨龙仅在哈卡的化身和迦玛兰之后出现",
+      "Scaled loot previews survive a map change": "缩放后的战利品预览在切换地图后仍会保留",
+      "Updated SQUID Playerbots to 2.9.4": "已将 SQUID Playerbots 更新至 2.9.4"
     }
   }
 }

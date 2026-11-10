@@ -1,6 +1,6 @@
 {
-  "version": "0.9.9",
+  "version": "0.9.10",
   "notes": [
-    "Update and recovery checks use the temporary login port even with a Windows override"
+    "Custom Races patch installation recovers from interrupted downloads"
   ]
 }
