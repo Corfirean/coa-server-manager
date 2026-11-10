@@ -268,6 +268,14 @@ fn owned_world(root: &Path) -> Result<Option<ProcessIdentity>> {
     Ok(Some(world))
 }
 
+/// Ask the world's console for a graceful shutdown. False when the console is not this world's or does not answer.
+fn ask_shutdown(root: &Path, cfg: &Settings) -> bool {
+    ready(root, "world", cfg.ra_port)
+        && crate::ra::Ra::connect_to(cfg.ra_port, &cfg.ra_username, &cfg.ra_password)
+            .and_then(|ra| ra.send_without_answer("server shutdown 1s 0"))
+            .is_ok()
+}
+
 /// Stop this folder's world without its console (unsaved progress since the last save is lost).
 fn stop_world_process(world: &ProcessIdentity) -> Result<()> {
     terminate(world).map_err(|_| Error::Invalid("Worldserver could not be stopped safely; its database was left running.".into()))?;
@@ -290,18 +298,25 @@ pub fn force_stop_all(root: &Path, cfg: &Settings, progress: Progress) -> Result
 /// world leaves the shared database alone.
 pub fn stop_all(root: &Path, cfg: &Settings, progress: Progress) -> Result<()> {
     if let Some(world) = owned_world(root)? {
-        let asked = ready(root, "world", cfg.ra_port)
-            .then(|| crate::ra::Ra::connect_to(cfg.ra_port, &cfg.ra_username, &cfg.ra_password))
-            .and_then(|r| r.ok())
-            .map(|ra| ra.send_without_answer("server shutdown 1s 0"));
-        match asked {
-            Some(Ok(())) => progress("Graceful world shutdown requested."),
-            _ => {
-                progress("World console unavailable; stopping this repack's recorded world process.");
-                stop_world_process(&world)?;
-            }
+        if ask_shutdown(root, cfg) {
+            progress("Graceful world shutdown requested.");
+        } else {
+            progress("World console unavailable; stopping this repack's recorded world process.");
+            stop_world_process(&world)?;
         }
-        if !wait_stopped(&world, 90) {
+        // A console request can be lost (seen when a client disconnected at once). While the world still runs
+        // and its console still answers, it has not begun to stop: ask again. Asking twice is harmless.
+        let mut stopped = wait_stopped(&world, 15);
+        for _ in 0..2 {
+            if stopped {
+                break;
+            }
+            if ask_shutdown(root, cfg) {
+                progress("The world has not begun to stop; shutdown requested again.");
+            }
+            stopped = wait_stopped(&world, 15);
+        }
+        if !stopped && !wait_stopped(&world, 45) {
             return Err(Error::Invalid("Worldserver is still stopping; its database has been left running.".into()));
         }
     }
