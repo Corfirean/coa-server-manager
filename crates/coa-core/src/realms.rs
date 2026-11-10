@@ -534,8 +534,6 @@ pub fn ensure_created(root: &Path, mode: Mode) -> Result<()> {
             "Update the server to a build with Warcraft Reborn support first.".into(),
         ));
     }
-    // Verify launcher support before creating databases, as selecting a realm does.
-    prepare_launcher(root)?;
     let before = configs(root)?;
     create_realm(root, &mut s, mode, &before)
 }
@@ -565,8 +563,6 @@ pub fn select(root: &Path, mode: Mode) -> Result<View> {
             "Disable the realms that start together before switching realms.".into(),
         ));
     }
-    // Verify launcher support before creating databases or changing the selected realm.
-    prepare_launcher(root)?;
     let before = configs(root)?;
     fsx::atomic_write_json(&snapshot(root, s.active), &before)?;
     create_realm(root, &mut s, mode, &before)?;
@@ -606,130 +602,6 @@ pub fn select(root: &Path, mode: Mode) -> Result<View> {
     }
     fs::remove_file(root.join(JOURNAL))?;
     view(root)
-}
-
-/// Adapt the bundled launcher's canonical schema and realm choices without changing its supervision logic.
-pub fn prepare_launcher(root: &Path) -> Result<()> {
-    // A Docker server has no launcher to adapt: the Docker backend reads the active realm itself.
-    if crate::docker::is_docker(root) {
-        return Ok(());
-    }
-    // The Manager starts servers itself; this keeps the repack's own Python launcher (its .bat files) on the
-    // active realm. A repack without that launcher has nothing to adapt.
-    let path = root.join("Scripts/manage.py");
-    if !path.is_file() {
-        return Ok(());
-    }
-    let source = fs::read_to_string(&path)?;
-    let patched = patch_launcher(&source)?;
-    if patched != source {
-        fsx::atomic_write(&path, patched.as_bytes())?;
-        // A Manager-owned transformation is still pristine for subsequent updates and file checks.
-        if let Ok(dir) = crate::registry::metadata_dir_for(root) {
-            if let Ok((_, mut meta)) = crate::registry::MetaDir::open(&dir) {
-                if meta
-                    .original_hashes
-                    .get("Scripts/manage.py")
-                    .is_some_and(|hash| hash == &fsx::sha256_bytes(source.as_bytes()))
-                {
-                    meta.original_hashes.insert(
-                        "Scripts/manage.py".into(),
-                        fsx::sha256_bytes(patched.as_bytes()),
-                    );
-                    fsx::atomic_write_json(&dir.join("install.json"), &meta)?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-const LAUNCHER_REALM_REPLACEMENTS: &[(&str, &str)] = &[
-    ("(\"WorldDatabaseInfo\", \"acore_world\")", "(\"WorldDatabaseInfo\", \"acore_world_wildcard\" if coa_realm() == 'wildcard' else \"acore_world\")"),
-    ("(\"CharacterDatabaseInfo\", \"acore_characters\")", "(\"CharacterDatabaseInfo\", \"acore_characters_wildcard\" if coa_realm() == 'wildcard' else \"acore_characters\")"),
-    ("SET name='AzerothCore',address=", "SET name='{coa_realm_name()}',address="),
-    ("WHERE id=1;", "WHERE id={coa_realm_id()};"),
-    ("mysql(\"UPDATE acore_auth.realmlist SET flag=0", "mysql(f\"UPDATE acore_auth.realmlist SET flag=0"),
-];
-
-const LAUNCHER_REALM_INSERT: &str = "# coa-manager-realm-profiles-v1\ndef coa_realm():\n    path = ROOT / 'Settings/realm-profile.json'\n    return json.loads(path.read_text(encoding='utf-8')).get('active', 'coa') if path.exists() else 'coa'\n\ndef coa_realm_id():\n    return 2 if coa_realm() == 'wildcard' else 1\n\ndef coa_realm_name():\n    return 'Wildcard' if coa_realm() == 'wildcard' else 'Conquest of Azeroth'\n\n";
-
-fn launcher_insert() -> String {
-    LAUNCHER_REALM_INSERT
-        .replace("profiles-v1", "profiles-v2")
-        .replace(
-            "return 2 if",
-            "return 3 if coa_realm() == 'reborn' else 2 if",
-        )
-        .replace(
-            "return 'Wildcard' if",
-            "return 'Warcraft Reborn' if coa_realm() == 'reborn' else 'Wildcard' if",
-        )
-}
-
-fn launcher_replacements() -> Vec<(&'static str, String)> {
-    LAUNCHER_REALM_REPLACEMENTS.iter().map(|(from, to)| (*from, to
-        .replace("\"acore_world_wildcard\" if", "\"acore_world_reborn\" if coa_realm() == 'reborn' else \"acore_world_wildcard\" if")
-        .replace("\"acore_characters_wildcard\" if", "\"acore_characters_reborn\" if coa_realm() == 'reborn' else \"acore_characters_wildcard\" if"))).collect()
-}
-
-pub(crate) fn patch_launcher(source: &str) -> Result<String> {
-    if source.contains("# coa-manager-realm-profiles-v2") {
-        return Ok(source.into());
-    }
-    if source.contains("# coa-manager-realm-profiles-v1") {
-        let original = unpatch_launcher(source)
-            .ok_or_else(|| Error::Invalid("Unrecognised realm launcher patch.".into()))?;
-        return patch_launcher(&original);
-    }
-    let mut out = source.to_string();
-    for (from, to) in launcher_replacements() {
-        if !out.contains(from) {
-            return Err(Error::Invalid(
-                "This launcher does not support realm profiles. Update the server package first."
-                    .into(),
-            ));
-        }
-        out = out.replace(from, &to);
-    }
-    // Insert before the entry point so ROOT, json and functions are all defined when called.
-    let marker = "if __name__ == \"__main__\":";
-    if !out.contains(marker) {
-        return Err(Error::Invalid(
-            "Unrecognised server launcher entry point.".into(),
-        ));
-    }
-    Ok(out.replace(marker, &format!("{}{marker}", launcher_insert())))
-}
-
-/// Reverse only our exact realm transformation; callers must verify the recovered original hash.
-pub(crate) fn unpatch_launcher(source: &str) -> Option<String> {
-    let (insert, replacements) = if source.contains(&launcher_insert()) {
-        (launcher_insert(), launcher_replacements())
-    } else if source.contains(LAUNCHER_REALM_INSERT) {
-        (
-            LAUNCHER_REALM_INSERT.into(),
-            LAUNCHER_REALM_REPLACEMENTS
-                .iter()
-                .map(|(a, b)| (*a, b.to_string()))
-                .collect(),
-        )
-    } else {
-        return None;
-    };
-    let mut original = source.replacen(&insert, "", 1);
-    for (from, to) in &replacements {
-        original = original.replace(to, from);
-    }
-    let mut check = original.clone();
-    for (from, to) in &replacements {
-        check = check.replace(from, to);
-    }
-    check = check.replace(
-        "if __name__ == \"__main__\":",
-        &format!("{insert}if __name__ == \"__main__\":"),
-    );
-    (check == source).then_some(original)
 }
 
 /// The character-creation model the world server advertises for a realm. Every realm has its own database and its own
@@ -775,7 +647,6 @@ pub fn before_start(root: &Path) -> Result<()> {
     if !root.join(STATE).exists() {
         return Ok(());
     }
-    prepare_launcher(root)?;
     if s.simultaneous && !view(root)?.supported {
         return Err(Error::Invalid(
             "The installed server build does not support simultaneous Wildcard startup.".into(),
@@ -1113,26 +984,6 @@ CoA.GameModeMask = 0
     }
 
     #[test]
-    fn old_launcher_upgrades_and_both_patch_versions_are_reversible() {
-        let original = "(\"WorldDatabaseInfo\", \"acore_world\")\n(\"CharacterDatabaseInfo\", \"acore_characters\")\nSET name='AzerothCore',address=\nWHERE id=1;\nmysql(\"UPDATE acore_auth.realmlist SET flag=0\nif __name__ == \"__main__\":\n";
-        let mut old = original.to_string();
-        for (from, to) in LAUNCHER_REALM_REPLACEMENTS {
-            old = old.replace(from, to);
-        }
-        old = old.replace(
-            "if __name__ == \"__main__\":",
-            &format!("{LAUNCHER_REALM_INSERT}if __name__ == \"__main__\":"),
-        );
-        assert_eq!(unpatch_launcher(&old).as_deref(), Some(original));
-        let new = patch_launcher(&old).unwrap();
-        assert!(new.contains("acore_world_reborn"));
-        assert!(new.contains("return 3 if coa_realm() == 'reborn'"));
-        assert!(new.contains("return 'Warcraft Reborn' if"));
-        assert_eq!(patch_launcher(&new).unwrap(), new);
-        assert_eq!(unpatch_launcher(&new).as_deref(), Some(original));
-    }
-
-    #[test]
     fn a_docker_server_is_checked_for_wildcard_support_in_its_own_binary() {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir_all(d.path().join("Core")).unwrap();
@@ -1160,21 +1011,6 @@ CoA.GameModeMask = 0
         )
         .unwrap();
         assert!(view(d.path()).unwrap().supported);
-    }
-
-    #[test]
-    fn a_docker_server_has_no_launcher_to_adapt() {
-        let d = tempfile::tempdir().unwrap();
-        fs::create_dir_all(d.path().join("Settings")).unwrap();
-        // No Scripts/manage.py anywhere: neither a repack without the Python launcher nor a Docker server has
-        // anything to adapt.
-        assert!(prepare_launcher(d.path()).is_ok());
-        fs::write(
-            d.path().join("Settings/docker.json"),
-            br#"{"project":"t1"}"#,
-        )
-        .unwrap();
-        prepare_launcher(d.path()).unwrap();
     }
 
     #[test]
@@ -1275,43 +1111,5 @@ CoA.GameModeMask = 0
         )
         .is_err());
         assert!(guard_module(t.path(), "content-scaling").is_ok());
-    }
-
-    #[test]
-    fn unknown_launcher_is_refused_without_partial_patching() {
-        assert!(patch_launcher("print('custom launcher')").is_err());
-    }
-
-    #[test]
-    fn managed_launcher_patch_remains_pristine_but_external_edits_conflict() {
-        let d = tempfile::tempdir().unwrap();
-        let root = d.path().join("server");
-        let source = "(\"WorldDatabaseInfo\", \"acore_world\")\n(\"CharacterDatabaseInfo\", \"acore_characters\")\nSET name='AzerothCore',address=\nWHERE id=1;\nmysql(\"UPDATE acore_auth.realmlist SET flag=0\nif __name__ == \"__main__\":\n";
-        fsx::atomic_write(&root.join("Scripts/manage.py"), source.as_bytes()).unwrap();
-        let mut meta = crate::registry::InstallMeta::new(crate::registry::InstallKind::New, &root);
-        meta.original_hashes.insert(
-            "Scripts/manage.py".into(),
-            fsx::sha256_bytes(source.as_bytes()),
-        );
-        let dir = crate::registry::MetaDir::create(&root, &meta).unwrap();
-        prepare_launcher(&root).unwrap();
-        let (_, meta) = crate::registry::MetaDir::open(&dir.root).unwrap();
-        assert!(crate::diag::verify_managed(&root, &meta).is_empty());
-        let manifest: crate::manifest::Manifest = serde_json::from_value(serde_json::json!({
-            "schema": 1, "kind": "update", "version": "2.0.0", "core": {"commit": null}, "builtAt": "fixture", "minManagerVersion": "0.1.0",
-            "files": [{"path":"Scripts/manage.py","sha256":fsx::sha256_bytes(b"next release"),"size":12,"owner":"core","policy":"replace"}]
-        })).unwrap();
-        assert_eq!(
-            crate::update::plan(&root, &meta, &manifest, &BTreeMap::new(), None).unwrap()[0].action,
-            crate::update::Action::Replace
-        );
-        let mut modified = fs::read(root.join("Scripts/manage.py")).unwrap();
-        modified.extend_from_slice(b"# custom edit\n");
-        fsx::atomic_write(&root.join("Scripts/manage.py"), &modified).unwrap();
-        prepare_launcher(&root).unwrap();
-        assert_eq!(
-            crate::update::plan(&root, &meta, &manifest, &BTreeMap::new(), None).unwrap()[0].action,
-            crate::update::Action::Conflict
-        );
     }
 }

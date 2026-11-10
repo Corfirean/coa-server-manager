@@ -28,6 +28,7 @@ pub mod diag;
 pub mod docker;
 pub mod download;
 pub mod driver;
+pub mod legacy_launcher;
 pub mod error;
 pub mod firewall;
 pub mod friends;

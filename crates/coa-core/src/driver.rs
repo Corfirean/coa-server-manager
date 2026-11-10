@@ -1,6 +1,6 @@
 //! Start/stop of a repack-shaped installation through the repack launcher in this crate
 //! ([`crate::launcher`]): config rendering, the services, the world supervisor, graceful shutdown and readiness.
-//! It writes the same `.state` records as the repack's `Scripts/manage.py`, so the server's own `.bat` files and
+//! It writes the same `.state` records as the repack's `Scripts/manage.py`, so the repack's own launcher and
 //! this Manager can be used on the same folder. Observation stays native (see `process`).
 
 use std::path::Path;
@@ -330,60 +330,6 @@ fn recover_mysql_launcher_state(root: &Path, prefer_listener: bool) -> Result<()
     Ok(())
 }
 
-/// The import fix older Managers wrote into `Scripts/manage.py` (needed only to run it through their bridge). It
-/// is no longer applied; it stays so that file checks still recognise a file it changed.
-pub(crate) fn patch_launcher_imports(text: &str) -> Result<String> {
-    let line = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
-    if !text.contains("from squid_playerbots import") || text.contains(line) {
-        return Ok(text.into());
-    }
-    let root = "ROOT = Path(__file__).resolve().parents[1]";
-    if !text.contains(root) || !text.lines().any(|line| line.trim() == "import sys") {
-        return Err(Error::Invalid(
-            "The server launcher cannot load its integration scripts. Repair its program files."
-                .into(),
-        ));
-    }
-    Ok(text.replacen(root, &format!("{root}\n{line}"), 1))
-}
-
-pub(crate) fn launcher_matches(signed: &str, actual: &[u8]) -> bool {
-    if signed.as_bytes() == actual {
-        return true;
-    }
-    if patch_launcher_imports(signed).is_ok_and(|s| s.as_bytes() == actual) {
-        return true;
-    }
-    crate::realms::patch_launcher(signed).is_ok_and(|s| {
-        s.as_bytes() == actual || patch_launcher_imports(&s).is_ok_and(|p| p.as_bytes() == actual)
-    })
-}
-
-/// Recover legacy metadata only when undoing supported Manager edits reproduces the recorded hash.
-pub(crate) fn launcher_matches_recorded(recorded: &str, actual: &[u8]) -> bool {
-    let Ok(text) = std::str::from_utf8(actual) else {
-        return false;
-    };
-    let without_import = text.replacen(
-        "ROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(Path(__file__).resolve().parent))",
-        "ROOT = Path(__file__).resolve().parents[1]", 1,
-    );
-    for candidate in [
-        Some(without_import.clone()),
-        crate::realms::unpatch_launcher(&without_import),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if crate::fsx::sha256_bytes(candidate.as_bytes()).eq_ignore_ascii_case(recorded)
-            && launcher_matches(&candidate, actual)
-        {
-            return true;
-        }
-    }
-    false
-}
-
 pub(crate) fn startup_failure(root: &Path, started: &DriverOutcome) -> String {
     let code = started
         .code
@@ -587,14 +533,5 @@ mod tests {
         assert!(reason.contains("ModuleNotFoundError"));
         assert!(!reason.contains("private"));
         assert!(!reason.contains("Something went wrong"));
-    }
-
-    #[test]
-    fn launcher_import_fix_is_idempotent_and_retains_other_code() {
-        let text = "import sys\nROOT = Path(__file__).resolve().parents[1]\nfrom squid_playerbots import validate_bots\ncustom = 42\n";
-        let fixed = patch_launcher_imports(text).unwrap();
-        assert!(fixed.contains("sys.path.insert(0, str(Path(__file__).resolve().parent))"));
-        assert!(fixed.ends_with("custom = 42\n"));
-        assert_eq!(patch_launcher_imports(&fixed).unwrap(), fixed);
     }
 }

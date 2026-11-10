@@ -5,7 +5,7 @@
 //! 3. manage.py start-all, then driver stop-all stops what Python started;
 //! 4. a taken world port fails with the typed "port in use" code (no stderr parsing), then stop-all;
 //! 5. driver start-all, then the forced stop;
-//! 6. with a realm profile: the realm row gets the profile's name, the .bat launcher is adapted as before;
+//! 6. with a realm profile: the realm row gets the profile's name, manage.py is still not edited;
 //! 7. nothing of the repack is left running.
 //!
 //! usage: manager_launcher_e2e <existing folder ending in -fixture>
@@ -133,14 +133,7 @@ fn main() {
     let result = std::panic::catch_unwind(|| {
         assert!(drive(root, Verb::StartAll).ok, "start-all with a realm profile");
         assert_eq!(realm_name(root), "Conquest of Azeroth");
-        let patched = std::fs::read_to_string(&manage_py).unwrap();
-        assert!(patched.contains("# coa-manager-realm-profiles-v2"), "the .bat launcher still follows the realm");
-        let fix = "sys.path.insert(0, str(Path(__file__).resolve().parent))";
-        assert_eq!(
-            patched.matches(fix).count(),
-            String::from_utf8_lossy(&original).matches(fix).count(),
-            "no bridge import fix added"
-        );
+        assert_eq!(std::fs::read(&manage_py).unwrap(), original, "manage.py is not edited for a realm profile either");
         assert!(drive(root, Verb::StopAll).ok);
     });
     std::fs::remove_file(&profile).unwrap();
