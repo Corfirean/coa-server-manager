@@ -88,12 +88,26 @@ impl Ra {
         self.command(c)
     }
 
-    /// Send a command the server does not answer before it closes the console (`server shutdown`), and return at
-    /// once.
+    /// Send a command whose answer does not matter (`server shutdown`). The reply is still read (up to the next
+    /// prompt, the end of the connection, or a few seconds): closing a socket that holds unread data resets the
+    /// connection, and the server can then drop the command it has not processed yet.
     pub fn send_without_answer(mut self, cmd: &str) -> Result<()> {
         let c = crate::console::check_command(cmd)?;
         self.stream.write_all(format!("{c}\r\n").as_bytes())?;
         self.stream.flush()?;
+        self.stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+        let mut seen = Vec::new();
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = self.stream.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            seen.extend_from_slice(&buf[..n]);
+            if seen.ends_with(b"AC>") || seen.len() > 1 << 20 {
+                break;
+            }
+        }
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
         Ok(())
     }
 

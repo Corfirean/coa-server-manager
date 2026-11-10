@@ -85,9 +85,20 @@ fn main() {
     assert_eq!(std::fs::read(&manage_py).unwrap(), original, "manage.py is not rewritten");
     assert_eq!(realm_name(root), "AzerothCore", "no profile: the launcher's own realm name");
 
+    let shipped = root.join("Scripts/coa-launcher.exe");
+    let supervisor = state::running(root, "supervisor").expect("a supervisor");
+    println!("[supervisor] {}", supervisor.exe);
+    let expected = if shipped.is_file() { "coa-launcher.exe" } else { "python.exe" };
+    assert!(supervisor.exe.to_lowercase().ends_with(expected), "the world is supervised by {expected}");
+
     // 2
     assert!(drive(root, Verb::StopAll).ok, "stop-all");
     assert!(nothing_running(root), "1-2 left something running");
+
+    // 2b: the repack's Python launcher stops a world the Manager started
+    assert!(drive(root, Verb::StartAll).ok);
+    assert!(manage(root, "stop-all").0, "manage.py stops what the Manager started");
+    assert!(nothing_running(root), "2b left something running");
 
     // 3
     assert!(manage(root, "start-all").0);
