@@ -8,6 +8,7 @@
   "bots.quests": "Quests",
   "bots.combat": "Kampf",
   "bots.dungeon": "Dungeonsuche",
+  "bots.scaling": "Stärke der Bots",
   "bots.battlegrounds": "Schlachtfelder",
   "bots.social": "Soziales Verhalten",
   "bots.advanced": "Erweitert",
@@ -219,6 +220,46 @@
   "CoaBots.AutoQueueDungeon.Enable": {
    "t": "Bots stellen sich selbst für Dungeons an",
    "d": "Experimentell: Untätige Tank-Bots stellen sich selbst für einen Dungeon an, und die Auffüllung oben vervollständigt die Gruppe."
+  },
+  "CoaBots.Scaling.Enable": {
+   "t": "Bots in Gruppeninhalten helfen",
+   "d": "Wendet die Faktoren unten auf Bots, ihre Begleiter und Totems an. Stehen alle Faktoren auf 1, ändert sich nichts."
+  },
+  "CoaBots.Scaling.Dungeons": {
+   "t": "In Dungeons",
+   "d": "Faktoren in Dungeons für 5 Spieler anwenden."
+  },
+  "CoaBots.Scaling.Raids": {
+   "t": "In Schlachtzügen",
+   "d": "Faktoren in Schlachtzügen anwenden."
+  },
+  "CoaBots.Scaling.Battlegrounds": {
+   "t": "In Schlachtfeldern und Arenen",
+   "d": "Faktoren in Schlachtfeldern und Arenen anwenden, nur gegen Kreaturen."
+  },
+  "CoaBots.Scaling.World": {
+   "t": "In der offenen Welt",
+   "d": "Faktoren außerhalb von Instanzen anwenden."
+  },
+  "CoaBots.Scaling.DamageDone": {
+   "t": "Schaden der Bots",
+   "d": "Schaden, den Bots Monstern zufügen. 1 ist normal, 1,5 ist das Anderthalbfache."
+  },
+  "CoaBots.Scaling.HealingDone": {
+   "t": "Heilung der Bots",
+   "d": "Heilung, die Bots wirken. 1 ist normal."
+  },
+  "CoaBots.Scaling.DamageTaken": {
+   "t": "Schaden an Bots",
+   "d": "Schaden, den Monster Bots zufügen. Unter 1 erleiden Bots weniger; 0,7 bedeutet 30 % weniger."
+  },
+  "CoaBots.Scaling.TankThreat": {
+   "t": "Bedrohung des Bot-Tanks",
+   "d": "Bedrohung, die ein Bot-Tank erzeugt, damit Monster bei ihm bleiben. 1 ist normal."
+  },
+  "CoaBots.Scaling.BossTuning": {
+   "t": "Zusätzliche Hilfe gegen einige schwere Bosse",
+   "d": "Stärkere Faktoren für Loken, den Drakkari-Elementar, den Drakkari-Koloss und Gal'darah, die Bots der Stufe 60 sonst nicht besiegen."
   },
   "CoaBots.BGFill.Enable": {
    "t": "Bot-Auffüllung für Schlachtfelder",

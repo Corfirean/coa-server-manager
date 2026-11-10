@@ -8,6 +8,7 @@
   "bots.quests": "任务系统",
   "bots.combat": "战斗",
   "bots.dungeon": "地下城",
+  "bots.scaling": "机器人强度",
   "bots.battlegrounds": "战场",
   "bots.social": "社交与互助",
   "bots.advanced": "高级设置",
@@ -303,6 +304,46 @@
   "CoaBots.AutoQueueDungeon.Enable": {
    "t": "机器人自主排地下城",
    "d": "实验性功能：空闲的坦克机器人会自主报名排地下城，并由上述补位机制补齐队伍。"
+  },
+  "CoaBots.Scaling.Enable": {
+   "t": "在团队内容中协助机器人",
+   "d": "将下列倍率应用于机器人及其宠物和图腾。所有倍率为 1 时不产生任何变化。"
+  },
+  "CoaBots.Scaling.Dungeons": {
+   "t": "地下城中",
+   "d": "在 5 人地下城中应用倍率。"
+  },
+  "CoaBots.Scaling.Raids": {
+   "t": "团队副本中",
+   "d": "在团队副本中应用倍率。"
+  },
+  "CoaBots.Scaling.Battlegrounds": {
+   "t": "战场和竞技场中",
+   "d": "在战场和竞技场中应用倍率，仅针对生物。"
+  },
+  "CoaBots.Scaling.World": {
+   "t": "开放世界中",
+   "d": "在副本以外应用倍率。"
+  },
+  "CoaBots.Scaling.DamageDone": {
+   "t": "机器人伤害",
+   "d": "机器人对怪物造成的伤害。1 为正常，1.5 为 1.5 倍。"
+  },
+  "CoaBots.Scaling.HealingDone": {
+   "t": "机器人治疗",
+   "d": "机器人施放的治疗量。1 为正常。"
+  },
+  "CoaBots.Scaling.DamageTaken": {
+   "t": "机器人承受的伤害",
+   "d": "怪物对机器人造成的伤害。低于 1 则受到更少伤害；0.7 表示减少 30%。"
+  },
+  "CoaBots.Scaling.TankThreat": {
+   "t": "机器人坦克仇恨",
+   "d": "机器人坦克产生的仇恨，使怪物保持攻击它。1 为正常。"
+  },
+  "CoaBots.Scaling.BossTuning": {
+   "t": "对少数困难首领的额外协助",
+   "d": "对洛肯、达卡莱元素、达卡莱巨像和迦尔达拉使用更强的倍率，否则 60 级机器人无法击败它们。"
   },
   "CoaBots.BGFill.Enable": {
    "t": "战场机器人自动补位",

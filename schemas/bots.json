@@ -35,6 +35,10 @@
       "title": "Dungeon Finder"
     },
     {
+      "id": "scaling",
+      "title": "Bot Strength"
+    },
+    {
       "id": "battlegrounds",
       "title": "Battlegrounds"
     },
@@ -642,6 +646,128 @@
       "advanced": true,
       "restartRequired": "world",
       "dangerous": true
+    },
+    {
+      "key": "CoaBots.Scaling.Enable",
+      "type": "bool",
+      "category": "scaling",
+      "title": "Help bots in group content",
+      "description": "Applies the multipliers below to bots, their pets and totems. With every multiplier at 1 nothing changes.",
+      "default": true,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "CoaBots.Scaling.Dungeons",
+      "type": "bool",
+      "category": "scaling",
+      "title": "In dungeons",
+      "description": "Apply the multipliers in 5-player dungeons.",
+      "default": true,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "CoaBots.Scaling.Raids",
+      "type": "bool",
+      "category": "scaling",
+      "title": "In raids",
+      "description": "Apply the multipliers in raids.",
+      "default": true,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "CoaBots.Scaling.Battlegrounds",
+      "type": "bool",
+      "category": "scaling",
+      "title": "In battlegrounds and arenas",
+      "description": "Apply the multipliers in battlegrounds and arenas, against creatures only.",
+      "default": false,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "CoaBots.Scaling.World",
+      "type": "bool",
+      "category": "scaling",
+      "title": "In the open world",
+      "description": "Apply the multipliers outside instances.",
+      "default": false,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false
+    },
+    {
+      "key": "CoaBots.Scaling.DamageDone",
+      "type": "float",
+      "category": "scaling",
+      "title": "Bot damage",
+      "description": "Damage bots deal to monsters. 1 is normal, 1.5 is half as much again.",
+      "default": 1.0,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0.1,
+      "max": 10,
+      "unit": "x"
+    },
+    {
+      "key": "CoaBots.Scaling.HealingDone",
+      "type": "float",
+      "category": "scaling",
+      "title": "Bot healing",
+      "description": "Healing bots cast. 1 is normal.",
+      "default": 1.0,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0.1,
+      "max": 10,
+      "unit": "x"
+    },
+    {
+      "key": "CoaBots.Scaling.DamageTaken",
+      "type": "float",
+      "category": "scaling",
+      "title": "Damage bots take",
+      "description": "Damage monsters deal to bots. Below 1 bots take less; 0.7 means 30% less.",
+      "default": 1.0,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 0.1,
+      "max": 10,
+      "unit": "x"
+    },
+    {
+      "key": "CoaBots.Scaling.TankThreat",
+      "type": "float",
+      "category": "scaling",
+      "title": "Bot tank threat",
+      "description": "Threat a bot tank generates, so monsters stay on it. 1 is normal.",
+      "default": 1.0,
+      "advanced": false,
+      "restartRequired": "world",
+      "dangerous": false,
+      "min": 1,
+      "max": 10,
+      "unit": "x"
+    },
+    {
+      "key": "CoaBots.Scaling.BossTuning",
+      "type": "bool",
+      "category": "scaling",
+      "title": "Extra help against a few hard bosses",
+      "description": "Stronger multipliers for Loken, Drakkari Elemental, Drakkari Colossus and Gal'darah, which level 60 bots could not beat otherwise.",
+      "default": false,
+      "advanced": true,
+      "restartRequired": "world",
+      "dangerous": false
     },
     {
       "key": "CoaBots.BGFill.Enable",

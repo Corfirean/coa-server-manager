@@ -8,6 +8,7 @@
   "bots.quests": "Misiones",
   "bots.combat": "Combate",
   "bots.dungeon": "Buscador de mazmorras",
+  "bots.scaling": "Fuerza de los bots",
   "bots.battlegrounds": "Campos de batalla",
   "bots.social": "Comportamiento social",
   "bots.advanced": "Avanzado",
@@ -219,6 +220,46 @@
   "CoaBots.AutoQueueDungeon.Enable": {
    "t": "Los bots se ponen en cola para mazmorras solos",
    "d": "Experimental: los bots tanque inactivos se ponen en cola para una mazmorra por su cuenta y el relleno anterior completa el grupo."
+  },
+  "CoaBots.Scaling.Enable": {
+   "t": "Ayudar a los bots en contenido de grupo",
+   "d": "Aplica los multiplicadores de abajo a los bots, sus mascotas y tótems. Con todos los multiplicadores en 1 no cambia nada."
+  },
+  "CoaBots.Scaling.Dungeons": {
+   "t": "En mazmorras",
+   "d": "Aplicar los multiplicadores en mazmorras de 5 jugadores."
+  },
+  "CoaBots.Scaling.Raids": {
+   "t": "En bandas",
+   "d": "Aplicar los multiplicadores en bandas."
+  },
+  "CoaBots.Scaling.Battlegrounds": {
+   "t": "En campos de batalla y arenas",
+   "d": "Aplicar los multiplicadores en campos de batalla y arenas, solo contra criaturas."
+  },
+  "CoaBots.Scaling.World": {
+   "t": "En el mundo abierto",
+   "d": "Aplicar los multiplicadores fuera de las instancias."
+  },
+  "CoaBots.Scaling.DamageDone": {
+   "t": "Daño de los bots",
+   "d": "Daño que los bots infligen a los monstruos. 1 es normal, 1,5 es la mitad más."
+  },
+  "CoaBots.Scaling.HealingDone": {
+   "t": "Sanación de los bots",
+   "d": "Sanación que lanzan los bots. 1 es normal."
+  },
+  "CoaBots.Scaling.DamageTaken": {
+   "t": "Daño recibido por los bots",
+   "d": "Daño que los monstruos infligen a los bots. Por debajo de 1 reciben menos; 0,7 es un 30 % menos."
+  },
+  "CoaBots.Scaling.TankThreat": {
+   "t": "Amenaza del tanque bot",
+   "d": "Amenaza que genera un tanque bot para que los monstruos sigan con él. 1 es normal."
+  },
+  "CoaBots.Scaling.BossTuning": {
+   "t": "Ayuda extra contra algunos jefes difíciles",
+   "d": "Multiplicadores más fuertes para Loken, el Elemental Drakkari, el Coloso Drakkari y Gal'darah, que los bots de nivel 60 no vencen de otro modo."
   },
   "CoaBots.BGFill.Enable": {
    "t": "Relleno con bots de campos de batalla",

@@ -8,6 +8,7 @@
   "bots.quests": "Quêtes",
   "bots.combat": "Combat",
   "bots.dungeon": "Recherche de donjon",
+  "bots.scaling": "Force des bots",
   "bots.battlegrounds": "Champs de bataille",
   "bots.social": "Comportement social",
   "bots.advanced": "Avancé",
@@ -219,6 +220,46 @@
   "CoaBots.AutoQueueDungeon.Enable": {
    "t": "Les bots s’inscrivent seuls aux donjons",
    "d": "Expérimental : des bots tanks inactifs s’inscrivent seuls à un donjon et la complétion ci-dessus termine le groupe."
+  },
+  "CoaBots.Scaling.Enable": {
+   "t": "Aider les bots en contenu de groupe",
+   "d": "Applique les multiplicateurs ci-dessous aux bots, à leurs familiers et totems. Avec tous les multiplicateurs à 1, rien ne change."
+  },
+  "CoaBots.Scaling.Dungeons": {
+   "t": "En donjons",
+   "d": "Appliquer les multiplicateurs dans les donjons à 5 joueurs."
+  },
+  "CoaBots.Scaling.Raids": {
+   "t": "En raids",
+   "d": "Appliquer les multiplicateurs en raid."
+  },
+  "CoaBots.Scaling.Battlegrounds": {
+   "t": "En champs de bataille et arènes",
+   "d": "Appliquer les multiplicateurs en champs de bataille et arènes, contre les créatures uniquement."
+  },
+  "CoaBots.Scaling.World": {
+   "t": "Dans le monde ouvert",
+   "d": "Appliquer les multiplicateurs hors des instances."
+  },
+  "CoaBots.Scaling.DamageDone": {
+   "t": "Dégâts des bots",
+   "d": "Dégâts que les bots infligent aux monstres. 1 est normal, 1,5 vaut une fois et demie plus."
+  },
+  "CoaBots.Scaling.HealingDone": {
+   "t": "Soins des bots",
+   "d": "Soins lancés par les bots. 1 est normal."
+  },
+  "CoaBots.Scaling.DamageTaken": {
+   "t": "Dégâts subis par les bots",
+   "d": "Dégâts que les monstres infligent aux bots. En dessous de 1 ils en subissent moins ; 0,7 signifie 30 % de moins."
+  },
+  "CoaBots.Scaling.TankThreat": {
+   "t": "Menace du tank bot",
+   "d": "Menace générée par un tank bot pour garder les monstres sur lui. 1 est normal."
+  },
+  "CoaBots.Scaling.BossTuning": {
+   "t": "Aide supplémentaire contre quelques boss difficiles",
+   "d": "Multiplicateurs plus forts pour Loken, l'élémentaire drakkari, le colosse drakkari et Gal'darah, que les bots de niveau 60 ne battent pas autrement."
   },
   "CoaBots.BGFill.Enable": {
    "t": "Complétion par bots des champs de bataille",

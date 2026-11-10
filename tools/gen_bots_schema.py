@@ -5,7 +5,7 @@ import os
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 cats = [("general", "General"), ("population", "Population"), ("login", "Login"), ("roles", "Roles"),
         ("openworld", "Open World"), ("quests", "Quests"), ("combat", "Combat"), ("dungeon", "Dungeon Finder"),
-        ("battlegrounds", "Battlegrounds"), ("social", "Social Behavior"), ("advanced", "Advanced")]
+        ("scaling", "Bot Strength"), ("battlegrounds", "Battlegrounds"), ("social", "Social Behavior"), ("advanced", "Advanced")]
 P = "CoaBots."
 # key, type, category, title, description, default, min, max, unit, advanced, dangerous
 R = [
@@ -55,6 +55,17 @@ R = [
     ("WorldBrain.QuestSuspendMaxMs", "int", "quests", "Set-aside time (long)", "The longest a quest can stay set aside after repeated failures.", 7200000, 60000, 86400000, "ms", True, False),
     ("LfgFill.Enable", "bool", "dungeon", "Dungeon Finder bot fill", "When you queue alone for a dungeon, bots fill the missing tank, healer and damage roles.", True, None, None, None, False, False),
     ("AutoQueueDungeon.Enable", "bool", "dungeon", "Bots queue for dungeons by themselves", "Experimental: idle tank bots queue for a dungeon on their own and the fill above completes the party.", False, None, None, None, True, True),
+    # Bot strength (mod-coa-playerbots BotScaling.cpp). Multipliers 1 = unchanged; they stack on the content scaling module.
+    ("Scaling.Enable", "bool", "scaling", "Help bots in group content", "Applies the multipliers below to bots, their pets and totems. With every multiplier at 1 nothing changes.", True, None, None, None, False, False),
+    ("Scaling.Dungeons", "bool", "scaling", "In dungeons", "Apply the multipliers in 5-player dungeons.", True, None, None, None, False, False),
+    ("Scaling.Raids", "bool", "scaling", "In raids", "Apply the multipliers in raids.", True, None, None, None, False, False),
+    ("Scaling.Battlegrounds", "bool", "scaling", "In battlegrounds and arenas", "Apply the multipliers in battlegrounds and arenas, against creatures only.", False, None, None, None, False, False),
+    ("Scaling.World", "bool", "scaling", "In the open world", "Apply the multipliers outside instances.", False, None, None, None, False, False),
+    ("Scaling.DamageDone", "float", "scaling", "Bot damage", "Damage bots deal to monsters. 1 is normal, 1.5 is half as much again.", 1.0, 0.1, 10, "x", False, False),
+    ("Scaling.HealingDone", "float", "scaling", "Bot healing", "Healing bots cast. 1 is normal.", 1.0, 0.1, 10, "x", False, False),
+    ("Scaling.DamageTaken", "float", "scaling", "Damage bots take", "Damage monsters deal to bots. Below 1 bots take less; 0.7 means 30% less.", 1.0, 0.1, 10, "x", False, False),
+    ("Scaling.TankThreat", "float", "scaling", "Bot tank threat", "Threat a bot tank generates, so monsters stay on it. 1 is normal.", 1.0, 1, 10, "x", False, False),
+    ("Scaling.BossTuning", "bool", "scaling", "Extra help against a few hard bosses", "Stronger multipliers for Loken, Drakkari Elemental, Drakkari Colossus and Gal'darah, which level 60 bots could not beat otherwise.", False, None, None, None, True, False),
     ("BGFill.Enable", "bool", "battlegrounds", "Battleground bot fill", "When anyone queues for a battleground, both teams are topped up with bots so the match starts at once.", True, None, None, None, False, False),
     ("BGFill.TargetPlayersPerTeam", "int", "battlegrounds", "Battleground team size", "Bots per team to fill up to. 0 means a full team for that battleground.", 0, 0, 40, None, False, False),
     ("WorldBrain.HelpOthers", "bool", "social", "Bots help nearby players", "A passing bot joins a fight that a friendly player is losing, without taking their loot or credit.", True, None, None, None, False, False),
