@@ -36,6 +36,7 @@ pub mod glue_config;
 pub mod health;
 pub mod install;
 pub mod layout;
+pub mod launcher;
 pub mod logging;
 pub mod server_logging;
 pub mod manifest;
