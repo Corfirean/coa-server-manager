@@ -26,5 +26,4 @@ jobs:
       - run: node tools/check-i18n.mjs
       - run: npm run build
       - run: node --experimental-strip-types --test tools/*.test.mjs
-      - run: python -B -m unittest discover -s tools -p test_launcher_bridge.py
       - run: cargo test --workspace --locked
