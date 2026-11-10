@@ -151,8 +151,14 @@ fn spawn_child(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, l
     Ok(child)
 }
 
-/// The relay worker: the repack's Python running `Scripts/manage.py relay-worker` (BugReport/relay.py).
-fn spawn_relay(root: &Path) -> Result<Proc> {
+/// The relay worker: `coa-launcher relay-worker` when the supervisor is the launcher (`launcher`), otherwise the
+/// repack's Python running `Scripts/manage.py relay-worker` (BugReport/relay.py).
+fn spawn_relay(root: &Path, launcher: Option<&Path>) -> Result<Proc> {
+    let log = root.join("BugReport/Logs/relay.log");
+    if let Some(exe) = launcher {
+        let root_text = root.to_string_lossy().into_owned();
+        return spawn_child(root, "relay", exe, &["--root", &root_text, "relay-worker"], root, &log);
+    }
     let python = squid::package_root(root).join("Runtime/python/python.exe");
     let manage = root.join("Scripts/manage.py");
     if !python.is_file() || !manage.is_file() {
@@ -163,14 +169,15 @@ fn spawn_relay(root: &Path) -> Result<Proc> {
 }
 
 /// The supervisor (`watch-world`): run the world, keep the relay alive while it runs, stop the relay after it.
-pub fn watch_world(root: &Path, log: Progress) -> Result<()> {
+/// `launcher` is the launcher executable that runs the relay (`None`: the Python relay).
+pub fn watch_world(root: &Path, launcher: Option<&Path>, log: Progress) -> Result<()> {
     squid::validate_bots(root)?;
     let world = spawn_child(root, "world", &root.join("Core/worldserver.exe"), &["-c", "configs/worldserver.conf"], &root.join("Core"), &root.join("Core/Logs/world-console.log"))?;
     let mut relay: Option<Proc> = None;
     while world.try_wait().is_none() {
         let dead = relay.as_ref().is_none_or(|r| r.try_wait().is_some());
         if dead {
-            match spawn_relay(root) {
+            match spawn_relay(root, launcher) {
                 Ok(r) => relay = Some(r),
                 Err(e) => {
                     log(&format!("Report relay could not start ({e}); retrying."));

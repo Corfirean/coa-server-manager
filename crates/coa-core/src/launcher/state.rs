@@ -88,6 +88,29 @@ impl ControlLock {
     }
 }
 
+/// Byte 0 of a file locked while held (`msvcrt.locking`), for example the bug-report relay's `relay.lock`.
+pub struct FileLock {
+    file: File,
+}
+
+impl FileLock {
+    /// Take the lock, or `None` when another process (or handle) holds it.
+    pub fn try_acquire(path: &Path) -> Result<Option<FileLock>> {
+        let mut file = OpenOptions::new().read(true).append(true).create(true).open(path)?;
+        if file.seek(SeekFrom::End(0))? == 0 {
+            file.write_all(b"0")?;
+            file.flush()?;
+        }
+        Ok(sys::try_lock(&file)?.then_some(FileLock { file }))
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        sys::unlock(&self.file);
+    }
+}
+
 impl Drop for ControlLock {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.owner);

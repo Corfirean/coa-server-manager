@@ -98,10 +98,11 @@ fn run(args: Args) -> Result<(), String> {
     let root = args.root.as_path();
     let e = |x: coa_core::Error| x.to_string();
     match args.action.as_str() {
-        "watch-world" => return world::watch_world(root, &|m| say(m)).map_err(e),
-        "relay-worker" => {
-            return Err("The bug-report relay runs through Scripts/manage.py relay-worker until it is ported.".into())
+        "watch-world" => {
+            let me = std::env::current_exe().map_err(|x| x.to_string())?;
+            return world::watch_world(root, Some(&me), &|m| say(m)).map_err(e);
         }
+        "relay-worker" => return coa_core::launcher::relay::worker(root).map_err(e),
         "debug-logs-status" => {
             let on = services::status(root)["debugLogs"].as_bool().unwrap_or(false);
             say(&format!("Detailed server logging is {}.", if on { "ON" } else { "off" }));

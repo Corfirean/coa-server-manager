@@ -90,6 +90,10 @@ fn main() {
     println!("[supervisor] {}", supervisor.exe);
     let expected = if shipped.is_file() { "coa-launcher.exe" } else { "python.exe" };
     assert!(supervisor.exe.to_lowercase().ends_with(expected), "the world is supervised by {expected}");
+    let relay = state::running(root, "relay").expect("a bug-report relay");
+    println!("[relay] {}", relay.exe);
+    assert!(relay.exe.to_lowercase().ends_with(expected), "the relay is run by {expected}");
+    assert!(state::running(root, "relay-ready").is_some_and(|r| r.pid == relay.pid), "the relay reported ready");
 
     // 2
     assert!(drive(root, Verb::StopAll).ok, "stop-all");
