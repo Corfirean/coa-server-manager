@@ -6,11 +6,11 @@
 //! the Python `BugReport/relay.py`, run through the repack's Python, until it is ported too.
 
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::launcher::services::{self, ensure_free, mysql, spawn, start_mysql, wait_ready, Progress};
+use crate::launcher::spawn::Proc;
 use crate::launcher::{settings::Settings, squid, state};
 
 fn stop_relay_flag(root: &Path) -> std::path::PathBuf {
@@ -77,29 +77,14 @@ pub fn start_world(root: &Path, cfg: &Settings, offset: i32, supervisor: &Path, 
     Ok(())
 }
 
-fn hidden(cmd: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000 | 0x0000_0200);
-    }
-    cmd
-}
-
-fn spawn_child(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, log: &Path) -> Result<Child> {
-    services::keep_std_handles_private();
-    if let Some(dir) = log.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let out = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
-    let err = out.try_clone()?;
-    let child = hidden(Command::new(exe).args(args).current_dir(cwd)).stdin(Stdio::null()).stdout(out).stderr(err).spawn()?;
-    state::record(root, name, child.id())?;
+fn spawn_child(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, log: &Path) -> Result<Proc> {
+    let child = crate::launcher::spawn::start(exe, args, cwd, log)?;
+    state::record(root, name, child.pid)?;
     Ok(child)
 }
 
 /// The relay worker: the repack's Python running `Scripts/manage.py relay-worker` (BugReport/relay.py).
-fn spawn_relay(root: &Path) -> Result<Child> {
+fn spawn_relay(root: &Path) -> Result<Proc> {
     let python = squid::package_root(root).join("Runtime/python/python.exe");
     let manage = root.join("Scripts/manage.py");
     if !python.is_file() || !manage.is_file() {
@@ -112,13 +97,10 @@ fn spawn_relay(root: &Path) -> Result<Child> {
 /// The supervisor (`watch-world`): run the world, keep the relay alive while it runs, stop the relay after it.
 pub fn watch_world(root: &Path, log: Progress) -> Result<()> {
     squid::validate_bots(root)?;
-    let mut world = spawn_child(root, "world", &root.join("Core/worldserver.exe"), &["-c", "configs/worldserver.conf"], &root.join("Core"), &root.join("Core/Logs/world-console.log"))?;
-    let mut relay: Option<Child> = None;
-    while world.try_wait()?.is_none() {
-        let dead = match relay.as_mut() {
-            None => true,
-            Some(r) => r.try_wait()?.is_some(),
-        };
+    let world = spawn_child(root, "world", &root.join("Core/worldserver.exe"), &["-c", "configs/worldserver.conf"], &root.join("Core"), &root.join("Core/Logs/world-console.log"))?;
+    let mut relay: Option<Proc> = None;
+    while world.try_wait().is_none() {
+        let dead = relay.as_ref().is_none_or(|r| r.try_wait().is_some());
         if dead {
             match spawn_relay(root) {
                 Ok(r) => relay = Some(r),
@@ -132,12 +114,12 @@ pub fn watch_world(root: &Path, log: Progress) -> Result<()> {
         std::thread::sleep(Duration::from_secs(2));
     }
     std::fs::write(stop_relay_flag(root), b"")?;
-    if let Some(mut r) = relay {
+    if let Some(r) = relay {
         let until = Instant::now() + Duration::from_secs(40);
-        while r.try_wait()?.is_none() && Instant::now() < until {
+        while r.try_wait().is_none() && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(250));
         }
-        if r.try_wait()?.is_none() {
+        if r.try_wait().is_none() {
             // An interrupted POST stays uncertain in the relay's journal; it is not resent.
             if let Some(record) = state::running(root, "relay") {
                 services::terminate(&record)?;

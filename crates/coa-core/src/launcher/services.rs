@@ -1,7 +1,6 @@
 //! Starting, checking and stopping the services of one repack: MySQL, authserver, worldserver
 //! (`manage.py start_mysql`, `start_auth`, `stop_all` and their helpers), with the same rules.
 
-use std::fs::OpenOptions;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -25,38 +24,10 @@ fn hidden(cmd: &mut Command) -> &mut Command {
     cmd
 }
 
-/// Keep this process's own stdin/stdout/stderr out of the services it starts. Windows children inherit every
-/// inheritable handle, and a server holding the launcher's output pipe keeps whoever reads that output (the
-/// Manager, a test) waiting until the server exits. Python's subprocess passes only the handles it is given; this
-/// gives the same result.
-pub(crate) fn keep_std_handles_private() {
-    #[cfg(windows)]
-    unsafe {
-        use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
-        use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
-        for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-            let h = GetStdHandle(which);
-            if !h.is_null() && h as isize != -1 {
-                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
-            }
-        }
-    }
-}
-
 /// Start `exe` with its output appended to `log`, and record it as `name`.
 pub fn spawn(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, log: &Path) -> Result<ProcessIdentity> {
-    keep_std_handles_private();
-    if let Some(dir) = log.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let out = OpenOptions::new().create(true).append(true).open(log)?;
-    let err = out.try_clone()?;
-    let child = hidden(Command::new(exe).args(args).current_dir(cwd))
-        .stdin(Stdio::null())
-        .stdout(out)
-        .stderr(err)
-        .spawn()?;
-    state::record(root, name, child.id())
+    let child = crate::launcher::spawn::start(exe, args, cwd, log)?;
+    state::record(root, name, child.pid)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -173,23 +144,46 @@ pub fn mysql(root: &Path, sql: Option<&str>, admin: Option<&str>) -> Result<Stri
             let _ = stdin.write_all(&data);
         });
     }
-    let started = Instant::now();
-    let failed = || Error::Invalid("The repack database command failed; check mysql/logs/mysql-error.log.".into());
-    loop {
-        if let Some(status) = child.try_wait()? {
-            let out = child.wait_with_output()?;
-            if !status.success() {
-                return Err(failed());
+    // Both outputs are read while the client runs: a full pipe would stop it (and look like a timeout).
+    let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
             }
-            return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+            buf
+        })
+    };
+    let out_reader = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let err_reader = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let started = Instant::now();
+    let failed = |stderr: &[u8]| {
+        let text = String::from_utf8_lossy(stderr);
+        let detail = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+        let mut message = "The repack database command failed; check mysql/logs/mysql-error.log.".to_string();
+        if !detail.is_empty() {
+            message.push_str(&format!(" ({detail})"));
+        }
+        Error::Invalid(message)
+    };
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
         }
         if started.elapsed() > Duration::from_secs(timeout) {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(failed());
+            let _ = out_reader.join();
+            return Err(failed(b"timed out"));
         }
         std::thread::sleep(Duration::from_millis(50));
+    };
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+    if !status.success() {
+        return Err(failed(&stderr));
     }
+    Ok(String::from_utf8_lossy(&stdout).trim().to_string())
 }
 
 // ---------------------------------------------------------------------------------------------------------------
