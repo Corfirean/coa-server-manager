@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "coa-core"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "coa-launcher"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "coa-core",
  "serde_json",
@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "coa-release"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "chrono",
  "coa-core",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "csm-modules-preview"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "coa-control-proto",
  "coa-core",
