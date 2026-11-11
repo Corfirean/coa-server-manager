@@ -114,9 +114,20 @@ fn copy(work: &Path, reg: &Registry) -> R<()> {
     let fingerprint = |root: &Path| sql(root, "SELECT CONCAT((SELECT COUNT(*) FROM acore_auth.account),'|',(SELECT COUNT(*) FROM acore_characters.characters),'|',\
         (SELECT CONCAT(name,':',level,':',money) FROM acore_characters.characters WHERE guid=900001))").trim().to_string();
     let expected = fingerprint(&old);
+    let counts = sql(&old, "SELECT CONCAT((SELECT COUNT(*) FROM acore_auth.account),'|',(SELECT COUNT(*) FROM acore_characters.characters))").trim().to_string();
+    // A world setting changed on the Server Configuration page lives in the old server's template.
+    let old_meta = coa_core::registry::metadata_dir_for(&old)?;
+    let rate = BTreeMap::from([("Rate.XP.Kill".to_string(), "3".to_string())]);
+    assert_eq!(coa_core::allsettings::save(&old, &old_meta, &rate)?, ["Rate.XP.Kill"]);
     let _ = coa_core::driver::run(&old, coa_core::driver::Verb::StopAll);
     println!("old server data: {expected}");
     assert!(coa_core::modular_copy::is_classic(&old));
+    let before_preview = tree(&old);
+    let p = coa_core::modular_copy::preview(&old)?;
+    println!("preview (stopped): {p:?}");
+    assert!(p.classic && !p.modular && p.database == "stopped" && p.accounts.is_none());
+    assert!(p.database_bytes > 0 && p.config_files.iter().any(|f| f.ends_with("mod-coa-content-scaling.conf")));
+    assert_eq!(tree(&old), before_preview, "the preview changed the old server's files");
 
     // 2. copy of the stopped server, then the preview core on the copy.
     let before = tree(&old);
@@ -130,6 +141,9 @@ fn copy(work: &Path, reg: &Registry) -> R<()> {
     assert_eq!(observed.mysql.state, coa_core::process::ServiceState::Stopped, "a database of the copy is still running: {:?}", observed.mysql);
     assert!(!coa_core::registry::metadata_dir_for(&new)?.join("import").exists(), "the private copy of the old data is removed");
     assert_eq!(std::fs::read_to_string(new.join("Core/configs/modules/mod-coa-content-scaling.conf"))?, conf_text);
+    assert_eq!(report.world_settings, ["Rate.XP.Kill"], "skipped: {:?}", report.world_settings_skipped);
+    let world_value = |root: &Path| coa_core::allsettings::list(root).unwrap().into_iter().find(|i| i.key == "Rate.XP.Kill").map(|i| i.value);
+    assert_eq!(world_value(&new).as_deref(), Some("3"));
     let out = preview_core(&new)?;
     println!("modules on the copy: {:?}", out.modules);
     let got = fingerprint(&new);
@@ -143,6 +157,11 @@ fn copy(work: &Path, reg: &Registry) -> R<()> {
     assert!(started.ok, "{}", started.output);
     let data_before: BTreeMap<String, String> = tree(&old).into_iter().filter(|(k, _)| !k.starts_with("mysql/") && !k.starts_with(".state/") && !k.starts_with("Core/configs/")).collect();
     let rows_before = fingerprint(&old);
+    let p = coa_core::modular_copy::preview(&old)?;
+    println!("preview (running): accounts {:?} characters {:?} schemas {:?}", p.accounts, p.characters, p.schemas);
+    assert_eq!(p.database, "running");
+    assert_eq!(format!("{}|{}", p.accounts.unwrap(), p.characters.unwrap()), counts);
+    assert!(p.schemas.iter().any(|s| s == "acore_characters"));
     let new2 = work.join("copy-running-fixture");
     install(&new2, reg)?;
     let report = coa_core::modular_copy::copy_data(&old, &new2, &|w| println!("  copy: {w}"));
@@ -154,6 +173,7 @@ fn copy(work: &Path, reg: &Registry) -> R<()> {
     let data_after: BTreeMap<String, String> = tree(&old).into_iter().filter(|(k, _)| !k.starts_with("mysql/") && !k.starts_with(".state/") && !k.starts_with("Core/configs/")).collect();
     assert_eq!(data_after, data_before, "files outside the database changed");
     assert_eq!(fingerprint(&new2), expected);
+    assert_eq!(world_value(&new2).as_deref(), Some("3"));
     let _ = coa_core::driver::run(&new2, coa_core::driver::Verb::StopAll);
     println!("COPY (running) PASS");
     Ok(())

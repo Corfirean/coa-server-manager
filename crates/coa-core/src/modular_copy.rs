@@ -38,6 +38,84 @@ pub struct CopyReport {
     pub config_files: Vec<String>,
     /// How the old data was read: "running database" or "copy of the stopped database".
     pub read_from: String,
+    /// World settings the owner changed (Server Configuration) that were set on the new server too.
+    pub world_settings: Vec<String>,
+    /// Changed world settings the new server's configuration does not take, with the reason.
+    pub world_settings_skipped: Vec<String>,
+}
+
+/// What a modular copy of `old` would take, read without changing anything: the old server is never started,
+/// and its database is only queried when it is already running.
+#[derive(Debug, Clone, Serialize)]
+pub struct CopyPreview {
+    pub path: PathBuf,
+    /// The classic core (modules compiled in): the only kind that is copied.
+    pub classic: bool,
+    /// Already a modular core: it is added as it is, not copied.
+    pub modular: bool,
+    pub version: Option<String>,
+    /// "running", "stopped" or "missing" (no database folder).
+    pub database: String,
+    /// Read from the running database; `None` when it is stopped (they are counted while copying).
+    pub accounts: Option<u64>,
+    pub characters: Option<u64>,
+    pub schemas: Vec<String>,
+    /// Size of the old database files; a stopped database is copied once more while it is read.
+    pub database_bytes: u64,
+    /// Settings files that go along (module configs, realm profiles).
+    pub config_files: Vec<String>,
+    /// Extra worlds of the old server (`.realms/<name>`). Their databases are in the same MySQL and go along, and
+    /// the copied realm profile switches them on; the new server prepares their folders when it starts them.
+    pub extra_worlds: Vec<String>,
+}
+
+pub fn preview(old: &Path) -> Result<CopyPreview> {
+    if !old.is_dir() {
+        return Err(Error::Invalid(format!("{} is not a folder.", old.display())));
+    }
+    let classic = is_classic(old);
+    let modular = !crate::docker::is_docker(old)
+        && old.join("Core/worldserver.exe").is_file()
+        && crate::provenance::realm_host_fingerprint(old).is_some();
+    let version = crate::registry::metadata_dir_for(old)
+        .ok()
+        .and_then(|dir| crate::registry::MetaDir::open(&dir).ok())
+        .and_then(|(_, meta)| meta.core.version);
+    let data = old.join("mysql/data");
+    let has_data = data.join("mysql").is_dir();
+    let observed = crate::process::observe(old, &crate::layout::read_ports(old));
+    let running_db = (has_data && observed.mysql.state == ServiceState::Running)
+        .then(|| Db::from_repack(old, Account::Admin).ok())
+        .flatten()
+        .filter(|db| db.ping())
+        .map(|db| db.for_realm(crate::realms::Mode::Coa));
+    let (database, accounts, characters, schemas) = match &running_db {
+        Some(db) => (
+            "running",
+            Some(count(db, "SELECT COUNT(*) FROM acore_auth.account;")),
+            Some(count(db, "SELECT COUNT(*) FROM acore_characters.characters;")),
+            game_schemas(db).unwrap_or_default(),
+        ),
+        None if has_data => ("stopped", None, None, Vec::new()),
+        None => ("missing", None, None, Vec::new()),
+    };
+    let mut extra_worlds: Vec<String> = fs::read_dir(old.join(".realms"))
+        .map(|rd| rd.flatten().filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    extra_worlds.sort();
+    Ok(CopyPreview {
+        path: old.to_path_buf(),
+        classic,
+        modular,
+        version,
+        database: database.into(),
+        accounts,
+        characters,
+        schemas,
+        database_bytes: if has_data { dir_size(&data) } else { 0 },
+        config_files: settings_files(old),
+        extra_worlds,
+    })
 }
 
 /// Game schemas of a CoA server: `acore_*` (auth, characters, world, their Wildcard/Reborn variants, bots).
@@ -295,12 +373,119 @@ pub fn copy_data(old: &Path, new: &Path, progress: &dyn Fn(&str)) -> Result<Copy
     }
     fsx::atomic_write_json(&new.join("Settings/repack.json"), &repack)?;
     let _ = fs::remove_dir_all(&work);
-    Ok(CopyReport { schemas, accounts, characters, config_files: files, read_from: read_from.into() })
+    progress("Copying world settings");
+    let (world_settings, world_settings_skipped) = carry_world_settings(old, new)?;
+    Ok(CopyReport {
+        schemas,
+        accounts,
+        characters,
+        config_files: files,
+        read_from: read_from.into(),
+        world_settings,
+        world_settings_skipped,
+    })
+}
+
+/// The world settings changed on the old server (they live in its `Settings/worldserver.conf.template`, which the new
+/// server does not take: it keeps the template of its own version) are set on the new server through the same checks
+/// the Server Configuration page uses. Settings the Manager owns (ports, folders, passwords) are not among them.
+///
+/// The shipped template already differs from `worldserver.conf.dist` in many places, so "changed" means "differs from
+/// what the new server has now": for a copy onto the same version that is exactly what the owner changed. (A value the
+/// owner never touched but a newer release ships differently cannot be told apart from an owner's change; it keeps the
+/// old server's value, which is what that server ran with.)
+fn carry_world_settings(old: &Path, new: &Path) -> Result<(Vec<String>, Vec<String>)> {
+    let current: std::collections::BTreeMap<String, String> =
+        crate::allsettings::list(new)?.into_iter().map(|i| (i.key, i.value)).collect();
+    let mut changes = std::collections::BTreeMap::new();
+    let mut skipped = Vec::new();
+    for item in crate::allsettings::list(old)? {
+        match current.get(&item.key) {
+            Some(now) if *now == item.value => {}
+            Some(_) => {
+                changes.insert(item.key, item.value);
+            }
+            None if item.changed => skipped.push(format!("{}: not a setting of the new version", item.key)),
+            None => {}
+        }
+    }
+    let meta = crate::registry::metadata_dir_for(new)?;
+    let mut carried = Vec::new();
+    match crate::allsettings::save(new, &meta, &changes) {
+        Ok(set) => carried.extend(set),
+        // One value the new version refuses must not lose the others: set them one at a time.
+        Err(_) => {
+            for (key, value) in changes {
+                match crate::allsettings::save(new, &meta, &std::collections::BTreeMap::from([(key.clone(), value)])) {
+                    Ok(set) => carried.extend(set),
+                    Err(e) => skipped.push(format!("{key}: {e}")),
+                }
+            }
+        }
+    }
+    Ok((carried, skipped))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const DIST: &str = "[worldserver]\r\n\r\n#\r\n#    Rate.Drop.Item.Epic\r\n#        Description: Epic drops.\r\n#        Default:     1\r\n#\r\n\r\nRate.Drop.Item.Epic = 1\r\n\r\n#\r\n#    LoginDatabaseInfo\r\n#        Description: secret\r\n#\r\n\r\nLoginDatabaseInfo = \"127.0.0.1;3306;a;b;c\"\r\n\r\n#\r\n#    Instance.ResetTimeHour\r\n#        Description: Hour of the reset.\r\n#        Default:     4\r\n#\r\n\r\nInstance.ResetTimeHour = 4\r\n";
+
+    fn world(root: &Path, dist: &str, conf: &str) {
+        fs::create_dir_all(root.join("Core/configs")).unwrap();
+        fs::create_dir_all(root.join("Settings")).unwrap();
+        fs::create_dir_all(crate::registry::metadata_dir_for(root).unwrap()).unwrap();
+        fs::write(root.join("Core/configs/worldserver.conf.dist"), dist).unwrap();
+        fs::write(root.join("Settings/worldserver.conf.template"), conf).unwrap();
+        fs::write(root.join("Core/configs/worldserver.conf"), conf).unwrap();
+    }
+
+    #[test]
+    fn changed_world_settings_go_to_the_new_server_and_the_rest_keep_its_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let (old, new) = (dir.path().join("old"), dir.path().join("new"));
+        let old_dist = format!("{DIST}\r\n#\r\n#    Old.Only\r\n#        Description: gone in the new version.\r\n#        Default:     1\r\n#\r\n\r\nOld.Only = 1\r\n");
+        world(&old, &old_dist, "[worldserver]\r\nRate.Drop.Item.Epic = 3\r\nOld.Only = 2\r\nLoginDatabaseInfo = \"old\"\r\n");
+        world(&new, DIST, "[worldserver]\r\nLoginDatabaseInfo = \"new\"\r\n");
+
+        let (carried, skipped) = carry_world_settings(&old, &new).unwrap();
+        assert_eq!(carried, ["Rate.Drop.Item.Epic"]);
+        assert_eq!(skipped.len(), 1, "{skipped:?}");
+        assert!(skipped[0].starts_with("Old.Only"));
+        for f in ["Settings/worldserver.conf.template", "Core/configs/worldserver.conf"] {
+            let text = fs::read_to_string(new.join(f)).unwrap();
+            assert!(text.contains("Rate.Drop.Item.Epic = 3"), "{f}: {text}");
+            assert!(text.contains("LoginDatabaseInfo = \"new\""), "the Manager's own settings stay: {text}");
+            assert!(!text.contains("Old.Only"), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_preview_of_a_folder_reads_only_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let classic = dir.path().join("classic");
+        fs::create_dir_all(classic.join("Core/configs/modules")).unwrap();
+        fs::create_dir_all(classic.join("mysql/data/mysql")).unwrap();
+        fs::create_dir_all(classic.join(".realms/secondary")).unwrap();
+        fs::write(classic.join("Core/worldserver.exe"), b"not a plugin host").unwrap();
+        fs::write(classic.join("Core/configs/modules/mod_x.conf"), b"x").unwrap();
+        fs::write(classic.join("mysql/data/ibdata1"), vec![0u8; 2048]).unwrap();
+        let p = preview(&classic).unwrap();
+        assert!(p.classic && !p.modular);
+        assert_eq!(p.database, "stopped");
+        assert_eq!((p.accounts, p.characters), (None, None), "a stopped database is not opened");
+        assert_eq!(p.database_bytes, 2048);
+        assert_eq!(p.config_files, ["Core/configs/modules/mod_x.conf"]);
+        assert_eq!(p.extra_worlds, ["secondary"]);
+
+        let empty = dir.path().join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        let p = preview(&empty).unwrap();
+        assert!(!p.classic && !p.modular);
+        assert_eq!(p.database, "missing");
+        assert!(preview(&dir.path().join("nowhere")).is_err());
+    }
 
     #[test]
     fn only_owner_settings_are_copied() {

@@ -143,7 +143,14 @@ export function InstallServer(props: { canCancel: boolean; copyFrom?: string; on
         {copied && (
           <p className="mt-3 text-sm text-muted">
             {t("install.copy.done", { accounts: copied.accounts, characters: copied.characters, settings: copied.config_files.length })}
+            {" "}{t("install.copy.worldSettings", { n: copied.world_settings.length })}
           </p>
+        )}
+        {copied && copied.world_settings_skipped.length > 0 && (
+          <Card className="mt-6 border-warn/40 p-4 text-left">
+            <p className="text-sm text-warn">{t("install.copy.worldSkipped")}</p>
+            <pre className="selectable mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs">{copied.world_settings_skipped.join("\n")}</pre>
+          </Card>
         )}
         {classicCore && (
           <Card className="mt-6 border-warn/40 p-4 text-left" role="alert">

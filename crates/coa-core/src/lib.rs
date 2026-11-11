@@ -76,7 +76,6 @@ pub mod remote_client;
 pub mod repair;
 pub mod report;
 pub mod schema_check;
-pub mod server_migration;
 pub mod signing;
 pub mod solver;
 pub mod squid;

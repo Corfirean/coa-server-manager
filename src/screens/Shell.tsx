@@ -46,6 +46,8 @@ export function Shell(props: {
   activeId: string;
   onSelect: (id: string) => void;
   onAddAnother: () => void;
+  /** Make a modular copy of a classic server (the install screen takes over). */
+  onCopy: (path: string) => void;
   onForget: (id: string) => Promise<void>;
 }) {
   const t = useT();
@@ -174,7 +176,7 @@ export function Shell(props: {
         ) : page === "players" ? (
           <PlayersPage key={server.id} serverId={server.id} />
         ) : page === "migration" ? (
-          <ServerMigrationWizard key={server.id} currentRealmId={server.id} onClose={() => setPage("overview")} />
+          <ServerMigrationWizard key={server.id} servers={props.servers} currentName={server.name} onCopy={props.onCopy} />
         ) : page === "backups" ? (
           <BackupsPage key={server.id} serverId={server.id} />
         ) : (

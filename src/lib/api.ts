@@ -510,6 +510,8 @@ export interface CopyReport {
   characters: number;
   config_files: string[];
   read_from: string;
+  world_settings: string[];
+  world_settings_skipped: string[];
 }
 
 export interface InstallStep {
@@ -698,73 +700,19 @@ export interface CrashItem {
 }
 
 
-export type SourceClassification = "CSM_MANAGED_COA" | "LEGACY_EMBEDDED_COA" | "STANDARD_AZEROTH_CORE" | "UNKNOWN_CUSTOM";
-
-export interface DetectedModule {
-  id: string;
-  name: string;
-  detected_via: string;
-  version?: string | null;
-  has_database_data: boolean;
-  is_supported_by_preview: boolean;
-}
-
-export interface SourceInspectionReport {
-  source_path: string;
-  source_type: SourceClassification;
-  core_version?: string | null;
-  schema_version?: string | null;
-  accounts_count: number;
-  characters_count: number;
-  detected_modules: DetectedModule[];
-  module_tables: Record<string, string[]>;
-  custom_race_support: boolean;
-  compatibility_notes: string[];
-}
-
-export interface MigrationScope {
-  accounts_and_characters: boolean;
-  module_owned_data: boolean;
-  server_configuration: boolean;
-  selected_modules: string[];
-}
-
-export type ConflictResolutionPolicy = "remap_colliding_guids" | "skip_colliding_guids" | "overwrite_existing";
-
-export interface AdapterPlan {
-  module_id: string;
-  source_tables: string[];
-  dest_tables: string[];
-  data_loss_risks: string[];
-  requires_conversion: boolean;
-}
-
-export interface MigrationPlan {
-  plan_id: string;
-  source_path: string;
-  dest_realm_path: string;
-  source_report: SourceInspectionReport;
-  scope: MigrationScope;
-  conflict_policy: ConflictResolutionPolicy;
-  adapters: AdapterPlan[];
-  tables_to_migrate: string[];
-  quarantined_tables: string[];
-  estimated_disk_mb: number;
-  warnings: string[];
-}
-
-export interface MigrationExecutionReport {
-  success: boolean;
-  backup_path?: string | null;
-  accounts_transferred: number;
-  characters_transferred: number;
-  items_transferred: number;
-  modules_migrated: string[];
-  tables_migrated: string[];
-  quarantined_tables: string[];
-  warnings: string[];
-  errors: string[];
-  duration_ms: number;
+/** What a modular copy of a server would take, read without changing anything (`modular_copy::preview`). */
+export interface CopyPreview {
+  path: string;
+  classic: boolean;
+  modular: boolean;
+  version: string | null;
+  database: "running" | "stopped" | "missing";
+  accounts: number | null;
+  characters: number | null;
+  schemas: string[];
+  database_bytes: number;
+  config_files: string[];
+  extra_worlds: string[];
 }
 
 export type SolverVerdict =
@@ -919,12 +867,7 @@ export const api = {
     invoke<InstalledPreviewPlugin[]>("preview_list_installed_plugins", { realmId }),
   previewExportDiagnostics: (realmId?: string) =>
     invoke<string>("preview_export_diagnostics", { realmId: realmId ?? null }),
-  previewMigrationInspect: (sourcePath: string) =>
-    invoke<SourceInspectionReport>("preview_migration_inspect", { sourcePath }),
-  previewMigrationPlan: (sourcePath: string, destRealmId: string, scope: MigrationScope, conflictPolicy: ConflictResolutionPolicy) =>
-    invoke<MigrationPlan>("preview_migration_plan", { sourcePath, destRealmId, scope, conflictPolicy }),
-  previewMigrationExecute: (plan: MigrationPlan) =>
-    invoke<MigrationExecutionReport>("preview_migration_execute", { plan }),
+  modularCopyPreview: (path: string) => invoke<CopyPreview>("modular_copy_preview", { path }),
   previewCheckUpdates: (realmId: string) =>
     invoke<SolverVerdict>("preview_check_updates", { realmId }),
 };

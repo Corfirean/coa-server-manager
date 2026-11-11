@@ -3374,42 +3374,8 @@ async fn preview_export_diagnostics(
 }
 
 #[tauri::command]
-async fn preview_migration_inspect(
-    source_path: String,
-) -> std::result::Result<coa_core::server_migration::SourceInspectionReport, UiError> {
-    blocking(move || {
-        let p = std::path::PathBuf::from(source_path);
-        coa_core::server_migration::inspect_source(&p).map_err(Into::into)
-    })
-    .await
-}
-
-#[tauri::command]
-async fn preview_migration_plan(
-    state: State<'_, AppState>,
-    source_path: String,
-    dest_realm_id: String,
-    scope: coa_core::server_migration::MigrationScope,
-    conflict_policy: coa_core::server_migration::ConflictResolutionPolicy,
-) -> std::result::Result<coa_core::server_migration::MigrationPlan, UiError> {
-    let dest_root = path_of(&state, &dest_realm_id)?;
-    blocking(move || {
-        let src_p = std::path::PathBuf::from(source_path);
-        let report = coa_core::server_migration::inspect_source(&src_p)?;
-        coa_core::server_migration::plan_migration(&report, &dest_root, scope, conflict_policy)
-            .map_err(Into::into)
-    })
-    .await
-}
-
-#[tauri::command]
-async fn preview_migration_execute(
-    plan: coa_core::server_migration::MigrationPlan,
-) -> std::result::Result<coa_core::server_migration::MigrationExecutionReport, UiError> {
-    blocking(move || {
-        coa_core::server_migration::execute_migration(&plan).map_err(Into::into)
-    })
-    .await
+async fn modular_copy_preview(path: String) -> std::result::Result<coa_core::modular_copy::CopyPreview, UiError> {
+    blocking(move || coa_core::modular_copy::preview(Path::new(&path)).map_err(Into::into)).await
 }
 
 #[tauri::command]
@@ -3576,9 +3542,7 @@ pub fn run() {
             preview_remove_module,
             preview_list_installed_plugins,
             preview_export_diagnostics,
-            preview_migration_inspect,
-            preview_migration_plan,
-            preview_migration_execute,
+            modular_copy_preview,
             preview_check_updates,
             default_install_dir,
             game_data_folder,

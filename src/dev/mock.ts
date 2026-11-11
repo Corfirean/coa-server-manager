@@ -50,6 +50,7 @@ export {};
       if(cmd==="play") return {ok:true,exit_code:null,code:null,human:null,output:""};
       if(cmd==="list_servers") return added?[{id:"1",name:"CoA-Repack",path:report.path}]:[];
       if(cmd==="scan_server") return report;
+      if(cmd==="modular_copy_preview"){await new Promise(r=>setTimeout(r,400));const p=String(args.path);if(!/repack|server/i.test(p))return {path:p,classic:false,modular:false,version:null,database:"missing",accounts:null,characters:null,schemas:[],database_bytes:0,config_files:[],extra_worlds:[]};const run=!/stopped/i.test(p);return {path:p,classic:true,modular:false,version:"0.261108.95",database:run?"running":"stopped",accounts:run?12:null,characters:run?37:null,schemas:run?["acore_auth","acore_characters","acore_playerbots","acore_world"]:[],database_bytes:6.3*2**30,config_files:["Core/configs/modules/mod-coa-content-scaling.conf","Core/configs/modules/playerbots.conf","Settings/realm-profile.json"],extra_worlds:run?[]:["secondary"]};}
       if(cmd==="add_server"){added=true;return {id:"1",name:"CoA-Repack",path:report.path};}
       if(cmd==="server_status"){const s=running?"running":"stopped";return {observed:{mysql:svc("mysql",3307,s),auth:svc("auth",3724,s),world:svc("world",8085,s),secondary_world:simultaneous?svc("world-secondary",8086,s):null,reborn_world:withReborn?svc("world-reborn",8087,s):null},busy:false,path_exists:true};}
       if(cmd==="start_server"){await new Promise((r: any)=>setTimeout(r,1500));running=true;return {ok:true,exit_code:0,code:null,human:null,output:""};}
