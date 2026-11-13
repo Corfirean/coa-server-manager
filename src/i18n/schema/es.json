@@ -148,6 +148,16 @@
    "t": "Radio de búsqueda de objetivos",
    "d": "Hasta dónde examina un bot en busca de objetivos de misión dentro de una zona de objetivo."
   },
+  "CoaBots.Scaling.Enable": {"t": "Ayuda de fuerza para bots en mazmorras y bandas", "d": "Interruptor general de los multiplicadores de abajo. Hasta que los subas, todos valen 1 (sin cambios)."},
+  "CoaBots.Scaling.Dungeons": {"t": "Ayuda en mazmorras de 5 jugadores", "d": "Aplica los multiplicadores mientras un bot está en una mazmorra de 5 jugadores."},
+  "CoaBots.Scaling.Raids": {"t": "Ayuda en bandas", "d": "Aplica los multiplicadores mientras un bot está en una banda."},
+  "CoaBots.Scaling.Battlegrounds": {"t": "Ayuda en campos de batalla y arenas", "d": "Aplica los multiplicadores en campos de batalla y arenas."},
+  "CoaBots.Scaling.World": {"t": "Ayuda en el mundo abierto", "d": "Aplica los multiplicadores fuera de mazmorras y bandas. Normalmente no se desea."},
+  "CoaBots.Scaling.DamageDone": {"t": "Daño de los bots", "d": "Multiplica el daño que los bots y sus mascotas infligen a las criaturas. 1 no cambia nada; más alto facilita el contenido."},
+  "CoaBots.Scaling.HealingDone": {"t": "Curación de los bots", "d": "Multiplica la curación que lanzan los bots. 1 no cambia nada."},
+  "CoaBots.Scaling.DamageTaken": {"t": "Daño recibido por los bots", "d": "Multiplica el daño que las criaturas infligen a los bots. Por debajo de 1 los bots reciben menos; 1 no cambia nada."},
+  "CoaBots.Scaling.TankThreat": {"t": "Amenaza de los tanques", "d": "Amenaza extra que generan los tanques bot para mantener la atención de los enemigos. 1 no cambia nada."},
+  "CoaBots.Scaling.BossTuning": {"t": "Ayuda extra contra cuatro jefes", "d": "Añade multiplicadores más fuertes para Loken, el elemental drakkari, el coloso drakkari y Gal'darah, a quienes los bots de nivel 60 no vencían de otro modo. Para pruebas; desactivado por defecto."},
   "CoaBots.WorldBrain.EngageRange": {
    "t": "Distancia de enfrentamiento",
    "d": "Distancia a la que un bot empieza a combatir a un monstruo de misión."
