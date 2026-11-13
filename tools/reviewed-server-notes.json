@@ -18,7 +18,7 @@
     },
     "build": {
       "repository": "Corfirean/coa-server-build",
-      "sha": "ab6324d6826d9b09a47fe2767198e56727d915d7"
+      "sha": "4818886934deff7172f0c29bbf0dce59e3f5cabf"
     },
     "squid": {
       "repository": "Zyth45/mod-playerbots",
@@ -41,6 +41,7 @@
     "Database startup can recover when Windows omits its listening port",
     "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0",
     "Automatic world restarts wait for the previous supervisor to finish",
+    "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed",
     "Updated SQUID Playerbots to 3.0",
     "Updated the reviewed CoA upstream snapshot"
   ]
