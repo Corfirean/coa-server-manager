@@ -279,7 +279,8 @@
       "Database startup can recover when Windows omits its listening port": "Запуск базы данных восстанавливается, даже если Windows не показывает её порт",
       "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear обновлён до 3.0.0 под SQUID Playerbots 3.0",
       "Automatic world restarts wait for the previous supervisor to finish": "Автоматический перезапуск мира ждёт завершения предыдущего процесса",
-      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots обновлён до 3.0"
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots обновлён до 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "Встроенный бот аукциона сервера остаётся главным при установленном SQUID Playerbots 3.0"
     },
     "de": {
       "Restrict new characters by custom race without changing existing characters": "Neue Charaktere nach zusätzlichem Volk beschränken, ohne bestehende Charaktere zu ändern",
@@ -353,7 +354,8 @@
       "Database startup can recover when Windows omits its listening port": "Der Datenbankstart funktioniert auch, wenn Windows den Port nicht auflistet",
       "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear passend zu SQUID Playerbots 3.0 auf 3.0.0 aktualisiert",
       "Automatic world restarts wait for the previous supervisor to finish": "Automatische Weltneustarts warten, bis der vorherige Prozess beendet ist",
-      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots auf 3.0 aktualisiert"
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots auf 3.0 aktualisiert",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "Der eigene Auktionshaus-Bot des Servers bleibt zuständig, wenn SQUID Playerbots 3.0 installiert ist"
     },
     "fr": {
       "Restrict new characters by custom race without changing existing characters": "Restreignez les races supplémentaires des nouveaux personnages sans modifier les personnages existants",
@@ -427,7 +429,8 @@
       "Database startup can recover when Windows omits its listening port": "Le démarrage de la base de données aboutit même si Windows n'indique pas son port d'écoute",
       "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear passe en version 3.0.0 pour SQUID Playerbots 3.0",
       "Automatic world restarts wait for the previous supervisor to finish": "Les redémarrages automatiques du monde attendent la fin du processus précédent",
-      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots passe en version 3.0"
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots passe en version 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "Le bot de l'hôtel des ventes du serveur reste aux commandes lorsque SQUID Playerbots 3.0 est installé"
     },
     "es": {
       "Restrict new characters by custom race without changing existing characters": "Restringe las razas adicionales de personajes nuevos sin modificar los existentes",
@@ -501,7 +504,8 @@
       "Database startup can recover when Windows omits its listening port": "El inicio de la base de datos se recupera aunque Windows no muestre su puerto de escucha",
       "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear se actualiza a 3.0.0 para SQUID Playerbots 3.0",
       "Automatic world restarts wait for the previous supervisor to finish": "Los reinicios automáticos del mundo esperan a que termine el proceso anterior",
-      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots se actualiza a 3.0"
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots se actualiza a 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "El bot de la casa de subastas del propio servidor sigue al mando cuando se instala SQUID Playerbots 3.0"
     },
     "zh": {
       "Restrict new characters by custom race without changing existing characters": "限制新角色可选的自定义种族，不影响现有角色",
@@ -575,7 +579,8 @@
       "Database startup can recover when Windows omits its listening port": "即使 Windows 未列出监听端口，数据库也能正常启动",
       "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "已将 Dungeon Clear 更新至 3.0.0，以配合 SQUID Playerbots 3.0",
       "Automatic world restarts wait for the previous supervisor to finish": "世界服务器自动重启会等待上一个进程结束",
-      "Updated SQUID Playerbots to 3.0": "已将 SQUID Playerbots 更新至 3.0"
+      "Updated SQUID Playerbots to 3.0": "已将 SQUID Playerbots 更新至 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "安装 SQUID Playerbots 3.0 后，仍由服务器自带的拍卖行机器人负责"
     }
   }
 }
