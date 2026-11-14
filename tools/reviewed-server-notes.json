@@ -2,15 +2,15 @@
   "components": {
     "core": {
       "repository": "Corfirean/azerothcore-wotlk-coa",
-      "sha": "85ecc2122efd4bc168e750ab35c3e3e8d9c49735"
+      "sha": "c68af086d39b29f55f743412efb6eb89a1c71950"
     },
     "upstream": {
       "repository": "jealous-sound/azerothcore-wotlk-coa",
-      "sha": "f8955cb9b29042c359a938ff732e4b608dd62ea5"
+      "sha": "96afaf0f51cc4b37f1eba282bffb1c5aab353de6"
     },
     "bots": {
       "repository": "Corfirean/mod-coa-playerbots",
-      "sha": "0588a8e5cdfe54f81fe47bbb40fc9f75d29662e3"
+      "sha": "01ab31f952b0afae7b627d11d2cc36dd9e8696fd"
     },
     "scaling": {
       "repository": "Corfirean/mod-coa-content-scaling",
@@ -18,13 +18,31 @@
     },
     "build": {
       "repository": "Corfirean/coa-server-build",
-      "sha": "ccb121b2a050e9f6eae4e5798dbca1c4ee66264f"
+      "sha": "4818886934deff7172f0c29bbf0dce59e3f5cabf"
+    },
+    "squid": {
+      "repository": "Zyth45/mod-playerbots",
+      "ref": "v3.0",
+      "sha": "4ef5ed9ebe75a330de7df19639a042391e037e15"
     }
   },
   "notes": [
-    "Login server startup works when Windows does not list its listening port",
-    "Updated SQUID's Playerbots to 2.9.4 and refreshed Dungeon Clear",
-    "Updated SQUID Playerbots to 2.9.4",
+    "Bots drink real drinks to recover mana and use potions in combat",
+    "A bot left far behind in a dungeon is called back to its group",
+    "Bot dungeon groups follow a route through each dungeon, with wings and scripted events",
+    "Optional extra strength for bots in dungeons and raids",
+    "Bot groups no longer stand idle at the last boss of many dungeons",
+    "Bot performance metrics and optional scheduling controls are available for testing",
+    "Bots now finish the two-step conversations of Arthas and Thrall",
+    "Bot groups no longer wait for members that fell through the floor",
+    "Bot groups get through the Drakkari Elementals and bosses of Gundrak",
+    "Bots can start Lieutenant Drake in Old Hillsbrad",
+    "Bot groups can clear Utgarde Pinnacle",
+    "Database startup can recover when Windows omits its listening port",
+    "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0",
+    "Automatic world restarts wait for the previous supervisor to finish",
+    "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed",
+    "Updated SQUID Playerbots to 3.0",
     "Updated the reviewed CoA upstream snapshot"
   ]
 }

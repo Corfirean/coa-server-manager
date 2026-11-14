@@ -38,7 +38,8 @@
       "Choose normal logs, errors only or no server logs in maintenance settings": "Выбирайте обычные логи, только ошибки или отключение логов в настройках обслуживания",
       "Diagnostic exports include launcher stages and lock owner records": "В архив диагностики входят этапы лаунчера и записи о владельцах блокировок",
       "Update and recovery checks use the temporary login port even with a Windows override": "Проверка обновления и восстановления использует временный порт входа даже при переопределении в Windows",
-      "Custom Races patch installation recovers from interrupted downloads": "Установка патчей дополнительных рас восстанавливается после прерывания загрузки"
+      "Custom Races patch installation recovers from interrupted downloads": "Установка патчей дополнительных рас восстанавливается после прерывания загрузки",
+      "Settings for how much help bots get in dungeons and raids": "Настройки того, насколько ботам помогать в подземельях и рейдах"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -78,7 +79,8 @@
       "Choose normal logs, errors only or no server logs in maintenance settings": "In den Wartungseinstellungen normale Protokolle, nur Fehler oder keine Serverprotokolle wählen",
       "Diagnostic exports include launcher stages and lock owner records": "Diagnoseexporte enthalten Launcher-Schritte und aufgezeichnete Sperrbesitzer",
       "Update and recovery checks use the temporary login port even with a Windows override": "Update- und Wiederherstellungsprüfungen verwenden den temporären Anmeldeport auch bei einer Windows-Vorgabe",
-      "Custom Races patch installation recovers from interrupted downloads": "Die Installation zusätzlicher Völker setzt unterbrochene Downloads fort"
+      "Custom Races patch installation recovers from interrupted downloads": "Die Installation zusätzlicher Völker setzt unterbrochene Downloads fort",
+      "Settings for how much help bots get in dungeons and raids": "Einstellungen, wie viel Hilfe Bots in Dungeons und Schlachtzügen erhalten"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -118,7 +120,8 @@
       "Choose normal logs, errors only or no server logs in maintenance settings": "Choisissez les journaux normaux, les erreurs uniquement ou aucun journal dans les paramètres de maintenance",
       "Diagnostic exports include launcher stages and lock owner records": "Les exports de diagnostic incluent les étapes de lancement et les propriétaires des verrous",
       "Update and recovery checks use the temporary login port even with a Windows override": "Les contrôles de mise à jour et de restauration utilisent le port de connexion temporaire même si Windows en impose un autre",
-      "Custom Races patch installation recovers from interrupted downloads": "L’installation des races supplémentaires reprend les téléchargements interrompus"
+      "Custom Races patch installation recovers from interrupted downloads": "L’installation des races supplémentaires reprend les téléchargements interrompus",
+      "Settings for how much help bots get in dungeons and raids": "Réglages de l'aide accordée aux bots en donjon et en raid"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -158,7 +161,8 @@
       "Choose normal logs, errors only or no server logs in maintenance settings": "Elige registros normales, solo errores o ningún registro en los ajustes de mantenimiento",
       "Diagnostic exports include launcher stages and lock owner records": "Los archivos de diagnóstico incluyen las etapas del lanzador y los propietarios de bloqueos",
       "Update and recovery checks use the temporary login port even with a Windows override": "Las comprobaciones de actualización y recuperación usan el puerto temporal de acceso aunque Windows indique otro",
-      "Custom Races patch installation recovers from interrupted downloads": "La instalación de razas adicionales se recupera de descargas interrumpidas"
+      "Custom Races patch installation recovers from interrupted downloads": "La instalación de razas adicionales se recupera de descargas interrumpidas",
+      "Settings for how much help bots get in dungeons and raids": "Ajustes de cuánta ayuda reciben los bots en mazmorras y bandas"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -198,7 +202,8 @@
       "Choose normal logs, errors only or no server logs in maintenance settings": "在维护设置中选择普通日志、仅错误或关闭服务器日志",
       "Diagnostic exports include launcher stages and lock owner records": "诊断导出包含启动器阶段和锁所属进程记录",
       "Update and recovery checks use the temporary login port even with a Windows override": "即使 Windows 指定了其他端口，更新和恢复检查也会使用临时登录端口",
-      "Custom Races patch installation recovers from interrupted downloads": "自定义种族补丁安装可从中断的下载中恢复"
+      "Custom Races patch installation recovers from interrupted downloads": "自定义种族补丁安装可从中断的下载中恢复",
+      "Settings for how much help bots get in dungeons and raids": "设置机器人在地下城和团队副本中获得多少加成"
     }
   },
   "server": {
@@ -259,7 +264,23 @@
       "Darkmaster Gandling raises Risen Students only at 52% health": "Тёмный магистр Гандлинг поднимает восставших студентов только при 52% здоровья",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Драконы Затонувшего храма появляются только после Аватары Хаккара и Джаммал’ана",
       "Scaled loot previews survive a map change": "Предпросмотр масштабированной добычи сохраняется при смене карты",
-      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots обновлён до 2.9.4"
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots обновлён до 2.9.4",
+      "Bots drink real drinks to recover mana and use potions in combat": "Боты пьют настоящие напитки для восстановления маны и используют зелья в бою",
+      "A bot left far behind in a dungeon is called back to its group": "Бот, сильно отставший в подземелье, возвращается к своей группе",
+      "Bot dungeon groups follow a route through each dungeon, with wings and scripted events": "Группы ботов проходят подземелья по маршруту с учётом крыльев и скриптовых событий",
+      "Optional extra strength for bots in dungeons and raids": "Необязательное усиление ботов в подземельях и рейдах",
+      "Bot groups no longer stand idle at the last boss of many dungeons": "Группы ботов больше не простаивают у последнего босса во многих подземельях",
+      "Bot performance metrics and optional scheduling controls are available for testing": "Для тестирования доступны метрики производительности ботов и необязательные настройки планирования",
+      "Bots now finish the two-step conversations of Arthas and Thrall": "Боты теперь доводят до конца двухшаговые диалоги с Артасом и Траллом",
+      "Bot groups no longer wait for members that fell through the floor": "Группы ботов больше не ждут участников, провалившихся сквозь пол",
+      "Bot groups get through the Drakkari Elementals and bosses of Gundrak": "Группы ботов справляются с элементалями Драккари и боссами Гундрака",
+      "Bots can start Lieutenant Drake in Old Hillsbrad": "Боты могут начать бой с лейтенантом Дрейком в Старых предгорьях Хилсбрада",
+      "Bot groups can clear Utgarde Pinnacle": "Группы ботов могут пройти Вершину Утгард",
+      "Database startup can recover when Windows omits its listening port": "Запуск базы данных восстанавливается, даже если Windows не показывает её порт",
+      "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear обновлён до 3.0.0 под SQUID Playerbots 3.0",
+      "Automatic world restarts wait for the previous supervisor to finish": "Автоматический перезапуск мира ждёт завершения предыдущего процесса",
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots обновлён до 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "Встроенный бот аукциона сервера остаётся главным при установленном SQUID Playerbots 3.0"
     },
     "de": {
       "Restrict new characters by custom race without changing existing characters": "Neue Charaktere nach zusätzlichem Volk beschränken, ohne bestehende Charaktere zu ändern",
@@ -318,7 +339,23 @@
       "Darkmaster Gandling raises Risen Students only at 52% health": "Dunkelmeister Gandling erweckt auferstandene Studenten erst bei 52 % Gesundheit",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Die Drachen im Versunkenen Tempel erscheinen erst nach dem Avatar von Hakkar und Jammal’an",
       "Scaled loot previews survive a map change": "Die Vorschau skalierter Beute bleibt beim Kartenwechsel erhalten",
-      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots auf 2.9.4 aktualisiert"
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots auf 2.9.4 aktualisiert",
+      "Bots drink real drinks to recover mana and use potions in combat": "Bots trinken echte Getränke, um Mana zu regenerieren, und nutzen im Kampf Tränke",
+      "A bot left far behind in a dungeon is called back to its group": "Ein im Dungeon weit zurückgebliebener Bot wird zu seiner Gruppe zurückgerufen",
+      "Bot dungeon groups follow a route through each dungeon, with wings and scripted events": "Bot-Gruppen folgen in jedem Dungeon einer Route, inklusive Flügeln und Skriptereignissen",
+      "Optional extra strength for bots in dungeons and raids": "Optionale zusätzliche Stärke für Bots in Dungeons und Schlachtzügen",
+      "Bot groups no longer stand idle at the last boss of many dungeons": "Bot-Gruppen stehen in vielen Dungeons nicht mehr untätig am letzten Boss",
+      "Bot performance metrics and optional scheduling controls are available for testing": "Leistungsmesswerte für Bots und optionale Planungsoptionen stehen zum Testen bereit",
+      "Bots now finish the two-step conversations of Arthas and Thrall": "Bots schließen jetzt die zweistufigen Gespräche mit Arthas und Thrall ab",
+      "Bot groups no longer wait for members that fell through the floor": "Bot-Gruppen warten nicht mehr auf Mitglieder, die durch den Boden gefallen sind",
+      "Bot groups get through the Drakkari Elementals and bosses of Gundrak": "Bot-Gruppen kommen an den Drakkari-Elementaren und den Bossen von Gundrak vorbei",
+      "Bots can start Lieutenant Drake in Old Hillsbrad": "Bots können den Kampf gegen Leutnant Drake im Alten Hügelland starten",
+      "Bot groups can clear Utgarde Pinnacle": "Bot-Gruppen können Turm Utgarde abschließen",
+      "Database startup can recover when Windows omits its listening port": "Der Datenbankstart funktioniert auch, wenn Windows den Port nicht auflistet",
+      "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear passend zu SQUID Playerbots 3.0 auf 3.0.0 aktualisiert",
+      "Automatic world restarts wait for the previous supervisor to finish": "Automatische Weltneustarts warten, bis der vorherige Prozess beendet ist",
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots auf 3.0 aktualisiert",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "Der eigene Auktionshaus-Bot des Servers bleibt zuständig, wenn SQUID Playerbots 3.0 installiert ist"
     },
     "fr": {
       "Restrict new characters by custom race without changing existing characters": "Restreignez les races supplémentaires des nouveaux personnages sans modifier les personnages existants",
@@ -377,7 +414,23 @@
       "Darkmaster Gandling raises Risen Students only at 52% health": "Le sombre maître Gandling ne relève les étudiants qu’à 52 % de ses points de vie",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Les dragons du Temple englouti n’apparaissent qu’après l’Avatar d’Hakkar et Jammal’an",
       "Scaled loot previews survive a map change": "L’aperçu du butin adapté est conservé lors d’un changement de carte",
-      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots passe en version 2.9.4"
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots passe en version 2.9.4",
+      "Bots drink real drinks to recover mana and use potions in combat": "Les bots boivent de vraies boissons pour récupérer leur mana et utilisent des potions en combat",
+      "A bot left far behind in a dungeon is called back to its group": "Un bot resté loin derrière dans un donjon est rappelé auprès de son groupe",
+      "Bot dungeon groups follow a route through each dungeon, with wings and scripted events": "Les groupes de bots suivent un itinéraire dans chaque donjon, ailes et événements scriptés compris",
+      "Optional extra strength for bots in dungeons and raids": "Puissance supplémentaire optionnelle pour les bots en donjon et en raid",
+      "Bot groups no longer stand idle at the last boss of many dungeons": "Les groupes de bots ne restent plus inactifs devant le dernier boss de nombreux donjons",
+      "Bot performance metrics and optional scheduling controls are available for testing": "Des mesures de performance des bots et des options de planification facultatives sont disponibles pour les tests",
+      "Bots now finish the two-step conversations of Arthas and Thrall": "Les bots terminent désormais les dialogues en deux étapes d'Arthas et de Thrall",
+      "Bot groups no longer wait for members that fell through the floor": "Les groupes de bots n'attendent plus les membres tombés à travers le sol",
+      "Bot groups get through the Drakkari Elementals and bosses of Gundrak": "Les groupes de bots viennent à bout des élémentaires drakkari et des boss de Gundrak",
+      "Bots can start Lieutenant Drake in Old Hillsbrad": "Les bots peuvent lancer le combat contre le lieutenant Drake dans les contreforts de Hautebrande d'antan",
+      "Bot groups can clear Utgarde Pinnacle": "Les groupes de bots peuvent terminer la Cime d'Utgarde",
+      "Database startup can recover when Windows omits its listening port": "Le démarrage de la base de données aboutit même si Windows n'indique pas son port d'écoute",
+      "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear passe en version 3.0.0 pour SQUID Playerbots 3.0",
+      "Automatic world restarts wait for the previous supervisor to finish": "Les redémarrages automatiques du monde attendent la fin du processus précédent",
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots passe en version 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "Le bot de l'hôtel des ventes du serveur reste aux commandes lorsque SQUID Playerbots 3.0 est installé"
     },
     "es": {
       "Restrict new characters by custom race without changing existing characters": "Restringe las razas adicionales de personajes nuevos sin modificar los existentes",
@@ -436,7 +489,23 @@
       "Darkmaster Gandling raises Risen Students only at 52% health": "El Maestro Oscuro Gandling solo alza a los estudiantes resucitados al 52 % de salud",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "Los dragones del Templo Sumergido solo aparecen después del Avatar de Hakkar y Jammal’an",
       "Scaled loot previews survive a map change": "La vista previa del botín ajustado se conserva al cambiar de mapa",
-      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots se actualiza a 2.9.4"
+      "Updated SQUID Playerbots to 2.9.4": "SQUID Playerbots se actualiza a 2.9.4",
+      "Bots drink real drinks to recover mana and use potions in combat": "Los bots toman bebidas reales para recuperar maná y usan pociones en combate",
+      "A bot left far behind in a dungeon is called back to its group": "Un bot que se queda muy atrás en una mazmorra es llamado de vuelta a su grupo",
+      "Bot dungeon groups follow a route through each dungeon, with wings and scripted events": "Los grupos de bots siguen una ruta por cada mazmorra, con alas y eventos programados",
+      "Optional extra strength for bots in dungeons and raids": "Fuerza adicional opcional para los bots en mazmorras y bandas",
+      "Bot groups no longer stand idle at the last boss of many dungeons": "Los grupos de bots ya no se quedan parados ante el último jefe de muchas mazmorras",
+      "Bot performance metrics and optional scheduling controls are available for testing": "Las métricas de rendimiento de los bots y los controles opcionales de planificación están disponibles para pruebas",
+      "Bots now finish the two-step conversations of Arthas and Thrall": "Los bots ahora completan las conversaciones en dos pasos de Arthas y Thrall",
+      "Bot groups no longer wait for members that fell through the floor": "Los grupos de bots ya no esperan a los miembros que cayeron a través del suelo",
+      "Bot groups get through the Drakkari Elementals and bosses of Gundrak": "Los grupos de bots superan a los elementales Drakkari y a los jefes de Gundrak",
+      "Bots can start Lieutenant Drake in Old Hillsbrad": "Los bots pueden iniciar el encuentro con el teniente Drake en las Antiguas Laderas de Trabalomas",
+      "Bot groups can clear Utgarde Pinnacle": "Los grupos de bots pueden completar el Pináculo de Utgarde",
+      "Database startup can recover when Windows omits its listening port": "El inicio de la base de datos se recupera aunque Windows no muestre su puerto de escucha",
+      "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "Dungeon Clear se actualiza a 3.0.0 para SQUID Playerbots 3.0",
+      "Automatic world restarts wait for the previous supervisor to finish": "Los reinicios automáticos del mundo esperan a que termine el proceso anterior",
+      "Updated SQUID Playerbots to 3.0": "SQUID Playerbots se actualiza a 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "El bot de la casa de subastas del propio servidor sigue al mando cuando se instala SQUID Playerbots 3.0"
     },
     "zh": {
       "Restrict new characters by custom race without changing existing characters": "限制新角色可选的自定义种族，不影响现有角色",
@@ -495,7 +564,23 @@
       "Darkmaster Gandling raises Risen Students only at 52% health": "黑暗院长加丁仅在生命值降至 52% 时唤起复活的学生",
       "Sunken Temple's dragons appear only after the Avatar of Hakkar and Jammal'an": "沉没的神庙中的巨龙仅在哈卡的化身和迦玛兰之后出现",
       "Scaled loot previews survive a map change": "缩放后的战利品预览在切换地图后仍会保留",
-      "Updated SQUID Playerbots to 2.9.4": "已将 SQUID Playerbots 更新至 2.9.4"
+      "Updated SQUID Playerbots to 2.9.4": "已将 SQUID Playerbots 更新至 2.9.4",
+      "Bots drink real drinks to recover mana and use potions in combat": "机器人会饮用真实饮料恢复法力，并在战斗中使用药水",
+      "A bot left far behind in a dungeon is called back to its group": "在地下城中远远落后的机器人会被召回队伍",
+      "Bot dungeon groups follow a route through each dungeon, with wings and scripted events": "机器人队伍按路线通过每个地下城，包括各个区域和脚本事件",
+      "Optional extra strength for bots in dungeons and raids": "可选：增强机器人在地下城和团队副本中的强度",
+      "Bot groups no longer stand idle at the last boss of many dungeons": "机器人队伍不再在许多地下城的最后首领处停滞不前",
+      "Bot performance metrics and optional scheduling controls are available for testing": "可测试机器人性能指标和可选的调度控制",
+      "Bots now finish the two-step conversations of Arthas and Thrall": "机器人现在会完成与阿尔萨斯和萨尔的两步对话",
+      "Bot groups no longer wait for members that fell through the floor": "机器人队伍不再等待掉出地面的成员",
+      "Bot groups get through the Drakkari Elementals and bosses of Gundrak": "机器人队伍能够通过古达克的达卡莱元素和首领",
+      "Bots can start Lieutenant Drake in Old Hillsbrad": "机器人可以在旧希尔斯布莱德丘陵开启德拉克中尉的战斗",
+      "Bot groups can clear Utgarde Pinnacle": "机器人队伍可以通关乌特加德之巅",
+      "Database startup can recover when Windows omits its listening port": "即使 Windows 未列出监听端口，数据库也能正常启动",
+      "Updated Dungeon Clear to 3.0.0 to match SQUID Playerbots 3.0": "已将 Dungeon Clear 更新至 3.0.0，以配合 SQUID Playerbots 3.0",
+      "Automatic world restarts wait for the previous supervisor to finish": "世界服务器自动重启会等待上一个进程结束",
+      "Updated SQUID Playerbots to 3.0": "已将 SQUID Playerbots 更新至 3.0",
+      "The server's own Auction House Bot stays in charge when SQUID Playerbots 3.0 is installed": "安装 SQUID Playerbots 3.0 后，仍由服务器自带的拍卖行机器人负责"
     }
   }
 }

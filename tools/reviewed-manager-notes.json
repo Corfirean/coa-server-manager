@@ -1,6 +1,6 @@
 {
-  "version": "0.9.10",
+  "version": "0.9.12",
   "notes": [
-    "Custom Races patch installation recovers from interrupted downloads"
+    "Settings for how much help bots get in dungeons and raids"
   ]
 }
