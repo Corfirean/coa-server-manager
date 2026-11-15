@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Bot, Clock, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
-import { api, asUiError, type CustomRacesClientStatus, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
+import { api, asUiError, type CustomRacesClientStatus, CustomRaceCharacters, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -94,6 +94,9 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
   const [toggling, setToggling] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
   const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
+  const [raceChars, setRaceChars] = useState<CustomRaceCharacters | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [purged, setPurged] = useState<number | null>(null);
   const [racesInstalling, setRacesInstalling] = useState(false);
   const [racesProgress, setRacesProgress] = useState<CustomRacesProgress | null>(null);
 
@@ -104,6 +107,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
     } catch {
       // ignore
     }
+    setRaceChars(await api.customRaceCharacters(serverId).catch(() => null));
   }, [serverId]);
   const [guard, setGuard] = useState<UnsavedChangesGuard | null>(null);
   const [racesGuard, setRacesGuard] = useState<UnsavedChangesGuard | null>(null);
@@ -241,6 +245,18 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
             {m.id === "custom-races" && (
 
               <div className="w-full">
+                {!m.enabled && raceChars && raceChars.players + raceChars.companionBots + raceChars.squidBots > 0 && (
+                  <div className="mb-2 rounded-md border border-warn/40 bg-warn/5 p-2 text-xs" role="status">
+                    <p>{t("races.offCharacters", { players: raceChars.players, bots: raceChars.companionBots + raceChars.squidBots })}</p>
+                    {raceChars.companionBots > 0 && <Button size="sm" variant="ghost" className="mt-1 h-auto whitespace-normal py-1 text-left" disabled={purging} onClick={() => void (async () => {
+                      setPurging(true); setError(null);
+                      try { setPurged(await api.purgeCustomRaceBots(serverId)); await loadRacesStatus(); }
+                      catch (e) { setError(asUiError(e)); }
+                      finally { setPurging(false); }
+                    })()}>{purging && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}{t("races.purgeBots", { n: raceChars.companionBots })}</Button>}
+                  </div>
+                )}
+                {purged !== null && <p className="mb-2 text-xs text-ok" role="status">{t("races.purged", { n: purged })}</p>}
                 <p className="text-xs text-muted">{locale === "ru" ? "Установленная версия патча клиента: " : "Installed client patch version: "}{racesPatchStatus?.version ?? (locale === "ru" ? "не записана" : "not recorded")}</p>
                 {racesInstalling && racesProgress ? (
                   <div className="rounded-lg border border-gold/30 bg-gold/5 p-3">
