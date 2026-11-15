@@ -415,6 +415,38 @@ pub fn install_addon(client: &Path, meta: &Path, source: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Remove the game's cache of server data (`Cache/WDB/<locale>/*.wdb`: creatures, items, quests, pages). The client
+/// keeps answers it got from a server; after the server's data changes they show old names and stats until the
+/// cache is gone. Only `.wdb` files under `Cache/WDB` are removed. Returns how many.
+pub fn clear_game_cache(client: &Path) -> Result<usize> {
+    if is_running(client) {
+        return Ok(0);
+    }
+    let root = client.join("Cache").join("WDB");
+    let mut removed = 0;
+    let Ok(locales) = fs::read_dir(&root) else {
+        return Ok(0);
+    };
+    for locale in locales.flatten() {
+        if !locale.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let Ok(files) = fs::read_dir(locale.path()) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            let is_wdb = path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("wdb"));
+            if is_wdb && file.file_type().is_ok_and(|t| t.is_file()) && fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
+}
+
 /// Start the game client. The caller is responsible for making sure the server is ready first.
 pub fn launch(client: &Path) -> Result<u32> {
     let exe =
@@ -613,6 +645,23 @@ pub fn recover_all_realmlist_overrides(meta_roots: &[PathBuf]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_the_server_data_cache_is_cleared() {
+        let d = tempfile::tempdir().unwrap();
+        let wdb = d.path().join("Cache/WDB/enUS");
+        fs::create_dir_all(&wdb).unwrap();
+        fs::write(wdb.join("creaturecache.wdb"), b"x").unwrap();
+        fs::write(wdb.join("itemcache.WDB"), b"x").unwrap();
+        fs::write(wdb.join("notes.txt"), b"keep").unwrap();
+        fs::create_dir_all(d.path().join("Data/Retail/Cache")).unwrap();
+        fs::write(d.path().join("Data/Retail/Cache/id-1.bin"), b"keep").unwrap();
+        assert_eq!(clear_game_cache(d.path()).unwrap(), 2);
+        assert!(wdb.join("notes.txt").is_file());
+        assert!(d.path().join("Data/Retail/Cache/id-1.bin").is_file());
+        assert_eq!(clear_game_cache(d.path()).unwrap(), 0);
+        assert_eq!(clear_game_cache(&d.path().join("missing")).unwrap(), 0);
+    }
+
 
     #[cfg(windows)]
     #[test]

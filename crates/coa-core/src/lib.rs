@@ -9,6 +9,7 @@
 
 pub mod accounts;
 pub mod allsettings;
+pub mod addons;
 pub mod analyzer;
 pub mod backup;
 pub mod build_cache;

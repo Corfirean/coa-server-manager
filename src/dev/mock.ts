@@ -1,6 +1,7 @@
 // Dev-only: lets the UI run in a plain browser for visual review. Never bundled in production builds.
 import { auctionCategories, auctionQualities } from "../lib/moduleSettings";
 import moduleCatalog from "../../modules/catalog.json";
+import addonCatalog from "../../addons/catalog.json";
 import botsSchema from "../../schemas/bots.json";
 import serverSchema from "../../schemas/server.json";
 import botsPresets from "../../schemas/presets/bots.json";
@@ -29,6 +30,8 @@ export {};
   (window as any).__TAURI_INTERNALS__ = {
     transformCallback: (cb: unknown)=>cb, unregisterCallback(){}, convertFileSrc:(x: unknown)=>x,
     invoke: async (cmd: string, args?: any)=>{
+      if(cmd==="clear_game_cache_on_play") return localStorage.getItem("demo-clear-cache")!=="0";
+      if(cmd==="set_clear_game_cache_on_play"){localStorage.setItem("demo-clear-cache",args.enabled?"1":"0");return;}
       if(cmd==="close_to_tray") return localStorage.getItem("demo-close-tray")==="1";
       if(cmd==="set_close_to_tray"){localStorage.setItem("demo-close-tray",args.enabled?"1":"0");return;}
       if(cmd==="client_graphics") return JSON.parse(localStorage.getItem("demo-graphics")??'{"dxvk_disabled":false,"enhancements_disabled":false}');
@@ -39,6 +42,7 @@ export {};
       if(cmd==="pending_update") return null;
       if(cmd==="plugin:app|version") return "0.8.2";
       if(cmd==="release_history") throw new Error("Offline demo: using bundled notes");
+      if(cmd==="addons_list"||cmd==="addons_install"||cmd==="addons_remove"){const w=window as any;w.__addons=w.__addons??{dragonui:"old"};if(cmd==="addons_install"){await new Promise(r=>setTimeout(r,700));w.__addons[args.addon]="new";}if(cmd==="addons_remove")delete w.__addons[args.addon];return addonCatalog.addons.map((a:any)=>({id:a.id,name:a.name,description:a.description,author:a.author,license:a.license,needs:a.needs??null,repo:a.repo,size:a.files.reduce((s:number,f:any)=>s+f.size,0),installed:a.id in w.__addons,updateAvailable:w.__addons[a.id]==="old",foreignFolders:a.id==="coacombat"&&!(a.id in w.__addons)?["CoACombat"]:[]}));}
       if(cmd==="restart_schedule"||cmd==="restart_schedule_save"){const w=window as any;w.__sched=w.__sched??{enabled:false,time:"05:00",warningMinutes:5};if(cmd==="restart_schedule_save"){const s=args.schedule;if(s.enabled&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(s.time))throw new Error("The restart time must be HH:MM, for example 05:00.");w.__sched={...s};}return {schedule:w.__sched,supported:true};}
       if(cmd==="mysql_custom"||cmd==="mysql_custom_save"){const w=window as any;if(cmd==="mysql_custom_save")w.__my=args.text;const text:string=w.__my??"";const applied=text.split("\n").map((l:string)=>l.trim()).filter((l:string)=>l&&!l.startsWith("#")&&!/^(port|datadir|basedir|bind[-_]address)\b/i.test(l)).map((l:string)=>l+"\n").join("");return {text,applied};}
       if(cmd==="realm_names"||cmd==="realm_rename"){const w=window as any;w.__rn=w.__rn??{};const defs:[number,string][]=[[1,"Conquest of Azeroth"],[2,"Wildcard"]];if(cmd==="realm_rename"){await new Promise(r=>setTimeout(r,300));const n=(args.name??"").trim();if(n.length>32||n.includes('"'))throw new Error("The realm name can have at most 32 characters.");if(n)w.__rn[args.realmId]=n;else delete w.__rn[args.realmId];}return defs.map(([id,d])=>({id,name:w.__rn[id]??d,defaultName:d,custom:id in w.__rn}));}
