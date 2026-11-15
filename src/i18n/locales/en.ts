@@ -57,6 +57,11 @@ const en = {
   "remote.hostInstead": "Host my own server",
   "welcome.roleSubtitle": "How would you like to play?",
 
+  "mysql.title": "MySQL settings",
+  "mysql.hint": "Your own MySQL options, one name = value per line. They are added to my.ini at every start of the database and stay after updates. The port, addresses and data paths are managed by the Manager and ignored here.",
+  "mysql.save": "Save",
+  "mysql.saved": "Saved; restart the server to apply.",
+  "mysql.applied": "Options applied: {count}",
   "realm.namesTitle": "Realm names",
   "realm.namesHint": "The name players see in the realm list. A running server shows it at once, and it stays after updates.",
   "realm.nameSave": "Save",

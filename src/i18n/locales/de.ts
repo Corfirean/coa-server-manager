@@ -773,6 +773,11 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "overview.reportBtn": "Diagnose sammeln und melden",
 
   // Realmlist switcher and modules page
+  "mysql.title": "MySQL-Einstellungen",
+  "mysql.hint": "Eigene MySQL-Optionen, eine Zeile name = wert. Sie werden bei jedem Start der Datenbank zu my.ini hinzugefügt und bleiben nach Updates erhalten. Port, Adressen und Datenpfade verwaltet der Manager; hier werden sie ignoriert.",
+  "mysql.save": "Speichern",
+  "mysql.saved": "Gespeichert; Server neu starten, um sie anzuwenden.",
+  "mysql.applied": "Angewandte Optionen: {count}",
   "realm.namesTitle": "Realmnamen",
   "realm.namesHint": "So heißt der Realm in der Realmliste der Spieler. Ein laufender Server zeigt den Namen sofort, und er bleibt nach Updates erhalten.",
   "realm.nameSave": "Speichern",

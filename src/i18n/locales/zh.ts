@@ -58,6 +58,11 @@ const zh = {
   "remote.hostInstead": "搭建自己的服务器",
   "welcome.roleSubtitle": "你想如何游玩？",
 
+  "mysql.title": "MySQL 设置",
+  "mysql.hint": "自定义 MySQL 选项，每行一个“名称 = 值”。每次数据库启动时都会加入 my.ini，更新后也会保留。端口、地址和数据路径由 Manager 管理，此处会被忽略。",
+  "mysql.save": "保存",
+  "mysql.saved": "已保存；重启服务器后生效。",
+  "mysql.applied": "生效的选项：{count}",
   "realm.namesTitle": "服务器名称",
   "realm.namesHint": "玩家在服务器列表中看到的名称。运行中的服务器会立即显示新名称，更新后也会保留。",
   "realm.nameSave": "保存",

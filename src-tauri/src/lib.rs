@@ -1239,6 +1239,27 @@ async fn realm_select(
 }
 
 #[tauri::command]
+async fn mysql_custom(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::launcher::render::CustomMysql, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || Ok(coa_core::launcher::render::read_custom_mysql(&root))).await
+}
+
+/// The owner's own MySQL options (Settings/mysql-custom.ini); they apply at the next start of the database.
+#[tauri::command]
+async fn mysql_custom_save(
+    state: State<'_, AppState>,
+    id: String,
+    text: String,
+) -> std::result::Result<coa_core::launcher::render::CustomMysql, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::launcher::render::write_custom_mysql(&root, &text)).await
+}
+
+#[tauri::command]
 async fn realm_names(
     state: State<'_, AppState>,
     id: String,
@@ -3011,6 +3032,8 @@ pub fn run() {
             realm_with_reborn,
             realm_names,
             realm_rename,
+            mysql_custom,
+            mysql_custom_save,
             check_database,
             repair_server,
             module_set_enabled,
