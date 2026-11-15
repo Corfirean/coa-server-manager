@@ -628,6 +628,7 @@ export function ModulesPage({
   // Official modules state
   const [modules, setModules] = useState<ModuleView[] | null>(null);
   const [openSettings, setOpenSettings] = useState<string | null>(null);
+  const [parts, setParts] = useState<ModuleView[]>([]);
   const toggleLock = useRef(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
@@ -773,6 +774,7 @@ export function ModulesPage({
     try {
       const mods = await api.modulesList(serverId);
       setModules(mods.filter((m) => !m.hidden));
+      setParts(mods.filter((m) => m.part_of));
       await loadRacesStatus();
       await loadInstalledPlugins();
       await loadToolchain();
@@ -1887,6 +1889,28 @@ export function ModulesPage({
                               onSaved={() => setChanged(true)}
                               onRegisterGuard={setRacesGuard}
                             />
+              {parts.filter(p => p.part_of === "custom-races" && p.installed).map(p => (
+                <section key={p.id} className="mt-6 border-t border-line pt-5" aria-label={p.name}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-semibold">{p.name}</h3>
+                      <p className="mt-1 text-sm text-muted">{p.description[locale] ?? p.description.en}</p>
+                    </div>
+                    {p.switchable && <button
+                      role="switch"
+                      aria-checked={p.enabled}
+                      aria-label={t("mod.switch", { name: p.name })}
+                      aria-busy={toggling === p.id}
+                      disabled={toggling !== null || racesInstalling}
+                      onClick={() => void toggleOfficialModule(p)}
+                      className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", p.enabled ? "bg-gold" : "bg-white/15")}
+                    >
+                      <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", p.enabled ? "left-[22px]" : "left-0.5")} />
+                    </button>}
+                  </div>
+                  {p.enabled && p.has_settings && <ModuleSettings serverId={serverId} module={p} onSaved={() => setChanged(true)} />}
+                </section>
+              ))}
                           </div>
                         )}
                       </SettingsPanel>

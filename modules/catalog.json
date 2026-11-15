@@ -182,7 +182,9 @@
       "status": "early",
       "icon": "races",
       "enable_key": "Subclass.Enable",
-      "default_on": true
+      "default_on": true,
+      "part_of": "custom-races",
+      "hidden": true
     },
     {
       "id": "dev-menu",
@@ -201,7 +203,9 @@
       "status": "early",
       "icon": "sparkles",
       "enable_key": "DevMenu.Enable",
-      "default_on": true
+      "default_on": true,
+      "part_of": "custom-races",
+      "hidden": true
     },
     {
       "id": "time-is-time",

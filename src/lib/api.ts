@@ -64,7 +64,7 @@ export interface StatusView {
 }
 
 export type RealmMode = "coa" | "wildcard" | "reborn";
-export interface AddonView { id: string; name: string; description: Record<string, string>; author: string; license: string; needs: string | null; repo: string; size: number; installed: boolean; updateAvailable: boolean; foreignFolders: string[] }
+export interface AddonView { id: string; name: string; description: Record<string, string>; author: string; license: string; needs: string | null; repo: string; size: number; installed: boolean; updateAvailable: boolean; foreignFolders: string[]; bundled?: string | null }
 export interface RestartSchedule { enabled: boolean; time: string; warningMinutes: number }
 export interface RestartScheduleView { schedule: RestartSchedule; supported: boolean }
 export interface CustomMysql { text: string; applied: string }
@@ -247,6 +247,7 @@ export interface ModuleView {
   component_type?: ComponentType;
   can_remove?: boolean;
   source_commit?: string | null;
+  part_of?: string | null;
 }
 
 export interface MultiDimensionalStatus {

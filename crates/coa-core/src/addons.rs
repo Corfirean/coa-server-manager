@@ -76,6 +76,8 @@ pub struct AddonView {
     pub update_available: bool,
     /// Folders of this addon that are in the client but were not installed by the Manager.
     pub foreign_folders: Vec<String>,
+    /// Installed by something else, shown so nobody looks for it twice: `custom-races` (the client patch).
+    pub bundled: Option<String>,
 }
 
 fn catalog() -> Result<Vec<Entry>> {
@@ -128,9 +130,40 @@ pub fn list(client: &Path) -> Result<Vec<AddonView>> {
                 license: entry.license,
                 needs: entry.needs,
                 repo: entry.repo,
+                bundled: None,
             }
         })
+        .chain(std::iter::once(dev_menu(&dir)))
         .collect())
+}
+
+/// The /dev menu addon of Custom Races V2: the client patch installs it and switches it with the patch.
+fn dev_menu(dir: &Path) -> AddonView {
+    let mut description = BTreeMap::new();
+    for (lang, text) in [
+        ("en", "The in-game /dev editor for game masters. It comes with the Custom Races V2 client patch and is switched with it."),
+        ("ru", "Внутриигровой редактор /dev для гейм-мастеров. Ставится вместе с клиентским патчем Custom Races V2 и включается вместе с ним."),
+        ("de", "Der /dev-Editor im Spiel für Spielleiter. Er kommt mit dem Client-Patch Custom Races V2 und wird mit ihm geschaltet."),
+        ("fr", "L'éditeur /dev en jeu pour les maîtres du jeu. Il vient avec le patch client Custom Races V2 et s'active avec lui."),
+        ("es", "El editor /dev del juego para los máster. Viene con el parche de cliente Custom Races V2 y se activa con él."),
+        ("zh", "供游戏管理员使用的游戏内 /dev 编辑器。随 Custom Races V2 客户端补丁安装，并随补丁一起开关。"),
+    ] {
+        description.insert(lang.to_string(), text.to_string());
+    }
+    AddonView {
+        id: "coa-dev-menu".into(),
+        name: "CoA Dev Menu".into(),
+        description,
+        author: "ilusixn".into(),
+        license: "see repository".into(),
+        needs: None,
+        repo: "https://github.com/ilusixn/ilusixn-dev-menu".into(),
+        size: 0,
+        installed: dir.join("CoA_DevMenu/CoA_DevMenu.toc").is_file(),
+        update_available: false,
+        foreign_folders: Vec::new(),
+        bundled: Some("custom-races".into()),
+    }
 }
 
 /// The git blob id of `bytes` (what the catalog records for each file).
@@ -364,6 +397,8 @@ mod tests {
     fn the_catalog_is_valid_and_pins_every_addon() {
         let entries = catalog().unwrap();
         assert!(entries.len() >= 4);
+        let views = list(Path::new("C:/no-such-client")).unwrap();
+        assert_eq!(views.iter().filter(|v| v.bundled.is_some()).count(), 1, "the dev menu is shown, not installable");
         for e in &entries {
             assert_eq!(e.commit.len(), 40, "{}", e.id);
             assert!(e.archive.starts_with("https://codeload.github.com/") && e.archive.ends_with(&e.commit));

@@ -48,6 +48,10 @@ pub struct Entry {
     /// Not shown on the Modules page; its settings are offered elsewhere (a server setting card).
     #[serde(default)]
     pub hidden: bool,
+    /// A part of another module, switched and set up inside that module's settings (Custom Races V2 brings
+    /// subclasses and the /dev menu).
+    #[serde(default)]
+    pub part_of: Option<String>,
 }
 
 fn yes() -> bool {
@@ -164,6 +168,7 @@ pub struct ModuleView {
     pub component_type: ComponentType,
     pub can_remove: bool,
     pub source_commit: Option<String>,
+    pub part_of: Option<String>,
 }
 
 pub fn list(root: &Path) -> Vec<ModuleView> {
@@ -460,6 +465,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 component_type,
                 can_remove,
                 source_commit,
+                part_of: e.part_of,
             }
         })
         .collect();
@@ -558,6 +564,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     component_type: ComponentType::DynamicDll,
                     can_remove: true,
                     source_commit,
+                    part_of: None,
                 });
             }
         }
@@ -1162,6 +1169,7 @@ mod tests {
             icon: String::new(),
             page: None,
             hidden: false,
+            part_of: None,
         };
         vec![
             one(
@@ -1807,6 +1815,7 @@ mod tests {
             icon: String::new(),
             page: None,
             hidden: false,
+            part_of: None,
         };
         let cat = vec![compat];
         let v = list_in(&cat, &root).remove(0);
