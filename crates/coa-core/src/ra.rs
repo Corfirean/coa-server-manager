@@ -258,6 +258,11 @@ impl Ra {
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
+    /// Delete the companion bots of custom races (RaceID above 11), every other bot stays. Returns how many.
+    pub fn purge_custom_race_bots(&mut self) -> Result<u32> {
+        Ok(first_number(&self.bot_command("botcmd purgecustomraces")?))
+    }
+
     /// Ask the bot module to create `count` leveling bots (throttled by the module itself). Only a number is sent.
     pub fn spawn_bots(&mut self, count: u32) -> Result<String> {
         if !(1..=2000).contains(&count) {

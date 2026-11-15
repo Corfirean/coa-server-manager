@@ -41,6 +41,7 @@ import {
   type CoaCompatibilityStatus,
   type CompatibilityReport,
   type CustomRacesClientStatus,
+  type CustomRaceCharacters,
   type CustomRacesProgress,
   type InstalledPreviewPlugin,
   type ModuleSetting,
@@ -633,6 +634,9 @@ export function ModulesPage({
   const [toggling, setToggling] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
   const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
+  const [raceChars, setRaceChars] = useState<CustomRaceCharacters | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [purged, setPurged] = useState<number | null>(null);
   const [racesInstalling, setRacesInstalling] = useState(false);
   const [racesProgress, setRacesProgress] = useState<CustomRacesProgress | null>(null);
   const [guard, setGuard] = useState<UnsavedChangesGuard | null>(null);
@@ -768,6 +772,7 @@ export function ModulesPage({
     } catch {
       // ignore
     }
+    setRaceChars(await api.customRaceCharacters(serverId).catch(() => null));
   }, [serverId]);
 
   const load = useCallback(async () => {
@@ -1792,6 +1797,18 @@ export function ModulesPage({
                               </span>
                             </div>
 
+                            {modules?.find((x) => x.id === "custom-races")?.enabled === false && raceChars && raceChars.players + raceChars.companionBots + raceChars.squidBots > 0 && (
+                              <div className="mb-2 rounded-md border border-warn/40 bg-warn/5 p-2 text-xs" role="status">
+                                <p>{t("races.offCharacters", { players: raceChars.players, bots: raceChars.companionBots + raceChars.squidBots })}</p>
+                                {raceChars.companionBots > 0 && <Button size="sm" variant="ghost" className="mt-1 h-auto whitespace-normal py-1 text-left" disabled={purging} onClick={() => void (async () => {
+                                  setPurging(true); setError(null);
+                                  try { setPurged(await api.purgeCustomRaceBots(serverId)); await loadRacesStatus(); }
+                                  catch (e) { setError(asUiError(e)); }
+                                  finally { setPurging(false); }
+                                })()}>{purging && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}{t("races.purgeBots", { n: raceChars.companionBots })}</Button>}
+                              </div>
+                            )}
+                            {purged !== null && <p className="mb-2 text-xs text-ok" role="status">{t("races.purged", { n: purged })}</p>}
                             {racesInstalling && racesProgress ? (
                               <div className="rounded-lg border border-gold/30 bg-gold/5 p-3">
                                 <div className="flex items-center justify-between gap-3 text-xs">

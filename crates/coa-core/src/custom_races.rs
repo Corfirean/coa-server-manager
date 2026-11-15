@@ -515,6 +515,46 @@ fn is_switched(client: &Path, file: &PatchFile) -> bool {
     entry_point || suffix(&client.join(&file.path), "original").is_file()
 }
 
+/// Characters of custom races (RaceID above 11) on the active realm: a game client without the client patch
+/// crashes when one of them comes into view, so the server keeps them out of the world while custom races are
+/// off. `None` when the database is not running.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomRaceCharacters {
+    pub players: u32,
+    pub companion_bots: u32,
+    pub squid_bots: u32,
+}
+
+pub fn custom_race_characters(root: &Path) -> Result<Option<CustomRaceCharacters>> {
+    let squid = crate::accounts::squid_bot_prefix(root);
+    let characters = crate::realms::state(root)
+        .map(|s| s.active)
+        .unwrap_or_default()
+        .schema("characters")?;
+    crate::backup::with_running_database(root, |db| {
+        let out = db.query(&format!(
+            "SELECT \
+             IFNULL(SUM(a.username NOT LIKE 'COABOTHOST%' AND a.username NOT LIKE '{squid}%'), 0), \
+             IFNULL(SUM(a.username LIKE 'COABOTHOST%'), 0), \
+             IFNULL(SUM(a.username LIKE '{squid}%'), 0) \
+             FROM {characters}.characters c JOIN acore_auth.account a ON a.id = c.account WHERE c.race > 11;"
+        ))?;
+        let numbers: Vec<u32> = out
+            .lines()
+            .last()
+            .unwrap_or("")
+            .split('\t')
+            .map(|n| n.trim().parse().unwrap_or(0))
+            .collect();
+        Ok(CustomRaceCharacters {
+            players: numbers.first().copied().unwrap_or(0),
+            companion_bots: numbers.get(1).copied().unwrap_or(0),
+            squid_bots: numbers.get(2).copied().unwrap_or(0),
+        })
+    })
+}
+
 /// Only complete, verified payloads are reported as enabled or disabled.
 pub fn client_patch_status(client_path: &Path) -> ClientPatchStatus {
     let data = client_path.join("Data");

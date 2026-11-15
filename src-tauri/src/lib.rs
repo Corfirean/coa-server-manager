@@ -1666,6 +1666,33 @@ async fn custom_races_install(
 }
 
 #[tauri::command]
+async fn custom_race_characters(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Option<coa_core::custom_races::CustomRaceCharacters>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::custom_races::custom_race_characters(&root)).await
+}
+
+/// Delete the companion bots of custom races through the running world's console. Returns how many.
+#[tauri::command]
+async fn purge_custom_race_bots(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<u32, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
+        if o.world.state != coa_core::process::ServiceState::Running {
+            return Err(Error::Invalid("Start the server to delete bots.".into()));
+        }
+        Ra::connect(&root)?.purge_custom_race_bots()
+    })
+    .await
+}
+
+#[tauri::command]
 async fn addons_list(
     state: State<'_, AppState>,
     id: String,
@@ -3761,6 +3788,8 @@ pub fn run() {
             restart_schedule_save,
             clear_game_cache_on_play,
             set_clear_game_cache_on_play,
+            custom_race_characters,
+            purge_custom_race_bots,
             addons_list,
             addons_install,
             addons_remove,
