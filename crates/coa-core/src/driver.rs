@@ -144,6 +144,10 @@ fn run_inner_mode(
     }
     if matches!(verb, Verb::StartAll | Verb::StartWorld) {
         crate::modules::ensure_bot_exclusivity(&root)?;
+        // A server update that only added races keeps the owner's race restriction (and custom races on).
+        if let Err(error) = crate::race_availability::rebind_unchanged(&root) {
+            tracing::warn!(%error, "the race restriction could not be checked against the race catalog");
+        }
     }
     if crate::docker::is_docker(&root) {
         prepare_headless_world(&root, verb)?;
