@@ -350,6 +350,8 @@ struct StatusView {
     observed: Observed,
     busy: bool,
     path_exists: bool,
+    /// A scheduled restart is under way: a world that is down for a few minutes did not crash.
+    scheduled_restart: bool,
 }
 
 /// Where the Manager keeps its own state (server list, logs). `%LOCALAPPDATA%` on Windows, the XDG data folder elsewhere.
@@ -548,9 +550,12 @@ async fn server_status(
     let root = path_of(&state, &id)?;
     let busy = state.busy.lock().map(|b| b.contains(&id)).unwrap_or(false);
     let path_exists = root.is_dir();
-    let observed = tauri::async_runtime::spawn_blocking(move || {
+    let (observed, scheduled_restart) = tauri::async_runtime::spawn_blocking(move || {
         let ports = layout::read_ports(&root);
-        process::observe(&root, &ports)
+        (
+            process::observe(&root, &ports),
+            coa_core::launcher::schedule::under_way(&root),
+        )
     })
     .await
     .map_err(|e| Error::Invalid(e.to_string()))?;
@@ -558,6 +563,7 @@ async fn server_status(
         observed,
         busy,
         path_exists,
+        scheduled_restart,
     })
 }
 
@@ -1236,6 +1242,46 @@ async fn realm_select(
     })
     .await;
     result
+}
+
+#[derive(serde::Serialize)]
+struct RestartScheduleView {
+    schedule: coa_core::launcher::schedule::RestartSchedule,
+    /// The server ships the Rust world supervisor that carries out the schedule.
+    supported: bool,
+}
+
+#[tauri::command]
+async fn restart_schedule(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<RestartScheduleView, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        Ok(RestartScheduleView {
+            schedule: coa_core::launcher::schedule::load(&root),
+            supported: root.join("Scripts/coa-launcher.exe").is_file(),
+        })
+    })
+    .await
+}
+
+/// Restart the world every day at the owner's local time; the running supervisor reads it within a minute.
+#[tauri::command]
+async fn restart_schedule_save(
+    state: State<'_, AppState>,
+    id: String,
+    schedule: coa_core::launcher::schedule::RestartSchedule,
+) -> std::result::Result<RestartScheduleView, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        Ok(RestartScheduleView {
+            schedule: coa_core::launcher::schedule::save(&root, &schedule)?,
+            supported: root.join("Scripts/coa-launcher.exe").is_file(),
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -3034,6 +3080,8 @@ pub fn run() {
             realm_rename,
             mysql_custom,
             mysql_custom_save,
+            restart_schedule,
+            restart_schedule_save,
             check_database,
             repair_server,
             module_set_enabled,

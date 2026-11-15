@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use crate::error::{Error, ErrorCode, Result};
 use crate::launcher::services::{self, ensure_free, mysql, spawn, start_mysql, wait_ready, Progress};
 use crate::launcher::spawn::Proc;
-use crate::launcher::{settings::Settings, squid, state};
+use crate::launcher::{schedule, settings::Settings, squid, state};
 
 fn stop_relay_flag(root: &Path) -> std::path::PathBuf {
     state::dir(root).join("stop-relay")
@@ -169,24 +169,70 @@ fn spawn_relay(root: &Path, launcher: Option<&Path>) -> Result<Proc> {
 }
 
 /// The supervisor (`watch-world`): run the world, keep the relay alive while it runs, stop the relay after it.
-/// `launcher` is the launcher executable that runs the relay (`None`: the Python relay).
-pub fn watch_world(root: &Path, launcher: Option<&Path>, log: Progress) -> Result<()> {
+/// `launcher` is the launcher executable that runs the relay (`None`: the Python relay). At the owner's scheduled
+/// time it asks the world to restart with an in-game countdown and starts it again when it exits for that.
+pub fn watch_world(root: &Path, launcher: Option<&Path>, offset: i32, log: Progress) -> Result<()> {
     squid::validate_bots(root)?;
-    let world = spawn_child(root, "world", &root.join("Core/worldserver.exe"), &["-c", "configs/worldserver.conf"], &root.join("Core"), &root.join("Core/Logs/world-console.log"))?;
     let mut relay: Option<Proc> = None;
-    while world.try_wait().is_none() {
-        let dead = relay.as_ref().is_none_or(|r| r.try_wait().is_some());
-        if dead {
-            match spawn_relay(root, launcher) {
-                Ok(r) => relay = Some(r),
-                Err(e) => {
-                    log(&format!("Report relay could not start ({e}); retrying."));
-                    std::thread::sleep(Duration::from_secs(5));
-                    continue;
+    loop {
+        let world = spawn_child(root, "world", &root.join("Core/worldserver.exe"), &["-c", "configs/worldserver.conf"], &root.join("Core"), &root.join("Core/Logs/world-console.log"))?;
+        let started = schedule::now();
+        let mut requested = false;
+        let mut last_check: Option<Instant> = None;
+        let code = loop {
+            if let Some(code) = world.try_wait() {
+                break code;
+            }
+            let dead = relay.as_ref().is_none_or(|r| r.try_wait().is_some());
+            if dead {
+                match spawn_relay(root, launcher) {
+                    Ok(r) => relay = Some(r),
+                    Err(e) => {
+                        log(&format!("Report relay could not start ({e}); retrying."));
+                        std::thread::sleep(Duration::from_secs(5));
+                        continue;
+                    }
                 }
             }
+            if last_check.is_none_or(|t| t.elapsed() >= Duration::from_secs(30)) {
+                last_check = Some(Instant::now());
+                if schedule::under_way(root) && !requested {
+                    // The world that a scheduled restart started again is back once it accepts connections.
+                    if Settings::load(root, offset).is_ok_and(|cfg| services::ready(root, "world", cfg.world_port)) {
+                        schedule::clear_under_way(root);
+                    }
+                }
+                if !requested {
+                    let plan = schedule::load(root);
+                    if plan.due(schedule::now(), started).is_some() {
+                        let seconds = plan.warning_minutes * 60;
+                        let asked = Settings::load(root, offset).and_then(|cfg| {
+                            crate::ra::Ra::connect_to(cfg.ra_port, &cfg.ra_username, &cfg.ra_password)
+                                .and_then(|mut ra| ra.run(&format!("server restart {seconds}")))
+                        });
+                        match asked {
+                            Ok(_) => {
+                                schedule::mark_under_way(root)?;
+                                requested = true;
+                                log(&format!("Scheduled restart: the world restarts in {} minutes.", plan.warning_minutes));
+                            }
+                            Err(e) => log(&format!("Scheduled restart could not be requested ({e}); retrying.")),
+                        }
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_secs(2));
+        };
+        if requested && code == schedule::RESTART_EXIT_CODE as u32 {
+            log("Scheduled restart: starting the world again.");
+            if let Err(e) = squid::validate_bots(root) {
+                schedule::clear_under_way(root);
+                return Err(e);
+            }
+            continue;
         }
-        std::thread::sleep(Duration::from_secs(2));
+        schedule::clear_under_way(root);
+        break;
     }
     std::fs::write(stop_relay_flag(root), b"")?;
     if let Some(r) = relay {

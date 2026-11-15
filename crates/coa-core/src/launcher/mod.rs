@@ -14,6 +14,7 @@
 pub mod ops;
 pub mod relay;
 pub mod render;
+pub mod schedule;
 pub mod services;
 pub mod settings;
 pub mod spawn;
