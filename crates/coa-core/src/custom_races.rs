@@ -463,8 +463,56 @@ fn suffix(path: &Path, extension: &str) -> PathBuf {
     ))
 }
 
+/// SHA-256 of a payload file, remembered for this run of the Manager. V2 is 8.7 GB, and every status check and
+/// switch verifies all of it; a rename keeps size, creation and write time, while a replaced file changes them.
+fn cached_sha256(path: &Path) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::UNIX_EPOCH;
+    static HASHES: OnceLock<Mutex<HashMap<(String, u64, u128, u128), String>>> = OnceLock::new();
+    let meta = fs::metadata(path).ok()?;
+    let nanos = |time: io::Result<std::time::SystemTime>| {
+        time.ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+    };
+    // The name without `.disabled`: switching renames only that suffix.
+    let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    let name = name.strip_suffix(".disabled").unwrap_or(&name).to_string();
+    let key = match (nanos(meta.modified()), nanos(meta.created())) {
+        (Some(modified), Some(created)) => Some((name, meta.len(), modified, created)),
+        _ => None,
+    };
+    let hashes = HASHES.get_or_init(Mutex::default);
+    if let Some(hash) = key.as_ref().and_then(|key| hashes.lock().ok()?.get(key).cloned()) {
+        return Some(hash);
+    }
+    let hash = fsx::sha256_file(path).ok()?;
+    if let (Some(key), Ok(mut hashes)) = (key, hashes.lock()) {
+        hashes.insert(key, hash.clone());
+    }
+    Some(hash)
+}
+
 fn matches_patch(path: &Path, file: &PatchFile) -> bool {
-    path.is_file() && fsx::sha256_file(path).is_ok_and(|hash| hash == file.sha256)
+    path.is_file() && cached_sha256(path).is_some_and(|hash| hash == file.sha256)
+}
+
+/// Whether disabling the patch must hide this file. The stock client loads only the MPQs in Data,
+/// dinput8.dll and the addons; the rest (Data/Retail, VulkanShaders, the Esteria data files) is read by the
+/// custom races executable and its libraries alone, so it stays in place: thousands of renames bought nothing.
+/// A file that replaced one of the player's own (an `.original` exists) is always switched.
+fn is_switched(client: &Path, file: &PatchFile) -> bool {
+    let lower = file.path.to_ascii_lowercase();
+    let entry_point = lower.starts_with("interface/addons/")
+        || lower
+            .strip_prefix("data/")
+            .is_some_and(|name| !name.contains('/') && name.ends_with(".mpq"))
+        || (!lower.contains('/')
+            && [".dll", ".exe", ".bat"]
+                .iter()
+                .any(|extension| lower.ends_with(extension)));
+    entry_point || suffix(&client.join(&file.path), "original").is_file()
 }
 
 /// Only complete, verified payloads are reported as enabled or disabled.
@@ -495,9 +543,11 @@ pub fn client_patch_status(client_path: &Path) -> ClientPatchStatus {
                 ClientPatchState::Enabled
             }
             Ok(files)
-                if files
-                    .iter()
-                    .all(|f| matches_patch(&suffix(&client_path.join(&f.path), "disabled"), f)) =>
+                if files.iter().all(|f| {
+                    let active = client_path.join(&f.path);
+                    matches_patch(&suffix(&active, "disabled"), f)
+                        || (!is_switched(client_path, f) && matches_patch(&active, f))
+                }) =>
             {
                 ClientPatchState::Disabled
             }
@@ -539,9 +589,24 @@ struct SavedFile {
     moved_to: Option<String>,
 }
 
+/// One line of the append-only journal. A payload has thousands of files, so the journal is never rewritten:
+/// each step adds one synced line, and recovery replays the lines in order.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum JournalRecord {
+    Saved { path: String, existed: bool },
+    Moved { index: usize, to: String },
+    Returned { index: usize },
+}
+
+const LEGACY_JOURNAL: &str = "journal.json";
+const JOURNAL: &str = "journal.jsonl";
+
 struct PatchTransaction<'a> {
     root: &'a Path,
     entries: Vec<SavedFile>,
+    index: std::collections::HashMap<String, usize>,
+    journal: Option<File>,
     finished: bool,
 }
 
@@ -564,37 +629,102 @@ fn move_patch_file(source: &Path, target: &Path) -> io::Result<()> {
     fs::remove_file(source)
 }
 
+fn append_record(journal: &mut File, record: &JournalRecord) -> Result<()> {
+    use std::io::Write;
+    let mut line = serde_json::to_vec(record)?;
+    line.push(b'\n');
+    journal.write_all(&line)?;
+    journal.sync_data()?;
+    Ok(())
+}
+
+/// Replays a journal. A line cut short by a crash is the last one and was never followed by its file
+/// operation (each line is synced before the operation it describes), so reading stops there.
+fn read_journal(directory: &Path) -> Result<Vec<SavedFile>> {
+    let legacy = directory.join(LEGACY_JOURNAL);
+    if legacy.is_file() {
+        return fsx::read_json(&legacy);
+    }
+    let bytes = match fs::read(directory.join(JOURNAL)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut entries: Vec<SavedFile> = Vec::new();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        let Ok(record) = serde_json::from_slice::<JournalRecord>(line) else {
+            break;
+        };
+        match record {
+            JournalRecord::Saved { path, existed } => entries.push(SavedFile {
+                path,
+                existed,
+                moved_to: None,
+            }),
+            JournalRecord::Moved { index, to } => {
+                let entry = entries
+                    .get_mut(index)
+                    .ok_or_else(|| Error::Invalid("Invalid custom races journal.".into()))?;
+                entry.moved_to = Some(to);
+            }
+            JournalRecord::Returned { index } => {
+                let entry = entries
+                    .get_mut(index)
+                    .ok_or_else(|| Error::Invalid("Invalid custom races journal.".into()))?;
+                entry.moved_to = None;
+            }
+        }
+    }
+    Ok(entries)
+}
+
 impl<'a> PatchTransaction<'a> {
     fn new(root: &'a Path) -> Result<Self> {
         recover_patch_transaction(root)?;
-        fs::create_dir(root.join(".coa-races-transaction"))?;
+        let directory = root.join(".coa-races-transaction");
+        fs::create_dir(&directory)?;
+        let journal = fs::OpenOptions::new()
+            .create_new(true)
+            .append(true)
+            .open(directory.join(JOURNAL))?;
         Ok(Self {
             root,
             entries: Vec::new(),
+            index: std::collections::HashMap::new(),
+            journal: Some(journal),
             finished: false,
         })
     }
-    fn save(&mut self, path: &Path) -> Result<()> {
+    fn relative(&self, path: &Path) -> Result<String> {
         let relative = path
             .strip_prefix(self.root)
             .map_err(|_| Error::Invalid("Patch path escaped the client directory.".into()))?
             .to_string_lossy()
             .replace('\\', "/");
         fsx::safe_join(self.root, &relative)?;
-        if self.entries.iter().any(|entry| entry.path == relative) {
+        Ok(relative)
+    }
+    fn save(&mut self, path: &Path) -> Result<()> {
+        let relative = self.relative(path)?;
+        if self.index.contains_key(&relative) {
             return Ok(());
         }
         let index = self.entries.len();
+        let existed = path.is_file();
+        append_record(
+            self.journal.as_mut().expect("open journal"),
+            &JournalRecord::Saved {
+                path: relative.clone(),
+                existed,
+            },
+        )?;
+        self.index.insert(relative.clone(), index);
         self.entries.push(SavedFile {
             path: relative,
-            existed: path.is_file(),
+            existed,
             moved_to: None,
         });
-        fsx::atomic_write_json(
-            &self.root.join(".coa-races-transaction/journal.json"),
-            &self.entries,
-        )?;
-        if path.is_file() {
+        if existed {
             move_patch_file(
                 path,
                 &self
@@ -619,21 +749,16 @@ impl<'a> PatchTransaction<'a> {
         // Save the destination first so recovery restores the moved source before it.
         self.save(target)?;
         self.save(source)?;
-        let index = self
-            .entries
-            .iter()
-            .position(|entry| self.root.join(&entry.path) == source)
-            .unwrap();
-        let relative = target
-            .strip_prefix(self.root)
-            .map_err(|_| Error::Invalid("Patch path escaped the client directory.".into()))?
-            .to_string_lossy()
-            .replace('\\', "/");
-        self.entries[index].moved_to = Some(relative);
-        fsx::atomic_write_json(
-            &self.root.join(".coa-races-transaction/journal.json"),
-            &self.entries,
+        let index = self.index[&self.relative(source)?];
+        let relative = self.relative(target)?;
+        append_record(
+            self.journal.as_mut().expect("open journal"),
+            &JournalRecord::Moved {
+                index,
+                to: relative.clone(),
+            },
         )?;
+        self.entries[index].moved_to = Some(relative);
         fs::create_dir_all(target.parent().unwrap())?;
         move_patch_file(
             &self
@@ -651,6 +776,8 @@ impl<'a> PatchTransaction<'a> {
             b"committed",
         )?;
         self.finished = true;
+        // Windows cannot remove a directory while a file in it is open.
+        self.journal = None;
         fs::remove_dir_all(self.root.join(".coa-races-transaction"))?;
         Ok(())
     }
@@ -658,6 +785,7 @@ impl<'a> PatchTransaction<'a> {
 impl Drop for PatchTransaction<'_> {
     fn drop(&mut self) {
         if !self.finished {
+            self.journal = None;
             let _ = recover_patch_transaction(self.root);
         }
     }
@@ -668,8 +796,19 @@ fn recover_patch_transaction(root: &Path) -> Result<()> {
     if !directory.is_dir() {
         return Ok(());
     }
-    if !directory.join("committed").exists() && directory.join("journal.json").exists() {
-        let mut entries: Vec<SavedFile> = fsx::read_json(&directory.join("journal.json"))?;
+    if !directory.join("committed").exists() {
+        let legacy = directory.join(LEGACY_JOURNAL).is_file();
+        let mut entries = read_journal(&directory)?;
+        let mut journal = if legacy {
+            None
+        } else {
+            Some(
+                fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(directory.join(JOURNAL))?,
+            )
+        };
         for index in (0..entries.len()).rev() {
             let entry = &entries[index];
             let path = fsx::safe_join(root, &entry.path)?;
@@ -681,7 +820,10 @@ fn recover_patch_transaction(root: &Path) -> Result<()> {
                 }
                 // Persist recovery progress before restoring the source, making retries safe.
                 entries[index].moved_to = None;
-                fsx::atomic_write_json(&directory.join("journal.json"), &entries)?;
+                match journal.as_mut() {
+                    Some(journal) => append_record(journal, &JournalRecord::Returned { index })?,
+                    None => fsx::atomic_write_json(&directory.join(LEGACY_JOURNAL), &entries)?,
+                }
             }
             let entry = &entries[index];
             if saved.is_file() {
@@ -693,6 +835,7 @@ fn recover_patch_transaction(root: &Path) -> Result<()> {
                 fs::remove_file(path)?;
             }
         }
+        drop(journal);
     }
     fs::remove_dir_all(directory)?;
     Ok(())
@@ -783,7 +926,8 @@ pub fn set_client_patch_enabled(client: &Path, enabled: bool) -> Result<()> {
         let active = client.join(&file.path);
         let disabled = suffix(&active, "disabled");
         let original = suffix(&active, "original");
-        if enabled {
+        // Data the stock client never reads stays active, and an older Manager's disabled copy comes back.
+        if enabled || !is_switched(client, &file) {
             if active.is_file() && !matches_patch(&active, &file) {
                 preserve_original(&mut tx, &active)?;
             }
@@ -1422,6 +1566,7 @@ mod tests {
                 ("ADDON", base)
             } else {
                 name.strip_prefix("Data/")
+                    .filter(|base| !base.contains('/'))
                     .map_or(("ROOT", *name), |base| ("MPQ", base))
             };
             manifest.push_str(&format!(
@@ -1430,6 +1575,146 @@ mod tests {
             ));
         }
         fs::write(root.join(MANIFEST_FILENAME), manifest).unwrap();
+    }
+
+    const SWITCHED: &[&str] = &[
+        "Data/patch-ZE1.MPQ",
+        "dinput8.dll",
+        "CoACustomRace.exe",
+        "Start-CoACustomRace.bat",
+        "Interface/AddOns/CoAHideArmor/CoAHideArmor.lua",
+    ];
+    const INERT: &[&str] = &[
+        "Data/Retail/Cache/Retail/wow/decoded/2/strict/id-1.bin",
+        "Data/Retail/RetailCasc.ini",
+        "VulkanShaders/a.spv",
+        "Vulkan/d3d9.dll",
+        "forever_data/hd_forever_fog.txt",
+        "EsteriaAppearance.bin",
+    ];
+
+    fn client_with(root: &Path, names: &[&str]) {
+        for name in names {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, format!("custom {name}")).unwrap();
+        }
+        record_files(root, names);
+    }
+
+    #[test]
+    fn disabling_hides_only_what_the_stock_client_loads() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let all: Vec<&str> = SWITCHED.iter().chain(INERT).copied().collect();
+        client_with(root, &all);
+        set_client_patch_enabled(root, false).unwrap();
+        for name in SWITCHED {
+            assert!(!root.join(name).exists(), "{name} stays active");
+            assert!(suffix(&root.join(name), "disabled").is_file(), "{name}");
+        }
+        for name in INERT {
+            assert!(root.join(name).is_file(), "{name} was moved");
+            assert!(!suffix(&root.join(name), "disabled").exists(), "{name}");
+        }
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Disabled);
+        set_client_patch_enabled(root, true).unwrap();
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Enabled);
+        for name in &all {
+            assert!(root.join(name).is_file(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_file_that_replaced_the_players_own_is_still_switched() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let name = "Data/Retail/RetailCasc.ini";
+        client_with(root, &[name]);
+        fs::write(suffix(&root.join(name), "original"), b"player").unwrap();
+        set_client_patch_enabled(root, false).unwrap();
+        assert_eq!(fs::read(root.join(name)).unwrap(), b"player");
+        assert!(suffix(&root.join(name), "disabled").is_file());
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Disabled);
+    }
+
+    #[test]
+    fn a_client_disabled_by_an_older_manager_is_disabled_and_enables() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let all: Vec<&str> = SWITCHED.iter().chain(INERT).copied().collect();
+        client_with(root, &all);
+        // 0.9.13 renamed every file of the payload.
+        for name in &all {
+            fs::rename(root.join(name), suffix(&root.join(name), "disabled")).unwrap();
+        }
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Disabled);
+        set_client_patch_enabled(root, false).unwrap();
+        for name in INERT {
+            assert!(root.join(name).is_file(), "{name} not restored");
+        }
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Disabled);
+        set_client_patch_enabled(root, true).unwrap();
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Enabled);
+    }
+
+    #[test]
+    fn a_transaction_left_by_an_older_manager_is_recovered() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let directory = root.join(".coa-races-transaction");
+        fs::create_dir(&directory).unwrap();
+        // The source was moved into the journal and then on to its destination when the old Manager stopped.
+        fs::write(root.join("patch.MPQ.disabled"), b"patch bytes").unwrap();
+        fs::write(
+            directory.join(LEGACY_JOURNAL),
+            r#"[{"path":"patch.MPQ.disabled","existed":false},{"path":"patch.MPQ","existed":true,"moved_to":"patch.MPQ.disabled"}]"#,
+        )
+        .unwrap();
+        recover_patch_transaction(root).unwrap();
+        assert_eq!(fs::read(root.join("patch.MPQ")).unwrap(), b"patch bytes");
+        assert!(!root.join("patch.MPQ.disabled").exists());
+        assert!(!directory.exists());
+    }
+
+    #[test]
+    fn a_journal_line_cut_short_by_a_crash_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let file = root.join("dinput8.dll");
+        fs::write(&file, b"previous").unwrap();
+        let mut tx = PatchTransaction::new(root).unwrap();
+        tx.save(&file).unwrap();
+        fs::write(&file, b"replacement").unwrap();
+        drop(tx.journal.take());
+        std::mem::forget(tx);
+        let journal = root.join(".coa-races-transaction").join(JOURNAL);
+        let mut bytes = fs::read(&journal).unwrap();
+        bytes.extend_from_slice(br#"{"saved":{"path":"other.dll","exi"#);
+        fs::write(&journal, bytes).unwrap();
+        recover_patch_transaction(root).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"previous");
+        assert!(!root.join(".coa-races-transaction").exists());
+    }
+
+    #[test]
+    fn switching_a_release_sized_payload_takes_seconds() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let mut names: Vec<String> = (0..7000)
+            .map(|i| format!("VulkanShaders/shader-{i}.spv"))
+            .collect();
+        names.extend((0..80).map(|i| format!("Data/patch-Z{i}.MPQ")));
+        names.extend((0..140).map(|i| format!("Interface/AddOns/Addon{}/file{i}.lua", i % 9)));
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        client_with(root, &names);
+        let started = std::time::Instant::now();
+        set_client_patch_enabled(root, false).unwrap();
+        set_client_patch_enabled(root, true).unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(client_patch_status(root).state, ClientPatchState::Enabled);
+        // 0.9.13 needed minutes here: it moved every file and rewrote the whole journal after each one.
+        assert!(elapsed < std::time::Duration::from_secs(60), "{elapsed:?}");
     }
 
     #[test]
@@ -1548,8 +1833,23 @@ mod tests {
         assert!(root
             .join("Interface/AddOns/Ascension_Subclass")
             .is_dir());
+        let started = std::time::Instant::now();
         set_client_patch_enabled(root, false).unwrap();
+        eprintln!("disable took {:?}", started.elapsed());
         assert_eq!(client_patch_status(root).state, ClientPatchState::Disabled);
+        // Only what the stock client loads is hidden; the data its executable alone reads stays put.
+        assert!(!root.join("CoACustomRace.exe").exists());
+        assert!(!root.join("dinput8.dll").exists());
+        assert!(!root.join("Data/patch-ZZZD.MPQ").exists());
+        assert!(!root.join("Interface/AddOns/CoAHideArmor/CoAHideArmor.lua").exists());
+        assert!(root.join("Vulkan/d3d9.dll").is_file());
+        assert!(root.join("Data/Retail/RetailCasc.ini").is_file());
+        let hidden = patch_files(root)
+            .unwrap()
+            .iter()
+            .filter(|file| suffix(&root.join(&file.path), "disabled").is_file())
+            .count();
+        eprintln!("hidden {hidden} of {}", patch_files(root).unwrap().len());
         assert_eq!(
             fs::read(root.join("Ascension.exe")).unwrap(),
             b"original game executable"
@@ -1558,7 +1858,9 @@ mod tests {
             fs::read(root.join("Data/patch-T.MPQ")).unwrap(),
             b"original game patch"
         );
+        let started = std::time::Instant::now();
         set_client_patch_enabled(root, true).unwrap();
+        eprintln!("enable took {:?}", started.elapsed());
         assert_eq!(client_patch_status(root).state, ClientPatchState::Enabled);
         uninstall_client_patches(root).unwrap();
         assert_eq!(
