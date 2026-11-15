@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "coa-launcher"
-version = "0.9.10"
+version = "0.9.13"
 dependencies = [
  "coa-core",
  "serde_json",
