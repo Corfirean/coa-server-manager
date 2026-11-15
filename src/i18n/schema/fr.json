@@ -149,6 +149,16 @@
    "t": "Rayon de recherche des cibles",
    "d": "Jusqu’où un bot cherche des cibles de quête dans une zone d’objectif."
   },
+  "CoaBots.Scaling.Enable": {"t": "Aide de puissance pour les bots en donjon et en raid", "d": "Interrupteur général des multiplicateurs ci-dessous. Tant que vous ne les augmentez pas, ils valent tous 1 (aucun changement)."},
+  "CoaBots.Scaling.Dungeons": {"t": "Aide en donjon à 5 joueurs", "d": "Applique les multiplicateurs tant qu'un bot est dans un donjon à 5 joueurs."},
+  "CoaBots.Scaling.Raids": {"t": "Aide en raid", "d": "Applique les multiplicateurs tant qu'un bot est dans un raid."},
+  "CoaBots.Scaling.Battlegrounds": {"t": "Aide en champ de bataille et en arène", "d": "Applique les multiplicateurs en champ de bataille et en arène."},
+  "CoaBots.Scaling.World": {"t": "Aide en monde ouvert", "d": "Applique les multiplicateurs hors des donjons et des raids. Rarement souhaité."},
+  "CoaBots.Scaling.DamageDone": {"t": "Dégâts des bots", "d": "Multiplie les dégâts que les bots et leurs familiers infligent aux créatures. 1 : aucun changement ; plus élevé = contenu plus facile."},
+  "CoaBots.Scaling.HealingDone": {"t": "Soins des bots", "d": "Multiplie les soins lancés par les bots. 1 : aucun changement."},
+  "CoaBots.Scaling.DamageTaken": {"t": "Dégâts subis par les bots", "d": "Multiplie les dégâts que les créatures infligent aux bots. Sous 1, les bots en subissent moins ; 1 : aucun changement."},
+  "CoaBots.Scaling.TankThreat": {"t": "Menace des tanks", "d": "Menace supplémentaire générée par les tanks bots, pour qu'ils gardent l'attention des ennemis. 1 : aucun changement."},
+  "CoaBots.Scaling.BossTuning": {"t": "Aide supplémentaire contre quatre boss", "d": "Ajoute des multiplicateurs plus forts pour Loken, l'élémentaire drakkari, le colosse drakkari et Gal'darah, que les bots de niveau 60 ne battaient pas autrement. Pour les tests ; désactivé par défaut."},
   "CoaBots.WorldBrain.EngageRange": {
    "t": "Distance d’engagement",
    "d": "Distance à laquelle un bot commence à combattre un monstre de quête."

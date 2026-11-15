@@ -1,6 +1,6 @@
 {
-  "version": "0.9.10",
+  "version": "0.9.13",
   "notes": [
-    "Custom Races patch installation recovers from interrupted downloads"
+    "The custom races client is updated to Custom Races V2"
   ]
 }

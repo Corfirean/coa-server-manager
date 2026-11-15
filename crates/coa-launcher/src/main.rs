@@ -100,7 +100,7 @@ fn run(args: Args) -> Result<(), String> {
     match args.action.as_str() {
         "watch-world" => {
             let me = std::env::current_exe().map_err(|x| x.to_string())?;
-            return world::watch_world(root, Some(&me), &|m| say(m)).map_err(e);
+            return world::watch_world(root, Some(&me), args.offset, &|m| say(m)).map_err(e);
         }
         "relay-worker" => return coa_core::launcher::relay::worker(root).map_err(e),
         "debug-logs-status" => {

@@ -169,6 +169,16 @@
    "t": "任务目标搜索半径",
    "d": "机器人在目标区域内寻找任务怪或任务道具的扫描范围。"
   },
+  "CoaBots.Scaling.Enable": {"t": "机器人在地下城和团队副本中的强度辅助", "d": "下方倍率的总开关。在你调高之前，所有倍率均为1（无变化）。"},
+  "CoaBots.Scaling.Dungeons": {"t": "5人地下城辅助", "d": "机器人处于5人地下城时应用倍率。"},
+  "CoaBots.Scaling.Raids": {"t": "团队副本辅助", "d": "机器人处于团队副本时应用倍率。"},
+  "CoaBots.Scaling.Battlegrounds": {"t": "战场与竞技场辅助", "d": "在战场和竞技场中应用倍率。"},
+  "CoaBots.Scaling.World": {"t": "野外辅助", "d": "在地下城和团队副本之外应用倍率。通常不需要。"},
+  "CoaBots.Scaling.DamageDone": {"t": "机器人伤害", "d": "倍乘机器人及其宠物对生物造成的伤害。1表示无变化；越高内容越容易。"},
+  "CoaBots.Scaling.HealingDone": {"t": "机器人治疗", "d": "倍乘机器人施放的治疗量。1表示无变化。"},
+  "CoaBots.Scaling.DamageTaken": {"t": "机器人受到的伤害", "d": "倍乘生物对机器人造成的伤害。低于1时机器人受到的伤害更少；1表示无变化。"},
+  "CoaBots.Scaling.TankThreat": {"t": "坦克仇恨", "d": "机器人坦克额外产生的仇恨，使其更容易吸引敌人注意。1表示无变化。"},
+  "CoaBots.Scaling.BossTuning": {"t": "针对四个首领的额外辅助", "d": "为洛肯、达卡莱元素、达卡莱巨像和加尔达拉添加更强的倍率，60级机器人否则无法击败他们。用于测试；默认关闭。"},
   "CoaBots.WorldBrain.EngageRange": {
    "t": "开战交战距离",
    "d": "机器人发现任务目标怪并开始主动进入战斗的距离。"

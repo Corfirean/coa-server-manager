@@ -228,7 +228,7 @@ export function Overview({ server, companions = true, onForget, onOpenUpdates, o
       } else {
         if (alive.current) setPop(null);
         if (
-          lifecycle.observe(false, actionRef.current !== null, serverUpdateBlocksRestart(server.id))
+          lifecycle.observe(false, actionRef.current !== null || s.scheduled_restart === true, serverUpdateBlocksRestart(server.id))
         ) {
           setHasCrashHistory(true);
           const now = Date.now();

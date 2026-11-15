@@ -60,9 +60,14 @@ export interface StatusView {
   observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus; secondary_world?: ServiceStatus | null; reborn_world?: ServiceStatus | null };
   busy: boolean;
   path_exists: boolean;
+  scheduled_restart?: boolean;
 }
 
 export type RealmMode = "coa" | "wildcard" | "reborn";
+export interface RestartSchedule { enabled: boolean; time: string; warningMinutes: number }
+export interface RestartScheduleView { schedule: RestartSchedule; supported: boolean }
+export interface CustomMysql { text: string; applied: string }
+export interface RealmName { id: number; name: string; defaultName: string; custom: boolean }
 export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean; with_reborn: boolean; reborn_world_port: number | null; reborn_running: boolean }
 export interface DatabaseCheck {
   realm: RealmMode;
@@ -730,6 +735,12 @@ export const api = {
     realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
     realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
     realmSimultaneous: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_simultaneous", { id, enabled }),
+    restartSchedule: (id: string) => invoke<RestartScheduleView>("restart_schedule", { id }),
+    restartScheduleSave: (id: string, schedule: RestartSchedule) => invoke<RestartScheduleView>("restart_schedule_save", { id, schedule }),
+    mysqlCustom: (id: string) => invoke<CustomMysql>("mysql_custom", { id }),
+    mysqlCustomSave: (id: string, text: string) => invoke<CustomMysql>("mysql_custom_save", { id, text }),
+    realmNames: (id: string) => invoke<RealmName[]>("realm_names", { id }),
+    realmRename: (id: string, realmId: number, name: string | null) => invoke<RealmName[]>("realm_rename", { id, realmId, name }),
     realmWithReborn: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_with_reborn", { id, enabled }),
     checkDatabase: (id: string) => invoke<DatabaseCheck[]>("check_database", { id }),
     repairServer: (id: string) => invoke<RepairReport>("repair_server", { id }),

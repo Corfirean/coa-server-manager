@@ -14,7 +14,7 @@ pub const PORT_KEYS: [&str; 4] = ["mysqlPort", "authPort", "worldPort", "raPort"
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Realm {
     pub id: u32,
-    pub name: &'static str,
+    pub name: String,
     pub world_db: &'static str,
     pub characters_db: &'static str,
 }
@@ -22,15 +22,19 @@ pub struct Realm {
 impl Realm {
     pub fn load(root: &Path) -> Result<Realm> {
         let path = root.join("Settings/realm-profile.json");
-        if !path.exists() {
-            return Ok(Realm { id: 1, name: "AzerothCore", world_db: "acore_world", characters_db: "acore_characters" });
-        }
-        let v: serde_json::Value = crate::fsx::read_json(&path)?;
-        Ok(match v.get("active").and_then(|a| a.as_str()).unwrap_or("coa") {
-            "wildcard" => Realm { id: 2, name: "Wildcard", world_db: "acore_world_wildcard", characters_db: "acore_characters_wildcard" },
-            "reborn" => Realm { id: 3, name: "Warcraft Reborn", world_db: "acore_world_reborn", characters_db: "acore_characters_reborn" },
-            _ => Realm { id: 1, name: "Conquest of Azeroth", world_db: "acore_world", characters_db: "acore_characters" },
-        })
+        let (id, name, world_db, characters_db) = if !path.exists() {
+            (1, "AzerothCore", "acore_world", "acore_characters")
+        } else {
+            let v: serde_json::Value = crate::fsx::read_json(&path)?;
+            match v.get("active").and_then(|a| a.as_str()).unwrap_or("coa") {
+                "wildcard" => (2, "Wildcard", "acore_world_wildcard", "acore_characters_wildcard"),
+                "reborn" => (3, "Warcraft Reborn", "acore_world_reborn", "acore_characters_reborn"),
+                _ => (1, "Conquest of Azeroth", "acore_world", "acore_characters"),
+            }
+        };
+        // The owner's own name for this realm, when one was chosen in the Manager.
+        let name = crate::realm_names::name_or(root, id, name);
+        Ok(Realm { id, name, world_db, characters_db })
     }
 }
 

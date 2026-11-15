@@ -40,3 +40,12 @@ These files describe preparation and do not add unpublished releases to canonica
 Manager 0.9.10 refreshes the bundled server history through 0.261104.94 from
 canonical build commit `a9c6b17c8c1a295680fda4ad4bcdde266357264d` on 2026-11-08.
 The reviewed upcoming Manager and server records carry translations in all five languages.
+
+Manager 0.9.12 refreshes the bundled server history through 0.261108.95 from
+canonical build commit `ca04f96f600481446f97ac611c7f914d786af00b` on 2026-11-14.
+The reviewed upcoming Manager and server records carry translations in all five languages.
+
+Manager 0.9.13 refreshes the bundled server history through 0.261114.106 from
+canonical build commit `3308e3a957cd9fd1a2cd145a7f023f2cf521c54c` on 2026-11-15.
+The reviewed upcoming Manager and server records (Custom Races V2, 213 server notes)
+carry translations in all five languages.

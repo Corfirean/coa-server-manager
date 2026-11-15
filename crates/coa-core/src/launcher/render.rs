@@ -140,6 +140,7 @@ pub fn prepare(root: &Path, config: &Settings) -> Result<Vec<PathBuf>> {
         std::fs::write(root.join(target), text.as_bytes())?;
         written.push(root.join(target));
     }
+    let custom = custom_mysql_options(root);
     let files: [(&str, String); 3] = [
         (
             "Core/configs/modules/coa_bugreport.conf",
@@ -150,7 +151,7 @@ pub fn prepare(root: &Path, config: &Settings) -> Result<Vec<PathBuf>> {
         (
             "mysql/my.ini",
             format!(
-                "[mysqld]\nbasedir=\"{base}/mysql\"\ndatadir=\"{base}/mysql/data\"\nport={mysql_port}\nbind-address=127.0.0.1\nmysqlx=0\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_unicode_ci\nmax_allowed_packet=128M\ninnodb_buffer_pool_size=256M\nskip-log-bin\nlog-error=\"{base}/mysql/logs/mysql-error.log\"\npid-file=\"{base}/mysql/mysql.pid\"\n"
+                "[mysqld]\nbasedir=\"{base}/mysql\"\ndatadir=\"{base}/mysql/data\"\nport={mysql_port}\nbind-address=127.0.0.1\nmysqlx=0\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_unicode_ci\nmax_allowed_packet=128M\ninnodb_buffer_pool_size=256M\nskip-log-bin\nlog-error=\"{base}/mysql/logs/mysql-error.log\"\npid-file=\"{base}/mysql/mysql.pid\"\n{custom}"
             ),
         ),
         (
@@ -166,6 +167,85 @@ pub fn prepare(root: &Path, config: &Settings) -> Result<Vec<PathBuf>> {
     }
     state::write_json(&previous, &signature)?;
     Ok(written)
+}
+
+/// The owner's file of extra MySQL options; the launcher rewrites `mysql/my.ini` at every start.
+pub const CUSTOM_MYSQL: &str = "Settings/mysql-custom.ini";
+
+/// The owner's MySQL options as written, and the lines a start will add to `[mysqld]`.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomMysql {
+    pub text: String,
+    pub applied: String,
+}
+
+pub fn read_custom_mysql(root: &Path) -> CustomMysql {
+    let text = std::fs::read(root.join(CUSTOM_MYSQL))
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .unwrap_or_default();
+    CustomMysql { text, applied: custom_mysql_options(root) }
+}
+
+/// Save the owner's MySQL options; they apply at the next start of the database.
+pub fn write_custom_mysql(root: &Path, text: &str) -> Result<CustomMysql> {
+    if text.len() > 16 * 1024 || text.contains(char::from(0)) {
+        return Err(Error::Invalid("The MySQL options must be plain text of at most 16 KB.".into()));
+    }
+    crate::fsx::atomic_write(&root.join(CUSTOM_MYSQL), text.replace("\r\n", "\n").as_bytes())?;
+    Ok(read_custom_mysql(root))
+}
+
+/// Options the server cannot run without, which only the launcher sets.
+const MANAGED_MYSQL_OPTIONS: [&str; 10] = [
+    "basedir",
+    "datadir",
+    "port",
+    "bind-address",
+    "mysqlx",
+    "log-error",
+    "pid-file",
+    "socket",
+    "skip-networking",
+    "defaults-file",
+];
+
+/// `name = value` lines of the owner's file (outside any section or in `[mysqld]`), as lines for `[mysqld]`.
+/// Comments, other sections, `!include` and the options the launcher manages are left out.
+pub fn custom_mysql_options(root: &Path) -> String {
+    let Ok(bytes) = std::fs::read(root.join(CUSTOM_MYSQL)) else {
+        return String::new();
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    let mut in_mysqld = true;
+    let mut out = String::new();
+    for line in text.trim_start_matches('\u{feff}').lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_mysqld = line.eq_ignore_ascii_case("[mysqld]");
+            continue;
+        }
+        if !in_mysqld || line.starts_with('!') {
+            continue;
+        }
+        let name = line
+            .split('=')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+            .replace('_', "-");
+        let name = name.strip_prefix("loose-").unwrap_or(&name);
+        if name.is_empty() || MANAGED_MYSQL_OPTIONS.contains(&name) {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 #[cfg(windows)]
@@ -204,6 +284,22 @@ mod tests {
         w("Settings/authserver.conf.template", b"[authserver]\r\nLoginDatabaseInfo = \"@LoginDatabaseInfo@\"\r\nRealmServerPort = @AUTH_PORT@\r\nLogsDir = \"@LOGS@\"\r\n# @NOT_A_VALUE@ in a comment is fine\r\n");
         w("Settings/worldserver.conf.template", "[worldserver]\nDataDir = \"@DATA@\"\nWorldServerPort = @WORLD_PORT@\nRa.Port = @RA_PORT@\nWorldDatabaseInfo = \"@WorldDatabaseInfo@\"\nCharacterDatabaseInfo = \"@CharacterDatabaseInfo@\"\nMySQLExecutable = \"@MYSQL_EXE@\"\nMotd = \"Ünïcode stays\"\n".as_bytes());
         w("Settings/mod_ascension_compat.conf.template", b"Ascension.DbcDir = \"@ASCENSION_DBC@\"\rOld.Mac = 1\r");
+    }
+
+    #[test]
+    fn the_owners_mysql_options_are_kept_except_the_managed_ones() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("Settings")).unwrap();
+        std::fs::write(
+            d.path().join(CUSTOM_MYSQL),
+            "\u{feff}# tuning\ninnodb_buffer_pool_size = 2G\nport=3999\nloose_bind_address=0.0.0.0\n!include C:/x.ini\n[client]\nuser=evil\n[mysqld]\nmax_connections=500\nDATADIR=D:/elsewhere\n",
+        )
+        .unwrap();
+        assert_eq!(
+            custom_mysql_options(d.path()),
+            "innodb_buffer_pool_size = 2G\nmax_connections=500\n"
+        );
+        assert_eq!(custom_mysql_options(&d.path().join("missing")), "");
     }
 
     #[test]

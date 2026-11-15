@@ -12,6 +12,9 @@ import { ReleaseHistory, type HistorySelection } from "./ReleaseHistory";
 import { ClientCard } from "./ClientCard";
 import { GameDataCard } from "./GameDataCard";
 import { RealmStartupSettings } from "./RealmStartupSettings";
+import { RealmNameSettings } from "./RealmNameSettings";
+import { MySqlSettings } from "./MySqlSettings";
+import { RestartScheduleSettings } from "./RestartScheduleSettings";
 import { AutoRestartSettings } from "./AutoRestartSettings";
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { RepairCard } from "./RepairCard";
@@ -50,9 +53,9 @@ export function SettingsHome({ serverId, path, onForget }: { serverId: string; s
       <button onClick={() => setSection("client")} className="mt-5 flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-5 py-4 text-left text-sm hover:bg-white/5"><span>{t("settings.clientLink")}</span><span aria-hidden>→</span></button>
       <ReleaseHistory selection={history} onSelect={setHistory} />
     </div>
-    <div hidden={section !== "startup"} className="max-w-3xl"><RealmStartupSettings serverId={serverId} /><AutoRestartSettings serverId={serverId} /></div>
+    <div hidden={section !== "startup"} className="max-w-3xl"><RealmNameSettings serverId={serverId} /><RealmStartupSettings serverId={serverId} /><AutoRestartSettings serverId={serverId} /><RestartScheduleSettings serverId={serverId} /></div>
     <div hidden={section !== "client"} className="max-w-3xl"><ClientCard serverId={serverId} /><GameDataCard serverId={serverId} /></div>
-    <div hidden={section !== "service"} className="max-w-3xl"><ServerLoggingSettings serverId={serverId} /><DiagnosticsCard serverId={serverId} /><RepairCard serverId={serverId} /><RemoveServerCard serverId={serverId} path={path} onForget={onForget} /></div>
+    <div hidden={section !== "service"} className="max-w-3xl"><ServerLoggingSettings serverId={serverId} /><MySqlSettings serverId={serverId} /><DiagnosticsCard serverId={serverId} /><RepairCard serverId={serverId} /><RemoveServerCard serverId={serverId} path={path} onForget={onForget} /></div>
     <div hidden={section !== "interface"} className="max-w-3xl"><Card className="mt-6 p-6"><h2 className="font-semibold">{t("settings.language")}</h2><p className="mt-1 text-sm text-muted">{t("settings.languageHint")}</p><LanguagePicker className="mt-4" /></Card><WindowSettings /><PublicServerSettings /></div>
   </div>;
 }
