@@ -627,52 +627,53 @@ async fn start_server(
     let out = blocking(move || driver::run(&root, Verb::StartAll)).await?;
     if out.ok {
         if let Ok(root) = path_of(&state, &id) {
-            // Companions requested while the server was stopped are created now (once; a failure is only logged).
+            // Companions requested while the server was stopped are reconciled and created now per realm.
             let r = root.clone();
+            let instance_id = id.clone();
             let _ = tauri::async_runtime::spawn_blocking(move || -> Result<()> {
                 if coa_core::realms::guard_module(&r, "companions").is_err() {
                     return Ok(());
                 }
                 let meta = meta_dir(&r)?;
+                if let Err(e) = coa_core::companions::migrate_legacy_pending_job(&meta, &instance_id) {
+                    tracing::warn!("failed to migrate legacy pending companions job: {e}");
+                }
                 for mode in [
                     coa_core::realms::Mode::Coa,
                     coa_core::realms::Mode::Wildcard,
                     coa_core::realms::Mode::Reborn,
                 ] {
-                    if let Ok(Some(job)) = coa_core::companions::load_pending_job(&meta, mode.name()) {
-                        let _ = coa_core::companions::clear_pending_job(&meta, mode.name());
-                        if job.count > 0 {
-                            if let Ok(admin_db) = coa_core::db::Db::from_repack(&r, coa_core::db::Account::Admin) {
-                                if let Ok(target) = coa_core::multiworld::resolve_bot_operation_target(&r, mode) {
-                                    let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, target.chars_db);
-                                }
-                            }
-                            if let Ok(mut ra) = Ra::connect_target(&r, Some(mode)) {
-                                let res = if let Some(lvl) = job.level {
-                                    ra.spawn_custom(job.count, lvl, job.class_id, job.spec_id, job.build_id.as_deref())
-                                } else {
-                                    ra.spawn_bots(job.count)
-                                };
-                                if let Err(e) = res {
-                                    tracing::warn!("pending companions for realm {} were not created: {e}", mode.name());
-                                }
-                            }
+                    let target = match coa_core::multiworld::resolve_bot_operation_target(&r, mode) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::warn!("cannot resolve target for realm {}: {e}", mode.name());
+                            continue;
                         }
-                    }
-                }
-                let pending = meta.join("companions.pending.json");
-                if let Ok(v) = coa_core::fsx::read_json::<serde_json::Value>(&pending) {
-                    let _ = std::fs::remove_file(&pending);
-                    let n = v["count"].as_u64().unwrap_or(0) as u32;
-                    if n > 0 {
-                        let made = coa_core::db::Db::from_repack(&r, coa_core::db::Account::Admin)
-                            .and_then(|db| coa_core::companions::ensure_templates(&db));
-                        if let Err(e) = made
-                            .and_then(|_| Ra::connect(&r))
-                            .and_then(|mut ra| ra.spawn_bots(n))
-                        {
-                            tracing::warn!("pending companions were not created: {e}");
-                        }
+                    };
+                    let r_snap = r.clone();
+                    let chars_db = target.chars_db;
+                    let r_ra = r.clone();
+                    let res = coa_core::companions::process_pending_job_with(
+                        &meta,
+                        mode,
+                        &instance_id,
+                        target.running,
+                        |since_guid| {
+                            let admin_db = coa_core::db::Db::from_repack(&r_snap, coa_core::db::Account::Admin)?;
+                            let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, chars_db);
+                            coa_core::companions::query_bot_db_snapshot(&r_snap, &admin_db, chars_db, since_guid)
+                        },
+                        |delta, job| {
+                            let mut ra = Ra::connect_target(&r_ra, Some(mode))?;
+                            if let Some(lvl) = job.level {
+                                ra.spawn_custom(delta, lvl, job.class_id, job.spec_id, job.build_id.as_deref())
+                            } else {
+                                ra.spawn_bots(delta)
+                            }
+                        },
+                    );
+                    if let Err(e) = res {
+                        tracing::warn!("pending companions for realm {} failed during reconciliation: {e}", mode.name());
                     }
                 }
                 Ok(())
@@ -1918,9 +1919,27 @@ async fn companions_stop_spawning(
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
-        Ok(CompanionAction {
-            count: Ra::connect_target(&root, realm)?.cancel_spawning()?,
-        })
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        let meta = meta_dir(&root)?;
+        let cancelled_pending = coa_core::companions::cancel_pending_job(&meta, mode.name())
+            .ok()
+            .flatten();
+        match Ra::connect_target(&root, Some(mode)).and_then(|mut ra| ra.cancel_spawning()) {
+            Ok(ra_cancelled) => Ok(CompanionAction {
+                count: ra_cancelled + cancelled_pending.map(|j| j.remaining_count()).unwrap_or(0),
+            }),
+            Err(e) => {
+                if let Some(job) = cancelled_pending {
+                    Ok(CompanionAction {
+                        count: job.remaining_count(),
+                    })
+                } else {
+                    Err(e)
+                }
+            }
+        }
     })
     .await
 }
@@ -2007,6 +2026,7 @@ async fn companions_delete_all(
         let before = coa_core::population::query_for_realm(&root, mode)
             .map(|p| p.bots_total)
             .unwrap_or(0);
+        let _ = coa_core::companions::cancel_pending_job(&meta, mode.name());
         let mut ra = Ra::connect_target(&root, Some(mode))?;
         let _ = ra.cancel_spawning();
         ra.purge_all()?;
@@ -2080,19 +2100,39 @@ async fn add_companions(
         let mode = realm.unwrap_or_else(|| {
             coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
         });
+        coa_core::companions::validate_spawn_request(
+            mode,
+            count,
+            level,
+            class_id,
+            spec_id,
+            archetype.as_deref(),
+        )?;
         let target = coa_core::multiworld::resolve_bot_operation_target(&root, mode)?;
+        if mode == coa_core::realms::Mode::Wildcard {
+            if let Some(ref arch_id) = archetype {
+                if !arch_id.trim().is_empty() {
+                    let db = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?;
+                    let archetypes = coa_core::companions::list_wildcard_archetypes(&db, target.chars_db)?;
+                    if !archetypes.iter().any(|a| a.id.eq_ignore_ascii_case(arch_id.trim())) {
+                        return Err(Error::Invalid(format!(
+                            "Unknown Wildcard build UUID '{}' in {}.coa_build_creator.",
+                            arch_id.trim(),
+                            target.chars_db
+                        )));
+                    }
+                }
+            }
+        }
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
-        let existing_max = config::load(&target.world_root, Scope::Bots)
-            .or_else(|_| config::load(&root, Scope::Bots))
-            .ok()
-            .and_then(|v| {
-                v.settings
-                    .iter()
-                    .find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount")
-                    .and_then(|s| s.value.as_u64())
-            })
+        let existing_cfg = config::load(&target.world_root, Scope::Bots)?;
+        let existing_max = existing_cfg
+            .settings
+            .iter()
+            .find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount")
+            .and_then(|s| s.value.as_u64())
             .unwrap_or(0) as u32;
         let already = coa_core::population::query_for_realm(&root, mode)
             .map(|p| p.bots_total)
@@ -2101,8 +2141,7 @@ async fn add_companions(
             "CoaBots.AutoLogin.MaxCount".to_string(),
             Value::from(existing_max.max(already + count).min(5000)),
         );
-        let _ = config::save(&target.world_root, &meta, Scope::Bots, &changes)
-            .or_else(|_| config::save(&root, &meta, Scope::Bots, &changes));
+        config::save(&target.world_root, &meta, Scope::Bots, &changes)?;
 
         let mut baseline = None;
         let spawned = if target.running {
@@ -2119,33 +2158,23 @@ async fn add_companions(
                 Some(ra.spawn_bots(count)?)
             }
         } else {
-            let job = coa_core::companions::CompanionsPendingJob {
-                job_id: uuid::Uuid::new_v4().to_string(),
-                server_instance_id: id.clone(),
-                realm: mode.name().to_string(),
+            let _ = coa_core::companions::migrate_legacy_pending_job(&meta, &id);
+            let mut job = coa_core::companions::CompanionsPendingJob::new(
+                &id,
+                mode.name(),
                 count,
                 level,
                 class_id,
                 spec_id,
-                build_id: archetype.clone(),
-                requested_operation: "spawn".to_string(),
-                created_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
-                state: "pending".to_string(),
-                completed_count: 0,
-                failed_count: 0,
-                last_error: None,
-                schema_version: 1,
-            };
-            coa_core::companions::save_pending_job(&meta, mode.name(), &job)?;
-            if mode == coa_core::realms::Mode::Coa {
-                let _ = coa_core::fsx::atomic_write_json(
-                    &meta.join("companions.pending.json"),
-                    &serde_json::json!({ "count": count }),
-                );
+                archetype.clone(),
+            );
+            if let Ok(admin_db) = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin) {
+                if let Ok(snap) = coa_core::companions::query_bot_db_snapshot(&root, &admin_db, target.chars_db, None) {
+                    job.baseline_bot_count = Some(snap.bot_count);
+                    job.baseline_max_guid = Some(snap.max_guid);
+                }
             }
+            coa_core::companions::save_pending_job(&meta, mode.name(), &job)?;
             None
         };
         tracing::info!(count, spawned = spawned.is_some(), "companions requested");
