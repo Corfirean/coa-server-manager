@@ -177,7 +177,8 @@
     "Corfirean/coa-server-manager:20261031-validation-bot-population.md",
     "Corfirean/coa-server-manager:20261031-validation-mysql-reuse.md",
     "Corfirean/coa-server-manager:20261103-isolated-login-port.md",
-    "Corfirean/coa-server-manager:20261107-bot-strength-scaling-settings.md"
+    "Corfirean/coa-server-manager:20261107-bot-strength-scaling-settings.md",
+    "Corfirean/coa-server-manager:20261115-custom-races-v2-client.md"
   ],
   "releases": [
     {
@@ -924,6 +925,17 @@
       ],
       "commit": "d71c5635e3262a775b400a1c90ac81d7bddcbeaf",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.10...v0.9.12"
+    },
+    {
+      "tag": "v0.9.13",
+      "version": "0.9.13",
+      "date": "2026-11-15",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.13",
+      "notes": [
+        "The custom races client is updated to Custom Races V2"
+      ],
+      "commit": "d3527312803fb5a3e1cd48e01496645a8bbc9dcf",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.12...v0.9.13"
     }
   ]
 }

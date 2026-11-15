@@ -8,6 +8,12 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.13 — 2026-11-15
+
+- The custom races client is updated to Custom Races V2.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.13) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.12...v0.9.13)
+
 ## 0.9.12 — 2026-11-14
 
 - Settings for how much help bots get in dungeons and raids.
