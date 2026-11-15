@@ -773,6 +773,13 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "overview.reportBtn": "Diagnose sammeln und melden",
 
   // Realmlist switcher and modules page
+  "realm.namesTitle": "Realmnamen",
+  "realm.namesHint": "So heißt der Realm in der Realmliste der Spieler. Ein laufender Server zeigt den Namen sofort, und er bleibt nach Updates erhalten.",
+  "realm.nameSave": "Speichern",
+  "realm.nameReset": "Standardname",
+  "realm.nameDefault": "Standard: {name}",
+  "realm.nameSaved": "Gespeichert.",
+  "realm.nameQuotes": "Anführungszeichen sind nicht erlaubt: Der Spielclient speichert den Namen in Anführungszeichen.",
   "realm.profileLabel": "Realm",
   "realm.switching": "Realm wird gewechselt…",
   "realm.rebornCreate": "Warcraft-Reborn-Realm erstellen",

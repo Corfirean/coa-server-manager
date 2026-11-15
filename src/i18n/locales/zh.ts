@@ -58,6 +58,13 @@ const zh = {
   "remote.hostInstead": "搭建自己的服务器",
   "welcome.roleSubtitle": "你想如何游玩？",
 
+  "realm.namesTitle": "服务器名称",
+  "realm.namesHint": "玩家在服务器列表中看到的名称。运行中的服务器会立即显示新名称，更新后也会保留。",
+  "realm.nameSave": "保存",
+  "realm.nameReset": "默认名称",
+  "realm.nameDefault": "默认：{name}",
+  "realm.nameSaved": "已保存。",
+  "realm.nameQuotes": "不能使用引号：游戏客户端用引号保存名称。",
   "realm.profileLabel": "服务器",
   "realm.switching": "正在切换服务器…",
   "realm.rebornCreate": "创建 Warcraft Reborn 服务器",

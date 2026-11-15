@@ -72,13 +72,23 @@ fn realm_config(old: &[u8], realm: &str) -> Vec<u8> {
 }
 
 pub fn sync_realm(client: &Path, meta: &Path, mode: crate::realms::Mode) -> Result<bool> {
-    sync_realm_when_closed(client, meta, mode, is_running(client))
+    let realm = match mode {
+        crate::realms::Mode::Coa => "Conquest of Azeroth",
+        crate::realms::Mode::Wildcard => "Wildcard",
+        crate::realms::Mode::Reborn => "Warcraft Reborn",
+    };
+    sync_realm_when_closed(client, meta, realm, is_running(client))
+}
+
+/// [`sync_realm`] with the realm's name as the server shows it (the owner may have renamed it).
+pub fn sync_realm_named(client: &Path, meta: &Path, realm: &str) -> Result<bool> {
+    sync_realm_when_closed(client, meta, realm, is_running(client))
 }
 
 fn sync_realm_when_closed(
     client: &Path,
     meta: &Path,
-    mode: crate::realms::Mode,
+    realm: &str,
     running: bool,
 ) -> Result<bool> {
     if running {
@@ -89,11 +99,6 @@ fn sync_realm_when_closed(
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(e.into()),
-    };
-    let realm = match mode {
-        crate::realms::Mode::Coa => "Conquest of Azeroth",
-        crate::realms::Mode::Wildcard => "Wildcard",
-        crate::realms::Mode::Reborn => "Warcraft Reborn",
     };
     let new = realm_config(&old, realm);
     if new == old {
@@ -678,10 +683,10 @@ mod tests {
         let meta = d.path().join("meta");
         let original = b"SET realmName \"Wildcard\"\n";
         fs::write(c.join("WTF/Config.wtf"), original).unwrap();
-        assert!(!sync_realm_when_closed(&c, &meta, crate::realms::Mode::Coa, true).unwrap());
+        assert!(!sync_realm_when_closed(&c, &meta, "Conquest of Azeroth", true).unwrap());
         assert_eq!(fs::read(c.join("WTF/Config.wtf")).unwrap(), original);
         assert!(!backup_dir(&meta).exists());
-        assert!(sync_realm_when_closed(&c, &meta, crate::realms::Mode::Coa, false).unwrap());
+        assert!(sync_realm_when_closed(&c, &meta, "Conquest of Azeroth", false).unwrap());
         assert_eq!(
             fs::read(c.join("WTF/Config.wtf")).unwrap(),
             b"SET realmName \"Conquest of Azeroth\"\n"

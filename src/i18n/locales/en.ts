@@ -57,6 +57,13 @@ const en = {
   "remote.hostInstead": "Host my own server",
   "welcome.roleSubtitle": "How would you like to play?",
 
+  "realm.namesTitle": "Realm names",
+  "realm.namesHint": "The name players see in the realm list. A running server shows it at once, and it stays after updates.",
+  "realm.nameSave": "Save",
+  "realm.nameReset": "Default name",
+  "realm.nameDefault": "Default: {name}",
+  "realm.nameSaved": "Saved.",
+  "realm.nameQuotes": "Quotation marks are not allowed: the game client stores the name in quotes.",
   "realm.profileLabel": "Realm",
   "realm.startupTitle": "Realm startup",
   "realm.secondWorld": "Second world",

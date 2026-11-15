@@ -335,8 +335,8 @@ pub fn start_mysql(root: &Path, cfg: &Settings, progress: Progress) -> Result<()
     mysql(
         root,
         Some(&format!(
-            "UPDATE acore_auth.realmlist SET name='{}',address='127.0.0.1',localAddress='127.0.0.1',port={} WHERE id={};",
-            cfg.realm.name, cfg.world_port, cfg.realm.id
+            "UPDATE acore_auth.realmlist SET name={},address='127.0.0.1',localAddress='127.0.0.1',port={} WHERE id={};",
+            crate::realm_names::sql_literal(&cfg.realm.name), cfg.world_port, cfg.realm.id
         )),
         None,
     )?;

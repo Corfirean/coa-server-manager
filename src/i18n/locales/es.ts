@@ -773,6 +773,13 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "overview.reportBtn": "Reunir el diagnóstico y avisar",
 
   // Realmlist switcher and modules page
+  "realm.namesTitle": "Nombres de los reinos",
+  "realm.namesHint": "El nombre que ven los jugadores en la lista de reinos. Un servidor en marcha lo muestra al instante y se mantiene tras las actualizaciones.",
+  "realm.nameSave": "Guardar",
+  "realm.nameReset": "Nombre predeterminado",
+  "realm.nameDefault": "Predeterminado: {name}",
+  "realm.nameSaved": "Guardado.",
+  "realm.nameQuotes": "No se permiten comillas: el cliente del juego guarda el nombre entre comillas.",
   "realm.profileLabel": "Reino",
   "realm.switching": "Cambiando de reino…",
   "realm.rebornCreate": "Crear reino Warcraft Reborn",

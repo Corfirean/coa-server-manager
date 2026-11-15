@@ -60,6 +60,13 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "remote.hostInstead": "Создать свой сервер",
   "welcome.roleSubtitle": "Как вы хотите играть?",
 
+  "realm.namesTitle": "Названия реалмов",
+  "realm.namesHint": "Так реалм называется в списке реалмов у игроков. Работающий сервер показывает новое название сразу, и оно сохраняется после обновлений.",
+  "realm.nameSave": "Сохранить",
+  "realm.nameReset": "Стандартное название",
+  "realm.nameDefault": "По умолчанию: {name}",
+  "realm.nameSaved": "Сохранено.",
+  "realm.nameQuotes": "Кавычки нельзя: клиент игры хранит название в кавычках.",
   "realm.profileLabel": "Реалм",
   "realm.startupTitle": "Запуск реалмов",
   "realm.secondWorld": "Второй мир",

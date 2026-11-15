@@ -1217,7 +1217,11 @@ async fn realm_select(
         let view = coa_core::realms::select(&root, mode)?;
         let (dir, meta) = install_meta(&root)?;
         if let Some(client) = meta.client_path {
-            coa_core::client::sync_realm(std::path::Path::new(&client), &dir, view.active)?;
+            coa_core::client::sync_realm_named(
+                std::path::Path::new(&client),
+                &dir,
+                &coa_core::realm_names::for_mode(&root, view.active),
+            )?;
         }
         if restart {
             let out = driver::run(&root, Verb::StartAll)?;
@@ -1232,6 +1236,29 @@ async fn realm_select(
     })
     .await;
     result
+}
+
+#[tauri::command]
+async fn realm_names(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::realm_names::RealmName>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::realm_names::list(&root)).await
+}
+
+/// Rename a realm (`None` brings back its default name). The realm list changes at once when the database runs,
+/// and the linked game client selects the new name on the next Play.
+#[tauri::command]
+async fn realm_rename(
+    state: State<'_, AppState>,
+    id: String,
+    realm_id: u32,
+    name: Option<String>,
+) -> std::result::Result<Vec<coa_core::realm_names::RealmName>, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::realm_names::rename(&root, realm_id, name.as_deref())).await
 }
 
 #[tauri::command]
@@ -2427,7 +2454,8 @@ async fn play(
     }
     blocking(move || {
         let mode = coa_core::realms::state(&root)?.active;
-        if !coa_core::client::sync_realm(&client, &dir, mode)? {
+        let realm = coa_core::realm_names::for_mode(&root, mode);
+        if !coa_core::client::sync_realm_named(&client, &dir, &realm)? {
             return Err(Error::Invalid(
                 "Close the game client before pressing Play so its selected realm can be updated."
                     .into(),
@@ -2981,6 +3009,8 @@ pub fn run() {
             realm_select,
             realm_simultaneous,
             realm_with_reborn,
+            realm_names,
+            realm_rename,
             check_database,
             repair_server,
             module_set_enabled,

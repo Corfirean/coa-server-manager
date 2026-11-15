@@ -773,6 +773,13 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "overview.reportBtn": "Rassembler le diagnostic et signaler",
 
   // Realmlist switcher and modules page
+  "realm.namesTitle": "Noms des royaumes",
+  "realm.namesHint": "Le nom que les joueurs voient dans la liste des royaumes. Un serveur en marche l'affiche aussitôt, et il reste après les mises à jour.",
+  "realm.nameSave": "Enregistrer",
+  "realm.nameReset": "Nom par défaut",
+  "realm.nameDefault": "Par défaut : {name}",
+  "realm.nameSaved": "Enregistré.",
+  "realm.nameQuotes": "Les guillemets ne sont pas autorisés : le client du jeu enregistre le nom entre guillemets.",
   "realm.profileLabel": "Royaume",
   "realm.switching": "Changement de royaume…",
   "realm.rebornCreate": "Créer le royaume Warcraft Reborn",

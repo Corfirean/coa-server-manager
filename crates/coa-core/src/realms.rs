@@ -707,8 +707,8 @@ pub fn setup_realmlist(root: &Path) -> Result<()> {
     let port = layout::read_ports(root).world;
     for mode in s.modes().into_iter().filter(|m| *m != Mode::Coa) {
         let id = mode.realm_id();
-        let name = mode.label();
-        db.query(&format!("INSERT INTO acore_auth.realmlist (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,gamebuild) SELECT {id},'{name}',address,localAddress,localSubnetMask,{port},icon,2,timezone,gamebuild FROM acore_auth.realmlist WHERE id=1 ON DUPLICATE KEY UPDATE port={port};"))?;
+        let name = crate::realm_names::sql_literal(&crate::realm_names::name_or(root, id, mode.label()));
+        db.query(&format!("INSERT INTO acore_auth.realmlist (id,name,address,localAddress,localSubnetMask,port,icon,flag,timezone,gamebuild) SELECT {id},{name},address,localAddress,localSubnetMask,{port},icon,2,timezone,gamebuild FROM acore_auth.realmlist WHERE id=1 ON DUPLICATE KEY UPDATE port={port},name={name};"))?;
     }
     let ids = s
         .modes()

@@ -56,6 +56,7 @@ pub mod ra;
 pub mod race_availability;
 pub mod realm_registry;
 pub mod realmlist;
+pub mod realm_names;
 pub mod realms;
 pub mod registry;
 pub mod release;
