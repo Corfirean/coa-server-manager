@@ -58,6 +58,7 @@ export interface StatusView {
 }
 
 export type RealmMode = "coa" | "wildcard" | "reborn";
+export interface AddonView { id: string; name: string; description: Record<string, string>; author: string; license: string; needs: string | null; repo: string; size: number; installed: boolean; updateAvailable: boolean; foreignFolders: string[] }
 export interface RestartSchedule { enabled: boolean; time: string; warningMinutes: number }
 export interface RestartScheduleView { schedule: RestartSchedule; supported: boolean }
 export interface CustomMysql { text: string; applied: string }
@@ -491,6 +492,9 @@ export const api = {
     realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
     realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
     realmSimultaneous: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_simultaneous", { id, enabled }),
+    addonsList: (id: string) => invoke<AddonView[]>("addons_list", { id }),
+    addonsInstall: (id: string, addon: string) => invoke<AddonView[]>("addons_install", { id, addon }),
+    addonsRemove: (id: string, addon: string) => invoke<AddonView[]>("addons_remove", { id, addon }),
     clearGameCacheOnPlay: () => invoke<boolean>("clear_game_cache_on_play"),
     setClearGameCacheOnPlay: (enabled: boolean) => invoke<void>("set_clear_game_cache_on_play", { enabled }),
     restartSchedule: (id: string) => invoke<RestartScheduleView>("restart_schedule", { id }),

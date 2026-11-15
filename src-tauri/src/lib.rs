@@ -1480,6 +1480,41 @@ async fn custom_races_install(
 }
 
 #[tauri::command]
+async fn addons_list(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::addons::AddonView>, UiError> {
+    let ctx = client_context(&state, &id)?;
+    blocking(move || coa_core::addons::list(&ctx.require()?)).await
+}
+
+/// Install or update a catalog addon in the linked game client (pinned commit, every file checked).
+#[tauri::command]
+async fn addons_install(
+    state: State<'_, AppState>,
+    id: String,
+    addon: String,
+) -> std::result::Result<Vec<coa_core::addons::AddonView>, UiError> {
+    let ctx = client_context(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    let cancel = begin_client_job(&state)?;
+    let result = blocking(move || coa_core::addons::install(&ctx.require()?, &addon, &cancel)).await;
+    end_client_job(&state);
+    result
+}
+
+#[tauri::command]
+async fn addons_remove(
+    state: State<'_, AppState>,
+    id: String,
+    addon: String,
+) -> std::result::Result<Vec<coa_core::addons::AddonView>, UiError> {
+    let ctx = client_context(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::addons::remove(&ctx.require()?, &addon)).await
+}
+
+#[tauri::command]
 async fn custom_races_uninstall(
     state: State<'_, AppState>,
     id: String,
@@ -3117,6 +3152,9 @@ pub fn run() {
             restart_schedule_save,
             clear_game_cache_on_play,
             set_clear_game_cache_on_play,
+            addons_list,
+            addons_install,
+            addons_remove,
             check_database,
             repair_server,
             module_set_enabled,

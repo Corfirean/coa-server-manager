@@ -9,6 +9,7 @@
 
 pub mod accounts;
 pub mod allsettings;
+pub mod addons;
 pub mod backup;
 pub mod channels;
 pub mod character_start_check;
