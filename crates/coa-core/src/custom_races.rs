@@ -14,14 +14,24 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "1.9.2";
+pub const CLIENT_VERSION: &str = "2.0";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
+/// Files earlier releases installed that the current release no longer ships (removed on update).
+#[cfg(test)]
+const RETIRED_FILES: &[&str] = &["Ascension.exe"];
+/// The client archives of the coa-custom-2.0 release. The server archive is read only for its client
+/// addons (files/addons: subclass interface, dev menu, teleports, spell activation overlay).
 pub const ARCHIVES: &[(&str, &str)] = &[
-    ("CoA-Custom-1.9.2-Client-1.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-1.zip"),
-    ("CoA-Custom-1.9.2-Client-2.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-2.zip"),
-    ("CoA-Custom-1.9.2-Client-3.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-3.zip"),
-    ("CoA-Custom-1.9.2-Client-4.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-4.zip"),
-    ("CoA-Custom-1.9.2-Client-5.zip", "https://github.com/ilusixn/azerothcore-wotlk-coa/releases/download/coa-custom-1.9.2/CoA-Custom-1.9.2-Client-5.zip"),
+    ("CoA-Custom-V2-Client-1.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-1.zip"),
+    ("CoA-Custom-V2-Client-2.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-2.zip"),
+    ("CoA-Custom-V2-Client-3.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-3.zip"),
+    ("CoA-Custom-V2-Client-4.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-4.zip"),
+    ("CoA-Custom-V2-Client-5.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-5.zip"),
+    ("CoA-Custom-V2-Client-6.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-6.zip"),
+    ("CoA-Custom-V2-Client-7.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-7.zip"),
+    ("CoA-Custom-V2-Client-8.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-8.zip"),
+    ("CoA-Custom-V2-Client-9.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-9.zip"),
+    ("CoA-Custom-V2-Server.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Server.zip"),
 ];
 
 pub const RACE_MPQS: &[&str] = &[
@@ -35,14 +45,29 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZE8.MPQ",
     "patch-ZE9.MPQ",
     "patch-ZEA.MPQ",
+    "patch-ZES.MPQ",
+    "patch-ZEZV.MPQ",
+    "patch-ZEZW.MPQ",
+    "patch-ZEZX.MPQ",
+    "patch-ZEZY.MPQ",
+    "patch-ZEZZ.MPQ",
+    "patch-ZEZZA.MPQ",
+    "patch-ZEZZB.MPQ",
+    "patch-ZEZZC.MPQ",
+    "patch-ZEZZD.MPQ",
+    "patch-ZEZZE.MPQ",
+    "patch-ZEZZF.MPQ",
+    "patch-ZEZZG.MPQ",
+    "patch-ZEZZH.MPQ",
+    "patch-ZEZZI.MPQ",
     "patch-ZG.MPQ",
     "patch-ZH.MPQ",
     "patch-ZHA.MPQ",
     "patch-ZHM.MPQ",
+    "patch-ZJ.MPQ",
+    "patch-ZK.MPQ",
     "patch-ZM.MPQ",
     "patch-ZVU.MPQ",
-    "patch-ZES.MPQ",
-    "patch-ZJ.MPQ",
     "patch-ZZE.MPQ",
     "patch-ZZR.MPQ",
     "patch-ZZS.MPQ",
@@ -50,26 +75,187 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZZU.MPQ",
     "patch-ZZV.MPQ",
     "patch-ZZW.MPQ",
-    "patch-ZZZ.MPQ",
-    "patch-ZK.MPQ",
     "patch-ZZX.MPQ",
+    "patch-ZZZ.MPQ",
+    "patch-ZZZA.MPQ",
     "patch-ZZZC.MPQ",
     "patch-ZZZD.MPQ",
-    "patch-ZZZA.MPQ",
     "patch-ZZZE.MPQ",
     "patch-ZZZF.MPQ",
+    "patch-ZZZG.MPQ",
     "patch-ZZZZ.MPQ",
+    "patch-ZZZZA.MPQ",
+    "patch-ZZZZB.MPQ",
+    "patch-ZZZZC.MPQ",
+    "patch-ZZZZD.MPQ",
+    "patch-ZZZZE.MPQ",
+    "patch-ZZZZS.MPQ",
+    "patch-ZZZZT.MPQ",
+    "patch-ZZZZW.MPQ",
+    "patch-ZZZZX.MPQ",
+    "patch-ZZZZY.MPQ",
+    "patch-ZZZZZ.MPQ",
+    "patch-ZZZZZA.MPQ",
+    "patch-ZZZZZB.MPQ",
+    "patch-ZZZZZC.MPQ",
+    "patch-ZZZZZM.MPQ",
+    "patch-ZZZZZN.MPQ",
+    "patch-ZZZZZO.MPQ",
+    "patch-ZZZZZP.MPQ",
+    "patch-ZZZZZQ.MPQ",
+    "patch-ZZZZZR.MPQ",
+    "patch-ZZZZZS.MPQ",
+    "patch-ZZZZZT.MPQ",
+    "patch-ZZZZZU.MPQ",
+    "patch-ZZZZZV.MPQ",
+    "patch-ZZZZZW.MPQ",
+    "patch-ZZZZZX.MPQ",
+    "patch-ZZZZZY.MPQ",
 ];
 
 pub const RACE_ADDONS: &[&str] = &[
+    "Ascension_Subclass/Ascension_Subclass.lua",
+    "Ascension_Subclass/Ascension_Subclass.toc",
+    "Ascension_Subclass/Bindings.xml",
+    "Ascension_Subclass/SubclassBar.lua",
+    "Ascension_Subclass/SubclassCastBar.lua",
+    "Ascension_Subclass/SubclassChoices.lua",
+    "Ascension_Subclass/SubclassGlow.lua",
+    "Ascension_Subclass/SubclassNodes.lua",
+    "Ascension_Subclass/SubclassOrbs.lua",
+    "Ascension_Subclass/SubclassPowerBar.lua",
+    "Ascension_Subclass/SubclassRaceBackground.lua",
+    "CoAHideArmor/CoAHideArmor.lua",
+    "CoAHideArmor/CoAHideArmor.toc",
     "CoAQuestSafe/CoAQuestSafe.lua",
     "CoAQuestSafe/CoAQuestSafe.toc",
     "CoAWC2Cursor/CoAWC2Cursor.lua",
     "CoAWC2Cursor/CoAWC2Cursor.toc",
-    "CoAHideArmor/CoAHideArmor.lua",
-    "CoAHideArmor/CoAHideArmor.toc",
+    "CoA_DevMenu/CoA_DevMenu.lua",
+    "CoA_DevMenu/CoA_DevMenu.lua.before_v2",
+    "CoA_DevMenu/CoA_DevMenu.lua.before_v3",
+    "CoA_DevMenu/CoA_DevMenu.toc",
+    "CoA_DevMenu/CoA_DevMenu_CoA.lua",
+    "CoA_DevMenu/CoA_DevMenu_Combat.lua",
+    "CoA_DevMenu/CoA_DevMenu_Create.lua",
+    "CoA_DevMenu/CoA_DevMenu_Create.lua.before_v4",
+    "CoA_DevMenu/CoA_DevMenu_Create.lua.before_v5",
+    "CoA_DevMenu/CoA_DevMenu_Ext.lua",
+    "CoA_DevMenu/CoA_DevMenu_Ext.lua.before_v3",
+    "CoA_DevMenu/CoA_DevMenu_Ext.lua.before_v4",
+    "CoA_DevMenu/CoA_DevMenu_Help.lua",
+    "CoA_DevMenu/CoA_DevMenu_Items.lua",
+    "CoA_DevMenu/CoA_DevMenu_Me.lua",
+    "CoA_DevMenu/CoA_DevMenu_Server.lua",
+    "CoA_DevMenu/CoA_DevMenu_Share.lua",
+    "CoA_DevMenu/EmoteData.lua",
     "CoA_TalentReset/CoA_TalentReset.lua",
     "CoA_TalentReset/CoA_TalentReset.toc",
+    "CoA_Teleports/CoA_Teleports.lua",
+    "CoA_Teleports/CoA_Teleports.toc",
+    "CoA_Teleports/TeleportData.lua",
+    "SpellActivationOverlay-for-CoA/LICENSE",
+    "SpellActivationOverlay-for-CoA/SpellActivationOverlay-for-CoA.toc",
+    "SpellActivationOverlay-for-CoA/SpellActivationOverlay.lua",
+    "SpellActivationOverlay-for-CoA/SpellActivationOverlay.xml",
+    "SpellActivationOverlay-for-CoA/changelog.md",
+    "SpellActivationOverlay-for-CoA/classes/barbarian.lua",
+    "SpellActivationOverlay-for-CoA/classes/bloodmage.lua",
+    "SpellActivationOverlay-for-CoA/classes/chronomancer.lua",
+    "SpellActivationOverlay-for-CoA/classes/common.lua",
+    "SpellActivationOverlay-for-CoA/classes/cultist.lua",
+    "SpellActivationOverlay-for-CoA/classes/deathknight.lua",
+    "SpellActivationOverlay-for-CoA/classes/druid.lua",
+    "SpellActivationOverlay-for-CoA/classes/felsworn.lua",
+    "SpellActivationOverlay-for-CoA/classes/guardian.lua",
+    "SpellActivationOverlay-for-CoA/classes/hunter.lua",
+    "SpellActivationOverlay-for-CoA/classes/knightofxoroth.lua",
+    "SpellActivationOverlay-for-CoA/classes/mage.lua",
+    "SpellActivationOverlay-for-CoA/classes/monk.lua",
+    "SpellActivationOverlay-for-CoA/classes/necromancer.lua",
+    "SpellActivationOverlay-for-CoA/classes/paladin.lua",
+    "SpellActivationOverlay-for-CoA/classes/priest.lua",
+    "SpellActivationOverlay-for-CoA/classes/primalist.lua",
+    "SpellActivationOverlay-for-CoA/classes/pyromancer.lua",
+    "SpellActivationOverlay-for-CoA/classes/ranger.lua",
+    "SpellActivationOverlay-for-CoA/classes/reaper.lua",
+    "SpellActivationOverlay-for-CoA/classes/rogue.lua",
+    "SpellActivationOverlay-for-CoA/classes/runemaster.lua",
+    "SpellActivationOverlay-for-CoA/classes/shaman.lua",
+    "SpellActivationOverlay-for-CoA/classes/starcaller.lua",
+    "SpellActivationOverlay-for-CoA/classes/stormbringer.lua",
+    "SpellActivationOverlay-for-CoA/classes/suncleric.lua",
+    "SpellActivationOverlay-for-CoA/classes/templar.lua",
+    "SpellActivationOverlay-for-CoA/classes/tinker.lua",
+    "SpellActivationOverlay-for-CoA/classes/venomancer.lua",
+    "SpellActivationOverlay-for-CoA/classes/warlock.lua",
+    "SpellActivationOverlay-for-CoA/classes/warrior.lua",
+    "SpellActivationOverlay-for-CoA/classes/witchdoctor.lua",
+    "SpellActivationOverlay-for-CoA/classes/witchhunter.lua",
+    "SpellActivationOverlay-for-CoA/components/aura.lua",
+    "SpellActivationOverlay-for-CoA/components/bucket.lua",
+    "SpellActivationOverlay-for-CoA/components/display.lua",
+    "SpellActivationOverlay-for-CoA/components/effect.lua",
+    "SpellActivationOverlay-for-CoA/components/events.lua",
+    "SpellActivationOverlay-for-CoA/components/external.lua",
+    "SpellActivationOverlay-for-CoA/components/glow.lua",
+    "SpellActivationOverlay-for-CoA/components/hash.lua",
+    "SpellActivationOverlay-for-CoA/components/item.lua",
+    "SpellActivationOverlay-for-CoA/components/overlay.lua",
+    "SpellActivationOverlay-for-CoA/components/project.lua",
+    "SpellActivationOverlay-for-CoA/components/rune.lua",
+    "SpellActivationOverlay-for-CoA/components/shutdown.lua",
+    "SpellActivationOverlay-for-CoA/components/sound.lua",
+    "SpellActivationOverlay-for-CoA/components/spell.lua",
+    "SpellActivationOverlay-for-CoA/components/targetspells.lua",
+    "SpellActivationOverlay-for-CoA/components/targetwatch.lua",
+    "SpellActivationOverlay-for-CoA/components/tr.lua",
+    "SpellActivationOverlay-for-CoA/components/trigger.lua",
+    "SpellActivationOverlay-for-CoA/components/util.lua",
+    "SpellActivationOverlay-for-CoA/components/variable.lua",
+    "SpellActivationOverlay-for-CoA/libs/LibActionButton-1.0/LibActionButton-1.0.lua",
+    "SpellActivationOverlay-for-CoA/libs/LibActionButton-1.0/LibActionButton-1.0.toc",
+    "SpellActivationOverlay-for-CoA/libs/LibButtonGlow-1.0/LibButtonGlow-1.0.lua",
+    "SpellActivationOverlay-for-CoA/libs/LibButtonGlow-1.0/LibButtonGlow-1.0.toc",
+    "SpellActivationOverlay-for-CoA/libs/LibStub/LibStub.lua",
+    "SpellActivationOverlay-for-CoA/libs/LibStub/LibStub.toc",
+    "SpellActivationOverlay-for-CoA/options/InterfaceOptionsPanels.lua",
+    "SpellActivationOverlay-for-CoA/options/InterfaceOptionsPanels.xml",
+    "SpellActivationOverlay-for-CoA/options/classoptions.lua",
+    "SpellActivationOverlay-for-CoA/options/db.lua",
+    "SpellActivationOverlay-for-CoA/options/defaults.lua",
+    "SpellActivationOverlay-for-CoA/options/glowoptions.lua",
+    "SpellActivationOverlay-for-CoA/options/overlayoptions.lua",
+    "SpellActivationOverlay-for-CoA/options/questions.lua",
+    "SpellActivationOverlay-for-CoA/options/variables.lua",
+    "SpellActivationOverlay-for-CoA/options/variants.lua",
+    "SpellActivationOverlay-for-CoA/textures/bandits_guile.blp",
+    "SpellActivationOverlay-for-CoA/textures/eclipse_moon.blp",
+    "SpellActivationOverlay-for-CoA/textures/eclipse_sun.blp",
+    "SpellActivationOverlay-for-CoA/textures/fury_of_stormrage_yellow.blp",
+    "SpellActivationOverlay-for-CoA/textures/high_tide.blp",
+    "SpellActivationOverlay-for-CoA/textures/icon64.blp",
+    "SpellActivationOverlay-for-CoA/textures/maelstrom_weapon_1.blp",
+    "SpellActivationOverlay-for-CoA/textures/maelstrom_weapon_2.blp",
+    "SpellActivationOverlay-for-CoA/textures/maelstrom_weapon_3.blp",
+    "SpellActivationOverlay-for-CoA/textures/maelstrom_weapon_4.blp",
+    "SpellActivationOverlay-for-CoA/textures/mask.blp",
+    "SpellActivationOverlay-for-CoA/textures/maskzero.blp",
+    "SpellActivationOverlay-for-CoA/textures/rkm128.blp",
+    "SpellActivationOverlay-for-CoA/textures/texname.lua",
+    "SpellActivationOverlay-for-CoA/textures/thrill_of_the_hunt_1.blp",
+    "SpellActivationOverlay-for-CoA/textures/thrill_of_the_hunt_2.blp",
+    "SpellActivationOverlay-for-CoA/textures/thrill_of_the_hunt_3.blp",
+    "SpellActivationOverlay-for-CoA/variables/actionusable.lua",
+    "SpellActivationOverlay-for-CoA/variables/aurastacks.lua",
+    "SpellActivationOverlay-for-CoA/variables/custom.lua",
+    "SpellActivationOverlay-for-CoA/variables/execute.lua",
+    "SpellActivationOverlay-for-CoA/variables/holypower.lua",
+    "SpellActivationOverlay-for-CoA/variables/itemset.lua",
+    "SpellActivationOverlay-for-CoA/variables/nativesao.lua",
+    "SpellActivationOverlay-for-CoA/variables/stance.lua",
+    "SpellActivationOverlay-for-CoA/variables/talent.lua",
+    "UnBot/OnlineFrame.xml",
 ];
 
 pub const EXCLUDED_BOT_RACES_RECOMMENDED: &str =
@@ -217,6 +403,8 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
         include_str!("custom_races_hashes_1_8_3.json")
     } else if manifest.lines().any(|line| line == "# CoA Custom 1.9.1") {
         include_str!("custom_races_hashes_1_9_1.json")
+    } else if manifest.lines().any(|line| line == "# CoA Custom 1.9.2") {
+        include_str!("custom_races_hashes_1_9_2.json")
     } else {
         include_str!("custom_races_hashes.json")
     };
@@ -541,6 +729,31 @@ fn preserve_original(tx: &mut PatchTransaction<'_>, active: &Path) -> Result<()>
     tx.copy(active, &original)
 }
 
+/// A file the previous release installed and the new one no longer ships (1.9.2's Ascension.exe, which V2
+/// replaced with its own CoACustomRace.exe) is removed if it is still ours, and the player's original comes back.
+fn retire_dropped_files(
+    tx: &mut PatchTransaction<'_>,
+    client: &Path,
+    previous: &[PatchFile],
+    payload: &std::collections::BTreeSet<String>,
+) -> Result<()> {
+    for old in previous.iter().filter(|old| !payload.contains(&old.path)) {
+        let active = fsx::safe_join(client, &old.path)?;
+        if matches_patch(&active, old) {
+            tx.save(&active)?;
+            let original = suffix(&active, "original");
+            if original.is_file() {
+                tx.copy(&original, &active)?;
+            }
+        }
+        let disabled = suffix(&active, "disabled");
+        if matches_patch(&disabled, old) {
+            tx.save(&disabled)?;
+        }
+    }
+    Ok(())
+}
+
 /// Preserve launcher replacements, and switch every file owned by the package.
 pub fn set_client_patch_enabled(client: &Path, enabled: bool) -> Result<()> {
     if !client.is_dir() {
@@ -667,25 +880,45 @@ fn stage_root_asset(staging: &Path, relative: &str, reader: &mut impl Read) -> R
 
 fn archive_job(filename: &str, url: &str, cache: &Path) -> Result<crate::download::Job> {
     let (size, sha256) = match filename {
-        "CoA-Custom-1.9.2-Client-1.zip" => (
+        "CoA-Custom-V2-Client-1.zip" => (
             1_513_021_586,
             "a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568",
         ),
-        "CoA-Custom-1.9.2-Client-2.zip" => (
+        "CoA-Custom-V2-Client-2.zip" => (
             1_198_283_005,
             "ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e",
         ),
-        "CoA-Custom-1.9.2-Client-3.zip" => (
-            1_678_829_573,
-            "907e267f0ee7038807e626c3c1eca5e12db6c88b747137a23c5fb52eaa1a358e",
+        "CoA-Custom-V2-Client-3.zip" => (
+            1_671_130_705,
+            "0af34199f0739ce086adb0371d3de7c1a0f5ca9c62ecde6b0efe9286e33874a8",
         ),
-        "CoA-Custom-1.9.2-Client-4.zip" => (
+        "CoA-Custom-V2-Client-4.zip" => (
             502_385_128,
             "e0bd87172af989fa50a8e2b08ba4321c72b6265047482f051a1db3b80d55bcaa",
         ),
-        "CoA-Custom-1.9.2-Client-5.zip" => (
+        "CoA-Custom-V2-Client-5.zip" => (
             168_079_711,
             "73364ad1b58c6342641a848a3b20a835472834f600416606be1470386774ca78",
+        ),
+        "CoA-Custom-V2-Client-6.zip" => (
+            1_881_526_537,
+            "91db79b7b451856fa9e45daea52e0fe1c04676653dd8a88e6627f04ee7b47759",
+        ),
+        "CoA-Custom-V2-Client-7.zip" => (
+            734_725_114,
+            "4c5532d775d206a3b913a6111040bb96b95c683b74c08a6131ed9f38db8e2b39",
+        ),
+        "CoA-Custom-V2-Client-8.zip" => (
+            734_216_670,
+            "bdaa1d047e8767bd5715f1e8465d116220597d9c135a43e2dda02e12ce2e5526",
+        ),
+        "CoA-Custom-V2-Client-9.zip" => (
+            195_235_400,
+            "0764893543084a12d15578fe734f66ba4519740794a6b3b3a38a08594c38c640",
+        ),
+        "CoA-Custom-V2-Server.zip" => (
+            63_983_587,
+            "8970d61eea40f53cea4c27481edd85d2b2647cd32eb88932e0077da3b4a77d23",
         ),
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
@@ -781,6 +1014,17 @@ fn resolve_archive_with(
     Ok(job.dest.clone())
 }
 
+/// The 1.9.2 file name of a V2 archive with the same bytes (same size and SHA-256 in both releases).
+fn earlier_name(filename: &str) -> Option<&'static str> {
+    match filename {
+        "CoA-Custom-V2-Client-1.zip" => Some("CoA-Custom-1.9.2-Client-1.zip"),
+        "CoA-Custom-V2-Client-2.zip" => Some("CoA-Custom-1.9.2-Client-2.zip"),
+        "CoA-Custom-V2-Client-4.zip" => Some("CoA-Custom-1.9.2-Client-4.zip"),
+        "CoA-Custom-V2-Client-5.zip" => Some("CoA-Custom-1.9.2-Client-5.zip"),
+        _ => None,
+    }
+}
+
 /// Locate a verified archive or resume downloading it into the Manager's cache.
 fn resolve_or_download_archive(
     filename: &str,
@@ -796,6 +1040,16 @@ fn resolve_or_download_archive(
     let cache = std::env::temp_dir().join("coa-client-races");
     let downloads = std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("Downloads"));
     let job = archive_job(filename, url, &cache)?;
+    // V2 republished four 1.9.2 archives byte for byte under new names: reuse a verified 1.9.2 copy.
+    if let Some(previous) = earlier_name(filename) {
+        for folder in [Some(cache.as_path()), downloads.as_deref()].into_iter().flatten() {
+            let candidate = folder.join(previous);
+            if archive_matches(&candidate, &job) {
+                tracing::info!(path = %candidate.display(), "using the identical 1.9.2 archive");
+                return Ok(candidate);
+            }
+        }
+    }
     resolve_archive_with(transport, &job, downloads.as_deref(), cancel, &|p| {
         let ratio = p.downloaded as f32 / p.total.max(1) as f32;
         report(
@@ -985,6 +1239,8 @@ pub fn install_client_patches(
             "Custom races archives are missing required runtime files.".into(),
         ));
     }
+    let payload_paths: std::collections::BTreeSet<String> =
+        payload.iter().map(|file| file.path.clone()).collect();
     let previous = patch_files(client_path)?;
     let mut tx = PatchTransaction::new(client_path)?;
     for file in payload {
@@ -1017,6 +1273,7 @@ pub fn install_client_patches(
             }
         }
     }
+    retire_dropped_files(&mut tx, client_path, &previous, &payload_paths)?;
     tx.save(&manifest_path)?;
     fsx::atomic_write(&manifest_path, manifest_body.as_bytes())?;
     tx.finish()?;
@@ -1176,6 +1433,25 @@ mod tests {
     }
 
     #[test]
+    fn an_update_retires_files_the_new_release_no_longer_ships() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::write(root.join("Ascension.exe"), b"1.9.2 client").unwrap();
+        fs::write(root.join("Ascension.exe.original"), b"player's own client").unwrap();
+        fs::write(root.join("Wow.exe"), b"changed by the player").unwrap();
+        let ours = |path: &str, bytes: &[u8]| PatchFile {
+            path: path.into(),
+            sha256: hex::encode(<sha2::Sha256 as sha2::Digest>::digest(bytes)),
+        };
+        let previous = vec![ours("Ascension.exe", b"1.9.2 client"), ours("Wow.exe", b"old package bytes")];
+        let mut tx = PatchTransaction::new(root).unwrap();
+        retire_dropped_files(&mut tx, root, &previous, &Default::default()).unwrap();
+        tx.finish().unwrap();
+        assert_eq!(fs::read(root.join("Ascension.exe")).unwrap(), b"player's own client");
+        assert_eq!(fs::read(root.join("Wow.exe")).unwrap(), b"changed by the player");
+    }
+
+    #[test]
     #[ignore = "Requires the downloaded release archives"]
     fn bundled_hashes_match_verified_release_archives() {
         use sha2::{Digest, Sha256};
@@ -1227,6 +1503,28 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires COA_UPGRADE_CLIENT: a disposable client with 1.9.2 installed by Manager 0.9.12"]
+    fn an_installed_1_9_2_client_updates_to_v2_and_gets_its_own_executable_back() {
+        let root = PathBuf::from(std::env::var_os("COA_UPGRADE_CLIENT").expect("COA_UPGRADE_CLIENT"));
+        assert_eq!(client_patch_status(&root).version.as_deref(), Some("1.9.2"));
+        let patched = fs::read(root.join("Ascension.exe")).unwrap();
+        let original = fs::read(root.join("Ascension.exe.original")).unwrap();
+        assert_ne!(patched, original);
+        install_client_patches(&root, &Cancel::default(), &|_, _| {}).unwrap();
+        let status = client_patch_status(&root);
+        assert_eq!(status.version.as_deref(), Some(CLIENT_VERSION));
+        assert_eq!(status.state, ClientPatchState::Enabled);
+        assert!(root.join("CoACustomRace.exe").is_file());
+        assert!(root.join("Data/patch-ZZZZZY.MPQ").is_file());
+        // 1.9.2's patched Ascension.exe is retired and the player's own executable is back.
+        assert_eq!(fs::read(root.join("Ascension.exe")).unwrap(), original);
+        uninstall_client_patches(&root).unwrap();
+        assert_eq!(client_patch_status(&root).state, ClientPatchState::NotInstalled);
+        assert_eq!(fs::read(root.join("Ascension.exe")).unwrap(), original);
+        assert!(!root.join("CoACustomRace.exe").exists());
+    }
+
+    #[test]
     #[ignore = "Requires the downloaded release archives in the normal download cache"]
     fn release_archives_install_toggle_and_uninstall_in_a_disposable_client() {
         let temp = tempfile::tempdir().unwrap();
@@ -1243,6 +1541,13 @@ mod tests {
         assert!(root
             .join("Interface/AddOns/CoAHideArmor/CoAHideArmor.lua")
             .is_file());
+        // V2: its own client next to the untouched game executable, and the server package's addons.
+        assert!(root.join("CoACustomRace.exe").is_file());
+        assert!(root.join("Vulkan/d3d9.dll").is_file());
+        assert_eq!(fs::read(root.join("Ascension.exe")).unwrap(), b"original game executable");
+        assert!(root
+            .join("Interface/AddOns/Ascension_Subclass")
+            .is_dir());
         set_client_patch_enabled(root, false).unwrap();
         assert_eq!(client_patch_status(root).state, ClientPatchState::Disabled);
         assert_eq!(
@@ -1273,6 +1578,7 @@ mod tests {
             b"unrelated user patch"
         );
         assert!(!root.join("Data/patch-ZZZD.MPQ").exists());
+        assert!(!root.join("CoACustomRace.exe").exists());
     }
 
     #[test]
@@ -1317,7 +1623,10 @@ mod tests {
         );
         assert_ne!(legacy["Data/patch-T.MPQ"], current["Data/patch-T.MPQ"]);
         assert!(!files.iter().any(|file| file.path == "Data/patch-ZZW.MPQ"));
-        assert!(legacy.keys().all(|key| current.contains_key(key)));
+        assert!(legacy
+            .keys()
+            .filter(|key| !RETIRED_FILES.contains(&key.as_str()))
+            .all(|key| current.contains_key(key)));
     }
 
     #[test]
@@ -1333,7 +1642,10 @@ mod tests {
         for file in files {
             assert_eq!(file.sha256, legacy[&file.path]);
         }
-        assert!(legacy.keys().all(|path| current.contains_key(path)));
+        assert!(legacy
+            .keys()
+            .filter(|key| !RETIRED_FILES.contains(&key.as_str()))
+            .all(|key| current.contains_key(key)));
         assert!(!legacy.contains_key("Data/patch-ZZZD.MPQ"));
         assert!(current.contains_key("Data/patch-ZZZD.MPQ"));
         let status = client_patch_status(temp.path());

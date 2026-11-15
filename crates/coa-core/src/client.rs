@@ -15,7 +15,8 @@ use crate::fsx;
 pub use crate::glue_config;
 
 pub const ADDON_NAME: &str = "CoABotUI";
-const EXECUTABLES: [&str; 3] = ["Ascension.exe", "Wow.exe", "WoW.exe"];
+// CoA Custom Races V2 ships its own client (CoACustomRace.exe) next to Ascension.exe and must be started instead.
+const EXECUTABLES: [&str; 4] = ["CoACustomRace.exe", "Ascension.exe", "Wow.exe", "WoW.exe"];
 
 pub fn is_running(client: &Path) -> bool {
     if crate::platform::flavor() == crate::platform::Flavor::Docker {
