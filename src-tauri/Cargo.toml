@@ -24,3 +24,4 @@ coa-core = { path = "../crates/coa-core" }
 coa-registry-proto = { path = "../crates/coa-registry-proto" }
 coa-control-proto = { path = "../crates/coa-control-proto" }
 tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }

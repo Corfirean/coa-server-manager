@@ -361,6 +361,16 @@ export interface CompanionSizes {
   sizes: { id: string; title: string; bots: number; warning: string | null }[];
 }
 
+export interface WildcardArchetypeDto {
+  id: string;
+  name: string;
+  roles: number;
+  primary_stat: number;
+  author: string;
+  difficulty: number;
+  category: number;
+}
+
 export interface ClientInfo {
   path: string;
   executable: string;
@@ -574,15 +584,35 @@ export const api = {
     invoke<{ txn: UpdateTxn; preexisting_character_count?: number }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
-  population: (id: string) => invoke<Population | null>("get_population", { id }),
-  stopSpawning: (id: string) => invoke<{ count: number }>("companions_stop_spawning", { id }),
-  takeOffline: (id: string) => invoke<{ count: number }>("companions_take_offline", { id }),
-  despawnSome: (id: string, count: number) => invoke<{ count: number }>("companions_despawn_some", { id, count }),
-  deleteAllCompanions: (id: string) => invoke<{ count: number }>("companions_delete_all", { id }),
+  population: (id: string, realm?: RealmMode) => invoke<Population | null>("get_population", { id, realm: realm ?? null }),
+  stopSpawning: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_stop_spawning", { id, realm: realm ?? null }),
+  takeOffline: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_take_offline", { id, realm: realm ?? null }),
+  despawnSome: (id: string, count: number, realm?: RealmMode) => invoke<{ count: number }>("companions_despawn_some", { id, count, realm: realm ?? null }),
+  deleteAllCompanions: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_delete_all", { id, realm: realm ?? null }),
+  loginAllCompanions: (id: string, realm?: RealmMode) => invoke<string>("companions_login_all", { id, realm: realm ?? null }),
+  spawnBotFleet: (id: string, race: number, level: number, realm?: RealmMode) => invoke<string>("companions_spawn_fleet", { id, race, level, realm: realm ?? null }),
   openLink: (url: string) => invoke<void>("open_link", { url }),
   performance: (id: string) => invoke<Performance | null>("get_performance", { id }),
   companionSizes: () => invoke<CompanionSizes>("companion_sizes"),
-  addCompanions: (id: string, count: number) => invoke<{ spawned: string | null; created: number | null; baseline: number | null }>("add_companions", { id, count }),
+  addCompanions: (
+    id: string,
+    count: number,
+    realm?: RealmMode,
+    level?: number,
+    classId?: number,
+    specId?: number,
+    archetype?: string
+  ) =>
+    invoke<{ spawned: string | null; created: number | null; baseline: number | null }>("add_companions", {
+      id,
+      count,
+      realm: realm ?? null,
+      level: level ?? null,
+      class_id: classId ?? null,
+      spec_id: specId ?? null,
+      archetype: archetype ?? null,
+    }),
+  getWildcardArchetypes: (id: string) => invoke<WildcardArchetypeDto[]>("get_wildcard_archetypes", { id }),
   clientGraphics: (id: string) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_graphics", { id }),
   clientSetGraphics: (id: string, name: string, disabled: boolean) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_set_graphics", { id, name, disabled }),
   clientInfo: (id: string) => invoke<ClientInfo | null>("client_info", { id }),

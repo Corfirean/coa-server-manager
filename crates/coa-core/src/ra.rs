@@ -58,6 +58,23 @@ impl Ra {
         Self::connect_to(read_ports(root).ra, &cfg.ra_username, &cfg.ra_password)
     }
 
+    /// Connect to the loopback RA port of the target realm world server.
+    pub fn connect_target(main: &Path, realm: Option<crate::realms::Mode>) -> Result<Ra> {
+        let mode = realm.unwrap_or_else(|| {
+            crate::realms::view(main).map(|v| v.active).unwrap_or_default()
+        });
+        let target = crate::multiworld::resolve_bot_operation_target(main, mode)?;
+        if !target.running {
+            return Err(Error::Invalid(format!(
+                "Realm {} worldserver is stopped; cannot execute online bot operation.",
+                target.realm.label()
+            )));
+        }
+        let cfg: RaSettings = fsx::read_json(&main.join("Settings/repack.json"))
+            .map_err(|_| Error::Invalid("The server console settings could not be read.".into()))?;
+        Self::connect_to(target.ra_port, &cfg.ra_username, &cfg.ra_password)
+    }
+
     pub fn connect_to(port: u16, user: &str, password: &str) -> Result<Ra> {
         let addr: SocketAddr = ([127, 0, 0, 1], port).into();
         let mut stream =
@@ -87,7 +104,6 @@ impl Ra {
         let c = crate::console::check_command(cmd)?;
         self.command(c)
     }
-
     /// Send a command whose answer does not matter (`server shutdown`). The reply is still read (up to the next
     /// prompt, the end of the connection, or a few seconds): closing a socket that holds unread data resets the
     /// connection, and the server can then drop the command it has not processed yet.
@@ -110,7 +126,6 @@ impl Ra {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
         Ok(())
     }
-
     fn command(&mut self, cmd: &str) -> Result<String> {
         debug_assert!(!cmd.contains(['\r', '\n']));
         self.stream.write_all(format!("{cmd}\r\n").as_bytes())?;
@@ -274,6 +289,41 @@ impl Ra {
         if out.to_lowercase().contains("no usable template characters") {
             return Err(Error::CompanionTemplatesMissing);
         }
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
+    /// Ask the bot module to spawn a fleet of bots of specific race and level (.botcmd spawnfleet <race> <level>).
+    pub fn spawn_fleet(&mut self, race: u8, level: u8) -> Result<String> {
+        let out = self.bot_command(&format!("botcmd spawnfleet {race} {level}"))?;
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
+    pub fn spawn_custom(
+        &mut self,
+        count: u32,
+        level: u8,
+        class_id: Option<u8>,
+        spec_id: Option<u32>,
+        archetype: Option<&str>,
+    ) -> Result<String> {
+        let c = class_id.unwrap_or(0);
+        let s = spec_id.unwrap_or(0);
+        let a = archetype.unwrap_or("").trim();
+        let mut cmd = format!("botcmd spawncustom {count} {level}");
+        if !a.is_empty() {
+            cmd.push_str(&format!(" {c} {s} {a}"));
+        } else if s > 0 {
+            cmd.push_str(&format!(" {c} {s}"));
+        } else if c > 0 {
+            cmd.push_str(&format!(" {c}"));
+        }
+        let out = self.bot_command(&cmd)?;
+        Ok(out.lines().last().unwrap_or("").to_string())
+    }
+
+    /// Bring all offline bots online gradually (.botcmd loginall).
+    pub fn login_all(&mut self) -> Result<String> {
+        let out = self.bot_command("botcmd loginall")?;
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
