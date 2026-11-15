@@ -35,12 +35,24 @@ pub fn spawn(root: &Path, name: &str, exe: &Path, args: &[&str], cwd: &Path, log
 // Ports
 // ---------------------------------------------------------------------------------------------------------------
 
-/// Wait (up to 30 s) until `port` can be bound by a new server. A port with a listening owner is refused at
-/// once; a port Windows still holds for a stopped process (a PID-zero row) is waited for. The test bind is
-/// exclusive (`SO_EXCLUSIVEADDRUSE`), never a shared one.
-pub fn ensure_free(port: u16, progress: Progress) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(30);
+/// What keeps a new server off a port.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PortBlock {
+    /// Processes listen on it.
+    Owned(Vec<u32>),
+    /// Windows keeps it in an excluded range (Hyper-V, WSL and Docker reserve such ranges); waiting never helps.
+    Reserved(u16, u16),
+    /// Windows still refuses it after the wait (a stopped process' socket, or an owner the table does not show).
+    Unavailable(i32),
+}
+
+/// Wait (up to `wait`) until `port` can be bound by a new server. A port with a listening owner or inside a
+/// Windows excluded range is reported at once; a port Windows still holds for a stopped process (a PID-zero row)
+/// is waited for. The test bind is exclusive (`SO_EXCLUSIVEADDRUSE`), never a shared one.
+pub fn port_block(port: u16, wait: Duration, progress: Progress) -> std::result::Result<(), PortBlock> {
+    let deadline = Instant::now() + wait;
     let mut announced = false;
+    let mut reserved: Option<Vec<(u16, u16)>> = None;
     loop {
         let mut owners: Vec<u32> = sys::tcp_rows_v4()
             .into_iter()
@@ -50,19 +62,17 @@ pub fn ensure_free(port: u16, progress: Progress) -> Result<()> {
         owners.sort_unstable();
         owners.dedup();
         if owners.iter().any(|p| *p != 0) {
-            let list: Vec<String> = owners.iter().map(u32::to_string).collect();
-            return Err(Error::Service(
-                ErrorCode::PortInUse,
-                format!("Port {port} is already used (PID {}). Stop the other server or change Settings/repack.json.", list.join(", ")),
-            ));
+            return Err(PortBlock::Owned(owners));
         }
         match sys::exclusive_bind(port) {
             Ok(()) => return Ok(()),
             Err(code) if code == 10013 || code == 10048 => {
+                let ranges = reserved.get_or_insert_with(sys::excluded_ranges);
+                if let Some((start, end)) = ranges.iter().copied().find(|(s, e)| (*s..=*e).contains(&port)) {
+                    return Err(PortBlock::Reserved(start, end));
+                }
                 if Instant::now() >= deadline {
-                    return Err(Error::Invalid(format!(
-                        "Port {port} remains unavailable after 30 seconds (Windows bind error {code}). No process was stopped. Retry after the previous database shutdown has finished, or check the Windows port reservation."
-                    )));
+                    return Err(PortBlock::Unavailable(code));
                 }
                 if !announced {
                     progress(&format!("Waiting for Windows to release port {port}..."));
@@ -70,9 +80,117 @@ pub fn ensure_free(port: u16, progress: Progress) -> Result<()> {
                 }
                 std::thread::sleep(Duration::from_millis(250));
             }
-            Err(code) => return Err(Error::Invalid(format!("Port {port} cannot be checked (Windows error {code})."))),
+            Err(code) => return Err(PortBlock::Unavailable(code)),
         }
     }
+}
+
+fn port_error(port: u16, block: PortBlock) -> Error {
+    match block {
+        PortBlock::Owned(owners) => {
+            let list: Vec<String> = owners.iter().map(u32::to_string).collect();
+            Error::Service(
+                ErrorCode::PortInUse,
+                format!("Port {port} is already used (PID {}). Stop the other server or change Settings/repack.json.", list.join(", ")),
+            )
+        }
+        PortBlock::Reserved(start, end) => Error::Service(
+            ErrorCode::PortInUse,
+            format!(
+                "Port {port} is reserved by Windows (excluded range {start}-{end}; Hyper-V, WSL and Docker reserve such ranges). Choose another port in Settings/repack.json, or restart the Windows NAT service as administrator (net stop winnat, then net start winnat)."
+            ),
+        ),
+        PortBlock::Unavailable(code) if code == 10013 || code == 10048 => Error::Invalid(format!(
+            "Port {port} remains unavailable after 30 seconds (Windows bind error {code}). No process was stopped. Retry after the previous database shutdown has finished, or check the Windows port reservation."
+        )),
+        PortBlock::Unavailable(code) => Error::Invalid(format!("Port {port} cannot be checked (Windows error {code}).")),
+    }
+}
+
+/// [`port_block`] with up to 30 s of waiting, as an error a person can act on.
+pub fn ensure_free(port: u16, progress: Progress) -> Result<()> {
+    port_block(port, Duration::from_secs(30), progress).map_err(|block| port_error(port, block))
+}
+
+/// The ports of this server's other services and extra worlds, which the database must not take.
+fn ports_in_use_by_server(root: &Path, cfg: &Settings) -> Vec<u16> {
+    let mut ports = vec![cfg.auth_port, cfg.world_port, cfg.ra_port];
+    for tree in crate::multiworld::Tree::ALL {
+        let other = crate::multiworld::tree_root(root, tree);
+        if let Ok(other) = Settings::load(&other, 0) {
+            ports.extend([other.world_port, other.ra_port, other.auth_port]);
+        }
+    }
+    ports
+}
+
+/// Before the database starts: when its port is reserved by Windows or held by a program that is not this
+/// server's MySQL, move the database to a free port and record it in `Settings/repack.json`. Only this server's
+/// own services connect to MySQL (players never do), and every start renders their configs from that file, so
+/// the move needs nothing else. Returns the new port, or `None` when the configured one is usable.
+pub fn relocate_database_port(root: &Path, cfg: &Settings, offset: i32, progress: Progress) -> Result<Option<u16>> {
+    if cfg.shared_database || offset != 0 || state::running(root, "mysql").is_some() {
+        return Ok(None);
+    }
+    let block = match port_block(cfg.mysql_port, Duration::from_secs(30), progress) {
+        Ok(()) => return Ok(None),
+        Err(block) => block,
+    };
+    let ours = root.join("mysql/bin/mysqld.exe");
+    if let PortBlock::Owned(owners) = &block {
+        // This server's own database without a record: never start a second one on the same data.
+        let same = |pid: &u32| {
+            crate::process::identity(*pid).is_some_and(|p| same_file(Path::new(&p.exe), &ours))
+        };
+        if owners.iter().any(same) {
+            return Err(port_error(cfg.mysql_port, block));
+        }
+    }
+    let taken = ports_in_use_by_server(root, cfg);
+    let reserved = sys::excluded_ranges();
+    let candidate = (cfg.mysql_port.saturating_add(1)..=cfg.mysql_port.saturating_add(400))
+        .chain(33070..=33470)
+        .filter(|p| *p > 1024)
+        .find(|p| {
+            !taken.contains(p)
+                && !reserved.iter().any(|(s, e)| (*s..=*e).contains(p))
+                && port_block(*p, Duration::ZERO, &|_| {}).is_ok()
+        });
+    let Some(port) = candidate else {
+        return Err(port_error(cfg.mysql_port, block));
+    };
+    let reason = match &block {
+        PortBlock::Owned(_) => "used by another program",
+        PortBlock::Reserved(..) => "reserved by Windows",
+        PortBlock::Unavailable(_) => "unavailable",
+    };
+    let path = root.join("Settings/repack.json");
+    let mut raw = cfg.raw.clone();
+    raw.insert("mysqlPort".into(), port.into());
+    crate::fsx::atomic_write_json(&path, &serde_json::Value::Object(raw))?;
+    tracing::warn!(old = cfg.mysql_port, new = port, reason, "database moved to a free port");
+    progress(&format!("Port {} is {reason}; the database now uses port {port}.", cfg.mysql_port));
+    Ok(Some(port))
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy()),
+        _ => false,
+    }
+}
+
+/// The ranges of `netsh interface ipv4 show excludedportrange protocol=tcp`: every line that starts with two
+/// port numbers (the headers are translated, the numbers are not).
+pub(crate) fn parse_excluded_ranges(text: &str) -> Vec<(u16, u16)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let start = parts.next()?.parse::<u16>().ok()?;
+            let end = parts.next()?.parse::<u16>().ok()?;
+            (start <= end).then_some((start, end))
+        })
+        .collect()
 }
 
 /// Is the recorded process of `name` serving `port`? Its listener row is the evidence; when a system does not
@@ -473,6 +591,29 @@ mod sys {
     }
 
     /// Bind 0.0.0.0:port exclusively and release it. Err carries the Windows socket error.
+    /// Windows' excluded TCP port ranges, read with the system's own netsh (never one from PATH or the server).
+    pub fn excluded_ranges() -> Vec<(u16, u16)> {
+        use std::os::windows::process::CommandExt;
+        let mut directory = vec![0u16; 32768];
+        let length = unsafe {
+            windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(directory.as_mut_ptr(), directory.len() as u32)
+        } as usize;
+        if length == 0 || length >= directory.len() {
+            return Vec::new();
+        }
+        let netsh = std::path::PathBuf::from(String::from_utf16_lossy(&directory[..length])).join("netsh.exe");
+        let output = std::process::Command::new(netsh)
+            .args(["interface", "ipv4", "show", "excludedportrange", "protocol=tcp"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(super::CREATE_NO_WINDOW)
+            .output();
+        match output {
+            Ok(out) if out.status.success() => super::parse_excluded_ranges(&String::from_utf8_lossy(&out.stdout)),
+            _ => Vec::new(),
+        }
+    }
+
     pub fn exclusive_bind(port: u16) -> std::result::Result<(), i32> {
         use socket2::{Domain, Socket, Type};
         use std::os::windows::io::AsRawSocket;
@@ -527,6 +668,9 @@ mod sys {
     pub fn exclusive_bind(_: u16) -> std::result::Result<(), i32> {
         Ok(())
     }
+    pub fn excluded_ranges() -> Vec<(u16, u16)> {
+        Vec::new()
+    }
     pub fn terminate(_: &ProcessIdentity) -> Result<()> {
         Err(Error::Invalid("not supported".into()))
     }
@@ -535,6 +679,57 @@ mod sys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn excluded_ranges_are_read_from_translated_netsh_output() {
+        let english = "\r\nProtocol tcp Port Exclusion Ranges\r\n\r\nStart Port    End Port\r\n----------    --------\r\n      3250        3349\r\n     50000       50059     *\r\n\r\n* - Administered port exclusions.\r\n";
+        assert_eq!(parse_excluded_ranges(english), vec![(3250, 3349), (50000, 50059)]);
+        let russian = "\r\nПротокол tcp Диапазоны исключения портов\r\n\r\nНачальный порт    Конечный порт\r\n----------    --------\r\n     50000       50059     *\r\n\r\n* — управляемые исключения портов.\r\n";
+        assert_eq!(parse_excluded_ranges(russian), vec![(50000, 50059)]);
+        assert!(parse_excluded_ranges("").is_empty());
+    }
+
+    fn repack(dir: &Path, mysql: u16) {
+        std::fs::create_dir_all(dir.join("Settings")).unwrap();
+        std::fs::write(
+            dir.join("Settings/repack.json"),
+            format!(r#"{{"mysqlPort":{mysql},"authPort":3724,"worldPort":8085,"raPort":3443,"raUsername":"U","raPassword":"P"}}"#),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_taken_database_port_moves_to_a_free_one_and_is_recorded() {
+        let d = tempfile::tempdir().unwrap();
+        let held = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+        let port = held.local_addr().unwrap().port();
+        repack(d.path(), port);
+        let cfg = Settings::load(d.path(), 0).unwrap();
+        let said = std::cell::RefCell::new(Vec::new());
+        let moved = relocate_database_port(d.path(), &cfg, 0, &|line| said.borrow_mut().push(line.to_string()))
+            .unwrap()
+            .expect("moved");
+        assert_ne!(moved, port);
+        let again = Settings::load(d.path(), 0).unwrap();
+        assert_eq!(again.mysql_port, moved);
+        assert_eq!((again.auth_port, again.ra_username.as_str()), (3724, "U"), "other keys are kept");
+        assert!(said.borrow().iter().any(|l| l.contains("used by another program")), "{said:?}");
+        // The new port is usable: nothing moves on the next start.
+        assert_eq!(relocate_database_port(d.path(), &again, 0, &|_| {}).unwrap(), None);
+    }
+
+    #[test]
+    fn extra_worlds_and_shifted_test_ports_never_move_the_database() {
+        let d = tempfile::tempdir().unwrap();
+        let held = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+        let port = held.local_addr().unwrap().port();
+        repack(d.path(), port);
+        let cfg = Settings::load(d.path(), 0).unwrap();
+        let shared = Settings { shared_database: true, ..cfg.clone() };
+        assert_eq!(relocate_database_port(d.path(), &shared, 0, &|_| {}).unwrap(), None);
+        assert_eq!(relocate_database_port(d.path(), &cfg, 5, &|_| {}).unwrap(), None);
+        assert_eq!(Settings::load(d.path(), 0).unwrap().mysql_port, port);
+    }
 
     #[test]
     fn a_port_with_a_listener_is_refused_and_a_free_one_passes() {
@@ -554,9 +749,11 @@ mod tests {
         assert!(!ready(d.path(), "auth", port), "no record yet");
         state::record(d.path(), "auth", std::process::id()).unwrap();
         assert!(ready(d.path(), "auth", port));
+        // A port nobody listens on now (port + 1 may belong to a test running in parallel in this process).
         let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let free = other.local_addr().unwrap().port();
         drop(other);
-        assert!(!ready(d.path(), "auth", port + 1) || port + 1 == 0);
+        assert!(!ready(d.path(), "auth", free));
     }
 
     #[test]

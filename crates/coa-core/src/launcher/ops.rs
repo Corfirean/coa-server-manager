@@ -63,6 +63,21 @@ pub fn run(root: &Path, cfg: &Settings, offset: i32, action: Action, supervisor:
     if matches!(action, Action::StartAll | Action::StartWorld) {
         squid::validate_bots(root)?;
     }
+    let relocated;
+    let cfg = match action {
+        Action::StartAll | Action::StartMysql | Action::StartAuth | Action::StartWorld => {
+            match services::relocate_database_port(root, cfg, offset, progress)? {
+                Some(_) => {
+                    let mut moved = Settings::load(root, offset)?;
+                    moved.env_remove = cfg.env_remove.clone();
+                    relocated = moved;
+                    &relocated
+                }
+                None => cfg,
+            }
+        }
+        _ => cfg,
+    };
     render::prepare(root, cfg)?;
     if action == Action::Prepare {
         return Ok(());

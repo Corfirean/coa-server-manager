@@ -308,7 +308,9 @@ pub fn with_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result
     let db = Db::from_repack(root, Account::Admin)?;
     let observed = process::observe(root, &read_ports(root));
     let mysql_was_up = observed.mysql.state == ServiceState::Running && db.ping();
-    if !mysql_was_up {
+    let db = if mysql_was_up {
+        db
+    } else {
         let out = driver::run(root, Verb::StartMysql)?;
         if !out.ok {
             // Keep the launcher's own last lines: the title alone ("Something went wrong") hides the cause.
@@ -317,7 +319,9 @@ pub fn with_database<T>(root: &Path, f: impl FnOnce(&Db) -> Result<T>) -> Result
                 driver::startup_failure(root, &out)
             )));
         }
-    }
+        // The start may have moved the database to another port (a reserved or taken one).
+        Db::from_repack(root, Account::Admin)?
+    };
     let result = f(&db);
     if !mysql_was_up {
         let now = process::observe(root, &read_ports(root));
