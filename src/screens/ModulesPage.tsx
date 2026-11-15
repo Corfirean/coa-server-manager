@@ -87,6 +87,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
   const { t, locale } = useI18n();
   const human = useHuman();
   const [modules, setModules] = useState<ModuleView[] | null>(null);
+  const [parts, setParts] = useState<ModuleView[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
   const toggleLock = useRef(false);
@@ -119,7 +120,9 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
 
   const load = useCallback(async () => {
     try {
-      setModules((await api.modulesList(serverId)).filter((m) => !m.hidden));
+      const all = await api.modulesList(serverId);
+      setModules(all.filter((m) => !m.hidden));
+      setParts(all.filter((m) => m.part_of));
       await loadRacesStatus();
     } catch (e) {
       setError(asUiError(e));
@@ -328,6 +331,28 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
               {selected.id === "custom-races" && <RaceAvailabilitySettings serverId={serverId}
                 blocked={racesInstalling || toggling !== null} onSaved={() => setChanged(true)}
                 onRegisterGuard={setRacesGuard} />}
+              {parts.filter(p => p.part_of === selected.id && p.installed).map(p => (
+                <section key={p.id} className="mt-6 border-t border-line pt-5" aria-label={p.name}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-semibold">{p.name}</h3>
+                      <p className="mt-1 text-sm text-muted">{p.description[locale] ?? p.description.en}</p>
+                    </div>
+                    {p.switchable && <button
+                      role="switch"
+                      aria-checked={p.enabled}
+                      aria-label={t("mod.switch", { name: p.name })}
+                      aria-busy={toggling === p.id}
+                      disabled={toggling !== null || racesInstalling}
+                      onClick={() => void toggle(p)}
+                      className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", p.enabled ? "bg-gold" : "bg-white/15")}
+                    >
+                      <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", p.enabled ? "left-[22px]" : "left-0.5")} />
+                    </button>}
+                  </div>
+                  {p.enabled && p.has_settings && <ModuleSettings serverId={serverId} module={p} onSaved={() => setChanged(true)} />}
+                </section>
+              ))}
             </SettingsPanel>
           )}
           </Fragment>
