@@ -606,6 +606,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
+ "socket2",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
@@ -616,6 +617,15 @@ dependencies = [
  "windows-sys 0.60.2",
  "zip 2.4.2",
  "zstd",
+]
+
+[[package]]
+name = "coa-launcher"
+version = "0.9.10"
+dependencies = [
+ "coa-core",
+ "serde_json",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

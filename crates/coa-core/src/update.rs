@@ -403,7 +403,7 @@ pub fn plan(
                         match (fs::read_to_string(tree.join(&f.path)), fs::read(&target)) {
                             (Ok(signed), Ok(actual)) => {
                                 fsx::sha256_bytes(signed.as_bytes()) == f.sha256
-                                    && crate::driver::launcher_matches(&signed, &actual)
+                                    && crate::legacy_launcher::launcher_matches(&signed, &actual)
                             }
                             _ => false,
                         }
@@ -418,7 +418,7 @@ pub fn plan(
                 let manager_launcher = f.path == "Scripts/manage.py"
                     && recorded.is_some_and(|hash| {
                         fs::read(&target).is_ok_and(|bytes| {
-                            crate::driver::launcher_matches_recorded(hash, &bytes)
+                            crate::legacy_launcher::launcher_matches_recorded(hash, &bytes)
                         })
                     });
                 if f.path == "Core/worldserver.exe"
@@ -614,7 +614,7 @@ fn launcher_already_integrated(
     if meta.original_hashes.get(&file.path) != Some(&fsx::sha256_bytes(&actual)) {
         return Ok(false);
     }
-    Ok(crate::driver::launcher_matches_recorded(
+    Ok(crate::legacy_launcher::launcher_matches_recorded(
         &file.sha256,
         &actual,
     ))
@@ -968,7 +968,7 @@ fn finish(
                 fs::read_to_string(tree.join(&op.path)),
                 fs::read(root.join(&op.path)),
             ) {
-                (Ok(signed), Ok(actual)) if crate::driver::launcher_matches(&signed, &actual) => {
+                (Ok(signed), Ok(actual)) if crate::legacy_launcher::launcher_matches(&signed, &actual) => {
                     fsx::sha256_bytes(&actual)
                 }
                 _ => op.new_sha256.clone(),
@@ -1060,7 +1060,7 @@ pub fn retry_validation(
             && fs::read_to_string(dir.join("tree").join(&op.path))
                 .ok()
                 .filter(|s| fsx::sha256_bytes(s.as_bytes()) == file.sha256)
-                .is_some_and(|s| crate::driver::launcher_matches(&s, &bytes));
+                .is_some_and(|s| crate::legacy_launcher::launcher_matches(&s, &bytes));
         if actual != file.sha256 && !launcher {
             return Err(Error::Invalid(format!(
                 "{} changed since the update was applied; use repair or rollback.",
@@ -2347,9 +2347,9 @@ mod tests {
 
     fn legacy_launcher_world(import_patch: bool) -> World {
         let w = world(&[("Scripts/manage.py", b"new release launcher")], false);
-        let mut source = crate::realms::patch_launcher(LEGACY_LAUNCHER).unwrap();
+        let mut source = crate::legacy_launcher::patch_launcher(LEGACY_LAUNCHER).unwrap();
         if import_patch {
-            source = crate::driver::patch_launcher_imports(&source).unwrap();
+            source = crate::legacy_launcher::patch_launcher_imports(&source).unwrap();
         }
         write(&w.root, "Scripts/manage.py", source.as_bytes());
         let (_, mut meta) = MetaDir::open(&w.meta).unwrap();
@@ -2576,7 +2576,7 @@ mod tests {
         let w = world(&[("Scripts/manage.py", source)], false);
         run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap();
         let integrated =
-            crate::driver::patch_launcher_imports(std::str::from_utf8(source).unwrap()).unwrap();
+            crate::legacy_launcher::patch_launcher_imports(std::str::from_utf8(source).unwrap()).unwrap();
         write(&w.root, "Scripts/manage.py", integrated.as_bytes());
         let (_, mut meta) = MetaDir::open(&w.meta).unwrap();
         meta.original_hashes.insert(

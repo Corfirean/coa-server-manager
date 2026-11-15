@@ -1,0 +1,15 @@
+[package]
+name = "coa-launcher"
+description = "The CoA repack launcher (Start_All_Server.bat and friends) without Python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "coa-launcher"
+path = "src/main.rs"
+
+[dependencies]
+coa-core = { path = "../coa-core" }
+serde_json = "1"
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Console"] }
