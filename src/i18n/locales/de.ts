@@ -786,6 +786,8 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "sched.save": "Speichern",
   "sched.saved": "Gespeichert.",
   "sched.unsupported": "Dieser Server kann das noch nicht: Aktualisiere ihn auf einen Build mit dem neuen Launcher.",
+  "client.clearCache": "Spiel-Cache vor jedem Start leeren",
+  "client.clearCacheHint": "Das Spiel merkt sich Kreaturen, Gegenstände und Quests vom Server (Cache/WDB). Nach einem Server-Update zeigen sie sonst alte Namen und Werte; der Cache füllt sich in Sekunden wieder.",
   "realm.namesTitle": "Realmnamen",
   "realm.namesHint": "So heißt der Realm in der Realmliste der Spieler. Ein laufender Server zeigt den Namen sofort, und er bleibt nach Updates erhalten.",
   "realm.nameSave": "Speichern",

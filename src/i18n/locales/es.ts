@@ -786,6 +786,8 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "sched.save": "Guardar",
   "sched.saved": "Guardado.",
   "sched.unsupported": "Este servidor aún no puede hacerlo: actualízalo a una versión con el nuevo lanzador.",
+  "client.clearCache": "Vaciar la caché del juego antes de cada inicio",
+  "client.clearCacheHint": "El juego recuerda criaturas, objetos y misiones recibidos del servidor (Cache/WDB). Tras actualizar el servidor pueden mostrar nombres y estadísticas antiguos; la caché se llena de nuevo en segundos.",
   "realm.namesTitle": "Nombres de los reinos",
   "realm.namesHint": "El nombre que ven los jugadores en la lista de reinos. Un servidor en marcha lo muestra al instante y se mantiene tras las actualizaciones.",
   "realm.nameSave": "Guardar",

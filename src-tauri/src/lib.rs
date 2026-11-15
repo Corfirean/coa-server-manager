@@ -240,6 +240,7 @@ async fn portable_launch(
                 let mut profile =
                     coa_core::remote_client::load(&dir).map_err(|e| other(e.into()))?;
                 profile.host = address;
+                profile.realm = Some(realm.clone());
                 coa_core::remote_client::save(&dir, &profile).map_err(|e| other(e.into()))?;
                 if let Some(ref cp) = profile.client_path {
                     if let Ok(pc) = control_cmds::player(&state) {
@@ -2076,6 +2077,10 @@ fn remote_connect(
     if host.is_empty() {
         return Err(Error::Invalid("Enter the host's IP address or hostname.".into()).into());
     }
+    if profile.host != host {
+        // A host typed by hand is not the listed server whose account was remembered.
+        profile.realm = None;
+    }
     profile.host = host.into();
     coa_core::remote_client::save(&dir, &profile)?;
     Ok(profile)
@@ -2476,6 +2481,15 @@ async fn play(
     if id == REMOTE_CLIENT_ID {
         let ctx = client_context(&state, &id)?;
         let client = ctx.require()?;
+        // The account the Manager made (or linked) on that listed server goes into the login box at every Play,
+        // also when another server's account was used in between.
+        let login = coa_core::remote_client::load(&remote_dir())
+            .ok()
+            .and_then(|profile| profile.realm)
+            .and_then(|realm| {
+                let pc = control_cmds::player(&state).ok()?;
+                pc.credentials(&control_cmds::realm_id(&realm).ok()?).ok()?
+            });
         return blocking(move || {
             if ctx.host.is_empty() {
                 return Err(Error::Invalid(
@@ -2486,6 +2500,12 @@ async fn play(
                 return Err(Error::Invalid("The game is already running.".into()));
             }
             coa_core::client::begin_realmlist_override(&client, &ctx.dir, &ctx.host)?;
+            if let Some(creds) = &login {
+                let _ = coa_core::glue_config::prefill_login(&client, &creds.username, &creds.password);
+            }
+            if window_preferences::clear_cache_on_play(&data_dir()) {
+                let _ = coa_core::client::clear_game_cache(&client);
+            }
             coa_core::client::launch(&client)?;
             let client_c = client.clone();
             let meta_c = ctx.dir.clone();
@@ -2531,6 +2551,9 @@ async fn play(
         let existing = coa_core::glue_config::read_glue_config(&client).unwrap_or_default();
         if existing.is_empty() {
             let _ = coa_core::glue_config::prefill_login(&client, "local", "local");
+        }
+        if window_preferences::clear_cache_on_play(&data_dir()) {
+            let _ = coa_core::client::clear_game_cache(&client);
         }
         coa_core::client::launch(&client)?;
         Ok(DriverOutcome {
@@ -2998,6 +3021,16 @@ fn set_close_to_tray(enabled: bool) -> std::result::Result<(), UiError> {
     Ok(window_preferences::save(&data_dir(), enabled)?)
 }
 
+#[tauri::command]
+fn clear_game_cache_on_play() -> bool {
+    window_preferences::clear_cache_on_play(&data_dir())
+}
+
+#[tauri::command]
+fn set_clear_game_cache_on_play(enabled: bool) -> std::result::Result<(), UiError> {
+    Ok(window_preferences::save_clear_cache_on_play(&data_dir(), enabled)?)
+}
+
 fn show_main_window(app: &AppHandle) {
     let handle = app.clone();
     if let Err(error) = app.run_on_main_thread(move || {
@@ -3082,6 +3115,8 @@ pub fn run() {
             mysql_custom_save,
             restart_schedule,
             restart_schedule_save,
+            clear_game_cache_on_play,
+            set_clear_game_cache_on_play,
             check_database,
             repair_server,
             module_set_enabled,

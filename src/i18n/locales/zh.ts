@@ -71,6 +71,8 @@ const zh = {
   "sched.save": "保存",
   "sched.saved": "已保存。",
   "sched.unsupported": "此服务器暂不支持：请将服务器更新到带有新启动器的版本。",
+  "client.clearCache": "每次启动前清空游戏缓存",
+  "client.clearCacheHint": "游戏会保存从服务器获得的生物、物品和任务（Cache/WDB）。服务器更新后，这些缓存可能显示旧的名称和属性；缓存会在几秒内重新生成。",
   "realm.namesTitle": "服务器名称",
   "realm.namesHint": "玩家在服务器列表中看到的名称。运行中的服务器会立即显示新名称，更新后也会保留。",
   "realm.nameSave": "保存",

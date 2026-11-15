@@ -29,6 +29,8 @@ export {};
   (window as any).__TAURI_INTERNALS__ = {
     transformCallback: (cb: unknown)=>cb, unregisterCallback(){}, convertFileSrc:(x: unknown)=>x,
     invoke: async (cmd: string, args?: any)=>{
+      if(cmd==="clear_game_cache_on_play") return localStorage.getItem("demo-clear-cache")!=="0";
+      if(cmd==="set_clear_game_cache_on_play"){localStorage.setItem("demo-clear-cache",args.enabled?"1":"0");return;}
       if(cmd==="close_to_tray") return localStorage.getItem("demo-close-tray")==="1";
       if(cmd==="set_close_to_tray"){localStorage.setItem("demo-close-tray",args.enabled?"1":"0");return;}
       if(cmd==="client_graphics") return JSON.parse(localStorage.getItem("demo-graphics")??'{"dxvk_disabled":false,"enhancements_disabled":false}');

@@ -70,6 +70,8 @@ const en = {
   "sched.save": "Save",
   "sched.saved": "Saved.",
   "sched.unsupported": "This server cannot do it yet: update the server to a build with the new launcher.",
+  "client.clearCache": "Clear the game cache before every Play",
+  "client.clearCacheHint": "The game remembers creatures, items and quests it got from a server (Cache/WDB). After a server update they can show old names and stats; the cache fills again within seconds.",
   "realm.namesTitle": "Realm names",
   "realm.namesHint": "The name players see in the realm list. A running server shows it at once, and it stays after updates.",
   "realm.nameSave": "Save",
