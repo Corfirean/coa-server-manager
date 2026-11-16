@@ -240,6 +240,7 @@ async fn portable_launch(
                 let mut profile =
                     coa_core::remote_client::load(&dir).map_err(|e| other(e.into()))?;
                 profile.host = address;
+                profile.realm = Some(realm.clone());
                 coa_core::remote_client::save(&dir, &profile).map_err(|e| other(e.into()))?;
                 if let Some(ref cp) = profile.client_path {
                     if let Ok(pc) = control_cmds::player(&state) {
@@ -350,6 +351,8 @@ struct StatusView {
     observed: Observed,
     busy: bool,
     path_exists: bool,
+    /// A scheduled restart is under way: a world that is down for a few minutes did not crash.
+    scheduled_restart: bool,
 }
 
 /// Where the Manager keeps its own state (server list, logs). `%LOCALAPPDATA%` on Windows, the XDG data folder elsewhere.
@@ -548,9 +551,12 @@ async fn server_status(
     let root = path_of(&state, &id)?;
     let busy = state.busy.lock().map(|b| b.contains(&id)).unwrap_or(false);
     let path_exists = root.is_dir();
-    let observed = tauri::async_runtime::spawn_blocking(move || {
+    let (observed, scheduled_restart) = tauri::async_runtime::spawn_blocking(move || {
         let ports = layout::read_ports(&root);
-        process::observe(&root, &ports)
+        (
+            process::observe(&root, &ports),
+            coa_core::launcher::schedule::under_way(&root),
+        )
     })
     .await
     .map_err(|e| Error::Invalid(e.to_string()))?;
@@ -558,6 +564,7 @@ async fn server_status(
         observed,
         busy,
         path_exists,
+        scheduled_restart,
     })
 }
 
@@ -620,25 +627,53 @@ async fn start_server(
     let out = blocking(move || driver::run(&root, Verb::StartAll)).await?;
     if out.ok {
         if let Ok(root) = path_of(&state, &id) {
-            // Companions requested while the server was stopped are created now (once; a failure is only logged).
+            // Companions requested while the server was stopped are reconciled and created now per realm.
             let r = root.clone();
+            let instance_id = id.clone();
             let _ = tauri::async_runtime::spawn_blocking(move || -> Result<()> {
                 if coa_core::realms::guard_module(&r, "companions").is_err() {
                     return Ok(());
                 }
-                let pending = meta_dir(&r)?.join("companions.pending.json");
-                if let Ok(v) = coa_core::fsx::read_json::<serde_json::Value>(&pending) {
-                    let _ = std::fs::remove_file(&pending);
-                    let n = v["count"].as_u64().unwrap_or(0) as u32;
-                    if n > 0 {
-                        let made = coa_core::db::Db::from_repack(&r, coa_core::db::Account::Admin)
-                            .and_then(|db| coa_core::companions::ensure_templates(&db));
-                        if let Err(e) = made
-                            .and_then(|_| Ra::connect(&r))
-                            .and_then(|mut ra| ra.spawn_bots(n))
-                        {
-                            tracing::warn!("pending companions were not created: {e}");
+                let meta = meta_dir(&r)?;
+                if let Err(e) = coa_core::companions::migrate_legacy_pending_job(&meta, &instance_id) {
+                    tracing::warn!("failed to migrate legacy pending companions job: {e}");
+                }
+                for mode in [
+                    coa_core::realms::Mode::Coa,
+                    coa_core::realms::Mode::Wildcard,
+                    coa_core::realms::Mode::Reborn,
+                ] {
+                    let target = match coa_core::multiworld::resolve_bot_operation_target(&r, mode) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::warn!("cannot resolve target for realm {}: {e}", mode.name());
+                            continue;
                         }
+                    };
+                    let r_snap = r.clone();
+                    let chars_db = target.chars_db;
+                    let r_ra = r.clone();
+                    let res = coa_core::companions::process_pending_job_with(
+                        &meta,
+                        mode,
+                        &instance_id,
+                        target.running,
+                        |since_guid| {
+                            let admin_db = coa_core::db::Db::from_repack(&r_snap, coa_core::db::Account::Admin)?;
+                            let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, chars_db);
+                            coa_core::companions::query_bot_db_snapshot(&r_snap, &admin_db, chars_db, since_guid)
+                        },
+                        |delta, job| {
+                            let mut ra = Ra::connect_target(&r_ra, Some(mode))?;
+                            if let Some(lvl) = job.level {
+                                ra.spawn_custom(delta, lvl, job.class_id, job.spec_id, job.build_id.as_deref())
+                            } else {
+                                ra.spawn_bots(delta)
+                            }
+                        },
+                    );
+                    if let Err(e) = res {
+                        tracing::warn!("pending companions for realm {} failed during reconciliation: {e}", mode.name());
                     }
                 }
                 Ok(())
@@ -1217,7 +1252,11 @@ async fn realm_select(
         let view = coa_core::realms::select(&root, mode)?;
         let (dir, meta) = install_meta(&root)?;
         if let Some(client) = meta.client_path {
-            coa_core::client::sync_realm(std::path::Path::new(&client), &dir, view.active)?;
+            coa_core::client::sync_realm_named(
+                std::path::Path::new(&client),
+                &dir,
+                &coa_core::realm_names::for_mode(&root, view.active),
+            )?;
         }
         if restart {
             let out = driver::run(&root, Verb::StartAll)?;
@@ -1232,6 +1271,90 @@ async fn realm_select(
     })
     .await;
     result
+}
+
+#[derive(serde::Serialize)]
+struct RestartScheduleView {
+    schedule: coa_core::launcher::schedule::RestartSchedule,
+    /// The server ships the Rust world supervisor that carries out the schedule.
+    supported: bool,
+}
+
+#[tauri::command]
+async fn restart_schedule(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<RestartScheduleView, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        Ok(RestartScheduleView {
+            schedule: coa_core::launcher::schedule::load(&root),
+            supported: root.join("Scripts/coa-launcher.exe").is_file(),
+        })
+    })
+    .await
+}
+
+/// Restart the world every day at the owner's local time; the running supervisor reads it within a minute.
+#[tauri::command]
+async fn restart_schedule_save(
+    state: State<'_, AppState>,
+    id: String,
+    schedule: coa_core::launcher::schedule::RestartSchedule,
+) -> std::result::Result<RestartScheduleView, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        Ok(RestartScheduleView {
+            schedule: coa_core::launcher::schedule::save(&root, &schedule)?,
+            supported: root.join("Scripts/coa-launcher.exe").is_file(),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn mysql_custom(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::launcher::render::CustomMysql, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || Ok(coa_core::launcher::render::read_custom_mysql(&root))).await
+}
+
+/// The owner's own MySQL options (Settings/mysql-custom.ini); they apply at the next start of the database.
+#[tauri::command]
+async fn mysql_custom_save(
+    state: State<'_, AppState>,
+    id: String,
+    text: String,
+) -> std::result::Result<coa_core::launcher::render::CustomMysql, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::launcher::render::write_custom_mysql(&root, &text)).await
+}
+
+#[tauri::command]
+async fn realm_names(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::realm_names::RealmName>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::realm_names::list(&root)).await
+}
+
+/// Rename a realm (`None` brings back its default name). The realm list changes at once when the database runs,
+/// and the linked game client selects the new name on the next Play.
+#[tauri::command]
+async fn realm_rename(
+    state: State<'_, AppState>,
+    id: String,
+    realm_id: u32,
+    name: Option<String>,
+) -> std::result::Result<Vec<coa_core::realm_names::RealmName>, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::realm_names::rename(&root, realm_id, name.as_deref())).await
 }
 
 #[tauri::command]
@@ -1382,6 +1505,68 @@ async fn custom_races_install(
     .await;
     end_client_job(&state);
     result
+}
+
+#[tauri::command]
+async fn custom_race_characters(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Option<coa_core::custom_races::CustomRaceCharacters>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::custom_races::custom_race_characters(&root)).await
+}
+
+/// Delete the companion bots of custom races through the running world's console. Returns how many.
+#[tauri::command]
+async fn purge_custom_race_bots(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<u32, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
+        if o.world.state != coa_core::process::ServiceState::Running {
+            return Err(Error::Invalid("Start the server to delete bots.".into()));
+        }
+        Ra::connect(&root)?.purge_custom_race_bots()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn addons_list(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::addons::AddonView>, UiError> {
+    let ctx = client_context(&state, &id)?;
+    blocking(move || coa_core::addons::list(&ctx.require()?)).await
+}
+
+/// Install or update a catalog addon in the linked game client (pinned commit, every file checked).
+#[tauri::command]
+async fn addons_install(
+    state: State<'_, AppState>,
+    id: String,
+    addon: String,
+) -> std::result::Result<Vec<coa_core::addons::AddonView>, UiError> {
+    let ctx = client_context(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    let cancel = begin_client_job(&state)?;
+    let result = blocking(move || coa_core::addons::install(&ctx.require()?, &addon, &cancel)).await;
+    end_client_job(&state);
+    result
+}
+
+#[tauri::command]
+async fn addons_remove(
+    state: State<'_, AppState>,
+    id: String,
+    addon: String,
+) -> std::result::Result<Vec<coa_core::addons::AddonView>, UiError> {
+    let ctx = client_context(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::addons::remove(&ctx.require()?, &addon)).await
 }
 
 #[tauri::command]
@@ -1697,6 +1882,7 @@ async fn retry_update_validation(
 async fn get_population(
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<Option<coa_core::population::Population>, UiError> {
     let root = path_of(&state, &id)?;
     Ok(tauri::async_runtime::spawn_blocking(move || {
@@ -1704,10 +1890,46 @@ async fn get_population(
         if o.mysql.state != coa_core::process::ServiceState::Running {
             return None;
         }
-        coa_core::population::query(&root).ok()
+        if let Some(mode) = realm {
+            coa_core::population::query_for_realm(&root, mode).ok()
+        } else {
+            coa_core::population::query(&root).ok()
+        }
     })
     .await
     .unwrap_or(None))
+}
+
+#[tauri::command]
+async fn companions_login_all(
+    state: State<'_, AppState>,
+    id: String,
+    realm: Option<coa_core::realms::Mode>,
+) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let mut ra = Ra::connect_target(&root, realm)?;
+        ra.login_all()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn companions_spawn_fleet(
+    state: State<'_, AppState>,
+    id: String,
+    race: u8,
+    level: u8,
+    realm: Option<coa_core::realms::Mode>,
+) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let mut ra = Ra::connect_target(&root, realm)?;
+        ra.spawn_fleet(race, level)
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -1720,12 +1942,31 @@ struct CompanionAction {
 async fn companions_stop_spawning(
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     blocking(move || {
-        Ok(CompanionAction {
-            count: Ra::connect(&root)?.cancel_spawning()?,
-        })
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        let meta = meta_dir(&root)?;
+        let cancelled_pending = coa_core::companions::cancel_pending_job(&meta, mode.name())
+            .ok()
+            .flatten();
+        match Ra::connect_target(&root, Some(mode)).and_then(|mut ra| ra.cancel_spawning()) {
+            Ok(ra_cancelled) => Ok(CompanionAction {
+                count: ra_cancelled + cancelled_pending.map(|j| j.remaining_count()).unwrap_or(0),
+            }),
+            Err(e) => {
+                if let Some(job) = cancelled_pending {
+                    Ok(CompanionAction {
+                        count: job.remaining_count(),
+                    })
+                } else {
+                    Err(e)
+                }
+            }
+        }
     })
     .await
 }
@@ -1734,12 +1975,12 @@ async fn companions_stop_spawning(
 async fn companions_take_offline(
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
-        let mut ra = Ra::connect(&root)?;
-        // Anything still waiting to be created must not come back right after.
+        let mut ra = Ra::connect_target(&root, realm)?;
         let _ = ra.cancel_spawning();
         Ok(CompanionAction {
             count: ra.despawn_all()?,
@@ -1748,13 +1989,12 @@ async fn companions_take_offline(
     .await
 }
 
-/// Log `count` randomly chosen online companions out to lower the load. Uses the per-bot command that every server
-/// build has, so it works on older builds too.
 #[tauri::command]
 async fn companions_despawn_some(
     state: State<'_, AppState>,
     id: String,
     count: u32,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
@@ -1762,13 +2002,18 @@ async fn companions_despawn_some(
         if !(1..=5000).contains(&count) {
             return Err(Error::Invalid("Choose a number between 1 and 5000.".into()));
         }
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        let target = coa_core::multiworld::resolve_bot_operation_target(&root, mode)?;
         let prefix = coa_core::population::bot_account_prefix(&root).to_uppercase();
         let db = coa_core::db::Db::from_repack(&root, coa_core::db::Account::App)?;
         let rows = db.query(&format!(
-            "SELECT c.guid FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account              WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%' ORDER BY RAND() LIMIT {count};"
+            "SELECT c.guid FROM {}.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%' ORDER BY RAND() LIMIT {count};",
+            target.chars_db
         ))?;
         let guids: Vec<u64> = rows.lines().filter_map(|l| l.trim().parse().ok()).collect();
-        let mut ra = Ra::connect(&root)?;
+        let mut ra = Ra::connect_target(&root, Some(mode))?;
         let mut done = 0;
         for g in guids {
             if ra.despawn_bot(g).unwrap_or(false) {
@@ -1780,31 +2025,36 @@ async fn companions_despawn_some(
     .await
 }
 
-/// Delete every companion for good. A recovery point of the characters and accounts is saved first.
 #[tauri::command]
 async fn companions_delete_all(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
+    realm: Option<coa_core::realms::Mode>,
 ) -> std::result::Result<CompanionAction, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
     blocking(move || {
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        let target = coa_core::multiworld::resolve_bot_operation_target(&root, mode)?;
         let meta = meta_dir(&root)?;
         backup::create(
             &root,
             &meta,
             Kind::Quick,
             Trigger::BeforeDangerousChange,
-            Some("before deleting all companions".into()),
+            Some(format!("before deleting all {} companions", target.realm.label())),
             &|step| {
                 let _ = app.emit("backup-progress", step);
             },
         )?;
-        let before = coa_core::population::query(&root)
+        let before = coa_core::population::query_for_realm(&root, mode)
             .map(|p| p.bots_total)
             .unwrap_or(0);
-        let mut ra = Ra::connect(&root)?;
+        let _ = coa_core::companions::cancel_pending_job(&meta, mode.name());
+        let mut ra = Ra::connect_target(&root, Some(mode))?;
         let _ = ra.cancel_spawning();
         ra.purge_all()?;
         Ok(CompanionAction { count: before })
@@ -1860,6 +2110,11 @@ async fn add_companions(
     state: State<'_, AppState>,
     id: String,
     count: u32,
+    realm: Option<coa_core::realms::Mode>,
+    level: Option<u8>,
+    class_id: Option<u8>,
+    spec_id: Option<u32>,
+    archetype: Option<String>,
 ) -> std::result::Result<CompanionsResult, UiError> {
     let root = path_of(&state, &id)?;
     let _guard = BusyGuard::acquire(&state, &id)?;
@@ -1869,81 +2124,84 @@ async fn add_companions(
                 "Choose between 1 and 2000 companions.".into(),
             ));
         }
+        let mode = realm.unwrap_or_else(|| {
+            coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default()
+        });
+        coa_core::companions::validate_spawn_request(
+            mode,
+            count,
+            level,
+            class_id,
+            spec_id,
+            archetype.as_deref(),
+        )?;
+        let target = coa_core::multiworld::resolve_bot_operation_target(&root, mode)?;
+        if mode == coa_core::realms::Mode::Wildcard {
+            if let Some(ref arch_id) = archetype {
+                if !arch_id.trim().is_empty() {
+                    let db = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?;
+                    let archetypes = coa_core::companions::list_wildcard_archetypes(&db, target.chars_db)?;
+                    if !archetypes.iter().any(|a| a.id.eq_ignore_ascii_case(arch_id.trim())) {
+                        return Err(Error::Invalid(format!(
+                            "Unknown Wildcard build UUID '{}' in {}.coa_build_creator.",
+                            arch_id.trim(),
+                            target.chars_db
+                        )));
+                    }
+                }
+            }
+        }
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
-        // Every companion, old and new, should come back at the next start, so the start-up limit only ever grows here.
-        let existing_max = config::load(&root, Scope::Bots)
-            .ok()
-            .and_then(|v| {
-                v.settings
-                    .iter()
-                    .find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount")
-                    .and_then(|s| s.value.as_u64())
-            })
+        let existing_cfg = config::load(&target.world_root, Scope::Bots)?;
+        let existing_max = existing_cfg
+            .settings
+            .iter()
+            .find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount")
+            .and_then(|s| s.value.as_u64())
             .unwrap_or(0) as u32;
-        let already = coa_core::population::query(&root)
+        let already = coa_core::population::query_for_realm(&root, mode)
             .map(|p| p.bots_total)
             .unwrap_or(0);
         changes.insert(
             "CoaBots.AutoLogin.MaxCount".to_string(),
             Value::from(existing_max.max(already + count).min(5000)),
         );
-        config::save(&root, &meta, Scope::Bots, &changes)?;
-        let o = coa_core::process::observe(&root, &layout::read_ports(&root));
-        // Large batches while the server is stopped: create them in the database right now, fully equipped.
-        if o.world.state == coa_core::process::ServiceState::Stopped
-            && o.auth.state == coa_core::process::ServiceState::Stopped
-            && count >= coa_core::companions::OFFLINE_MIN
-            && coa_core::companions::offline_factory(&root).is_some()
-        {
-            let started_db = o.mysql.state != coa_core::process::ServiceState::Running;
-            if started_db {
-                let out = driver::run(&root, Verb::StartMysql)?;
-                if !out.ok {
-                    return Err(Error::Invalid("The database could not be started.".into()));
-                }
-            }
-            let made = (|| -> Result<()> {
-                coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
-                    &root,
-                    coa_core::db::Account::Admin,
-                )?)?;
-                coa_core::companions::offline_create(
-                    &root,
-                    &meta.join("logs").join("companions-offline.log"),
-                    count,
-                )?;
-                Ok(())
-            })();
-            if started_db {
-                let _ = driver::run(&root, Verb::StopAll);
-            }
-            made?;
-            tracing::info!(count, "companions created offline");
-            return Ok(CompanionsResult {
-                spawned: None,
-                created: Some(count),
-                baseline: None,
-            });
-        }
+        config::save(&target.world_root, &meta, Scope::Bots, &changes)?;
+
         let mut baseline = None;
-        let spawned = if o.world.state == coa_core::process::ServiceState::Running {
-            // Older servers have no template characters to copy bots from: add them first.
-            coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
-                &root,
-                coa_core::db::Account::Admin,
-            )?)?;
-            baseline = coa_core::population::query(&root)
+        let spawned = if target.running {
+            if let Ok(admin_db) = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin) {
+                let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, target.chars_db);
+            }
+            baseline = coa_core::population::query_for_realm(&root, mode)
                 .ok()
                 .map(|p| p.bots_total);
-            Some(Ra::connect(&root)?.spawn_bots(count)?)
+            let mut ra = Ra::connect_target(&root, Some(mode))?;
+            if let Some(lvl) = level {
+                Some(ra.spawn_custom(count, lvl, class_id, spec_id, archetype.as_deref())?)
+            } else {
+                Some(ra.spawn_bots(count)?)
+            }
         } else {
-            // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
-            coa_core::fsx::atomic_write_json(
-                &meta.join("companions.pending.json"),
-                &serde_json::json!({ "count": count }),
-            )?;
+            let _ = coa_core::companions::migrate_legacy_pending_job(&meta, &id);
+            let mut job = coa_core::companions::CompanionsPendingJob::new(
+                &id,
+                mode.name(),
+                count,
+                level,
+                class_id,
+                spec_id,
+                archetype.clone(),
+            );
+            if let Ok(admin_db) = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin) {
+                if let Ok(snap) = coa_core::companions::query_bot_db_snapshot(&root, &admin_db, target.chars_db, None) {
+                    job.baseline_bot_count = Some(snap.bot_count);
+                    job.baseline_max_guid = Some(snap.max_guid);
+                }
+            }
+            coa_core::companions::save_pending_job(&meta, mode.name(), &job)?;
             None
         };
         tracing::info!(count, spawned = spawned.is_some(), "companions requested");
@@ -1952,6 +2210,27 @@ async fn add_companions(
             created: None,
             baseline,
         })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_wildcard_archetypes(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<coa_core::companions::WildcardArchetypeDto>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || {
+        let db = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin)?;
+        let target = coa_core::multiworld::resolve_bot_operation_target(&root, coa_core::realms::Mode::Wildcard)
+            .unwrap_or_else(|_| coa_core::multiworld::BotOperationTarget {
+                world_root: root.clone(),
+                chars_db: "acore_characters_wildcard",
+                ra_port: 3444,
+                running: false,
+                realm: coa_core::realms::Mode::Wildcard,
+            });
+        Ok(coa_core::companions::list_wildcard_archetypes(&db, target.chars_db)?)
     })
     .await
 }
@@ -1981,6 +2260,10 @@ fn remote_connect(
     let host = host.trim();
     if host.is_empty() {
         return Err(Error::Invalid("Enter the host's IP address or hostname.".into()).into());
+    }
+    if profile.host != host {
+        // A host typed by hand is not the listed server whose account was remembered.
+        profile.realm = None;
     }
     profile.host = host.into();
     coa_core::remote_client::save(&dir, &profile)?;
@@ -2382,6 +2665,15 @@ async fn play(
     if id == REMOTE_CLIENT_ID {
         let ctx = client_context(&state, &id)?;
         let client = ctx.require()?;
+        // The account the Manager made (or linked) on that listed server goes into the login box at every Play,
+        // also when another server's account was used in between.
+        let login = coa_core::remote_client::load(&remote_dir())
+            .ok()
+            .and_then(|profile| profile.realm)
+            .and_then(|realm| {
+                let pc = control_cmds::player(&state).ok()?;
+                pc.credentials(&control_cmds::realm_id(&realm).ok()?).ok()?
+            });
         return blocking(move || {
             if ctx.host.is_empty() {
                 return Err(Error::Invalid(
@@ -2392,6 +2684,12 @@ async fn play(
                 return Err(Error::Invalid("The game is already running.".into()));
             }
             coa_core::client::begin_realmlist_override(&client, &ctx.dir, &ctx.host)?;
+            if let Some(creds) = &login {
+                let _ = coa_core::glue_config::prefill_login(&client, &creds.username, &creds.password);
+            }
+            if window_preferences::clear_cache_on_play(&data_dir()) {
+                let _ = coa_core::client::clear_game_cache(&client);
+            }
             coa_core::client::launch(&client)?;
             let client_c = client.clone();
             let meta_c = ctx.dir.clone();
@@ -2427,7 +2725,8 @@ async fn play(
     }
     blocking(move || {
         let mode = coa_core::realms::state(&root)?.active;
-        if !coa_core::client::sync_realm(&client, &dir, mode)? {
+        let realm = coa_core::realm_names::for_mode(&root, mode);
+        if !coa_core::client::sync_realm_named(&client, &dir, &realm)? {
             return Err(Error::Invalid(
                 "Close the game client before pressing Play so its selected realm can be updated."
                     .into(),
@@ -2436,6 +2735,9 @@ async fn play(
         let existing = coa_core::glue_config::read_glue_config(&client).unwrap_or_default();
         if existing.is_empty() {
             let _ = coa_core::glue_config::prefill_login(&client, "local", "local");
+        }
+        if window_preferences::clear_cache_on_play(&data_dir()) {
+            let _ = coa_core::client::clear_game_cache(&client);
         }
         coa_core::client::launch(&client)?;
         Ok(DriverOutcome {
@@ -2903,6 +3205,16 @@ fn set_close_to_tray(enabled: bool) -> std::result::Result<(), UiError> {
     Ok(window_preferences::save(&data_dir(), enabled)?)
 }
 
+#[tauri::command]
+fn clear_game_cache_on_play() -> bool {
+    window_preferences::clear_cache_on_play(&data_dir())
+}
+
+#[tauri::command]
+fn set_clear_game_cache_on_play(enabled: bool) -> std::result::Result<(), UiError> {
+    Ok(window_preferences::save_clear_cache_on_play(&data_dir(), enabled)?)
+}
+
 fn show_main_window(app: &AppHandle) {
     let handle = app.clone();
     if let Err(error) = app.run_on_main_thread(move || {
@@ -2981,6 +3293,19 @@ pub fn run() {
             realm_select,
             realm_simultaneous,
             realm_with_reborn,
+            realm_names,
+            realm_rename,
+            mysql_custom,
+            mysql_custom_save,
+            restart_schedule,
+            restart_schedule_save,
+            clear_game_cache_on_play,
+            set_clear_game_cache_on_play,
+            custom_race_characters,
+            purge_custom_race_bots,
+            addons_list,
+            addons_install,
+            addons_remove,
             check_database,
             repair_server,
             module_set_enabled,
@@ -3006,10 +3331,13 @@ pub fn run() {
             companions_take_offline,
             companions_delete_all,
             companions_despawn_some,
+            companions_login_all,
+            companions_spawn_fleet,
             open_link,
             report_targets,
             companion_sizes,
             add_companions,
+            get_wildcard_archetypes,
             remote_connection,
             remote_connect,
             client_info,

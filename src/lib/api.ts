@@ -54,9 +54,16 @@ export interface StatusView {
   observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus; secondary_world?: ServiceStatus | null; reborn_world?: ServiceStatus | null };
   busy: boolean;
   path_exists: boolean;
+  scheduled_restart?: boolean;
 }
 
 export type RealmMode = "coa" | "wildcard" | "reborn";
+export interface CustomRaceCharacters { players: number; companionBots: number; squidBots: number }
+export interface AddonView { id: string; name: string; description: Record<string, string>; author: string; license: string; needs: string | null; repo: string; size: number; installed: boolean; updateAvailable: boolean; foreignFolders: string[]; bundled?: string | null }
+export interface RestartSchedule { enabled: boolean; time: string; warningMinutes: number }
+export interface RestartScheduleView { schedule: RestartSchedule; supported: boolean }
+export interface CustomMysql { text: string; applied: string }
+export interface RealmName { id: number; name: string; defaultName: string; custom: boolean }
 export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean; with_reborn: boolean; reborn_world_port: number | null; reborn_running: boolean }
 export interface DatabaseCheck {
   realm: RealmMode;
@@ -230,6 +237,7 @@ export interface ModuleView {
   /** not shown on the Modules page */
   hidden: boolean;
   compatibility?: "compatible" | "experimental" | "unsupported" | "requires-squid";
+  part_of?: string | null;
 }
 
 export interface ModuleSetting {
@@ -351,6 +359,16 @@ export interface Performance {
 export interface CompanionSizes {
   hardware: { cores: number; ram_gb: number; free_ram_gb: number };
   sizes: { id: string; title: string; bots: number; warning: string | null }[];
+}
+
+export interface WildcardArchetypeDto {
+  id: string;
+  name: string;
+  roles: number;
+  primary_stat: number;
+  author: string;
+  difficulty: number;
+  category: number;
 }
 
 export interface ClientInfo {
@@ -486,6 +504,19 @@ export const api = {
     realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
     realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
     realmSimultaneous: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_simultaneous", { id, enabled }),
+    customRaceCharacters: (id: string) => invoke<CustomRaceCharacters | null>("custom_race_characters", { id }),
+    purgeCustomRaceBots: (id: string) => invoke<number>("purge_custom_race_bots", { id }),
+    addonsList: (id: string) => invoke<AddonView[]>("addons_list", { id }),
+    addonsInstall: (id: string, addon: string) => invoke<AddonView[]>("addons_install", { id, addon }),
+    addonsRemove: (id: string, addon: string) => invoke<AddonView[]>("addons_remove", { id, addon }),
+    clearGameCacheOnPlay: () => invoke<boolean>("clear_game_cache_on_play"),
+    setClearGameCacheOnPlay: (enabled: boolean) => invoke<void>("set_clear_game_cache_on_play", { enabled }),
+    restartSchedule: (id: string) => invoke<RestartScheduleView>("restart_schedule", { id }),
+    restartScheduleSave: (id: string, schedule: RestartSchedule) => invoke<RestartScheduleView>("restart_schedule_save", { id, schedule }),
+    mysqlCustom: (id: string) => invoke<CustomMysql>("mysql_custom", { id }),
+    mysqlCustomSave: (id: string, text: string) => invoke<CustomMysql>("mysql_custom_save", { id, text }),
+    realmNames: (id: string) => invoke<RealmName[]>("realm_names", { id }),
+    realmRename: (id: string, realmId: number, name: string | null) => invoke<RealmName[]>("realm_rename", { id, realmId, name }),
     realmWithReborn: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_with_reborn", { id, enabled }),
     checkDatabase: (id: string) => invoke<DatabaseCheck[]>("check_database", { id }),
     repairServer: (id: string) => invoke<RepairReport>("repair_server", { id }),
@@ -553,15 +584,35 @@ export const api = {
     invoke<{ txn: UpdateTxn; preexisting_character_count?: number }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
-  population: (id: string) => invoke<Population | null>("get_population", { id }),
-  stopSpawning: (id: string) => invoke<{ count: number }>("companions_stop_spawning", { id }),
-  takeOffline: (id: string) => invoke<{ count: number }>("companions_take_offline", { id }),
-  despawnSome: (id: string, count: number) => invoke<{ count: number }>("companions_despawn_some", { id, count }),
-  deleteAllCompanions: (id: string) => invoke<{ count: number }>("companions_delete_all", { id }),
+  population: (id: string, realm?: RealmMode) => invoke<Population | null>("get_population", { id, realm: realm ?? null }),
+  stopSpawning: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_stop_spawning", { id, realm: realm ?? null }),
+  takeOffline: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_take_offline", { id, realm: realm ?? null }),
+  despawnSome: (id: string, count: number, realm?: RealmMode) => invoke<{ count: number }>("companions_despawn_some", { id, count, realm: realm ?? null }),
+  deleteAllCompanions: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_delete_all", { id, realm: realm ?? null }),
+  loginAllCompanions: (id: string, realm?: RealmMode) => invoke<string>("companions_login_all", { id, realm: realm ?? null }),
+  spawnBotFleet: (id: string, race: number, level: number, realm?: RealmMode) => invoke<string>("companions_spawn_fleet", { id, race, level, realm: realm ?? null }),
   openLink: (url: string) => invoke<void>("open_link", { url }),
   performance: (id: string) => invoke<Performance | null>("get_performance", { id }),
   companionSizes: () => invoke<CompanionSizes>("companion_sizes"),
-  addCompanions: (id: string, count: number) => invoke<{ spawned: string | null; created: number | null; baseline: number | null }>("add_companions", { id, count }),
+  addCompanions: (
+    id: string,
+    count: number,
+    realm?: RealmMode,
+    level?: number,
+    classId?: number,
+    specId?: number,
+    archetype?: string
+  ) =>
+    invoke<{ spawned: string | null; created: number | null; baseline: number | null }>("add_companions", {
+      id,
+      count,
+      realm: realm ?? null,
+      level: level ?? null,
+      class_id: classId ?? null,
+      spec_id: specId ?? null,
+      archetype: archetype ?? null,
+    }),
+  getWildcardArchetypes: (id: string) => invoke<WildcardArchetypeDto[]>("get_wildcard_archetypes", { id }),
   clientGraphics: (id: string) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_graphics", { id }),
   clientSetGraphics: (id: string, name: string, disabled: boolean) => invoke<{ dxvk_disabled: boolean; enhancements_disabled: boolean }>("client_set_graphics", { id, name, disabled }),
   clientInfo: (id: string) => invoke<ClientInfo | null>("client_info", { id }),

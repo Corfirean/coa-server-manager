@@ -97,6 +97,58 @@ pub fn world_root(main: &Path, mode: Mode) -> PathBuf {
         .map_or_else(|| main.to_path_buf(), |t| tree_root(main, t))
 }
 
+#[derive(Debug, Clone)]
+pub struct BotOperationTarget {
+    pub world_root: PathBuf,
+    pub chars_db: &'static str,
+    pub ra_port: u16,
+    pub running: bool,
+    pub realm: Mode,
+}
+
+pub fn resolve_bot_operation_target(main: &Path, realm: Mode) -> Result<BotOperationTarget> {
+    let state = realms::state(main)?;
+    let chars_db = realm.schema("characters")?;
+
+    if realm == state.active {
+        let ports = crate::layout::read_ports(main);
+        let ra_port = ports.ra;
+        let status = process::observe(main, &ports);
+        let running = status.world.state != ServiceState::Stopped;
+        return Ok(BotOperationTarget {
+            world_root: main.to_path_buf(),
+            chars_db,
+            ra_port,
+            running,
+            realm,
+        });
+    }
+
+    let tree = Tree::ALL
+        .into_iter()
+        .find(|t| t.enabled(&state) && t.mode(state.active) == realm)
+        .ok_or_else(|| Error::Invalid(format!("Realm {} is not enabled in multiworld configuration.", realm.label())))?;
+
+    let root = tree_root(main, tree);
+    if !root.exists() {
+        return Err(Error::Invalid(format!("Multiworld directory for {} does not exist: {}", realm.label(), root.display())));
+    }
+
+    let ports = crate::layout::read_ports(&root);
+    let (_, default_ra) = tree.ports(&state);
+    let ra_port = if ports.ra != 0 { ports.ra } else { default_ra.unwrap_or(3444) };
+    let status = process::observe(&root, &ports);
+    let running = status.world.state != ServiceState::Stopped;
+
+    Ok(BotOperationTarget {
+        world_root: root,
+        chars_db,
+        ra_port,
+        running,
+        realm,
+    })
+}
+
 /// Any of the extra worlds is running or still stopping.
 pub fn is_running(main: &Path) -> bool {
     Tree::ALL.into_iter().any(|t| tree_running(main, t))
@@ -176,7 +228,6 @@ fn set_tree(main: &Path, tree: Tree, enabled: bool) -> Result<realms::View> {
                 }
             }
         }
-        secondary_launcher(&fs::read_to_string(main.join("Scripts/manage.py"))?)?;
     }
     let status = process::observe(main, &crate::layout::read_ports(main));
     if status.world.state != ServiceState::Stopped
@@ -260,6 +311,12 @@ fn prepare(main: &Path, tree: Tree) -> Result<PathBuf> {
         copy_tree(
             &main.join("Core/reference"),
             &fsx::ensure_within(&second, &second.join("Core/reference"))?,
+        )?;
+    }
+    if main.join("Core/plugins").is_dir() {
+        copy_tree(
+            &main.join("Core/plugins"),
+            &fsx::ensure_within(&second, &second.join("Core/plugins"))?,
         )?;
     }
     for entry in fs::read_dir(main.join("Core"))? {
@@ -349,25 +406,18 @@ fn prepare(main: &Path, tree: Tree) -> Result<PathBuf> {
             ..Default::default()
         },
     )?;
-    let source = fs::read_to_string(main.join("Scripts/manage.py"))?;
-    let source = secondary_launcher(&source)?;
-    fsx::atomic_write(&second.join("Scripts/manage.py"), source.as_bytes())?;
-    Ok(second)
-}
-
-fn secondary_launcher(source: &str) -> Result<String> {
-    let marker = "def start_world(config, offset):\n    start_mysql(config)";
-    let source = source.replace("\r\n", "\n");
-    if !source.contains(marker) {
-        return Err(Error::Invalid(
-            "The launcher does not support a shared database world. Update the server first."
-                .into(),
-        ));
+    // The world supervisor and the bug-report relay of the extra world (the launcher itself runs in the Manager
+    // and knows that this world shares the main database).
+    for script in ["Scripts/coa-launcher.exe", "Scripts/manage.py"] {
+        let target = second.join(script);
+        if main.join(script).is_file() {
+            fs::create_dir_all(second.join("Scripts"))?;
+            fsx::atomic_write(&target, &fs::read(main.join(script))?)?;
+        } else if target.exists() {
+            fs::remove_file(&target)?;
+        }
     }
-    Ok(source.replace(
-        marker,
-        "def start_world(config, offset):\n    mysql(admin=\"ping\")",
-    ))
+    Ok(second)
 }
 
 fn start_tree(main: &Path, tree: Tree) -> Result<()> {
@@ -408,7 +458,7 @@ pub fn start(main: &Path) -> Result<()> {
 
 fn stop_tree(main: &Path, tree: Tree) -> Result<()> {
     let second = tree_root(main, tree);
-    if !second.join("Scripts/manage.py").exists() {
+    if !second.join("Settings/repack.json").exists() {
         if tree_running(main, tree) {
             return Err(Error::Invalid(format!(
                 "The running {}'s launcher is missing. The shared database was left running.",
@@ -504,13 +554,5 @@ mod tests {
         };
         assert!(err.contains(expected), "{err}");
         assert!(!realms::state(t.path()).unwrap().with_reborn);
-    }
-
-    #[test]
-    fn secondary_never_starts_the_shared_database() {
-        let patched = secondary_launcher("def start_world(config, offset):\r\n    start_mysql(config)\r\n    wait_ready('world', 8086)\r\n").unwrap();
-        assert!(patched.contains("mysql(admin=\"ping\")"));
-        assert!(!patched.contains("start_mysql(config)"));
-        assert!(secondary_launcher("def start_world(): pass").is_err());
     }
 }

@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "coa-core"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -606,6 +606,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
+ "socket2",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
@@ -616,6 +617,15 @@ dependencies = [
  "windows-sys 0.60.2",
  "zip 2.4.2",
  "zstd",
+]
+
+[[package]]
+name = "coa-launcher"
+version = "0.9.14"
+dependencies = [
+ "coa-core",
+ "serde_json",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -634,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "coa-release"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "chrono",
  "coa-core",
@@ -643,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "coa-server-manager"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "coa-control-proto",
  "coa-core",
@@ -658,6 +668,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

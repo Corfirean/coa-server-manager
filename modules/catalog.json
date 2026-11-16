@@ -166,6 +166,48 @@
       "default_on": false
     },
     {
+      "id": "subclass",
+      "name": "Subclasses and Hero Races",
+      "description": {
+        "en": "Part of Custom Races V2: a second class for the Thin Twins and the Two-Headed Ogre, and two players sharing one character.",
+        "ru": "Часть Custom Races V2: второй класс для Хрупких близнецов и Двуглавого огра и один персонаж на двух игроков.",
+        "de": "Teil von Custom Races V2: eine zweite Klasse für die Dünnen Zwillinge und die Zweiköpfige Ogerin sowie zwei Spieler an einer Figur.",
+        "fr": "Partie de Custom Races V2 : une seconde classe pour les Jumeaux maigres et l'Ogre à deux têtes, et deux joueurs pour un personnage.",
+        "es": "Parte de Custom Races V2: una segunda clase para los Gemelos delgados y el Ogro de dos cabezas, y dos jugadores en un personaje.",
+        "zh": "Custom Races V2 的一部分：为瘦弱双子和双头食人魔提供第二职业，并允许两名玩家共用一个角色。"
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
+      "conf": "mod_subclass.conf",
+      "switchable": true,
+      "status": "early",
+      "icon": "races",
+      "enable_key": "Subclass.Enable",
+      "default_on": true,
+      "part_of": "custom-races",
+      "hidden": true
+    },
+    {
+      "id": "dev-menu",
+      "name": "Dev Menu",
+      "description": {
+        "en": "Part of Custom Races V2: the in-game /dev editor for game masters (NPCs, items).",
+        "ru": "Часть Custom Races V2: внутриигровой редактор /dev для гейм-мастеров (НПС, предметы).",
+        "de": "Teil von Custom Races V2: der /dev-Editor im Spiel für Spielleiter (NPCs, Gegenstände).",
+        "fr": "Partie de Custom Races V2 : l'éditeur /dev en jeu pour les maîtres du jeu (PNJ, objets).",
+        "es": "Parte de Custom Races V2: el editor /dev del juego para los máster (PNJ, objetos).",
+        "zh": "Custom Races V2 的一部分：供游戏管理员使用的游戏内 /dev 编辑器（NPC、物品）。"
+      },
+      "repo": "https://github.com/Corfirean/azerothcore-wotlk-coa",
+      "conf": "mod_ilusixn_devmenu.conf",
+      "switchable": true,
+      "status": "early",
+      "icon": "sparkles",
+      "enable_key": "DevMenu.Enable",
+      "default_on": true,
+      "part_of": "custom-races",
+      "hidden": true
+    },
+    {
       "id": "time-is-time",
       "name": "TimeIsTime",
       "description": {

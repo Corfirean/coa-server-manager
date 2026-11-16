@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 pub struct Profile {
     pub host: String,
     pub client_path: Option<String>,
+    /// The listed server `host` belongs to, when the player joined it through the server list: its account is
+    /// filled into the game's login box at every Play.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm: Option<String>,
 }
 
 pub fn load(dir: &Path) -> Result<Profile> {
@@ -43,12 +47,21 @@ pub fn save(dir: &Path, profile: &Profile) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_profile_from_before_the_realm_field_still_loads() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("connection.json"), br#"{"host":"1.2.3.4","client_path":null}"#).unwrap();
+        let p = load(d.path()).unwrap();
+        assert_eq!((p.host.as_str(), p.realm), ("1.2.3.4", None));
+    }
     #[test]
     fn connection_needs_no_server_and_survives_restart() {
         let dir = tempfile::tempdir().unwrap();
         let profile = Profile {
             host: "192.168.1.10".into(),
             client_path: None,
+            realm: None,
         };
         save(dir.path(), &profile).unwrap();
         assert_eq!(load(dir.path()).unwrap().host, profile.host);
@@ -70,6 +83,7 @@ mod tests {
         let profile = Profile {
             host: "192.168.1.10".into(),
             client_path: Some(game.to_string_lossy().into()),
+            realm: None,
         };
         save(dir.path(), &profile).unwrap();
         assert!(

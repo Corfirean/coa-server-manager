@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Bot, Clock, Flame, Gavel, Loader2, Plug, Puzzle, Scaling, Settings2, Snowflake, Sparkles, Swords, Users, type LucideProps } from "lucide-react";
-import { api, asUiError, type CustomRacesClientStatus, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
+import { api, asUiError, type CustomRacesClientStatus, CustomRaceCharacters, type CustomRacesProgress, type ModuleSetting, type ModuleView, type UiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -87,12 +87,16 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
   const { t, locale } = useI18n();
   const human = useHuman();
   const [modules, setModules] = useState<ModuleView[] | null>(null);
+  const [parts, setParts] = useState<ModuleView[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<UiError | null>(null);
   const toggleLock = useRef(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
   const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
+  const [raceChars, setRaceChars] = useState<CustomRaceCharacters | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [purged, setPurged] = useState<number | null>(null);
   const [racesInstalling, setRacesInstalling] = useState(false);
   const [racesProgress, setRacesProgress] = useState<CustomRacesProgress | null>(null);
 
@@ -103,6 +107,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
     } catch {
       // ignore
     }
+    setRaceChars(await api.customRaceCharacters(serverId).catch(() => null));
   }, [serverId]);
   const [guard, setGuard] = useState<UnsavedChangesGuard | null>(null);
   const [racesGuard, setRacesGuard] = useState<UnsavedChangesGuard | null>(null);
@@ -119,7 +124,9 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
 
   const load = useCallback(async () => {
     try {
-      setModules((await api.modulesList(serverId)).filter((m) => !m.hidden));
+      const all = await api.modulesList(serverId);
+      setModules(all.filter((m) => !m.hidden));
+      setParts(all.filter((m) => m.part_of));
       await loadRacesStatus();
     } catch (e) {
       setError(asUiError(e));
@@ -238,6 +245,18 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
             {m.id === "custom-races" && (
 
               <div className="w-full">
+                {!m.enabled && raceChars && raceChars.players + raceChars.companionBots + raceChars.squidBots > 0 && (
+                  <div className="mb-2 rounded-md border border-warn/40 bg-warn/5 p-2 text-xs" role="status">
+                    <p>{t("races.offCharacters", { players: raceChars.players, bots: raceChars.companionBots + raceChars.squidBots })}</p>
+                    {raceChars.companionBots > 0 && <Button size="sm" variant="ghost" className="mt-1 h-auto whitespace-normal py-1 text-left" disabled={purging} onClick={() => void (async () => {
+                      setPurging(true); setError(null);
+                      try { setPurged(await api.purgeCustomRaceBots(serverId)); await loadRacesStatus(); }
+                      catch (e) { setError(asUiError(e)); }
+                      finally { setPurging(false); }
+                    })()}>{purging && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}{t("races.purgeBots", { n: raceChars.companionBots })}</Button>}
+                  </div>
+                )}
+                {purged !== null && <p className="mb-2 text-xs text-ok" role="status">{t("races.purged", { n: purged })}</p>}
                 <p className="text-xs text-muted">{locale === "ru" ? "Установленная версия патча клиента: " : "Installed client patch version: "}{racesPatchStatus?.version ?? (locale === "ru" ? "не записана" : "not recorded")}</p>
                 {racesInstalling && racesProgress ? (
                   <div className="rounded-lg border border-gold/30 bg-gold/5 p-3">
@@ -328,6 +347,28 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
               {selected.id === "custom-races" && <RaceAvailabilitySettings serverId={serverId}
                 blocked={racesInstalling || toggling !== null} onSaved={() => setChanged(true)}
                 onRegisterGuard={setRacesGuard} />}
+              {parts.filter(p => p.part_of === selected.id && p.installed).map(p => (
+                <section key={p.id} className="mt-6 border-t border-line pt-5" aria-label={p.name}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-semibold">{p.name}</h3>
+                      <p className="mt-1 text-sm text-muted">{p.description[locale] ?? p.description.en}</p>
+                    </div>
+                    {p.switchable && <button
+                      role="switch"
+                      aria-checked={p.enabled}
+                      aria-label={t("mod.switch", { name: p.name })}
+                      aria-busy={toggling === p.id}
+                      disabled={toggling !== null || racesInstalling}
+                      onClick={() => void toggle(p)}
+                      className={cn("relative mt-1 h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors", p.enabled ? "bg-gold" : "bg-white/15")}
+                    >
+                      <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all", p.enabled ? "left-[22px]" : "left-0.5")} />
+                    </button>}
+                  </div>
+                  {p.enabled && p.has_settings && <ModuleSettings serverId={serverId} module={p} onSaved={() => setChanged(true)} />}
+                </section>
+              ))}
             </SettingsPanel>
           )}
           </Fragment>

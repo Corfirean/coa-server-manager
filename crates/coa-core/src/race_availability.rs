@@ -269,7 +269,93 @@ pub fn save(
             ),
         ]),
     )?;
+    write_snapshot(root, &current.catalog_sha256, &current.races)?;
     status(root)
+}
+
+/// Every race catalog (`ChrRaces.dbc` of the custom races overlay) a server build has shipped, by SHA-256:
+/// RaceID -> name. Generated from the core repository's history of the overlay.
+const SHIPPED_CATALOGS: &str = include_str!("race_catalogs.json");
+/// The names of the catalog a restriction was saved against, written by every save.
+const SNAPSHOT: &str = "Settings/race-catalog.json";
+
+#[derive(serde::Deserialize, Serialize)]
+struct Snapshot {
+    sha256: String,
+    races: BTreeMap<u32, String>,
+}
+
+/// RaceID -> name of the catalog with `hash`: this server's own snapshot, or a catalog a build shipped.
+fn names_of(root: &Path, hash: &str) -> Option<BTreeMap<u32, String>> {
+    if let Ok(snapshot) = crate::fsx::read_json::<Snapshot>(&root.join(SNAPSHOT)) {
+        if snapshot.sha256.eq_ignore_ascii_case(hash) {
+            return Some(snapshot.races);
+        }
+    }
+    #[derive(serde::Deserialize)]
+    struct Shipped {
+        catalogs: BTreeMap<String, BTreeMap<u32, String>>,
+    }
+    let shipped: Shipped = serde_json::from_str(SHIPPED_CATALOGS).ok()?;
+    shipped.catalogs.get(&hash.to_ascii_lowercase()).cloned()
+}
+
+fn write_snapshot(root: &Path, hash: &str, races: &[Race]) -> Result<()> {
+    crate::fsx::atomic_write_json(
+        &root.join(SNAPSHOT),
+        &Snapshot {
+            sha256: hash.to_string(),
+            races: races.iter().map(|race| (race.id, race.name.clone())).collect(),
+        },
+    )
+}
+
+/// A server update that only adds races keeps the owner's restriction. The worldserver ignores a restriction
+/// saved against another catalog (and with it the whole custom races switch), so before a start: when every
+/// disabled race still has its RaceID and name in the new catalog, the restriction is bound to the new catalog.
+/// Anything else (an unknown old catalog, a renamed or missing race) is left for the owner to review. Returns
+/// whether the restriction was bound again.
+pub fn rebind_unchanged(root: &Path) -> Result<bool> {
+    let conf_path = root.join(CONF);
+    let Ok(conf_bytes) = fs::read(&conf_path) else {
+        return Ok(false);
+    };
+    let mut conf = ConfFile::parse_bytes(&conf_bytes)?;
+    let configured = parse_ids(conf.get(KEY).unwrap_or(""))?;
+    let saved = conf
+        .get(CATALOG_KEY)
+        .unwrap_or("")
+        .trim()
+        .trim_matches('"')
+        .to_ascii_lowercase();
+    if configured.is_empty() || saved.is_empty() {
+        return Ok(false);
+    }
+    let Ok(bytes) = fs::read(dbc_path(root)?) else {
+        return Ok(false);
+    };
+    let current = hex::encode(Sha256::digest(&bytes));
+    if saved == current {
+        return Ok(false);
+    }
+    let races = catalog(&bytes)?;
+    let Some(before) = names_of(root, &saved) else {
+        tracing::warn!("race restriction saved against an unknown catalog; it needs the owner's review");
+        return Ok(false);
+    };
+    let now: BTreeMap<u32, &str> = races.iter().map(|race| (race.id, race.name.as_str())).collect();
+    let unchanged = configured
+        .iter()
+        .all(|id| before.get(id).is_some_and(|name| now.get(id) == Some(&name.as_str())));
+    if !unchanged {
+        tracing::warn!("a restricted race changed in the new catalog; the restriction needs the owner's review");
+        return Ok(false);
+    }
+    conf.set(CATALOG_KEY, &format!("\"{current}\""), &[]);
+    crate::fsx::atomic_write(&conf_path, conf.to_text().as_bytes())?;
+    write_snapshot(root, &current, &races)?;
+    tracing::info!(races = configured.len(), "race restriction kept for the updated race catalog");
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -290,6 +376,91 @@ mod tests {
         }
         bytes.extend(b"\0Synthetic\0");
         bytes
+    }
+
+    fn catalog_of(rows: &[(u32, &str)]) -> Vec<u8> {
+        let mut strings = vec![0u8];
+        let mut offsets = Vec::new();
+        for (_, name) in rows {
+            offsets.push(strings.len() as u32);
+            strings.extend(name.as_bytes());
+            strings.push(0);
+        }
+        let mut bytes = b"WDBC".to_vec();
+        for value in [rows.len() as u32, 69, 276, strings.len() as u32] {
+            bytes.extend(value.to_le_bytes());
+        }
+        for ((id, _), offset) in rows.iter().zip(offsets) {
+            let mut row = vec![0; 276];
+            row[..4].copy_from_slice(&id.to_le_bytes());
+            row[56..60].copy_from_slice(&offset.to_le_bytes());
+            bytes.extend(row);
+        }
+        bytes.extend(strings);
+        bytes
+    }
+
+    fn restricted_server(catalog: &[u8], disabled: &str, saved_hash: &str) -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir_all(d.path().join("Data/dbc_races")).unwrap();
+        fs::create_dir_all(d.path().join("Core/configs/modules")).unwrap();
+        fs::write(d.path().join("Data/dbc_races/ChrRaces.dbc"), catalog).unwrap();
+        fs::write(
+            d.path().join(CONF),
+            format!("CoACustomRaces.Enable = 1\nCoACustomRaces.DisabledRaceIds = \"{disabled}\"\nCoACustomRaces.DisabledRaceCatalogSha256 = \"{saved_hash}\"\n"),
+        )
+        .unwrap();
+        d
+    }
+
+    fn sha(bytes: &[u8]) -> String {
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    #[test]
+    fn a_catalog_that_only_adds_races_keeps_the_restriction() {
+        let old = catalog_of(&[(83, "Vulpera"), (97, "Gnoll")]);
+        let new = catalog_of(&[(83, "Vulpera"), (97, "Gnoll"), (120, "Nerubian")]);
+        let d = restricted_server(&new, "83", &sha(&old));
+        write_snapshot(d.path(), &sha(&old), &catalog(&old).unwrap()).unwrap();
+        assert!(rebind_unchanged(d.path()).unwrap());
+        let conf = ConfFile::parse_bytes(&fs::read(d.path().join(CONF)).unwrap()).unwrap();
+        assert_eq!(conf.get(KEY), Some("\"83\""));
+        assert_eq!(
+            conf.get(CATALOG_KEY).map(|h| h.trim_matches('"').to_string()),
+            Some(sha(&new))
+        );
+        assert_eq!(conf.get("CoACustomRaces.Enable"), Some("1"));
+        assert!(!rebind_unchanged(d.path()).unwrap(), "already bound");
+    }
+
+    #[test]
+    fn a_renamed_race_or_unknown_catalog_waits_for_review() {
+        let old = catalog_of(&[(83, "Thin Human"), (97, "Gnoll")]);
+        let renamed = catalog_of(&[(83, "Forgotten"), (97, "Gnoll")]);
+        let d = restricted_server(&renamed, "83", &sha(&old));
+        write_snapshot(d.path(), &sha(&old), &catalog(&old).unwrap()).unwrap();
+        assert!(!rebind_unchanged(d.path()).unwrap());
+        let unknown = restricted_server(&renamed, "97", &"ab".repeat(32));
+        assert!(!rebind_unchanged(unknown.path()).unwrap());
+        // Nothing is restricted: nothing to bind.
+        let empty = restricted_server(&renamed, "", &sha(&old));
+        assert!(!rebind_unchanged(empty.path()).unwrap());
+    }
+
+    #[test]
+    fn the_shipped_catalogs_include_1_9_2_and_v2_with_stable_ids() {
+        let shipped: serde_json::Value = serde_json::from_str(SHIPPED_CATALOGS).unwrap();
+        let catalogs = shipped["catalogs"].as_object().unwrap();
+        let size = |c: &serde_json::Value| c.as_object().unwrap().len();
+        assert!(catalogs.values().any(|c| size(c) == 95), "1.9.2 has 95 races");
+        let v2: Vec<_> = catalogs.values().filter(|c| size(c) == 112).collect();
+        assert_eq!(v2.len(), 1, "V2 has 112 races");
+        for old in catalogs.values().filter(|c| size(c) == 95) {
+            for (id, name) in old.as_object().unwrap() {
+                assert_eq!(&v2[0][id], name, "race {id}");
+            }
+        }
     }
 
     #[test]

@@ -439,6 +439,7 @@ pub(crate) async fn join_realm(
                 let mut profile = coa_core::remote_client::load(&dir)
                     .map_err(|e| fail("other", e.to_string()))?;
                 profile.host = host;
+                profile.realm = Some(realm.clone());
                 coa_core::remote_client::save(&dir, &profile)
                     .map_err(|e| fail("launch", e.to_string()))?;
                 super::play(state, REMOTE_CLIENT_ID.to_string())
