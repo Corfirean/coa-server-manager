@@ -178,7 +178,19 @@
     "Corfirean/coa-server-manager:20261031-validation-mysql-reuse.md",
     "Corfirean/coa-server-manager:20261103-isolated-login-port.md",
     "Corfirean/coa-server-manager:20261107-bot-strength-scaling-settings.md",
-    "Corfirean/coa-server-manager:20261115-custom-races-v2-client.md"
+    "Corfirean/coa-server-manager:20261115-addon-catalog.md",
+    "Corfirean/coa-server-manager:20261115-clear-game-cache.md",
+    "Corfirean/coa-server-manager:20261115-custom-races-fast-toggle.md",
+    "Corfirean/coa-server-manager:20261115-custom-races-v2-client.md",
+    "Corfirean/coa-server-manager:20261115-database-port-relocation.md",
+    "Corfirean/coa-server-manager:20261115-mysql-custom-options.md",
+    "Corfirean/coa-server-manager:20261115-race-restriction-kept.md",
+    "Corfirean/coa-server-manager:20261115-realm-names.md",
+    "Corfirean/coa-server-manager:20261115-remembered-friend-login.md",
+    "Corfirean/coa-server-manager:20261115-scheduled-restart.md",
+    "Corfirean/coa-server-manager:20261115-v2-feature-switches.md",
+    "Corfirean/coa-server-manager:20261116-companions-wildcard-reborn.md",
+    "Corfirean/coa-server-manager:20261116-custom-race-characters-off.md"
   ],
   "releases": [
     {
@@ -936,6 +948,28 @@
       ],
       "commit": "d3527312803fb5a3e1cd48e01496645a8bbc9dcf",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.12...v0.9.13"
+    },
+    {
+      "tag": "v0.9.14",
+      "version": "0.9.14",
+      "date": "2026-11-16",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.14",
+      "notes": [
+        "Install community addons from the Manager",
+        "Old item and creature data is cleared before every Play",
+        "Turning the custom races client patch on or off takes seconds again",
+        "The database moves to a free port when Windows reserves or another program takes 3307",
+        "Your own MySQL settings survive restarts and updates",
+        "Disabled custom races stay disabled after a server update that adds races",
+        "Rename your realms in the Manager",
+        "The account for a friend's server is in the login box at every Play",
+        "Restart the world every day at a chosen time",
+        "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu",
+        "Companion bots on Wildcard and Warcraft Reborn",
+        "The Custom Races card tells which characters stay out while races are off"
+      ],
+      "commit": "1f64da3ae064b3f02d2bb11d818c44d26a557045",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.13...v0.9.14"
     }
   ]
 }
