@@ -149,16 +149,6 @@
    "t": "Suchradius für Ziele",
    "d": "Wie weit ein Bot innerhalb eines Zielgebiets nach Questzielen sucht."
   },
-  "CoaBots.Scaling.Enable": {"t": "Stärkehilfe für Bots in Dungeons und Schlachtzügen", "d": "Hauptschalter für die Multiplikatoren unten. Bis du sie erhöhst, sind alle 1 (keine Änderung)."},
-  "CoaBots.Scaling.Dungeons": {"t": "Hilfe in 5-Spieler-Dungeons", "d": "Multiplikatoren anwenden, solange ein Bot in einem 5-Spieler-Dungeon ist."},
-  "CoaBots.Scaling.Raids": {"t": "Hilfe in Schlachtzügen", "d": "Multiplikatoren anwenden, solange ein Bot in einem Schlachtzug ist."},
-  "CoaBots.Scaling.Battlegrounds": {"t": "Hilfe in Schlachtfeldern und Arenen", "d": "Multiplikatoren in Schlachtfeldern und Arenen anwenden."},
-  "CoaBots.Scaling.World": {"t": "Hilfe in der offenen Welt", "d": "Multiplikatoren außerhalb von Dungeons und Schlachtzügen anwenden. Meist nicht gewünscht."},
-  "CoaBots.Scaling.DamageDone": {"t": "Schaden der Bots", "d": "Multipliziert den Schaden, den Bots und ihre Begleiter Kreaturen zufügen. 1 heißt keine Änderung; höher macht Inhalte leichter."},
-  "CoaBots.Scaling.HealingDone": {"t": "Heilung der Bots", "d": "Multipliziert die Heilung, die Bots wirken. 1 heißt keine Änderung."},
-  "CoaBots.Scaling.DamageTaken": {"t": "Schaden an Bots", "d": "Multipliziert den Schaden, den Kreaturen Bots zufügen. Unter 1 erleiden Bots weniger; 1 heißt keine Änderung."},
-  "CoaBots.Scaling.TankThreat": {"t": "Bedrohung der Tanks", "d": "Zusätzliche Bedrohung durch Bot-Tanks, damit sie die Aufmerksamkeit der Gegner halten. 1 heißt keine Änderung."},
-  "CoaBots.Scaling.BossTuning": {"t": "Zusatzhilfe gegen vier Bosse", "d": "Fügt stärkere Multiplikatoren für Loken, den Drakkari-Elementar, den Drakkari-Koloss und Gal'darah hinzu, die Bots der Stufe 60 sonst nicht besiegten. Zum Testen; standardmäßig aus."},
   "CoaBots.WorldBrain.EngageRange": {
    "t": "Angriffsentfernung",
    "d": "Entfernung, ab der ein Bot einen Quest-Gegner bekämpft."
