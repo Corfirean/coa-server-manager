@@ -75,19 +75,7 @@ export {};
       if(cmd==="get_population"){if(!running) return null;let b=(window as any).__bots??85;const t=(window as any).__target??0;if(t>b){b=Math.min(t,b+25);(window as any).__bots=b;}return {online_total:b,bots_online:Math.max(0,b-7),players_online:0,bots_total:b};}
       if(cmd==="get_performance") return running?{mean_ms:14,median_ms:15,p95_ms:24,p99_ms:30,max_ms:61,ticks_per_sec:71.4}:null;
       if(cmd==="run_diagnostics") return {problems:2,checks:[{id:"files",title:"Server files",level:"ok",detail:"All expected server parts were found."},{id:"world",title:"World server",level:"warn",detail:"Not running."},{id:"disk",title:"Free disk space",level:"warn",detail:"Only 3 GB free; backups and updates need room."},{id:"exposure",title:"Private services",level:"ok",detail:"Database and server console are not reachable from the network."}]};
-      if(cmd.startsWith("client_")){
-        const w=window as any;
-        const emit=(payload: any)=>(w.__handlers?.["client-progress"]??[]).forEach((h: any)=>h({event:"client-progress",id:1,payload}));
-        const sleep=(ms: number)=>new Promise((r: any)=>setTimeout(r,ms));
-        const total=46404000000;
-        const run=async(phase: string,n: number,speed: number)=>{for(let i=1;i<=n;i++){if(w.__stop){w.__stop=false;throw {human:{code:"unknown",title:"",message:"",actions:[]},technical:"Download cancelled."};}emit({phase,done:Math.round(total*i/n),total,bytes_per_sec:speed,file:phase==="scan"?"Data/patch-"+i+".MPQ":"Data/patch-O.MPQ"});await sleep(120);}};
-        if(cmd==="client_status"){const c=w.__client??"none";return {linked:c!=="none",managed:c==="old"||c==="new",installed_version:c==="old"?"2026-09-20-01":c==="new"?"2026-09-29-01":null,latest_version:"2026-09-29-01",latest_bytes:total,update_available:c==="old"};}
-        if(cmd==="client_download_check") return {needed_bytes:total,free_bytes:args.parent.startsWith("C")?210e9:20e9,version:"2026-09-29-01",dest:args.parent+"\\CoA Client"};
-        if(cmd==="client_plan"){await run("scan",12,0);return {version:"2026-09-29-01",items:[{path:"Data/patch-O.MPQ",size:2814983707,kind:"changed"},{path:"Data/patch-WB1.MPQ",size:2001890268,kind:"missing"},...(w.__modified?[{path:"d3d9.dll",size:4284430,kind:"modified"},{path:"Ascension.exe",size:7694848,kind:"modified"}]:[])],download_bytes:4829000000,total_files:200,up_to_date_files:196,kept_files:0};}
-        if(cmd==="client_sync"){await run("download",25,41e6);w.__client="new";return null;}
-        if(cmd==="client_download"){await run("scan",4,0);await run("download",40,41e6);w.__client="new";return {path:args.parent+"\\CoA Client",executable:"Ascension.exe",realmlists:[{path:"x",host:"127.0.0.1"}],addon:{installed:true,version:"1",up_to_date:true},other_addons:0};}
-        if(cmd==="client_cancel"){w.__stop=true;return null;}
-      }
+      if(cmd==="client_status") return {linked:((window as any).__client??"none")!=="none"};
       if(cmd==="realmlist_profiles"){const w=window as any;w.__rl=w.__rl??{profiles:[{id:"solo",name:"Solo",data:"set realmlist 127.0.0.1\r\n"},{id:"ptr",name:"PTR",data:"set realmlist ptr.example.org\r\n"}],active:"solo"};return w.__rl;}
       if(cmd==="realmlist_activate"){(window as any).__rl.active=args.profileId;return [];}
       if(cmd==="realmlist_save"){const w=window as any;const rl=w.__rl;if(args.profileId){const p=rl.profiles.find((x: any)=>x.id===args.profileId);p.name=args.name;p.data=args.data;return p;}if(rl.profiles.some((x: any)=>x.name.toLowerCase()===String(args.name).toLowerCase()))throw {human:{code:"unknown",title:"",message:"",actions:[]},technical:"A realmlist with that name already exists."};const p={id:String(args.name).toLowerCase().replace(/[^a-z0-9]+/g,"-"),name:args.name,data:(/\s/.test(args.data.trim())?args.data.trim():"set realmlist "+args.data.trim())+"\r\n"};rl.profiles.push(p);return p;}
