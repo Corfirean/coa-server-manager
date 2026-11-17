@@ -14,7 +14,6 @@ pub mod backup;
 pub mod channels;
 pub mod cleanbase;
 pub mod client;
-pub mod clientdl;
 pub mod companions;
 pub mod config;
 pub mod console;
