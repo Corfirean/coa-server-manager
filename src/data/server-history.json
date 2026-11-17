@@ -1988,6 +1988,437 @@
       },
       "experimentalFeatures": [],
       "compare": "https://github.com/Corfirean/coa-server-build/compare/server-0.261108.95...server-0.261114.106"
+    },
+    {
+      "tag": "server-0.261115.110",
+      "version": "0.261115.110",
+      "date": "2026-11-15",
+      "url": "https://github.com/Corfirean/coa-server-build/releases/tag/server-0.261115.110",
+      "notes": [
+        "Test build of the subclass module for two-headed Ogres",
+        "Thin Twins can earn a subclass through their own quest, the Bravery Badge",
+        "A two-headed Ogre's ranged subclass can shoot at point-blank range",
+        "Ogres have a new racial, Tolerance",
+        "Standard-class Ogres and Thin Humans start with only their own class kit",
+        "Helmets sit on the Thin Human's head instead of his chest",
+        "LiveMon shows live damage, healing, crowd control and subclass combo statistics",
+        "Standard-class Ogres and Thin Twins can take a CoA class as their subclass",
+        "Thin Human and Two-Headed Ogre are now their own playable races",
+        "Subclassed relic users can hold a relic beside a ranged weapon",
+        "Server options to limit subclassing or turn the two subclass races off",
+        "A standard subclass brings its whole basic kit, skills and weapons",
+        "Two-Headed Ogres and Thin Humans with a standard class can now pick a subclass",
+        "Thin Humans find more gold with the Hand-Me-Downs racial",
+        "Two-Headed Ogres wear helmets on both heads",
+        "Flying mounts no longer fly in Kalimdor and the Eastern Kingdoms",
+        "LiveMon's character tab can be closed and goes away for deleted characters",
+        "Classic classes can be limited to their Wrath of the Lich King abilities",
+        "Dual Wield shows once in the spellbook",
+        "Two-Headed Ogres get Subclass Bar 1 for the other head's spells",
+        "Subclass forms leave Two-Headed Ogres in their own body and turn the twin brother instead",
+        "CoA subclass trees show their specialization painting in the subclass tab",
+        "Characters with a subclass no longer get Dual Specialization",
+        "You can hold only one subclass book and one insight at a time",
+        "Thin Humans and Two-Headed Ogres get the quests of their starting zone",
+        "The Bravery Badge and the Book of Origins look and read like a badge and a book",
+        "Ghost Wolf and Travel Form turn the whole ogre, and the twin brother rides the beast",
+        "Standard-class mains can spend points in their subclass trees and reset main talents",
+        "Your subclass's trainer can reset only your subclass talents",
+        "The Thin Human's cape lies along his back instead of sticking out like a board",
+        "The twin brother finishes pointing before hopping off and readies his weapon with you",
+        "The twin brother fights with his melee weapon up close and sits close behind you on mounts",
+        "The twin brother copies your pose on hover discs, carpets and other unusual mounts",
+        "Two-Headed Ogres sit in cars and keep their mace drawn after a shot",
+        "Two-Headed Ogres fight with a weapon in one hand and a gun in the other",
+        "The Ogre's Agree or Disagree racial now shows what it will do next",
+        "The Thin Twins' brother turns into a worgen in every subclass Cursed Form",
+        "Leaps and charges ordered for the Thin Twins' brother move him instead of you",
+        "CoA classes taken as a subclass get their class mechanics",
+        "Thin Twins and Two-Headed Ogres keep their weapons in a subclass Cursed Form",
+        "Hovering a Guardian standard no longer causes a Lua error",
+        "LiveMon shows specialization names instead of their signature spells",
+        "Ogre eyes are picked by colour, with a Blind checkbox for each eye",
+        "Two-headed ogres no longer keep casting after a subclass spell with a cast time",
+        "Two-headed ogres cast every subclass spell with the left arm",
+        "The other half only shoots when you attack a target out of melee reach",
+        "The other head raises her hand while casting and your presses come first",
+        "Saving talent changes no longer fails for characters with a subclass",
+        "The second-way quest no longer pops up at level 20",
+        "Every race can create the standard classes the creation screen offers again",
+        "Subclass Bar 1 shows cooldowns, charges and casts like a normal action bar",
+        "Subclass Bar 1 refills itself when you change subclass",
+        "Subclass Bar 1 appears as soon as you choose a subclass",
+        "Subclass Bar 1 works like an action bar and can live in Bartender4",
+        "A subclass can never be the character's own class",
+        "New characters no longer inherit the subclass of a deleted character",
+        "Sun Cleric, Barbarian, Bloodmage and Cultist subclass resources use the game's own orbs",
+        "Shapeshifting no longer takes away the twin brother or the subclass",
+        "A subclass specialization now teaches the ability its passive promises",
+        "Subclass stances and forms appear only on the subclass stance bar",
+        "Subclass vows, auras and formations move to the subclass stance bar",
+        "The Thin Human's cape rests on his shoulders and moves with them",
+        "The twin brother gets a real spot in cars and rides along in passenger seats",
+        "The twin brother puts his weapons away while he wears a subclass shape",
+        "The Thin Twins' brother now shows the flash and glow of subclass forms",
+        "The twin brother sneaks along in stealth instead of staying behind",
+        "The stance button takes a Thin Twin out of a form his brother wears again",
+        "The Two-Head and Two-Thins tabs show one wide background and the right class icon",
+        "The Two-Head and Two-Thins trees use the game's own talent nodes",
+        "Agree or Disagree takes one spellbook slot that changes name and icon",
+        "Subclass talent trees no longer let you spend more points than you have",
+        "Your brother stays at your side when you melee with a bow equipped",
+        "A melee brother stays on your target and keeps fighting",
+        "The Two-Headed Ogre twists her body less while her other head casts",
+        "Thin Twins and Two-Headed Ogres are Hero Races that need a level 60 character",
+        "The Two-Headed Ogre's portrait shows both heads instead of her body",
+        "Your other half's spells break your stealth, and Running Wild ends when you stealth",
+        "Spells your other half casts now trigger the class's talents and resources",
+        "Your other half takes the subclass's Cat, Bear and stance forms on their own",
+        "Your other head or brother can no longer finish a cast while you run",
+        "The other head's hand glows while she casts",
+        "With Play Easy on, your other half uses abilities that cost health",
+        "New racial passives explain the shared and split resource pools",
+        "The dressing room works for races without their own background, no extra addon needed",
+        "Your brother climbs onto your Travel Form or wolf even after a fight",
+        "When your brother uses Running Wild, you ride on his back",
+        "In Running Wild you ride on your brother's shoulders",
+        "Your weapons no longer go missing after a Running Wild ride",
+        "When both halves use the same resource, their pool is twice as big",
+        "The subclass window shows every CoA class's own background at full strength",
+        "You can rearrange Subclass Bar 1 during combat without an error",
+        "Your other head or brother has a cast bar of their own",
+        "Choice talents in the subclass window show as one node with two options",
+        "SpellActivationOverlay can light up Subclass Bar 1",
+        "Your subclass's resource now shows as an extra bar under your portrait",
+        "Your other half's resource bar keeps its value when you log out and back in",
+        "Rage, energy and runic power subclasses now get and use their resource",
+        "Subclass resource orbs only appear when your subclass specialization can fill them",
+        "Your subclass specialization comes with its first class talent learned",
+        "Your main class's key stat now also powers your subclass",
+        "Subclass talents follow the paths and point requirements of their tree",
+        "Your summons follow your brother while he walks beside you",
+        "Your brother rides on the back of your Travel Form cat and moves with it",
+        "Dressing your twin in the wardrobe no longer causes an addon error",
+        "Your brother rides on your back in Wargstride",
+        "A Bloodmage subclass's Cursed Form no longer replaces your own action bar",
+        "Pressing an active subclass stance or form again turns it off",
+        "Character select shows your subclass under your class",
+        "The Two-Headed Ogre's second head no longer pokes through hats",
+        "Two-Headed Ogres keep aiming between shots instead of idling",
+        "Two-Headed Ogres who shoot rest their gun on the shoulder when not firing",
+        "Two-Headed Ogres who shoot themselves aim and fire their gun with the right hand",
+        "Two-Headed Ogres who shoot fire their bullets from the gun hand",
+        "The wardrobe shows a Two-Headed Ogre's applied look and her saved outfits apply again",
+        "The second head's quest mark floats over her head in cities and inns",
+        "Subclass Bar 1 no longer fills up with Throw, Shoot, Wand and Auto Attack",
+        "Abilities you learn from your subclass no longer land on your own action bars",
+        "A caster Two-Headed Ogre keeps her staff in hand while her second head shoots",
+        "A Two-Headed Ogre's staff keeps its size when she puts it on her back",
+        "A shooting subclass starts Auto Shot on right-click without logging out first",
+        "A Hunter subclass keeps Auto Shot going while the main head casts or moves",
+        "Weapons and armor from a subclass stay usable after logging in again",
+        "Two-Headed Ogres are Horde again and Thin Twins share Forgotten race rules",
+        "Thin Humans and Two-Headed Ogres can no longer be created as Hero",
+        "The Two-Headed Ogre stays in her combat stance between attacks",
+        "The second-head tab only shows for Two-Headed Ogres and Thin Twins",
+        "Thin Twins capes no longer show their inside at the shoulders",
+        "Thin Twins keep short hair under hats",
+        "Thin Twins keep their face, cape and hat fit with CoA Custom 1.9.2",
+        "Thin Twins show their class gear in character creation",
+        "Two-Headed Ogre capes drape over her back",
+        "CoA Custom 1.9.5 races work on the subclass server",
+        "With Play easy, cowboy the brother leaves a spent timed form",
+        "The Two-Headed Ogre casts with a raised fist before her face",
+        "The second-head client patch is now patch-ZZZZT.MPQ",
+        "Dual Wield shows once in the spellbook, whichever class teaches it",
+        "The subclass addon keeps working when the Twins or Ogre are renamed",
+        "The subclass name shows only on the character tab",
+        "The Thin Twins' Accursed brother keeps his distance until he takes his cursed form",
+        "The Thin Twins' brother follows a form's cost, cooldown and duration",
+        "The Thin Twins' own mana bar no longer flickers",
+        "Witch Hunter Vault now springs over in a handspring instead of a jump",
+        "The Twins brother keeps his timed form and no longer takes forms a spell forbids",
+        "The Twins brother faces his target, leaps in and leaves a form to heal you",
+        "With Play easy, cowboy, the brother uses his timed forms in a fight",
+        "Original races no longer look broken in the 64-bit client's character creation",
+        "Subclasses get their specialization's free passives, like the Pyromancer's draconic form",
+        "The subclass cast bar no longer gets stuck and can always be Alt-dragged",
+        "Pick-one talents in the subclass window no longer overlap their neighbours",
+        "Subclass spells get their rank upgrades, resources and class mechanics",
+        "Subclass talents that replace a spell now replace it for the subclass too",
+        "The Thin Twins keep their own hairstyle under hats",
+        "The Twins brother takes the look of the cursed form he actually uses",
+        "The Twins brother stands beside you at character select in his own clothes",
+        "The Twins brother climbs down from your back before taking a form",
+        "Spells the Twins brother casts no longer play a cast animation on you",
+        "The Thin Twins brother is now your mirror image",
+        "The Thin Twins brother can have his own face, hair style and beard",
+        "A script builds the original races' Vault patches from your own client files",
+        "The subclass client patch is now built after the release's own patches",
+        "The mirrored Thin Twins brother is built from the current Thin Twins model",
+        "Pressing your subclass mount again dismounts you",
+        "Removing a subclass dismisses the pet it let you summon",
+        "Removing a Warlock or Paladin subclass no longer unlearns your mounts",
+        "Removing a subclass no longer leaves its spells in your spellbook",
+        "A Starcaller subclass shows Lunar Phase as CoA's moon",
+        "Your twin's or other head's pet gets its own movable pet bar",
+        "A Ranged Head stands still while the Melee Head is offline",
+        "A bot plays the missing head of a Two-Players ogre",
+        "A Ranged Head keeps an echo of its deleted Melee Head's gear",
+        "Two-Players ogres hold books, pouches and orbs forward in the off hand",
+        "Two-Players ogres can pair up as Melee Head and Ranged Head",
+        "Paired Two-Players heads share one body",
+        "SquidBots Lite no longer prints \"Command 'dc status' does not exist\" at login",
+        "The subclass action bar no longer causes a blocked-action error in combat",
+        "Two-Players heads split their abilities into melee for the body and ranged for the rider",
+        "Two-Players heads gain Agree or Disagree stacks when they fight together",
+        "Two-Players heads can only be CoA classes",
+        "The Ranged Head's gear slots are frozen in ice and can no longer be dragged",
+        "Two-Players heads find the abilities they borrow on their own bar",
+        "Two-Players ogres can Bonk Heads! together once the heads have agreed long enough",
+        "Abilities lent between Two-Players heads follow each head's respecs and new spells",
+        "Two-Players ogres can use Mutate Me! to take the eyes-everywhere look and back",
+        "A Two-Players ogre fills one party spot and enters dungeons as one player",
+        "A Two-Players ogre joins a party only when there is room for both heads",
+        "A Ranged Head's own frame now stands for the shared Two-Players body",
+        "The Two-Players Ranged Head shares the body's health and both heads get full kill XP",
+        "The Two-Players Ranged Head shares the body's gear",
+        "Two-Players heads split quest gold, share one resource pool and keep their head's specs",
+        "Mobs attacked by the Two-Players Ranged Head now fight the body",
+        "Two-Players Twins: the second brother rides piggyback on the first, visible as himself",
+        "Bot plans panel shows what your group's bots are doing and lets you pick their next quest",
+        "Questing bots do all their quests in one area before moving on",
+        "The Twins' second brother keeps and wears his own gear on his brother's back",
+        "A Two-Players twin can call his brother to his side until another player joins him",
+        "Agree now raises spell and ranged hit too, not only melee hit",
+        "Two-Players ogres drop their mount when either head attacks",
+        "The other head's abilities now go on your own action bars",
+        "A bot body keeps questing, looting and resting after a fight instead of standing still",
+        "A bot body's SquidBots menu now opens from a button on your own player frame",
+        "Character select shows a Two-Players head's joined name and its partner's class",
+        "The Ranged Head now goes into and out of Dungeon Finder dungeons with the body",
+        "Two-Players can be switched off with Subclass.TwoPlayers.Enable",
+        "The other head's abilities only cost you resources when they actually go off",
+        "Character select shows a Two-Players ogre in his Mutate Me look",
+        "The Ranged Head gets the enchant, gem and suffix stats of the shared gear",
+        "The Ranged Head of a Two-Headed Ogre no longer pops out of the body at logout",
+        "A Ranged Head and its bot body are in one party again, so party chat and bot orders work",
+        "A bot riding as the Ranged Head no longer rests, roams or makes the body sit down",
+        "The character sheet of a Two-Players head shows the other head's class",
+        "Two-Players Ogres can fit a carried mount in a window and share the fit",
+        "Custom Races V2 with 17 new races, subclasses and the Fading Island",
+        "Updated Custom Races to 2.0"
+      ],
+      "snapshot": "d3d10476d144d2a701a5a122f1f249ff8219f7a6324e007cb3e153d4628973f7",
+      "components": {
+        "upstream": {
+          "repository": "jealous-sound/azerothcore-wotlk-coa",
+          "ref": "96afaf0f51cc4b37f1eba282bffb1c5aab353de6",
+          "sha": "96afaf0f51cc4b37f1eba282bffb1c5aab353de6"
+        },
+        "core": {
+          "repository": "Corfirean/azerothcore-wotlk-coa",
+          "ref": "9740ced5c41806115d851ab37ab34f28e1e8b712",
+          "sha": "9740ced5c41806115d851ab37ab34f28e1e8b712"
+        },
+        "bots": {
+          "repository": "Corfirean/mod-coa-playerbots",
+          "ref": "30a5a555f56fda8f4ccad14be8438bd0532d85b9",
+          "sha": "30a5a555f56fda8f4ccad14be8438bd0532d85b9"
+        },
+        "scaling": {
+          "repository": "Corfirean/mod-coa-content-scaling",
+          "ref": "3c2febf636bd09087bb278e381b975271a70fdf6",
+          "sha": "3c2febf636bd09087bb278e381b975271a70fdf6"
+        },
+        "manager": {
+          "repository": "Corfirean/coa-server-manager",
+          "ref": "d3527312803fb5a3e1cd48e01496645a8bbc9dcf",
+          "sha": "d3527312803fb5a3e1cd48e01496645a8bbc9dcf"
+        },
+        "races": {
+          "repository": "ilusixn/CustomRacesCoa",
+          "ref": "coa-custom-2.0",
+          "sha": "dae0c661f7197bafd0a42d80866fa8709b3792c9",
+          "assets": [
+            {
+              "name": "CoA-Custom-Races-V2-Credits.csv",
+              "size": 5487,
+              "digest": "sha256:9afb0b777498d14601476bed7ce82a449ce2b80af5dae107f7309081c1936882",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-Races-V2-Credits.csv"
+            },
+            {
+              "name": "CoA-Custom-Races-V2-Credits.xlsx",
+              "size": 10129,
+              "digest": "sha256:d24b51f42870e9ab370279e37ea1cd894b7a208cb8960548c0f465222d50c850",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-Races-V2-Credits.xlsx"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-1.zip",
+              "size": 1513021586,
+              "digest": "sha256:a9dd51ed2d90fb048d549602f40f5429d56e2df0df5606a38781b358fa369568",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-1.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-2.zip",
+              "size": 1198283005,
+              "digest": "sha256:ab084a55509ccbcc2977a06dd0c01fa879973a1892baaacaeb3ff52f3dfc750e",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-2.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-3.zip",
+              "size": 1671130705,
+              "digest": "sha256:0af34199f0739ce086adb0371d3de7c1a0f5ca9c62ecde6b0efe9286e33874a8",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-3.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-4.zip",
+              "size": 502385128,
+              "digest": "sha256:e0bd87172af989fa50a8e2b08ba4321c72b6265047482f051a1db3b80d55bcaa",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-4.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-5.zip",
+              "size": 168079711,
+              "digest": "sha256:73364ad1b58c6342641a848a3b20a835472834f600416606be1470386774ca78",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-5.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-6.zip",
+              "size": 1881526537,
+              "digest": "sha256:91db79b7b451856fa9e45daea52e0fe1c04676653dd8a88e6627f04ee7b47759",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-6.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-7.zip",
+              "size": 734725114,
+              "digest": "sha256:4c5532d775d206a3b913a6111040bb96b95c683b74c08a6131ed9f38db8e2b39",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-7.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-8.zip",
+              "size": 734216670,
+              "digest": "sha256:bdaa1d047e8767bd5715f1e8465d116220597d9c135a43e2dda02e12ce2e5526",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-8.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Client-9.zip",
+              "size": 195235400,
+              "digest": "sha256:0764893543084a12d15578fe734f66ba4519740794a6b3b3a38a08594c38c640",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-9.zip"
+            },
+            {
+              "name": "CoA-Custom-V2-Server.zip",
+              "size": 63983587,
+              "digest": "sha256:8970d61eea40f53cea4c27481edd85d2b2647cd32eb88932e0077da3b4a77d23",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Server.zip"
+            },
+            {
+              "name": "creation-screen.png",
+              "size": 2139517,
+              "digest": "sha256:84c3144f34ef8015e8612e412da03383241124d58e36c703eeb2a525096a5795",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/creation-screen.png"
+            },
+            {
+              "name": "INSTALL-GUIDE.txt",
+              "size": 2504,
+              "digest": "sha256:da402117a90a60a029fdce9a94125ddd28b386a73f37c180992befca57e9f13a",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/INSTALL-GUIDE.txt"
+            },
+            {
+              "name": "PATCH-NOTES-V2.txt",
+              "size": 4388,
+              "digest": "sha256:82901d54b1f13cd8b2e7a73a7c2fdc3e237f8090c332729bc553818834fe27d0",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/PATCH-NOTES-V2.txt"
+            },
+            {
+              "name": "RACES.md",
+              "size": 8629,
+              "digest": "sha256:1e7a9aaee354b07924a8cdda5e4dbffe4cad88f215d68efb74d8d0832403422d",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/RACES.md"
+            },
+            {
+              "name": "SHA256SUMS.txt",
+              "size": 938,
+              "digest": "sha256:a68591f04d661b558523133f99411fd4a7e32f1b45f79f977bb0989246f11179",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/SHA256SUMS.txt"
+            },
+            {
+              "name": "showcase.mp4",
+              "size": 81658913,
+              "digest": "sha256:a3d4b4f561bb12dcc91da562c5ee79157143f4b67997479edb2152b27b925a2a",
+              "url": "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/showcase.mp4"
+            }
+          ],
+          "server": [
+            {
+              "repository": "stefanw1337/azerothcore-wotlk-coa",
+              "branch": "stefanw1337-subclassing-test",
+              "sha": "ccea52d17a27482784e705e9cc913b68dedd9f85"
+            }
+          ],
+          "provenance": [
+            {
+              "repository": "ilusixn/Fading-Islands-Restore",
+              "sha": "e150de1cb496314af752e98021e57ca93d5d799d",
+              "used": "server/core-patches"
+            },
+            {
+              "repository": "ilusixn/Custom-Race-3.3.5a",
+              "sha": "ac907655bd43dec2eff1b4ff509f7fb574325c58",
+              "used": "server/core racials"
+            },
+            {
+              "repository": "ilusixn/ilusixn-dev-menu",
+              "sha": "ea50a8533a3402c69c8773677db1027ec1180d2c",
+              "used": "modules/mod-ilusixn-devmenu"
+            }
+          ]
+        },
+        "squid": {
+          "repository": "Zyth45/mod-playerbots",
+          "ref": "v3.0",
+          "sha": "4ef5ed9ebe75a330de7df19639a042391e037e15",
+          "patch": "patches/squid-coa-validation.patch",
+          "patchSha256": "2cc45bc6555d5bb3e91728840f9de6e73c002c73b270a37732a1499956241c5f"
+        },
+        "build": {
+          "repository": "Corfirean/coa-server-build",
+          "ref": "9a122d049e8be457444389e9756936bcdb4e7ef5",
+          "sha": "9a122d049e8be457444389e9756936bcdb4e7ef5"
+        },
+        "dungeon-clear": {
+          "repository": "Zyth45/mod-dungeon-clear",
+          "sha": "6efb59eae96bcc0730fc083314dd28d55970bbf4",
+          "patch": "patches/dungeon-clear-coa-validation.patch",
+          "patchSha256": "2845d389422e3a59e5c186ecf54b03f64f1dcc22cdef15729b60c354ae72cd6f",
+          "ref": "6efb59eae96bcc0730fc083314dd28d55970bbf4"
+        },
+        "navigation": {
+          "repository": "Corfirean/azerothcore-wotlk-coa",
+          "ref": "8b44099f480af0b69c6dfc697e4d388e865e9ffc",
+          "sha": "8b44099f480af0b69c6dfc697e4d388e865e9ffc",
+          "sourceRelease": "navigation-20261012",
+          "manifestSha256": "7f28600735f115792e79a5e8d1c8d78a83a8f5ed14a090c6d87268e49c2bb683",
+          "archiveSha256": "aa1347a095f85af44b4f592270a0e9314954801fda4578f0147f847e32c24a60",
+          "assets": [
+            {
+              "name": "navigation.zip.001",
+              "size": 1500000000,
+              "sha256": "e3a93903fc8155ee0d92db399ec426769c360bef87c44c07beb7e21cfd892c18",
+              "url": "https://github.com/Corfirean/coa-server-build/releases/download/navigation-20261012/navigation.zip.001"
+            },
+            {
+              "name": "navigation.zip.002",
+              "size": 1377006470,
+              "sha256": "c1af26ba7f83676278613076c357c4da0a11cfa6ae1ff00003479057c4864471",
+              "url": "https://github.com/Corfirean/coa-server-build/releases/download/navigation-20261012/navigation.zip.002"
+            }
+          ]
+        }
+      },
+      "experimentalFeatures": [],
+      "compare": "https://github.com/Corfirean/coa-server-build/compare/server-0.261114.106...server-0.261115.110"
     }
   ]
 }

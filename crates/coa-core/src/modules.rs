@@ -229,6 +229,32 @@ fn installed_module_commits(root: &Path) -> BTreeMap<String, String> {
     Default::default()
 }
 
+/// The companion bots of this server build play Wildcard and Warcraft Reborn: their bot profiles for the standard
+/// classes are in the world server or its bots plugin. Older builds only know Conquest of Azeroth characters.
+pub fn companions_on_other_realms(root: &Path) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<HashMap<(PathBuf, u64, Option<std::time::SystemTime>), bool>>> = OnceLock::new();
+    const MARKER: &[u8] = b"Druid_Guardian_Tank";
+    let mut files = vec![crate::layout::executables(root).0];
+    if let Ok(plugins) = fs::read_dir(root.join("Core/plugins")) {
+        files.extend(plugins.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("dll"))));
+    }
+    files.into_iter().any(|file| {
+        let Ok(meta) = fs::metadata(&file) else { return false };
+        let key = (file.clone(), meta.len(), meta.modified().ok());
+        let seen = SEEN.get_or_init(Mutex::default);
+        if let Some(found) = seen.lock().ok().and_then(|s| s.get(&key).copied()) {
+            return found;
+        }
+        let found = fs::read(&file).is_ok_and(|bytes| bytes.windows(MARKER.len()).any(|w| w == MARKER));
+        if let Ok(mut s) = seen.lock() {
+            s.insert(key, found);
+        }
+        found
+    })
+}
+
 fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
     let installed_commits = installed_module_commits(root);
     let plugin_reg = crate::plugins::load_registry(root).ok();
@@ -405,7 +431,9 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
             };
             let dependency_missing = e.id == "dungeon-clear" && !is_squid_active;
             let blocked = dependency_missing
-                || (wildcard && matches!(e.id.as_str(), "companions" | "playerbots" | "dungeon-clear"));
+                || (wildcard
+                    && (matches!(e.id.as_str(), "playerbots" | "dungeon-clear")
+                        || (e.id == "companions" && !companions_on_other_realms(root))));
             let version = if let Some(p) = plugin_entry {
                 Some(p.version.clone())
             } else if e.id == "playerbots" {
@@ -1149,6 +1177,27 @@ mod tests {
         set_enabled_in(&cat, &root, &meta, "time-is-time", true).unwrap();
         assert_eq!(read(&active).unwrap().get("TimeIsTime.SpeedRate"), Some("7.5"));
         assert!(meta.join("backups").exists());
+    }
+
+    #[test]
+    fn companions_open_on_other_realms_only_with_a_build_that_plays_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        fs::create_dir_all(dir(&root)).unwrap();
+        fs::create_dir_all(root.join("Settings")).unwrap();
+        fs::write(root.join("Settings/realm-profile.json"), r#"{"active":"wildcard","wildcard_created":true}"#).unwrap();
+        for e in catalog().iter().filter(|e| matches!(e.id.as_str(), "companions" | "playerbots")) {
+            fs::write(dir(&root).join(format!("{}.dist", e.conf)), format!("{} = 0\n", e.enable_key)).unwrap();
+        }
+        let exe = crate::layout::executables(&root).0;
+        fs::write(&exe, b"an old world server").unwrap();
+        let view = |id: &str| list(&root).into_iter().find(|m| m.id == id).unwrap();
+        assert_eq!(view("companions").compatibility, "unsupported");
+        fs::write(&exe, b"profiles ... Druid_Guardian_Tank ... a new world server").unwrap();
+        assert!(companions_on_other_realms(&root));
+        assert_eq!(view("companions").compatibility, "experimental");
+        assert!(view("companions").switchable);
+        assert_eq!(view("playerbots").compatibility, "unsupported", "SQUID stays CoA-only");
     }
 
     fn test_catalog() -> Vec<Entry> {

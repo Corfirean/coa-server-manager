@@ -49,3 +49,8 @@ Manager 0.9.13 refreshes the bundled server history through 0.261114.106 from
 canonical build commit `3308e3a957cd9fd1a2cd145a7f023f2cf521c54c` on 2026-11-15.
 The reviewed upcoming Manager and server records (Custom Races V2, 213 server notes)
 carry translations in all five languages.
+
+Manager 0.9.14 refreshes the bundled server history through 0.261115.110 from
+canonical build commit `45c013be9ade3001581e5201cacda6cd6bb6b01c` on 2026-11-16.
+The reviewed upcoming Manager (12 notes) and server (6 notes) records
+carry translations in all five languages.

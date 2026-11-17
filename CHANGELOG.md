@@ -8,6 +8,23 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.14 — 2026-11-16
+
+- Install community addons from the Manager.
+- Old item and creature data is cleared before every Play.
+- Turning the custom races client patch on or off takes seconds again.
+- The database moves to a free port when Windows reserves or another program takes 3307.
+- Your own MySQL settings survive restarts and updates.
+- Disabled custom races stay disabled after a server update that adds races.
+- Rename your realms in the Manager.
+- The account for a friend's server is in the login box at every Play.
+- Restart the world every day at a chosen time.
+- Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu.
+- Companion bots on Wildcard and Warcraft Reborn.
+- The Custom Races card tells which characters stay out while races are off.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.14) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.13...v0.9.14)
+
 ## 0.9.13 — 2026-11-15
 
 - The custom races client is updated to Custom Races V2.
