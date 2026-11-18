@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, asUiError, type ClientInfo, type ClientStatus, type UiError } from "@/lib/api";
+import { api, asUiError, type ClientInfo, type UiError } from "@/lib/api";
 import { checkClient } from "@/lib/clientUpdate";
-import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
+import { CLIENT_SITE, ClientDialog } from "@/screens/ClientDialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useHuman, useT } from "@/i18n";
-import { useStartAfterUpdate } from "@/lib/updatePrefs";
 
 export function ClientCard({ serverId, remote = false }: { serverId: string; remote?: boolean }) {
   const t = useT();
@@ -16,13 +15,10 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
   const [error, setError] = useState<UiError | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<ClientStatus | null>(null);
   const [patchProgress, setPatchProgress] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<ClientDialogMode | null>(null);
-  const [playAfter, setPlayAfter] = useStartAfterUpdate("client", serverId);
+  const [dialog, setDialog] = useState(false);
 
   const refresh = () => {
-    void api.clientStatus(serverId).then(setStatus).catch(() => setStatus(null));
     return api.clientInfo(serverId).then(setInfo).catch((e) => setError(asUiError(e)));
   };
   useEffect(() => {
@@ -65,7 +61,7 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
       {info === null && (
         <>
           <p className="mt-1 text-sm text-muted">{t(remote ? "remote.clientIntro" : "client.intro")}</p>
-          <Button className="mt-4" onClick={() => setDialog("setup")} disabled={busy}>{t("btn.setupClient")}</Button>
+          <Button className="mt-4" onClick={() => setDialog(true)} disabled={busy}>{t("btn.setupClient")}</Button>
         </>
       )}
       {info && (
@@ -76,13 +72,6 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
             <dd>
               {hosts.length ? hosts.filter(Boolean).join(", ") : "—"}
               {!remote && (pointsLocal ? <span className="ml-2 text-ok">{t("client.thisComputer")}</span> : <span className="ml-2 text-warn">{t("client.notThisServer")}</span>)}
-            </dd>
-            <dt className="text-muted">{t("client.version")}</dt>
-            <dd>
-              {status?.managed
-                ? status.installed_version ?? t("client.versionUnfinished")
-                : t("client.versionUntracked")}
-              {status?.update_available && <span className="ml-2 text-warn">{t("client.updateAvailable")}</span>}
             </dd>
             {!remote && <>
             <dt className="text-muted">{t("client.addon")}</dt>
@@ -95,12 +84,6 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
             <dt className="text-muted">{t("client.otherAddons")}</dt>
             <dd>{t("client.leftAsIs", { n: info.other_addons })}</dd>
           </dl>
-          {!remote && (
-            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm">
-              <input type="checkbox" checked={playAfter} onChange={(e) => setPlayAfter(e.target.checked)} className="h-4 w-4 accent-[#c9a24a]" />
-              <span>{t("client.startAfter")}</span>
-            </label>
-          )}
           <div className="mt-4 flex flex-wrap gap-2">
             {!remote && !pointsLocal && (
               <Button size="sm" disabled={busy} onClick={() => void run(async () => { await api.setRealmlist(serverId, "127.0.0.1"); return t("client.pointedNote"); })}>
@@ -112,15 +95,9 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
                 {info.addon.installed ? t("client.updateAddon") : t("client.installAddon")}
               </Button>
             )}
-            {(status?.update_available || (remote && status?.managed)) && (
-              <Button size="sm" variant="primary" disabled={busy} onClick={() => setDialog("update")}>{t("client.upd.start")}</Button>
-            )}
-            {status && !status.managed && (
-              <Button size="sm" disabled={busy} onClick={() => setDialog("track")}>{t("client.track.button")}</Button>
-            )}
             {remote && <Button size="sm" disabled={busy} onClick={() => void run(() => api.customRacesInstall(serverId))}>{t("client.races.install")}</Button>}
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => void choose()}>{t("client.changeFolder")}</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDialog("setup")}>{t("client.downloadInstead")}</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void api.openLink(CLIENT_SITE).catch((e) => setError(asUiError(e)))}>{t("client.getFromSite")}</Button>
           </div>
         </>
       )}
@@ -130,8 +107,7 @@ export function ClientCard({ serverId, remote = false }: { serverId: string; rem
       {dialog && (
         <ClientDialog
           serverId={serverId}
-          mode={dialog}
-          onClose={() => setDialog(null)}
+          onClose={() => setDialog(false)}
           onChanged={() => {
             void refresh();
             void checkClient(serverId);

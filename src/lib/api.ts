@@ -48,13 +48,13 @@ export interface ServiceStatus {
 }
 
 export interface StatusView {
-  observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus; secondary_world?: ServiceStatus | null };
+  observed: { mysql: ServiceStatus; auth: ServiceStatus; world: ServiceStatus; secondary_world?: ServiceStatus | null; reborn_world?: ServiceStatus | null };
   busy: boolean;
   path_exists: boolean;
 }
 
 export type RealmMode = "coa" | "wildcard" | "reborn";
-export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean }
+export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean; with_reborn: boolean; reborn_world_port: number | null; reborn_running: boolean }
 export interface DatabaseCheck {
   realm: RealmMode;
   migrations: { id: string; db: string; status: "applied" | "pending" | "failed"; error: string | null }[];
@@ -229,6 +229,68 @@ export interface ModuleView {
   compatibility?: "compatible" | "experimental" | "unsupported";
 }
 
+export interface MultiDimensionalStatus {
+  build_status: string;
+  runtime_status: string;
+  gameplay_status: string;
+  db_status: string;
+  security_status: string;
+}
+
+export interface CompatibilityFinding {
+  rule_id: string;
+  severity: "Critical" | "Warning" | "Info";
+  confidence: "High" | "Medium" | "Low";
+  file: string;
+  line: number;
+  explanation: string;
+  recommended_action: string;
+  evidence: string;
+  is_auto_fixable: boolean;
+}
+
+export interface VerificationStatus {
+  l0_static: string;
+  l1_compile: string;
+  l2_link: string;
+  l3_contract: string;
+  l4_engine_boot: string;
+  l5_gameplay: string;
+  l6_teardown: string;
+}
+
+export interface CompatibilityReport {
+  repository_path: string;
+  repository_name: string;
+  commit: string;
+  license_info: {
+    primary_license: string;
+    license_file?: string | null;
+    vendored_licenses: string[];
+    spdx_identifier?: string | null;
+  };
+  classification: string;
+  verification_status: VerificationStatus;
+  multi_dimensional_status?: MultiDimensionalStatus | null;
+  tree_digest?: string | null;
+  cache_hit?: boolean | null;
+  sdk_fingerprint?: string | null;
+  hooks: Array<{ class_name: string; script_type: string; file: string; line: number }>;
+  script_loaders: {
+    canonical_loader?: string | null;
+    all_discovered_loaders: string[];
+    has_duplicate_registration: boolean;
+  };
+  databases: Array<{ database_type: string; operation: string; file: string; line: number }>;
+  sql_files: Array<{ file_path: string; statement_count: number; tables_referenced: string[]; has_schema_mutation: boolean }>;
+  core_patches: string[];
+  has_cmakelists: boolean;
+  has_entrypoint_adapter: boolean;
+  findings: CompatibilityFinding[];
+  reasons: string[];
+  recommended_actions: string[];
+}
+
 export interface ModuleSetting {
   key: string;
   value: string;
@@ -359,36 +421,8 @@ export interface ClientInfo {
 }
 
 export interface ClientStatus {
+  /** A usable client folder is linked. */
   linked: boolean;
-  managed: boolean;
-  installed_version: string | null;
-  latest_version: string | null;
-  latest_bytes: number | null;
-  update_available: boolean;
-}
-
-export interface ClientPlan {
-  version: string;
-  items: { path: string; size: number; kind: "missing" | "changed" | "modified" }[];
-  download_bytes: number;
-  total_files: number;
-  up_to_date_files: number;
-  kept_files: number;
-}
-
-export interface ClientStep {
-  phase: "scan" | "download" | "finish";
-  done: number;
-  total: number;
-  bytes_per_sec: number;
-  file: string | null;
-}
-
-export interface ClientDownloadCheck {
-  needed_bytes: number;
-  free_bytes: number;
-  version: string;
-  dest: string;
 }
 
 export type ClientPatchState = "not-installed" | "enabled" | "disabled" | "partially-installed";
@@ -429,6 +463,7 @@ export interface FriendsStatus {
   auth_port: number;
   world_port: number;
   secondary_world_port?: number | null;
+  reborn_world_port?: number | null;
 }
 
 export interface InternetCheck {
@@ -472,6 +507,7 @@ export const api = {
     realmProfiles: (id: string) => invoke<RealmProfiles>("realm_profiles", { id }),
     realmSelect: (id: string, mode: RealmMode, restart: boolean) => invoke<RealmProfiles>("realm_select", { id, mode, restart }),
     realmSimultaneous: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_simultaneous", { id, enabled }),
+    realmWithReborn: (id: string, enabled: boolean) => invoke<RealmProfiles>("realm_with_reborn", { id, enabled }),
     checkDatabase: (id: string) => invoke<DatabaseCheck[]>("check_database", { id }),
     repairServer: (id: string) => invoke<RepairReport>("repair_server", { id }),
   defaultInstallDir: () => invoke<string>("default_install_dir"),
@@ -510,7 +546,10 @@ export const api = {
   realmlistDelete: (id: string, profileId: string) => invoke<void>("realmlist_delete", { id, profileId }),
   realmlistActivate: (id: string, profileId: string) => invoke<string[]>("realmlist_activate", { id, profileId }),
   modulesList: (id: string) => invoke<ModuleView[]>("modules_list", { id }),
+  analyzeGithubModule: (url: string, realmId: string) =>
+    invoke<CompatibilityReport>("analyze_github_module", { url, realmId }),
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
+  pluginsRepair: (id: string) => invoke<string[]>("plugins_repair", { id }),
   moduleSettings: (id: string, module: string) => invoke<ModuleSetting[]>("module_settings", { id, module }),
   moduleSaveSettings: (id: string, module: string, changes: Record<string, string>) => invoke<string[]>("module_save_settings", { id, module, changes }),
   allSettings: (id: string) => invoke<AllSetting[]>("all_settings", { id }),
@@ -547,11 +586,6 @@ export const api = {
   setRealmlist: (id: string, host: string) => invoke<string[]>("client_realmlist", { id, host }),
   installAddon: (id: string) => invoke<void>("client_install_addon", { id }),
   clientStatus: (id: string) => invoke<ClientStatus>("client_status", { id }),
-  clientDownloadCheck: (parent: string) => invoke<ClientDownloadCheck>("client_download_check", { parent }),
-  clientPlan: (id: string) => invoke<ClientPlan>("client_plan", { id }),
-  clientSync: (id: string, keepModified: boolean) => invoke<void>("client_sync", { id, keepModified }),
-  clientDownload: (id: string, parent: string) => invoke<ClientInfo>("client_download", { id, parent }),
-  clientCancel: () => invoke<void>("client_cancel"),
   customRacesStatus: (id: string) => invoke<CustomRacesClientStatus | null>("custom_races_status", { id }),
   customRacesUninstall: (id: string) => invoke<void>("custom_races_uninstall", { id }),
   customRacesInstall: (id: string) => invoke<void>("custom_races_install", { id }),

@@ -254,7 +254,7 @@ fn run_inner(root: &Path, verb: Verb, validating_update: bool) -> Result<DriverO
         let observed = crate::process::observe(&root, &crate::layout::read_ports(&root));
         for service in [&observed.mysql, &observed.auth, &observed.world]
             .into_iter()
-            .chain(observed.secondary_world.iter())
+            .chain(observed.extra_worlds())
         {
             if let Some(conflict) = &service.conflict {
                 output.push_str(&format!(

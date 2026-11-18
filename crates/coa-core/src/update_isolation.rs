@@ -18,6 +18,20 @@ const FILES: &[&str] = &[
     ".realms/secondary/Core/configs/worldserver.conf",
     ".realms/secondary/Core/configs/authserver.conf",
     "Settings/realm-profiles/reborn.json",
+    ".realms/reborn/Settings/repack.json",
+    ".realms/reborn/Settings/realm-profile.json",
+    ".realms/reborn/Settings/worldserver.conf.template",
+    ".realms/reborn/Settings/authserver.conf.template",
+    ".realms/reborn/Core/configs/worldserver.conf",
+    ".realms/reborn/Core/configs/authserver.conf",
+];
+
+/// Ports of the extra worlds kept in the realm profile.
+const REALM_PORT_KEYS: [&str; 4] = [
+    "secondary_world_port",
+    "secondary_ra_port",
+    "reborn_world_port",
+    "reborn_ra_port",
 ];
 
 #[derive(Serialize, Deserialize)]
@@ -62,7 +76,7 @@ pub(crate) fn begin(root: &Path, meta: &Path) -> Result<()> {
             .collect();
     if let Some(state) = &realm {
         excluded.extend(
-            ["secondary_world_port", "secondary_ra_port"]
+            REALM_PORT_KEYS
                 .iter()
                 .filter_map(|key| state[*key].as_u64()),
         );
@@ -82,7 +96,7 @@ pub(crate) fn begin(root: &Path, meta: &Path) -> Result<()> {
         settings[key] = reserve()?.into();
     }
     if let Some(state) = &mut realm {
-        for key in ["secondary_world_port", "secondary_ra_port"] {
+        for key in REALM_PORT_KEYS {
             state[key] = reserve()?.into();
         }
     }

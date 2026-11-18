@@ -51,24 +51,38 @@ fn parse_counts(out: &str) -> Result<Population> {
 
 /// Read-only query with the game's own database account. Requires the database to be running.
 pub fn query(root: &Path) -> Result<Population> {
-    let prefix = bot_account_prefix(root).to_uppercase();
     let db = Db::from_repack(root, Account::App)?;
-    query_with(&db, &prefix)
+    query_with(
+        &db,
+        &bot_account_prefix(root),
+        &crate::accounts::squid_bot_prefix(root),
+    )
 }
 
-/// The same counts through any database handle (a realm known by its descriptor); `prefix` is the bot accounts' name prefix, upper case.
-pub fn query_with(db: &Db, prefix: &str) -> Result<Population> {
-    if prefix.is_empty() || !prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
+fn counts_sql(prefix: &str, squid_prefix: &str) -> Result<String> {
+    if [prefix, squid_prefix]
+        .iter()
+        .any(|prefix| prefix.is_empty() || !prefix.chars().all(|c| c.is_ascii_alphanumeric()))
+    {
         return Err(Error::Invalid(
             "the bot account prefix is not a plain name".into(),
         ));
     }
-    let sql = format!(
+    let prefix = prefix.to_ascii_uppercase();
+    let squid_prefix = squid_prefix.to_ascii_uppercase();
+    // OR counts each character once even when the two configured prefixes overlap.
+    let bots =
+        format!("(UPPER(a.username) LIKE '{prefix}%' OR UPPER(a.username) LIKE '{squid_prefix}%')");
+    Ok(format!(
         "SELECT (SELECT COUNT(*) FROM acore_characters.characters WHERE online=1), \
-                (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND UPPER(a.username) LIKE '{prefix}%'), \
-                (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE UPPER(a.username) LIKE '{prefix}%');"
-    );
-    parse_counts(&db.query(&sql)?)
+                (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE c.online=1 AND {bots}), \
+                (SELECT COUNT(*) FROM acore_characters.characters c JOIN acore_auth.account a ON a.id=c.account WHERE {bots});"
+    ))
+}
+
+/// Read both supported bot populations, including SQUID random bots, without changing realm data.
+pub fn query_with(db: &Db, prefix: &str, squid_prefix: &str) -> Result<Population> {
+    parse_counts(&db.query(&counts_sql(prefix, squid_prefix)?)?)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -173,6 +187,109 @@ pub fn sizes(h: &Hardware) -> Vec<SizeOption> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Execute the production SELECT against disposable in-memory schemas. No
+    // server connection or credentials are needed for these regression cases.
+    fn fixture_counts(
+        prefix: &str,
+        squid_prefix: &str,
+        accounts: &[(&str, u32, u32)],
+    ) -> Population {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "ATTACH DATABASE ':memory:' AS acore_auth;
+            ATTACH DATABASE ':memory:' AS acore_characters;
+            CREATE TABLE acore_auth.account (id INTEGER PRIMARY KEY, username TEXT);
+            CREATE TABLE acore_characters.characters (account INTEGER, online INTEGER);",
+        )
+        .unwrap();
+        for (index, (name, online, offline)) in accounts.iter().enumerate() {
+            db.execute(
+                "INSERT INTO acore_auth.account VALUES (?1, ?2)",
+                rusqlite::params![index as u32, name],
+            )
+            .unwrap();
+            for flag in std::iter::repeat_n(1, *online as usize)
+                .chain(std::iter::repeat_n(0, *offline as usize))
+            {
+                db.execute(
+                    "INSERT INTO acore_characters.characters VALUES (?1, ?2)",
+                    rusqlite::params![index as u32, flag],
+                )
+                .unwrap();
+            }
+        }
+        let changes = db.total_changes();
+        let (total, bots, all): (u32, u32, u32) = db
+            .query_row(&counts_sql(prefix, squid_prefix).unwrap(), [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(
+            db.total_changes(),
+            changes,
+            "population queries must only read"
+        );
+        parse_counts(&format!("{total}\t{bots}\t{all}")).unwrap()
+    }
+
+    #[test]
+    fn random_bots_are_not_advertised_as_real_players() {
+        let p = fixture_counts(
+            "CoaBotHost",
+            "rndbot",
+            &[("RNDBOT1", 171, 1), ("CoaBotHost1", 2, 3), ("PLAYER", 2, 1)],
+        );
+        assert_eq!(
+            (
+                p.online_total,
+                p.players_online,
+                p.bots_online,
+                p.bots_total
+            ),
+            (175, 2, 173, 177)
+        );
+        let empty = fixture_counts("CoaBotHost", "rndbot", &[]);
+        assert_eq!(
+            (empty.online_total, empty.bots_online, empty.bots_total),
+            (0, 0, 0)
+        );
+        let humans = fixture_counts("CoaBotHost", "rndbot", &[("PLAYER", 3, 1)]);
+        assert_eq!((humans.players_online, humans.bots_online), (3, 0));
+    }
+
+    #[test]
+    fn population_uses_both_configured_prefixes_and_counts_overlaps_once() {
+        let root = tempfile::tempdir().unwrap();
+        let configs = root.path().join("Core/configs/modules");
+        std::fs::create_dir_all(&configs).unwrap();
+        std::fs::write(
+            configs.join("mod_coa_playerbots.conf"),
+            "CoaBots.RandomSpawn.AccountPrefix = \"Companion\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            configs.join("playerbots.conf"),
+            "AiPlayerbot.RandomBotAccountPrefix = \"Random\"\n",
+        )
+        .unwrap();
+        let p = fixture_counts(
+            &bot_account_prefix(root.path()),
+            &crate::accounts::squid_bot_prefix(root.path()),
+            &[("COMPANION1", 2, 0), ("RANDOM1", 3, 1), ("PLAYER", 1, 0)],
+        );
+        assert_eq!((p.players_online, p.bots_online, p.bots_total), (1, 5, 6));
+        let p = fixture_counts(
+            "Bot",
+            "BotRandom",
+            &[("BOTRANDOM1", 3, 1), ("BOT1", 2, 0), ("PLAYER", 1, 0)],
+        );
+        assert_eq!((p.players_online, p.bots_online, p.bots_total), (1, 5, 6));
+        for unsafe_prefix in ["", "x' OR 1=1 --", "bot_", "bot%"] {
+            assert!(counts_sql(unsafe_prefix, "rndbot").is_err());
+            assert!(counts_sql("CoaBotHost", unsafe_prefix).is_err());
+        }
+    }
 
     #[cfg(not(windows))]
     #[test]

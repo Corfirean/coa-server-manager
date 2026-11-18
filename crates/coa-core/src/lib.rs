@@ -9,11 +9,11 @@
 
 pub mod accounts;
 pub mod allsettings;
+pub mod analyzer;
 pub mod backup;
 pub mod channels;
 pub mod cleanbase;
 pub mod client;
-pub mod clientdl;
 pub mod companions;
 pub mod config;
 pub mod console;
@@ -44,9 +44,11 @@ pub mod net;
 pub mod package;
 pub mod pkgsource;
 pub mod platform;
+pub mod plugins;
 pub mod population;
 pub mod portable;
 pub mod process;
+pub mod provenance;
 pub mod ra;
 pub mod realm_registry;
 pub mod realmlist;

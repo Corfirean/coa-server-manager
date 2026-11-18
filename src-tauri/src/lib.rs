@@ -34,7 +34,7 @@ struct AppState {
     busy: Mutex<HashSet<String>>,
     /// Cancel handle of the installation currently running, if any.
     install_cancel: Mutex<Option<Cancel>>,
-    /// Cancel handle of the game-client check or download currently running, if any.
+    /// Cancel handle of the game-client operation currently running (the custom-race patch), if any.
     client_cancel: Mutex<Option<Cancel>>,
     /// The portable play runtime (the Host loop): started with the application, stopped with it.
     portable: Option<Arc<PortableRuntime>>,
@@ -1170,6 +1170,17 @@ async fn realm_simultaneous(
 }
 
 #[tauri::command]
+async fn realm_with_reborn(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> std::result::Result<coa_core::realms::View, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::multiworld::set_reborn_enabled(&root, enabled)).await
+}
+
+#[tauri::command]
 async fn check_database(
     state: State<'_, AppState>,
     id: String,
@@ -1220,6 +1231,16 @@ async fn module_set_enabled(
         coa_core::modules::set_enabled(&root, &dir, &module, enabled)
     })
     .await
+}
+
+#[tauri::command]
+async fn plugins_repair(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Vec<String>, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::plugins::repair(&root)).await
 }
 
 #[tauri::command]
@@ -1759,7 +1780,7 @@ async fn add_companions(
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
-        // Every companion, old and new, should come back at the next start, so the start-up limit only ever grows here.
+        // Preserve the user's configured Startup Limit (CoaBots.AutoLogin.MaxCount); only initialize it if 0/unset.
         let existing_max = config::load(&root, Scope::Bots)
             .ok()
             .and_then(|v| {
@@ -1769,13 +1790,12 @@ async fn add_companions(
                     .and_then(|s| s.value.as_u64())
             })
             .unwrap_or(0) as u32;
-        let already = coa_core::population::query(&root)
-            .map(|p| p.bots_total)
-            .unwrap_or(0);
-        changes.insert(
-            "CoaBots.AutoLogin.MaxCount".to_string(),
-            Value::from(existing_max.max(already + count).min(5000)),
-        );
+        if existing_max == 0 {
+            changes.insert(
+                "CoaBots.AutoLogin.MaxCount".to_string(),
+                Value::from(count.min(5000)),
+            );
+        }
         config::save(&root, &meta, Scope::Bots, &changes)?;
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
         // Large batches while the server is stopped: create them in the database right now, fully equipped.
@@ -1816,15 +1836,29 @@ async fn add_companions(
         }
         let mut baseline = None;
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
-            // Older servers have no template characters to copy bots from: add them first.
-            coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
-                &root,
-                coa_core::db::Account::Admin,
-            )?)?;
-            baseline = coa_core::population::query(&root)
-                .ok()
-                .map(|p| p.bots_total);
-            Some(Ra::connect(&root)?.spawn_bots(count)?)
+            let pop = coa_core::population::query(&root).ok();
+            baseline = pop.as_ref().map(|p| p.bots_total);
+            let offline = pop
+                .as_ref()
+                .map(|p| p.bots_total.saturating_sub(p.bots_online))
+                .unwrap_or(0);
+            let from_pool = count.min(offline);
+            let remaining = count.saturating_sub(from_pool);
+
+            let mut ra = Ra::connect(&root)?;
+            let mut reply = String::new();
+            if from_pool > 0 {
+                reply = ra.login_offline_bots(from_pool)?;
+            }
+            if remaining > 0 {
+                // Older servers have no template characters to copy bots from: add them first.
+                coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
+                    &root,
+                    coa_core::db::Account::Admin,
+                )?)?;
+                reply = ra.spawn_bots(remaining)?;
+            }
+            Some(reply)
         } else {
             // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
             coa_core::fsx::atomic_write_json(
@@ -2005,13 +2039,6 @@ fn client_install_addon(
 struct ClientStatus {
     /// A usable client folder is linked to this server.
     linked: bool,
-    /// The Manager keeps this folder up to date (it downloaded it or was asked to adopt it).
-    managed: bool,
-    installed_version: Option<String>,
-    latest_version: Option<String>,
-    latest_bytes: Option<u64>,
-    /// A managed client is older than the published one (or its download never finished).
-    update_available: bool,
 }
 
 fn linked_client(root: &std::path::Path) -> Result<Option<PathBuf>> {
@@ -2022,192 +2049,16 @@ fn linked_client(root: &std::path::Path) -> Result<Option<PathBuf>> {
         .filter(|p| coa_core::client::detect(p, None).is_some()))
 }
 
-/// Cheap: one small manifest request and the local state file; no game file is read.
+/// Whether a usable client folder is linked. Local only; the Manager no longer downloads or updates the client.
 #[tauri::command]
-async fn client_status(
+fn client_status(
     state: State<'_, AppState>,
     id: String,
 ) -> std::result::Result<ClientStatus, UiError> {
     let ctx = client_context(&state, &id)?;
-    blocking(move || {
-        let client = ctx.linked();
-        let latest = coa_core::clientdl::fetch_latest().ok();
-        let local = client.as_deref().map(coa_core::clientdl::local);
-        let managed = local.as_ref().map(|l| l.managed).unwrap_or(false);
-        let installed = local.and_then(|l| l.version);
-        let update_available = managed
-            && latest
-                .as_ref()
-                .map(|l| installed.as_deref() != Some(l.version.as_str()))
-                .unwrap_or(false);
-        Ok(ClientStatus {
-            linked: client.is_some(),
-            managed,
-            installed_version: installed,
-            latest_bytes: latest.as_ref().map(|l| l.total_bytes()),
-            latest_version: latest.map(|l| l.version),
-            update_available,
-        })
+    Ok(ClientStatus {
+        linked: ctx.linked().is_some(),
     })
-    .await
-}
-
-#[derive(Serialize)]
-struct ClientDownloadCheck {
-    needed_bytes: u64,
-    free_bytes: u64,
-    version: String,
-    /// Where the client would go.
-    dest: String,
-}
-
-const CLIENT_FOLDER: &str = "CoA Client";
-
-#[tauri::command]
-async fn client_download_check(
-    parent: String,
-) -> std::result::Result<ClientDownloadCheck, UiError> {
-    blocking(move || {
-        let latest = coa_core::clientdl::fetch_latest()?;
-        let dest = PathBuf::from(&parent).join(CLIENT_FOLDER);
-        Ok(ClientDownloadCheck {
-            needed_bytes: latest.total_bytes(),
-            free_bytes: coa_core::fsx::free_space(std::path::Path::new(&parent))?,
-            version: latest.version,
-            dest: dest.to_string_lossy().into_owned(),
-        })
-    })
-    .await
-}
-
-/// Compare the linked client with the published one. Hashes files only where the recorded state cannot vouch for them.
-#[tauri::command]
-async fn client_plan(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> std::result::Result<coa_core::clientdl::Plan, UiError> {
-    let ctx = client_context(&state, &id)?;
-    let cancel = begin_client_job(&state)?;
-    let result = blocking(move || {
-        let client = ctx.require()?;
-        let manifest = coa_core::clientdl::fetch_latest()?;
-        let current = coa_core::clientdl::load_state(&client).unwrap_or_default();
-        coa_core::clientdl::plan(&client, &manifest, &current, &cancel, &|s| {
-            let _ = app.emit("client-progress", s);
-        })
-    })
-    .await;
-    end_client_job(&state);
-    result
-}
-
-/// Bring the linked client to the published version. `keep_modified` leaves files the player changed alone.
-#[tauri::command]
-async fn client_sync(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    keep_modified: bool,
-) -> std::result::Result<(), UiError> {
-    let ctx = client_context(&state, &id)?;
-    let cancel = begin_client_job(&state)?;
-    let result = blocking(move || {
-        let client = ctx.require()?;
-        run_client_sync(&app, &client, keep_modified, &cancel)?;
-        if ctx.root.is_none() && !ctx.host.is_empty() {
-            coa_core::client::set_realmlist(&client, &ctx.dir, &ctx.host)?;
-        }
-        Ok(())
-    })
-    .await;
-    end_client_job(&state);
-    result
-}
-
-fn run_client_sync(
-    app: &AppHandle,
-    client: &std::path::Path,
-    keep_modified: bool,
-    cancel: &Cancel,
-) -> Result<()> {
-    let emit = |s: coa_core::clientdl::Step| {
-        let _ = app.emit("client-progress", s);
-    };
-    let manifest = coa_core::clientdl::fetch_latest()?;
-    let current = coa_core::clientdl::load_state(client).unwrap_or_default();
-    let plan = coa_core::clientdl::plan(client, &manifest, &current, cancel, &emit)?;
-    coa_core::download::check_url(coa_core::clientdl::OBJECTS_URL)?;
-    let transport = coa_core::download::HttpTransport::new()?;
-    coa_core::clientdl::apply(
-        &coa_core::clientdl::Apply {
-            client,
-            manifest: &manifest,
-            plan: &plan,
-            keep_modified,
-            transport: &transport,
-            objects_url: coa_core::clientdl::OBJECTS_URL,
-            cancel,
-        },
-        &emit,
-    )?;
-    tracing::info!(version = %manifest.version, downloaded = plan.items.len(), "client brought up to date");
-    Ok(())
-}
-
-/// Download the client into `<parent>/CoA Client`, then link it to a host or player profile.
-#[tauri::command]
-async fn client_download(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    parent: String,
-) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
-    let ctx = client_context(&state, &id)?;
-    let cancel = begin_client_job(&state)?;
-    let result = blocking(move || {
-        let parent = PathBuf::from(&parent);
-        if !parent.is_dir() {
-            return Err(Error::Invalid(
-                "Choose an existing folder to put the game client in.".into(),
-            ));
-        }
-        let dest = parent.join(CLIENT_FOLDER);
-        let resuming = coa_core::clientdl::load_state(&dest).is_some();
-        let non_empty = std::fs::read_dir(&dest)
-            .map(|mut r| r.next().is_some())
-            .unwrap_or(false);
-        if non_empty && !resuming {
-            return Err(Error::Invalid(format!(
-                "{} already exists and is not an unfinished download. Choose another folder.",
-                dest.display()
-            )));
-        }
-        std::fs::create_dir_all(&dest)?;
-        run_client_sync(&app, &dest, false, &cancel)?;
-        let info = coa_core::client::detect(&dest, ctx.source.as_deref())
-            .ok_or_else(|| Error::Invalid("The downloaded client looks incomplete.".into()))?;
-        ctx.link(&info.path)?;
-        if !ctx.host.is_empty() {
-            coa_core::client::set_realmlist(&dest, &ctx.dir, &ctx.host)?;
-        }
-        if let Some(src) = &ctx.source {
-            coa_core::client::install_addon(&dest, &ctx.dir, src)?;
-        }
-        Ok(coa_core::client::detect(&dest, ctx.source.as_deref()).unwrap_or(info))
-    })
-    .await;
-    end_client_job(&state);
-    result
-}
-
-#[tauri::command]
-fn client_cancel(state: State<'_, AppState>) {
-    if let Ok(c) = state.client_cancel.lock() {
-        if let Some(c) = c.as_ref() {
-            c.cancel();
-        }
-    }
 }
 
 fn begin_client_job(state: &AppState) -> std::result::Result<Cancel, UiError> {
@@ -2216,10 +2067,7 @@ fn begin_client_job(state: &AppState) -> std::result::Result<Cancel, UiError> {
         .lock()
         .map_err(|_| Error::Invalid("state poisoned".into()))?;
     if slot.is_some() {
-        return Err(Error::Invalid(
-            "The game client is already being checked or downloaded.".into(),
-        )
-        .into());
+        return Err(Error::Invalid("A game client operation is already running.".into()).into());
     }
     let cancel = Cancel::default();
     *slot = Some(cancel.clone());
@@ -2322,6 +2170,7 @@ struct FriendsStatus {
     auth_port: u16,
     world_port: u16,
     secondary_world_port: Option<u16>,
+    reborn_world_port: Option<u16>,
 }
 
 /// Open one of a few known help pages in the default browser. Anything else is refused, so a page can never ask the
@@ -2333,6 +2182,7 @@ fn open_link(url: String) -> std::result::Result<(), UiError> {
         "https://login.tailscale.com/",
         "https://portforward.com/",
         "https://github.com/Corfirean/",
+        "https://coa-development.org/",
     ];
     // A prefilled "new issue" page of one of the places a report can go (the Manager, Companions, SQUID Playerbots): the
     // address must be exactly that page, and its query may carry `&` between the (percent-encoded) title and text.
@@ -2485,6 +2335,9 @@ async fn friends_status(
             secondary_world_port: coa_core::realms::state(&root)?
                 .secondary_world_port
                 .filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.simultaneous)),
+            reborn_world_port: coa_core::realms::state(&root)?
+                .reborn_world_port
+                .filter(|_| coa_core::realms::state(&root).is_ok_and(|s| s.with_reborn)),
         })
     })
     .await
@@ -2542,7 +2395,13 @@ async fn friends_enable(
         let ports = layout::read_ports(&root);
         let mut note = None;
         let realms = coa_core::realms::state(&root)?;
-        let secondary = realms.secondary_world_port.filter(|_| realms.simultaneous);
+        let extra: Vec<u16> = [
+            realms.secondary_world_port.filter(|_| realms.simultaneous),
+            realms.reborn_world_port.filter(|_| realms.with_reborn),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         let host = match mode {
             Mode::Local => "127.0.0.1".to_string(),
             Mode::Lan => coa_core::net::resolve_lan_host(lan_address_override.as_deref(), coa_core::net::lan_ip())?,
@@ -2552,7 +2411,7 @@ async fn friends_enable(
         let open = mode != Mode::Local;
         let changed = friends::set_open(&root, &meta, open)?;
         if open && platform::flavor() == Flavor::Repack {
-            coa_core::firewall::ensure_rules_with_secondary(&ports, secondary)?;
+            coa_core::firewall::ensure_rules_with_extra(&ports, &extra)?;
         }
         if mode == Mode::Direct && use_upnp {
             match coa_core::upnp::discover() {
@@ -2560,7 +2419,7 @@ async fn friends_enable(
                     let lan = coa_core::net::lan_ip().ok_or_else(|| Error::Invalid("No local address.".into()))?;
                     coa_core::upnp::add_mapping(&gw, ports.auth, lan, "Auth")?;
                     coa_core::upnp::add_mapping(&gw, ports.world, lan, "World")?;
-                    if let Some(port) = secondary { coa_core::upnp::add_mapping(&gw, port, lan, "Second world")?; }
+                    for port in &extra { coa_core::upnp::add_mapping(&gw, *port, lan, "Extra world")?; }
                     note = Some("Your router was asked to forward the game ports.".to_string());
                 }
                 None => note = Some("Your router does not support automatic setup; forward the two game ports by hand or use the private network.".to_string()),
@@ -2729,6 +2588,31 @@ async fn console_command(
     .await
 }
 
+#[tauri::command]
+async fn analyze_github_module(
+    state: State<'_, AppState>,
+    url: String,
+    realm_id: String,
+) -> std::result::Result<coa_core::analyzer::CompatibilityReport, UiError> {
+    if realm_id.is_empty() || realm_id.contains("..") || realm_id.contains('/') || realm_id.contains('\\') {
+        return Err(UiError::from(coa_core::Error::Invalid(format!(
+            "Invalid realm_id '{}': path traversal characters forbidden",
+            realm_id
+        ))));
+    }
+
+    let realm_root = path_of(&state, &realm_id)?;
+    let cache_dir = data_dir().join("github_cache");
+
+    blocking(move || {
+        coa_core::analyzer::analyze_github_module_for_realm(&url, &realm_root, Some(&cache_dir))
+            .map_err(Into::into)
+    })
+    .await
+}
+
+static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn run() {
     let dir = data_dir();
     let _ = coa_core::logging::init(&dir.join("logs").join("manager.log"));
@@ -2790,11 +2674,14 @@ pub fn run() {
             realmlist_delete,
             realmlist_activate,
             modules_list,
+            analyze_github_module,
             realm_profiles,
             realm_select,
             realm_simultaneous,
+            realm_with_reborn,
             check_database,
             repair_server,
+            plugins_repair,
             module_set_enabled,
             module_settings,
             module_save_settings,
@@ -2829,11 +2716,6 @@ pub fn run() {
             client_realmlist,
             client_install_addon,
             client_status,
-            client_download_check,
-            client_plan,
-            client_sync,
-            client_download,
-            client_cancel,
             play,
             friends_status,
             friends_check_internet,
@@ -2881,11 +2763,75 @@ pub fn run() {
             control_cmds::join_characters,
             control_cmds::join_claim
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .setup(|app| {
+            #[cfg(desktop)]
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                use tauri::Manager;
+
+                let show = MenuItem::with_id(app, "show", "Open CoA Server Manager", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &quit])?;
+
+                let mut builder = TrayIconBuilder::new()
+                    .tooltip("CoA Server Manager")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    });
+
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+
+                builder.build(app)?;
+            }
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building CoA Server Manager")
-        .run(|app, event| {
-            // the Host loop stops with the application: what it is doing is finished first, the stores keep every session
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if !QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                }
+            }
+            tauri::RunEvent::Exit => {
+                // the Host loop stops with the application: what it is doing is finished first, the stores keep every session
                 if let Some(rt) = app.state::<AppState>().portable.clone() {
                     rt.shutdown();
                 }
@@ -2896,6 +2842,7 @@ pub fn run() {
                     rt.shutdown();
                 }
             }
+            _ => {}
         });
 }
 

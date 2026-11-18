@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useT, type Key } from "@/i18n";
-import { asUiError } from "@/lib/api";
+import { asUiError, api } from "@/lib/api";
 import { realmRegistry, useRegistryStatus } from "@/lib/registry";
 import { asControlError, control, type ControlStatus } from "@/lib/control";
 
@@ -24,10 +24,23 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existingOnly, setExistingOnly] = useState(false);
+  const [portableEnabled, setPortableEnabled] = useState(true);
   const [route, setRoute] = useState("");
   const [accessSaved, setAccessSaved] = useState(false);
   const [ctl, setCtl] = useState<ControlStatus | null>(null);
   const link = ctl?.hosting.find((h) => h.local_id === localId)?.link;
+
+  useEffect(() => {
+    let active = true;
+    void api.allSettings(serverId).then((items) => {
+      if (!active) return;
+      const item = items.find((i) => i.key === "PortableSession.Enable");
+      if (item) {
+        setPortableEnabled(item.value === "1" || item.value.toLowerCase() === "true");
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [serverId]);
 
   useEffect(() => {
     const load = () => void control.status().then(setCtl).catch(() => {});
@@ -39,7 +52,21 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
 
   async function saveAccess() {
     setBusy(true); setError(null); setAccessSaved(false);
-    try { await control.setAccess(localId, existingOnly, route.trim() === "" ? null : route.trim()); await refresh(); setAccessSaved(true); } catch (e) { setError(asControlError(e).message); } finally { setBusy(false); }
+    try {
+      await Promise.all([
+        control.setAccess(localId, existingOnly, route.trim() === "" ? null : route.trim()),
+        api.allSettingsSave(serverId, {
+          "PortableSession.Enable": portableEnabled ? "1" : "0",
+          ...(portableEnabled ? { "CharacterDatabase.WorkerThreads": "1" } : {}),
+        }),
+      ]);
+      await refresh();
+      setAccessSaved(true);
+    } catch (e) {
+      setError(asControlError(e).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -83,6 +110,7 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
       {mine && (published || mine.state === "unpublishing") && <div className="mt-4 rounded-md border border-line p-3 text-sm" role="status">
         <p className={cn("font-medium", tone)} data-state={mine.state}>{t(`registry.state.${mine.state}` as Key)}</p>
         <p className="mt-1 text-xs text-muted">{mine.display_name}{mine.metadata_revision ? ` · ${t("registry.revision", { n: mine.metadata_revision })}` : ""}</p>
+        {mine.state === "realm_stopped" && <p className="mt-2 text-xs text-warn">{t("registry.realmStoppedHint")}</p>}
         {mine.last_error && <p className="mt-1 text-xs text-warn">{mine.last_error}</p>}
         {mine.state === "retrying" && mine.retry_in_secs !== null && <p className="mt-1 text-xs text-muted">{t("registry.retryIn", { s: mine.retry_in_secs })}</p>}
         <div className="mt-3 flex gap-2">
@@ -93,6 +121,7 @@ export function PublishCard({ serverId, serverName }: { serverId: string; server
       {mine && (published || mine.state === "unpublishing") && <div className="mt-4 rounded-md border border-line p-3 text-sm" data-testid="access-options">
         <p className="font-medium">{t("access.title")}</p>
         <p className="mt-1 text-xs text-muted">{t("access.text")}</p>
+        <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={portableEnabled} onChange={(e) => setPortableEnabled(e.target.checked)} className="mt-1" data-testid="portable-enabled" /><span>{t("access.portableEnabled")}<span className="block text-xs text-muted">{t("access.portableEnabledHint")}</span></span></label>
         <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={existingOnly} onChange={(e) => setExistingOnly(e.target.checked)} className="mt-1" data-testid="existing-only" /><span>{t("access.existingOnly")}<span className="block text-xs text-muted">{t("access.existingOnlyHint")}</span></span></label>
         <label htmlFor="access-route" className="mt-3 block font-medium">{t("access.route")}</label>
         <input id="access-route" value={route} placeholder="play.example.org:3724" onChange={(e) => setRoute(e.target.value)} className="mt-1 w-full rounded-md border border-line bg-card px-3 py-2" data-testid="access-route" />

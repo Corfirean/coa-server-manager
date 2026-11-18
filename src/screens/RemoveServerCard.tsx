@@ -15,7 +15,7 @@ export function RemoveServerCard({ serverId, path, onForget }: { serverId: strin
     let active = true;
     void api.status(serverId).then((s) => {
       if (!active) return;
-      const all = [s.observed.mysql, s.observed.auth, s.observed.world, ...(s.observed.secondary_world ? [s.observed.secondary_world] : [])];
+      const all = [s.observed.mysql, s.observed.auth, s.observed.world, ...(s.observed.secondary_world ? [s.observed.secondary_world] : []), ...(s.observed.reborn_world ? [s.observed.reborn_world] : [])];
       setRunning(all.some((x) => x.state === "running" || x.state === "starting" || x.state === "stopping"));
     }).catch(() => { /* an unreadable status must not hide the button */ });
     return () => { active = false; };

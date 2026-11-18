@@ -117,6 +117,7 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
         <h2 className="truncate text-lg font-semibold" data-testid="drawer-title">{summary.display_name}</h2>
         <p className="mt-0.5 text-sm text-muted"><Mode ruleset={summary.ruleset} /> · {t("browse.cap")} {summary.level_cap ?? "—"}</p>
         <p className="text-sm"><Online p={summary.population} />{summary.population.capacity !== null && <span className="text-muted"> · {t("browse.capacity", { n: summary.population.capacity })}</span>}</p>
+        {!summary.online && <span className="mt-1 inline-block rounded bg-bad/15 px-2 py-0.5 text-xs font-medium text-bad">{t("browse.realmOffline")}</span>}
       </div>
       <button onClick={onClose} aria-label={t("portable.close")} className="cursor-pointer text-muted hover:text-ink"><X className="h-5 w-5" /></button>
     </div>
@@ -180,6 +181,7 @@ function Drawer({ summary, catalog, onClose }: { summary: RealmSummary; catalog:
             <p className="font-medium">{blocked ? t("browse.cannotPlay") : t("browse.canPlay")}</p>
             {pre.projection && <Projection from={pre.projection[0]} to={pre.projection[1]} cap={summary.level_cap} />}
             <Notes notes={pre.notes} />
+            {!summary.online && <p className="mt-2 border-t border-line/40 pt-2 text-xs text-warn">{t("browse.offlineWarning")}</p>}
           </div>}
         </>}
       </section>

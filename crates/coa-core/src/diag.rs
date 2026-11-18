@@ -96,6 +96,9 @@ pub fn run(root: &Path, meta: &InstallMeta) -> Report {
     if let Some(second) = &o.secondary_world {
         services.push(("Second world", second));
     }
+    if let Some(reborn) = &o.reborn_world {
+        services.push(("Warcraft Reborn world", reborn));
+    }
     for (title, s) in services {
         let (lvl, text) = match (s.state, &s.conflict) {
             (ServiceState::Running, _) => (Level::Ok, "Running".to_string()),
@@ -639,6 +642,7 @@ fn processes_report(root: &Path, ports: &layout::Ports) -> String {
         Some(&o.auth),
         Some(&o.world),
         o.secondary_world.as_ref(),
+        o.reborn_world.as_ref(),
     ]
     .into_iter()
     .flatten()

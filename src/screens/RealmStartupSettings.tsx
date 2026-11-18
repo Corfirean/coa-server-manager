@@ -13,20 +13,27 @@ export function RealmStartupSettings({ serverId }: { serverId: string }) {
     void api.realmProfiles(serverId).then(v => { if (alive) setView(v); }).catch(e => { if (alive) setError(asUiError(e).technical); });
     return () => { alive = false; };
   }, [serverId]);
-  async function change(enabled: boolean) {
+  async function change(realm: "wildcard" | "reborn", enabled: boolean) {
     setBusy(true); setError(null);
-    try { setView(await api.realmSimultaneous(serverId, enabled)); }
+    try { setView(await (realm === "wildcard" ? api.realmSimultaneous : api.realmWithReborn)(serverId, enabled)); }
     catch (e) { setError(asUiError(e).technical); }
     finally { setBusy(false); }
   }
   return <Card className="mt-6 p-6" aria-busy={busy}>
     <h2 className="font-semibold">{t("realm.startupTitle")}</h2>
     <label className="mt-3 flex items-center gap-3">
-      <input type="checkbox" checked={view?.simultaneous ?? false} disabled={!view || busy || !view.supported || view.active === "reborn"} onChange={e => void change(e.target.checked)} />
+      <input type="checkbox" checked={view?.simultaneous ?? false} disabled={!view || busy || !view.supported || view.active === "reborn"} onChange={e => void change("wildcard", e.target.checked)} />
       <span>{t("realm.simultaneous")}</span>
     </label>
-    <p className="mt-2 text-sm text-muted">{t("realm.simultaneousHint")}</p>
-    {view?.simultaneous && <p className="mt-2 text-sm text-muted">{t("realm.secondPort", { port: view.secondary_world_port ?? "—" })}</p>}
+    {view?.simultaneous && <p className="mt-1 text-sm text-muted">{t("realm.secondPort", { port: view.secondary_world_port ?? "—" })}</p>}
+    <label className="mt-3 flex items-center gap-3">
+      <input type="checkbox" checked={view?.with_reborn ?? false} disabled={!view || busy || !view.reborn_supported || view.active !== "coa"} onChange={e => void change("reborn", e.target.checked)} />
+      <span>{t("realm.withReborn")}</span>
+    </label>
+    {view?.with_reborn && <p className="mt-1 text-sm text-muted">{t("realm.rebornPort", { port: view.reborn_world_port ?? "—" })}</p>}
+    {view && view.active !== "coa" && !view.with_reborn && <p className="mt-1 text-sm text-warn">{t("realm.rebornNeedsCoa")}</p>}
+    {view?.simultaneous && view.with_reborn && <p className="mt-3 text-sm">{t("realm.allThree")}</p>}
+    <p className="mt-3 text-sm text-muted">{t("realm.simultaneousHint")}</p>
     {busy && <p className="mt-2 text-sm" role="status">{t("realm.preparing")}</p>}
     {error && <p className="mt-3 text-sm text-bad" role="alert">{error}</p>}
   </Card>;
