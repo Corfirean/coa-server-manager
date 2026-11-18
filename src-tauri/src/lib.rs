@@ -1780,7 +1780,7 @@ async fn add_companions(
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
-        // Every companion, old and new, should come back at the next start, so the start-up limit only ever grows here.
+        // Preserve the user's configured Startup Limit (CoaBots.AutoLogin.MaxCount); only initialize it if 0/unset.
         let existing_max = config::load(&root, Scope::Bots)
             .ok()
             .and_then(|v| {
@@ -1790,13 +1790,12 @@ async fn add_companions(
                     .and_then(|s| s.value.as_u64())
             })
             .unwrap_or(0) as u32;
-        let already = coa_core::population::query(&root)
-            .map(|p| p.bots_total)
-            .unwrap_or(0);
-        changes.insert(
-            "CoaBots.AutoLogin.MaxCount".to_string(),
-            Value::from(existing_max.max(already + count).min(5000)),
-        );
+        if existing_max == 0 {
+            changes.insert(
+                "CoaBots.AutoLogin.MaxCount".to_string(),
+                Value::from(count.min(5000)),
+            );
+        }
         config::save(&root, &meta, Scope::Bots, &changes)?;
         let o = coa_core::process::observe(&root, &layout::read_ports(&root));
         // Large batches while the server is stopped: create them in the database right now, fully equipped.
@@ -1837,15 +1836,29 @@ async fn add_companions(
         }
         let mut baseline = None;
         let spawned = if o.world.state == coa_core::process::ServiceState::Running {
-            // Older servers have no template characters to copy bots from: add them first.
-            coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
-                &root,
-                coa_core::db::Account::Admin,
-            )?)?;
-            baseline = coa_core::population::query(&root)
-                .ok()
-                .map(|p| p.bots_total);
-            Some(Ra::connect(&root)?.spawn_bots(count)?)
+            let pop = coa_core::population::query(&root).ok();
+            baseline = pop.as_ref().map(|p| p.bots_total);
+            let offline = pop
+                .as_ref()
+                .map(|p| p.bots_total.saturating_sub(p.bots_online))
+                .unwrap_or(0);
+            let from_pool = count.min(offline);
+            let remaining = count.saturating_sub(from_pool);
+
+            let mut ra = Ra::connect(&root)?;
+            let mut reply = String::new();
+            if from_pool > 0 {
+                reply = ra.login_offline_bots(from_pool)?;
+            }
+            if remaining > 0 {
+                // Older servers have no template characters to copy bots from: add them first.
+                coa_core::companions::ensure_templates(&coa_core::db::Db::from_repack(
+                    &root,
+                    coa_core::db::Account::Admin,
+                )?)?;
+                reply = ra.spawn_bots(remaining)?;
+            }
+            Some(reply)
         } else {
             // The server is stopped: creating bots needs it running, so remember the request and do it after the next start.
             coa_core::fsx::atomic_write_json(
