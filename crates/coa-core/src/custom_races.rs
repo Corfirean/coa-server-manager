@@ -14,24 +14,34 @@ use crate::download::Cancel;
 use crate::error::{Error, Result};
 use crate::fsx;
 
-pub const CLIENT_VERSION: &str = "2.0";
+pub const CLIENT_VERSION: &str = "2.0.2";
 pub const MANIFEST_FILENAME: &str = "custom_races_patch_manifest.txt";
 /// Files earlier releases installed that the current release no longer ships (removed on update).
 #[cfg(test)]
 const RETIRED_FILES: &[&str] = &["Ascension.exe"];
-/// The client archives of the coa-custom-2.0 release. The server archive is read only for its client
-/// addons (files/addons: subclass interface, dev menu, teleports, spell activation overlay).
+/// The client archives of the coa-custom-2.0.2 release. Clients 1 to 9 are byte for byte the 2.0 archives and keep their
+/// 2.0 file names, so a verified copy in the cache or in Downloads is not fetched again. The server archive is read
+/// only for its client addons; the SkinCollection (Skinshifter) addon in Client 17 is not installed (see RACE_ADDONS).
+/// Order matters: a later archive replaces a file of an earlier one, and Client 17 carries the newer Ascension_Subclass.
 pub const ARCHIVES: &[(&str, &str)] = &[
-    ("CoA-Custom-V2-Client-1.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-1.zip"),
-    ("CoA-Custom-V2-Client-2.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-2.zip"),
-    ("CoA-Custom-V2-Client-3.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-3.zip"),
-    ("CoA-Custom-V2-Client-4.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-4.zip"),
-    ("CoA-Custom-V2-Client-5.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-5.zip"),
-    ("CoA-Custom-V2-Client-6.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-6.zip"),
-    ("CoA-Custom-V2-Client-7.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-7.zip"),
-    ("CoA-Custom-V2-Client-8.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-8.zip"),
-    ("CoA-Custom-V2-Client-9.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Client-9.zip"),
-    ("CoA-Custom-V2-Server.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0/CoA-Custom-V2-Server.zip"),
+    ("CoA-Custom-V2-Client-1.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-1.zip"),
+    ("CoA-Custom-V2-Client-2.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-2.zip"),
+    ("CoA-Custom-V2-Client-3.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-3.zip"),
+    ("CoA-Custom-V2-Client-4.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-4.zip"),
+    ("CoA-Custom-V2-Client-5.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-5.zip"),
+    ("CoA-Custom-V2-Client-6.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-6.zip"),
+    ("CoA-Custom-V2-Client-7.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-7.zip"),
+    ("CoA-Custom-V2-Client-8.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-8.zip"),
+    ("CoA-Custom-V2-Client-9.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-9.zip"),
+    ("CoA-Custom-V2.0.2-Client-10.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-10.zip"),
+    ("CoA-Custom-V2.0.2-Client-11.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-11.zip"),
+    ("CoA-Custom-V2.0.2-Client-12.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-12.zip"),
+    ("CoA-Custom-V2.0.2-Client-13.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-13.zip"),
+    ("CoA-Custom-V2.0.2-Client-14.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-14.zip"),
+    ("CoA-Custom-V2.0.2-Client-15.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-15.zip"),
+    ("CoA-Custom-V2.0.2-Client-16.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-16.zip"),
+    ("CoA-Custom-V2.0.2-Server.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Server.zip"),
+    ("CoA-Custom-V2.0.2-Client-17.zip", "https://github.com/ilusixn/CustomRacesCoa/releases/download/coa-custom-2.0.2/CoA-Custom-V2.0.2-Client-17.zip"),
 ];
 
 pub const RACE_MPQS: &[&str] = &[
@@ -111,6 +121,24 @@ pub const RACE_MPQS: &[&str] = &[
     "patch-ZZZZZW.MPQ",
     "patch-ZZZZZX.MPQ",
     "patch-ZZZZZY.MPQ",
+    "patch-ZZZZZY-SUBMA.MPQ",
+    "patch-ZZZZZY-SUBVA.MPQ",
+    "patch-ZZZZZY-SUBVB.MPQ",
+    "patch-ZZZZZY-SUBVC.MPQ",
+    "patch-ZZZZZY-SUBXA-HD.MPQ",
+    "patch-ZZZZZY-SUBXB-HD.MPQ",
+    "patch-ZZZZZY-SUBXC-HD.MPQ",
+    "patch-ZZZZZZ.MPQ",
+    "patch-ZZZZZZA.MPQ",
+    "patch-ZZZZZZB.MPQ",
+    "patch-ZZZZZZC.MPQ",
+    "patch-ZZZZZZD.MPQ",
+    "patch-ZZZZZZE.MPQ",
+    "patch-retail-001.mpq",
+    "patch-retail-002.mpq",
+    "patch-retail-003.mpq",
+    "patch-retail-004.mpq",
+    "patch-retail-005.mpq",
 ];
 
 pub const RACE_ADDONS: &[&str] = &[
@@ -118,13 +146,18 @@ pub const RACE_ADDONS: &[&str] = &[
     "Ascension_Subclass/Ascension_Subclass.toc",
     "Ascension_Subclass/Bindings.xml",
     "Ascension_Subclass/SubclassBar.lua",
+    "Ascension_Subclass/SubclassBonk.lua",
+    "Ascension_Subclass/SubclassCarry.lua",
     "Ascension_Subclass/SubclassCastBar.lua",
     "Ascension_Subclass/SubclassChoices.lua",
     "Ascension_Subclass/SubclassGlow.lua",
     "Ascension_Subclass/SubclassNodes.lua",
     "Ascension_Subclass/SubclassOrbs.lua",
+    "Ascension_Subclass/SubclassPairs.lua",
+    "Ascension_Subclass/SubclassPetBar.lua",
     "Ascension_Subclass/SubclassPowerBar.lua",
     "Ascension_Subclass/SubclassRaceBackground.lua",
+    "Ascension_Subclass/Textures/IceFrame.tga",
     "CoAHideArmor/CoAHideArmor.lua",
     "CoAHideArmor/CoAHideArmor.toc",
     "CoAQuestSafe/CoAQuestSafe.lua",
@@ -405,6 +438,8 @@ fn patch_files(client: &Path) -> Result<Vec<PatchFile>> {
         include_str!("custom_races_hashes_1_9_1.json")
     } else if manifest.lines().any(|line| line == "# CoA Custom 1.9.2") {
         include_str!("custom_races_hashes_1_9_2.json")
+    } else if manifest.lines().any(|line| line == "# CoA Custom 2.0") {
+        include_str!("custom_races_hashes_2_0.json")
     } else {
         include_str!("custom_races_hashes.json")
     };
@@ -1100,9 +1135,41 @@ fn archive_job(filename: &str, url: &str, cache: &Path) -> Result<crate::downloa
             195_235_400,
             "0764893543084a12d15578fe734f66ba4519740794a6b3b3a38a08594c38c640",
         ),
-        "CoA-Custom-V2-Server.zip" => (
-            63_983_587,
-            "8970d61eea40f53cea4c27481edd85d2b2647cd32eb88932e0077da3b4a77d23",
+        "CoA-Custom-V2.0.2-Client-10.zip" => (
+            73_099_250,
+            "035720776b66a18b965bbd7262154ea398f5425b8cd116fdfc5f663cd800316e",
+        ),
+        "CoA-Custom-V2.0.2-Client-11.zip" => (
+            178_667_276,
+            "9a66f782be47f66ce4ec9f4f70cb1970218fe48950a031b39aa79c091008901b",
+        ),
+        "CoA-Custom-V2.0.2-Client-12.zip" => (
+            1_053_880_101,
+            "f7a90890a0248967eb4572c641f5dee1bd0cafba12d1841360821b79cd5b1c3e",
+        ),
+        "CoA-Custom-V2.0.2-Client-13.zip" => (
+            950_360_503,
+            "8ae00b9bebc4e21d6d6d32ddbf319c341f3c418349a3aeb3d840dffb0fa14d3f",
+        ),
+        "CoA-Custom-V2.0.2-Client-14.zip" => (
+            971_472_467,
+            "511ec3fd1933b9342920262f6a5eae7e451671a49679e93612632b77c31ba57f",
+        ),
+        "CoA-Custom-V2.0.2-Client-15.zip" => (
+            1_106_537_793,
+            "b65505a047508cbd15f4fec670d3953873014250efc484aa3bdb75cb3b3cbbf1",
+        ),
+        "CoA-Custom-V2.0.2-Client-16.zip" => (
+            11_874_081,
+            "5442dc06147e60140c43eebfae14f6ad5f19e6fed974db471b65211497609a27",
+        ),
+        "CoA-Custom-V2.0.2-Client-17.zip" => (
+            947_478,
+            "707e09c8b95926e2d83bdc16adab763901951566caf6bf4fcebfdf4d7ba0e62a",
+        ),
+        "CoA-Custom-V2.0.2-Server.zip" => (
+            96_857_277,
+            "36d0cba993623064ce01f364116f99330423cec3cef22101e50cf941dfd85afe",
         ),
         _ => return Err(Error::Invalid("Unknown custom races archive.".into())),
     };
