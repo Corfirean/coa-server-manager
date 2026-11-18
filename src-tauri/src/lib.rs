@@ -2277,6 +2277,7 @@ async fn add_companions(
         let meta = meta_dir(&root)?;
         let mut changes = BTreeMap::new();
         changes.insert("CoaBots.AutoLoginOnStartup".to_string(), Value::Bool(true));
+        // Preserve the configured startup limit (CoaBots.AutoLogin.MaxCount); only set it when there is none.
         let existing_cfg = config::load(&target.world_root, Scope::Bots)?;
         let existing_max = existing_cfg
             .settings
@@ -2284,13 +2285,12 @@ async fn add_companions(
             .find(|s| s.meta.key == "CoaBots.AutoLogin.MaxCount")
             .and_then(|s| s.value.as_u64())
             .unwrap_or(0) as u32;
-        let already = coa_core::population::query_for_realm(&root, mode)
-            .map(|p| p.bots_total)
-            .unwrap_or(0);
-        changes.insert(
-            "CoaBots.AutoLogin.MaxCount".to_string(),
-            Value::from(existing_max.max(already + count).min(5000)),
-        );
+        if existing_max == 0 {
+            changes.insert(
+                "CoaBots.AutoLogin.MaxCount".to_string(),
+                Value::from(count.min(5000)),
+            );
+        }
         config::save(&target.world_root, &meta, Scope::Bots, &changes)?;
 
         let mut baseline = None;
@@ -2298,14 +2298,33 @@ async fn add_companions(
             if let Ok(admin_db) = coa_core::db::Db::from_repack(&root, coa_core::db::Account::Admin) {
                 let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, target.chars_db);
             }
-            baseline = coa_core::population::query_for_realm(&root, mode)
-                .ok()
-                .map(|p| p.bots_total);
+            let population = coa_core::population::query_for_realm(&root, mode).ok();
+            baseline = population.as_ref().map(|p| p.bots_total);
             let mut ra = Ra::connect_target(&root, Some(mode))?;
             if let Some(lvl) = level {
                 Some(ra.spawn_custom(count, lvl, class_id, spec_id, archetype.as_deref())?)
             } else {
-                Some(ra.spawn_bots(count)?)
+                // Bots that already exist and are offline come back first; only the rest are created.
+                let offline = population
+                    .as_ref()
+                    .map(|p| p.bots_total.saturating_sub(p.bots_online))
+                    .unwrap_or(0);
+                let mut reused = 0;
+                if offline > 0 {
+                    match ra.login_offline_bots(count.min(offline)) {
+                        Ok(queued) => reused = queued,
+                        // An older bots module cannot log in a given number: create them all, as before.
+                        Err(Error::CompanionCommandUnsupported) => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                // The progress bar counts from the baseline, so reused bots count as done.
+                baseline = baseline.map(|total| total.saturating_sub(reused));
+                if count > reused {
+                    Some(ra.spawn_bots(count - reused)?)
+                } else {
+                    Some(format!("BotMgr: queued {reused} offline bot(s) for login."))
+                }
             }
         } else {
             let _ = coa_core::companions::migrate_legacy_pending_job(&meta, &id);
