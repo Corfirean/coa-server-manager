@@ -60,8 +60,20 @@ export interface StatusView {
 export type RealmMode = "coa" | "wildcard" | "reborn";
 export interface CustomRaceCharacters { players: number; companionBots: number; squidBots: number }
 export interface AddonView { id: string; name: string; description: Record<string, string>; author: string; license: string; needs: string | null; repo: string; size: number; installed: boolean; updateAvailable: boolean; foreignFolders: string[]; bundled?: string | null }
-export interface RestartSchedule { enabled: boolean; time: string; warningMinutes: number }
+export type Weekday = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+export interface RestartSchedule {
+  enabled: boolean;
+  time: string;
+  warningMinutes: number;
+  weeklyEnabled: boolean;
+  weeklyDay: Weekday;
+  weeklyTime: string;
+  weeklyWarningMinutes: number;
+}
 export interface RestartScheduleView { schedule: RestartSchedule; supported: boolean }
+export interface LogSettings { autoCleanup: boolean; maxSizeMb: number }
+export interface CleanLogsReport { freedBytes: number; remainingBytes: number; deletedFiles: number; skippedFiles: number }
+export interface ServerLoggingView { preset: "normal" | "errors" | "off" | null; logBytes: number; settings: LogSettings }
 export interface CustomMysql { text: string; applied: string }
 export interface RealmName { id: number; name: string; defaultName: string; custom: boolean }
 export interface RealmProfiles { active: RealmMode; wildcard_created: boolean; reborn_created: boolean; reborn_supported: boolean; supported: boolean; recovery_pending: boolean; simultaneous: boolean; secondary_world_port: number | null; secondary_running: boolean; with_reborn: boolean; reborn_world_port: number | null; reborn_running: boolean }
@@ -530,7 +542,10 @@ export const api = {
   forceStop: (id: string) => invoke<DriverOutcome>("force_stop_server", { id }),
   stop: (id: string) => invoke<DriverOutcome>("stop_server", { id }),
   settings: (id: string, scope: Scope) => invoke<SettingsView>("get_settings", { id, scope }),
+  serverLoggingState: (id: string) => invoke<ServerLoggingView>("server_logging_state", { id }),
   serverLoggingPreset: (id: string, preset: "normal" | "errors" | "off") => invoke<void>("server_logging_preset", { id, preset }),
+  serverLoggingSettingsSave: (id: string, settings: LogSettings) => invoke<ServerLoggingView>("server_logging_settings_save", { id, settings }),
+  serverLogsClean: (id: string) => invoke<CleanLogsReport>("server_logs_clean", { id }),
   save: (id: string, scope: Scope, changes: Record<string, JsonValue>) => invoke<SaveReport>("save_settings", { id, scope, changes }),
   presets: (scope: Scope) => invoke<PresetInfo[]>("list_presets", { scope }),
   backups: (id: string) => invoke<RecoveryPoint[]>("list_backups", { id }),

@@ -174,7 +174,13 @@ fn spawn_relay(root: &Path, launcher: Option<&Path>) -> Result<Proc> {
 pub fn watch_world(root: &Path, launcher: Option<&Path>, offset: i32, log: Progress) -> Result<()> {
     squid::validate_bots(root)?;
     let mut relay: Option<Proc> = None;
+    let mut last_log_clean = Instant::now();
     loop {
+        if let Some(report) = crate::server_logging::auto_clean_if_needed(root) {
+            if report.freed_bytes > 0 {
+                log(&format!("Auto-cleaned server logs ({} MB freed).", report.freed_bytes / (1024 * 1024)));
+            }
+        }
         let world = spawn_child(root, "world", &root.join("Core/worldserver.exe"), &["-c", "configs/worldserver.conf"], &root.join("Core"), &root.join("Core/Logs/world-console.log"))?;
         let started = schedule::now();
         let mut requested = false;
@@ -204,8 +210,8 @@ pub fn watch_world(root: &Path, launcher: Option<&Path>, offset: i32, log: Progr
                 }
                 if !requested {
                     let plan = schedule::load(root);
-                    if plan.due(schedule::now(), started).is_some() {
-                        let seconds = plan.warning_minutes * 60;
+                    if let Some(due) = plan.due_restart(schedule::now(), started) {
+                        let seconds = due.warning_minutes * 60;
                         let asked = Settings::load(root, offset).and_then(|cfg| {
                             crate::ra::Ra::connect_to(cfg.ra_port, &cfg.ra_username, &cfg.ra_password)
                                 .and_then(|mut ra| ra.run(&format!("server restart {seconds}")))
@@ -214,9 +220,17 @@ pub fn watch_world(root: &Path, launcher: Option<&Path>, offset: i32, log: Progr
                             Ok(_) => {
                                 schedule::mark_under_way(root)?;
                                 requested = true;
-                                log(&format!("Scheduled restart: the world restarts in {} minutes.", plan.warning_minutes));
+                                log(&format!("Scheduled restart: the world restarts in {} minutes.", due.warning_minutes));
                             }
                             Err(e) => log(&format!("Scheduled restart could not be requested ({e}); retrying.")),
+                        }
+                    }
+                }
+                if last_log_clean.elapsed() >= Duration::from_secs(300) {
+                    last_log_clean = Instant::now();
+                    if let Some(report) = crate::server_logging::auto_clean_if_needed(root) {
+                        if report.freed_bytes > 0 {
+                            log(&format!("Auto-cleaned server logs ({} MB freed).", report.freed_bytes / (1024 * 1024)));
                         }
                     }
                 }
