@@ -8,6 +8,12 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.15 — 2026-11-19
+
+- The Custom Races client update brings version 2.0.2.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.15) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.14...v0.9.15)
+
 ## 0.9.14 — 2026-11-16
 
 - Install community addons from the Manager.
