@@ -59,7 +59,7 @@ fn hide_window(cmd: &mut Command) {
     let _ = cmd;
 }
 
-const SCRIPT: &str = r#"param([string]$Dir, [string]$Url, [string]$InstallPath, [string]$Components)
+const SCRIPT: &str = r#"param([string]$Dir, [string]$Url, [string]$InstallPath, [string]$Components, [switch]$NewInstance)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
@@ -71,12 +71,47 @@ if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Micr
   "RESULT=bad-signature $($sig.Status)"; exit 0
 }
 $a = @()
-if ($InstallPath) { $a += @('modify', '--installPath', ('"' + $InstallPath + '"')) }
+if ($InstallPath -and $NewInstance) { $a += @('--installPath', ('"' + $InstallPath + '"')) }
+elseif ($InstallPath) { $a += @('modify', '--installPath', ('"' + $InstallPath + '"')) }
 $a += @('--wait', '--norestart', '--nocache')
 foreach ($c in $Components.Split(',')) { $a += @('--add', $c) }
 try { $p = Start-Process -FilePath $bt -ArgumentList $a -Wait -PassThru } catch { "RESULT=not-started $($_.Exception.Message)"; exit 0 }
 "RESULT=exit $($p.ExitCode)"
 "#;
+
+/// Where the second, separate Build Tools instance goes when the existing one cannot supply the compiler.
+fn separate_instance_dir() -> PathBuf {
+    let pf86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| "C:\\Program Files (x86)".into());
+    Path::new(&pf86).join("Microsoft Visual Studio").join("18").join("BuildTools-CoA")
+}
+
+/// Whether the installer finished but the compiler this core's SDK names is still missing. `modify --add` keeps
+/// the toolset an existing instance already has, so an older instance stays on an older compiler build.
+fn needs_separate_instance(modified_existing: bool, installed: bool, toolchain: &ToolchainStatus) -> bool {
+    modified_existing && installed && !toolchain.ready && toolchain.required_cl_version.is_some()
+}
+
+/// One run of Microsoft's installer: `(result line, stderr)`. With `new_instance` the instance is installed at
+/// `install_path` as a separate one next to the existing Build Tools; otherwise `install_path` is modified.
+fn run_installer(install_path: &str, new_instance: bool) -> Result<(String, String)> {
+    let dir = std::env::temp_dir().join("coa-msvc-setup");
+    std::fs::create_dir_all(&dir)?;
+    let script = dir.join("install-build-tools.ps1");
+    std::fs::write(&script, SCRIPT)?;
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .args(["-Dir"]).arg(dir.join("bootstrapper"))
+        .args(["-Url", BOOTSTRAPPER_URL, "-InstallPath", install_path, "-Components", &COMPONENTS.join(",")]);
+    if new_instance {
+        cmd.arg("-NewInstance");
+    }
+    hide_window(&mut cmd);
+    let out = cmd.output()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let result = text.lines().find_map(|l| l.trim().strip_prefix("RESULT=")).unwrap_or("").to_string();
+    Ok((result, String::from_utf8_lossy(&out.stderr).into_owned()))
+}
 
 /// Runs Microsoft's installer and reports whether plugins can now be built for `realm_root`'s core.
 /// Blocks until the installer window is closed.
@@ -84,22 +119,19 @@ pub fn install_build_tools(realm_root: Option<&Path>) -> Result<MsvcSetupOutcome
     if !cfg!(windows) {
         return Err(Error::Invalid("The C++ Build Tools installer is only available on Windows.".into()));
     }
-    let dir = std::env::temp_dir().join("coa-msvc-setup");
-    std::fs::create_dir_all(&dir)?;
-    let script = dir.join("install-build-tools.ps1");
-    std::fs::write(&script, SCRIPT)?;
-    let install_path = existing_build_tools().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-    let mut cmd = Command::new("powershell.exe");
-    cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script)
-        .args(["-Dir"]).arg(dir.join("bootstrapper"))
-        .args(["-Url", BOOTSTRAPPER_URL, "-InstallPath", &install_path, "-Components", &COMPONENTS.join(",")]);
-    hide_window(&mut cmd);
-    let out = cmd.output()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let result = text.lines().find_map(|l| l.trim().strip_prefix("RESULT=")).unwrap_or("").to_string();
-    let (installed, restart, message) = interpret(&result, &String::from_utf8_lossy(&out.stderr));
-    let toolchain = detect_toolchain_for(realm_root);
+    let existing = existing_build_tools().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let (result, stderr) = run_installer(&existing, false)?;
+    let (mut installed, mut restart, mut message) = interpret(&result, &stderr);
+    let mut toolchain = detect_toolchain_for(realm_root);
+    if needs_separate_instance(!existing.is_empty(), installed, &toolchain) {
+        let target = separate_instance_dir().to_string_lossy().into_owned();
+        let (result, stderr) = run_installer(&target, true)?;
+        let second = interpret(&result, &stderr);
+        installed = second.0;
+        restart = restart || second.1;
+        message = second.2;
+        toolchain = detect_toolchain_for(realm_root);
+    }
     let ready = installed && toolchain.ready;
     let message = if installed && !toolchain.ready {
         format!("The installer finished, but the compiler still does not match this core: {}", toolchain.diagnostic_message)
@@ -136,6 +168,22 @@ mod tests {
         assert!(!interpret("exit 1602", "").0);
         assert!(interpret("bad-signature NotSigned", "").2.contains("not signed by Microsoft"));
         assert!(interpret("", "boom").2.contains("boom"));
+    }
+
+    fn status(ready: bool, required: Option<&str>) -> ToolchainStatus {
+        let mut t = detect_toolchain_for(None);
+        t.ready = ready;
+        t.required_cl_version = required.map(String::from);
+        t
+    }
+
+    #[test]
+    fn a_separate_instance_is_installed_only_when_the_existing_one_lacks_the_named_compiler() {
+        assert!(needs_separate_instance(true, true, &status(false, Some("19.44.35230"))));
+        assert!(!needs_separate_instance(true, true, &status(true, Some("19.44.35230"))));
+        assert!(!needs_separate_instance(false, true, &status(false, Some("19.44.35230"))));
+        assert!(!needs_separate_instance(true, false, &status(false, Some("19.44.35230"))));
+        assert!(!needs_separate_instance(true, true, &status(false, None)));
     }
 
     #[test]
