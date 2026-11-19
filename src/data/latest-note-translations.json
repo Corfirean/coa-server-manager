@@ -52,7 +52,8 @@
       "Restart the world every day at a chosen time": "Ежедневный перезапуск мира в выбранное время",
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Переключатели подклассов, героических рас и меню /dev из Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Боты-компаньоны на Wildcard и Warcraft Reborn",
-      "The Custom Races card tells which characters stay out while races are off": "Карточка Custom Races показывает, какие персонажи не войдут в мир, пока расы выключены"
+      "The Custom Races card tells which characters stay out while races are off": "Карточка Custom Races показывает, какие персонажи не войдут в мир, пока расы выключены",
+      "The Custom Races client update brings version 2.0.2": "Обновление клиента Custom Races приносит версию 2.0.2"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -106,7 +107,8 @@
       "Restart the world every day at a chosen time": "Die Welt täglich zu einer gewählten Uhrzeit neu starten",
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Schalter für die Unterklassen, Heldenvölker und das /dev-Menü von Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Begleiter-Bots auf Wildcard und Warcraft Reborn",
-      "The Custom Races card tells which characters stay out while races are off": "Die Custom-Races-Karte zeigt, welche Figuren draußen bleiben, solange die Völker aus sind"
+      "The Custom Races card tells which characters stay out while races are off": "Die Custom-Races-Karte zeigt, welche Figuren draußen bleiben, solange die Völker aus sind",
+      "The Custom Races client update brings version 2.0.2": "Das Update des Custom-Races-Clients bringt Version 2.0.2"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -160,7 +162,8 @@
       "Restart the world every day at a chosen time": "Redémarrez le monde chaque jour à l'heure choisie",
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Interrupteurs pour les sous-classes, races héroïques et le menu /dev de Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Bots compagnons sur Wildcard et Warcraft Reborn",
-      "The Custom Races card tells which characters stay out while races are off": "La carte Custom Races indique quels personnages restent hors du monde quand les races sont désactivées"
+      "The Custom Races card tells which characters stay out while races are off": "La carte Custom Races indique quels personnages restent hors du monde quand les races sont désactivées",
+      "The Custom Races client update brings version 2.0.2": "La mise à jour du client Custom Races apporte la version 2.0.2"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -214,7 +217,8 @@
       "Restart the world every day at a chosen time": "Reinicia el mundo cada día a la hora elegida",
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Interruptores para las subclases, razas heroicas y el menú /dev de Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Bots acompañantes en Wildcard y Warcraft Reborn",
-      "The Custom Races card tells which characters stay out while races are off": "La tarjeta Custom Races indica qué personajes quedan fuera mientras las razas están desactivadas"
+      "The Custom Races card tells which characters stay out while races are off": "La tarjeta Custom Races indica qué personajes quedan fuera mientras las razas están desactivadas",
+      "The Custom Races client update brings version 2.0.2": "La actualización del cliente de Custom Races trae la versión 2.0.2"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -268,7 +272,8 @@
       "Restart the world every day at a chosen time": "每天在选定时间重启世界",
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Custom Races V2 副职业、英雄种族和 /dev 菜单的开关",
       "Companion bots on Wildcard and Warcraft Reborn": "Wildcard 和 Warcraft Reborn 上的伙伴机器人",
-      "The Custom Races card tells which characters stay out while races are off": "Custom Races 卡片会显示种族关闭时哪些角色无法进入世界"
+      "The Custom Races card tells which characters stay out while races are off": "Custom Races 卡片会显示种族关闭时哪些角色无法进入世界",
+      "The Custom Races client update brings version 2.0.2": "Custom Races 客户端更新带来 2.0.2 版本"
     }
   },
   "server": {
