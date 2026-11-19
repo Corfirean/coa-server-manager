@@ -190,7 +190,8 @@
     "Corfirean/coa-server-manager:20261115-scheduled-restart.md",
     "Corfirean/coa-server-manager:20261115-v2-feature-switches.md",
     "Corfirean/coa-server-manager:20261116-companions-wildcard-reborn.md",
-    "Corfirean/coa-server-manager:20261116-custom-race-characters-off.md"
+    "Corfirean/coa-server-manager:20261116-custom-race-characters-off.md",
+    "Corfirean/coa-server-manager:20261118-custom-races-2-0-2-client.md"
   ],
   "releases": [
     {
@@ -970,6 +971,17 @@
       ],
       "commit": "1f64da3ae064b3f02d2bb11d818c44d26a557045",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.13...v0.9.14"
+    },
+    {
+      "tag": "v0.9.15",
+      "version": "0.9.15",
+      "date": "2026-11-19",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.15",
+      "notes": [
+        "The Custom Races client update brings version 2.0.2"
+      ],
+      "commit": "2b9021ce072e3b6c7e9c8106f8a54f59f1b37424",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.14...v0.9.15"
     }
   ]
 }
