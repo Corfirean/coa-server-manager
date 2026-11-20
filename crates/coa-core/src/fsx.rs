@@ -154,6 +154,14 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf> {
 
 /// Write `bytes` to `path` so readers see either the old or the new content, never a partial file.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    atomic_write_inner(path, bytes, false)
+}
+
+pub(crate) fn atomic_write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    atomic_write_inner(path, bytes, true)
+}
+
+fn atomic_write_inner(path: &Path, bytes: &[u8], _private: bool) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| Error::PathRejected("no parent directory".into()))?;
@@ -166,7 +174,14 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         uuid::Uuid::new_v4().simple()
     ));
     let write = || -> std::io::Result<()> {
-        let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if _private {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut f = options.open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         Ok(())

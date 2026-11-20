@@ -229,6 +229,21 @@ export interface RealmProfile {
   data: string;
 }
 
+export type PbcApiType = "openai" | "ollama" | "anthropic";
+export interface PbcConnection {
+  apiType: PbcApiType;
+  baseUrl: string;
+  model: string;
+}
+export interface PbcConnectionSetup {
+  active: boolean;
+  connection: (PbcConnection & { hasKey: boolean }) | null;
+}
+export interface PbcConnectionUpdate extends PbcConnection {
+  apiKey?: string;
+  removeKey: boolean;
+}
+
 export interface ModuleView {
   id: string;
   name: string;
@@ -545,6 +560,8 @@ export const api = {
   realmlistDelete: (id: string, profileId: string) => invoke<void>("realmlist_delete", { id, profileId }),
   realmlistActivate: (id: string, profileId: string) => invoke<string[]>("realmlist_activate", { id, profileId }),
   modulesList: (id: string) => invoke<ModuleView[]>("modules_list", { id }),
+  pbcConnection: (id: string) => invoke<PbcConnectionSetup>("pbc_connection", { id }),
+  pbcSaveConnection: (id: string, update: PbcConnectionUpdate) => invoke<PbcConnectionSetup>("pbc_save_connection", { id, update }),
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
   moduleSettings: (id: string, module: string) => invoke<ModuleSetting[]>("module_settings", { id, module }),
   moduleSaveSettings: (id: string, module: string, changes: Record<string, string>) => invoke<string[]>("module_save_settings", { id, module, changes }),

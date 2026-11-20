@@ -12,6 +12,8 @@ use crate::config::parser::ConfFile;
 use crate::error::{Error, Result};
 use crate::fsx;
 
+pub mod pbc;
+
 static CATALOG: &str = include_str!("../../../modules/catalog.json");
 
 #[derive(Debug, Clone, Deserialize)]
@@ -702,6 +704,37 @@ fn save_settings_in(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playerbot_characters_uses_the_packaged_default_and_keeps_host_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let meta = temp.path().join("metadata");
+        let cat = catalog();
+        let id = "mod-pbc";
+        let card = || list_in(&cat, &root).into_iter().find(|m| m.id == id).unwrap();
+        fs::create_dir_all(dir(&root)).unwrap();
+        fs::create_dir_all(&meta).unwrap();
+        assert!(!card().installed);
+
+        let dist = dir(&root).join("playerbots_characters.conf.dist");
+        let defaults = "[worldserver]\nPBC.Enable = 0\nPBC.DefaultConnection = ../Extras/PlayerbotCharacters/my-connection.jsonc\n";
+        fs::write(&dist, defaults).unwrap();
+        let installed = card();
+        assert!(installed.installed && installed.switchable && installed.has_settings);
+        assert!(!installed.enabled);
+
+        let key = "PBC.DefaultConnection";
+        let path = "C:/Test Server/Model Config/custom.jsonc";
+        save_settings_in(&cat, &root, &meta, id, &BTreeMap::from([(key.into(), path.into())])).unwrap();
+        set_enabled_in(&cat, &root, &meta, id, true).unwrap();
+        assert!(card().enabled);
+        set_enabled_in(&cat, &root, &meta, id, false).unwrap();
+        assert!(!card().enabled);
+        let active = read(&dir(&root).join("playerbots_characters.conf")).unwrap();
+        assert_eq!(active.get(key), Some(path));
+        assert_eq!(fs::read_to_string(dist).unwrap(), defaults);
+    }
 
     #[test]
     fn time_is_time_card_settings_and_backups_match_the_module() {
