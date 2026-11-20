@@ -650,6 +650,8 @@ const zh = {
   "comp.startCount": "自动登录随从数量",
   "comp.startSave": "保存",
   "comp.startSaved": "已保存。将在下次服务器启动时生效。",
+  "comp.startTopUp": "已保存。正在再创建 {n} 个同伴,使总数达到 {max};其余已存在。",
+  "comp.startTopUpConfirm": "再创建 {n} 个同伴,使总数达到 {max}?已存在的不会重复创建。",
   "comp.startHint": "未登录的随从仍保留在数据库中，随时可在需要时手动调出上线。",
   "comp.startInvalid": "请输入 0 到 5000 之间的整数。",
 

@@ -556,6 +556,8 @@ export const api = {
     invoke<{ txn: UpdateTxn; preexisting_character_count?: number }>("apply_update", { id, source: source ?? null, resolutions }),
   rollbackUpdate: (id: string, txn: string) => invoke<UpdateTxn>("rollback_update", { id, txn }),
   retryUpdateValidation: (id: string, txn: string) => invoke<UpdateTxn>("retry_update_validation", { id, txn }),
+  /** Creates the companions the startup fleet is missing (the limit is a fleet size). Returns how many were queued. */
+  topUpStartupFleet: (id: string, realm?: RealmMode) => invoke<number>("top_up_startup_fleet", { id, realm: realm ?? null }),
   population: (id: string, realm?: RealmMode) => invoke<Population | null>("get_population", { id, realm: realm ?? null }),
   stopSpawning: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_stop_spawning", { id, realm: realm ?? null }),
   takeOffline: (id: string, realm?: RealmMode) => invoke<{ count: number }>("companions_take_offline", { id, realm: realm ?? null }),
