@@ -19,7 +19,7 @@ import { DashboardPage } from "@/screens/DashboardPage";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { startServerUpdatePolling, useServerUpdate } from "@/lib/serverUpdate";
-import { startClientPolling } from "@/lib/clientUpdate";
+import { checkClient } from "@/lib/clientUpdate";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 type Page = "overview" | "bots" | "dashboard" | "server" | "modules" | "players" | "characters" | "friends" | "backups" | "console" | "report" | "settings";
@@ -88,14 +88,10 @@ export function Shell(props: {
     if (hiddenPages.includes(page)) setPage("overview");
   }, [hiddenPages, page]);
 
-  // Look for a server and a game client update when the app starts and then every five minutes.
+  // Look for a server update when the app starts and then every five minutes; note whether a game client is linked.
   useEffect(() => {
-    const stopServer = startServerUpdatePolling(props.activeId);
-    const stopClient = startClientPolling(props.activeId);
-    return () => {
-      stopServer();
-      stopClient();
-    };
+    void checkClient(props.activeId);
+    return startServerUpdatePolling(props.activeId);
   }, [props.activeId]);
 
   return (

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { useI18n, type Key } from "@/i18n";
 import { asControlError, control, type AccountView, type Credentials, type JoinOutcome, type RemoteCharacter } from "@/lib/control";
 import { REMOTE_CLIENT_ID } from "@/lib/api";
-import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
+import { ClientDialog } from "@/screens/ClientDialog";
 import { Notes } from "@/screens/PortablePage";
 
 const STATUS_TEXT: Record<string, Key> = {
@@ -129,7 +129,7 @@ export function JoinPanel({ realm, character, automatic, onClaimed }: { realm: s
   const [err, setErr] = useState<{ code: string; message: string } | null>(null);
   const [linking, setLinking] = useState(false);
   const [bring, setBring] = useState(false);
-  const [clientDialog, setClientDialog] = useState<ClientDialogMode | null>(null);
+  const [clientDialog, setClientDialog] = useState(false);
   const refresh = () => control.account(realm).then(setAccount).catch(() => setAccount(null));
   useEffect(() => { setOutcome(null); setErr(null); setLinking(false); void refresh(); }, [realm]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -139,7 +139,7 @@ export function JoinPanel({ realm, character, automatic, onClaimed }: { realm: s
       const o = await control.join(realm, bring && character ? character : null, true);
       setOutcome(o);
       if (o.status === "needs_link") setLinking(true);
-      if (o.status === "needs_client") setClientDialog("setup");
+      if (o.status === "needs_client") setClientDialog(true);
       await refresh();
     } catch (e) { setErr(asControlError(e)); } finally { setBusy(false); }
   }
@@ -156,7 +156,7 @@ export function JoinPanel({ realm, character, automatic, onClaimed }: { realm: s
       {outcome && text && <div className={cn("mt-3 rounded-md border p-3 text-sm", bad ? "border-warn/50 bg-warn/10" : "border-ok/40 bg-ok/10")} role="status" data-status={outcome.status}>
         <p>{t(text)}</p>
         {outcome.status === "needs_client" && (
-          <Button size="sm" className="mt-2" onClick={() => setClientDialog("setup")}>
+          <Button size="sm" className="mt-2" onClick={() => setClientDialog(true)}>
             {t("btn.setupClient")}
           </Button>
         )}
@@ -170,10 +170,9 @@ export function JoinPanel({ realm, character, automatic, onClaimed }: { realm: s
     {clientDialog && (
       <ClientDialog
         serverId={REMOTE_CLIENT_ID}
-        mode={clientDialog}
-        onClose={() => setClientDialog(null)}
+        onClose={() => setClientDialog(false)}
         onChanged={() => {
-          setClientDialog(null);
+          setClientDialog(false);
           void join();
         }}
       />

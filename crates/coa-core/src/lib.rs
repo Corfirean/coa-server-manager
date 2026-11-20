@@ -16,7 +16,6 @@ pub mod character_start_check;
 pub mod cleanbase;
 pub mod client;
 pub mod client_graphics;
-pub mod clientdl;
 pub mod companions;
 pub mod config;
 pub mod console;

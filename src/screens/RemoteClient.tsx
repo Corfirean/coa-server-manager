@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Gauge, Globe, Settings, Swords } from "lucide-react";
 import { api, asUiError, REMOTE_CLIENT_ID } from "@/lib/api";
-import { checkClient, startClientPolling, useClientStatus } from "@/lib/clientUpdate";
+import { checkClient, useClientStatus } from "@/lib/clientUpdate";
 import { ClientCard } from "@/screens/ClientCard";
-import { ClientDialog, type ClientDialogMode } from "@/screens/ClientDialog";
+import { ClientDialog } from "@/screens/ClientDialog";
 import { AboutCard } from "@/screens/AboutCard";
 import { PortablePage } from "@/screens/PortablePage";
 import { BrowsePage } from "@/screens/BrowsePage";
@@ -27,7 +27,7 @@ export function RemoteClient({ onHost }: { onHost: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
-  const [dialog, setDialog] = useState<ClientDialogMode | null>(null);
+  const [dialog, setDialog] = useState(false);
   const { status } = useClientStatus(REMOTE_CLIENT_ID);
   function fail(e: unknown) {
     const err = asUiError(e);
@@ -35,7 +35,6 @@ export function RemoteClient({ onHost }: { onHost: () => void }) {
   }
   useEffect(() => {
     void api.remoteConnection().then(p => { setHost(p.host); setSavedHost(p.host); }).catch(fail).finally(() => setLoading(false));
-    return startClientPolling(REMOTE_CLIENT_ID);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void checkClient(REMOTE_CLIENT_ID); }, [revision]);
 
@@ -52,8 +51,7 @@ export function RemoteClient({ onHost }: { onHost: () => void }) {
     try { await api.play(REMOTE_CLIENT_ID); } catch (e) { fail(e); } finally { setBusy(false); }
   }
   function play() {
-    if (!status?.linked) setDialog("setup");
-    else if (status.update_available) setDialog("update");
+    if (!status?.linked) setDialog(true);
     else void launch();
   }
   return <div className="flex h-full">
@@ -78,13 +76,12 @@ export function RemoteClient({ onHost }: { onHost: () => void }) {
           </form>
           <p className="mt-3 text-sm text-muted">{t("remote.accountHint")}</p>
           <Button variant="primary" className="mt-4" disabled={loading || busy || !savedHost || host.trim() !== savedHost || status === null} onClick={play}>{t("btn.play")}</Button>
-          {status?.linked && status.update_available && <Button variant="secondary" className="mt-4 ml-3" disabled={loading || busy || !savedHost || host.trim() !== savedHost} onClick={() => void launch()}>{t("btn.playWithoutUpdate")}</Button>}
           {note && <p className="mt-3 text-sm text-ok" role="status">{note}</p>}
           {error && <p className="mt-3 text-sm text-bad" role="alert">{error}</p>}
         </Card>
         <ClientCard key={revision} serverId={REMOTE_CLIENT_ID} remote />
       </>}
     </main>
-    {dialog && <ClientDialog serverId={REMOTE_CLIENT_ID} mode={dialog} onClose={() => setDialog(null)} onChanged={() => setRevision(n => n + 1)} onPlayAnyway={() => void launch()} />}
+    {dialog && <ClientDialog serverId={REMOTE_CLIENT_ID} onClose={() => setDialog(false)} onChanged={() => setRevision(n => n + 1)} />}
   </div>;
 }
