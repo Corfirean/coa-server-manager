@@ -283,29 +283,29 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                       {racesPatchStatus?.state === "enabled" && (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
                           <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-                          {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
+                          {t("races.patch.active")}
                         </span>
                       )}
                       {racesPatchStatus?.state === "disabled" && (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-muted border border-white/15" title="MPQ files disabled with .disabled suffix">
                           <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-                          {locale === "ru" ? "Патч клиента: Отключен (.disabled)" : "Client Patch: Disabled (.disabled)"}
+                          {t("races.patch.disabled")}
                         </span>
                       )}
                       {racesPatchStatus?.state === "not-installed" && (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
                           <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                          {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
+                          {t("races.patch.notInstalled")}
                         </span>
                       )}
                       {racesPatchStatus?.state === "partially-installed" && (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
                           <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                          {locale === "ru" ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ` : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
+                          {t("races.patch.partial", { a: racesPatchStatus.installedMpqs, b: racesPatchStatus.totalMpqs })}
                         </span>
                       )}
                     </div>
-                    {racesPatchStatus?.state === "partially-installed" && <p className="text-xs text-warn">{locale === "ru" ? "Файлы отсутствуют или изменены. Восстановите патч клиента." : "Files are missing or changed. Repair the client patch."}</p>}
+                    {racesPatchStatus?.state === "partially-installed" && <p className="text-xs text-warn">{t("races.patch.partialHint")}</p>}
                     {(
                       <Button
                         size="sm"
@@ -315,11 +315,11 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
                         onClick={() => void installClientPatch()}
                       >
                         {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                        {racesPatchStatus?.state === "not-installed" ? (locale === "ru" ? "Установить патч клиента" : "Install Client Patch") : (locale === "ru" ? "Восстановить патч клиента" : "Repair Client Patch")}
+                        {racesPatchStatus?.state === "not-installed" ? t("races.patch.install") : t("races.patch.repair")}
                       </Button>
                     )}
-                    {racesPatchStatus && racesPatchStatus.state !== "not-installed" && <Button size="sm" variant="ghost" disabled={toggling !== null || racesInstalling} onClick={() => void uninstallClientPatch()}>{locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}</Button>}
-                    <p className="text-xs text-muted">{locale === "ru" ? (m.enabled ? "После установки патч будет включён." : "После установки патч останется отключённым: модуль сервера выключен или отсутствует.") : (m.enabled ? "The patch will be enabled after installation." : "The patch will stay disabled after installation: the server module is off or missing.")}</p>
+                    {racesPatchStatus && racesPatchStatus.state !== "not-installed" && <Button size="sm" variant="ghost" disabled={toggling !== null || racesInstalling} onClick={() => void uninstallClientPatch()}>{t("races.patch.uninstall")}</Button>}
+                    <p className="text-xs text-muted">{t(m.enabled ? "races.patch.willEnable" : "races.patch.willStayOff")}</p>
                   </div>
                 )}
               </div>

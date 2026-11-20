@@ -85,6 +85,7 @@ export function ClientDialog(props: {
                 <span className="mt-1 block text-sm text-muted">{t("client.setup.haveHint")}</span>
               </button>
             </div>
+            <p className="mt-3 text-xs text-muted">{t("client.setup.hdHint")}</p>
             <div className="mt-5 flex justify-end">
               <Button variant="ghost" onClick={close}>{t("btn.close")}</Button>
             </div>
