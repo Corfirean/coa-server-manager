@@ -191,7 +191,12 @@
     "Corfirean/coa-server-manager:20261115-v2-feature-switches.md",
     "Corfirean/coa-server-manager:20261116-companions-wildcard-reborn.md",
     "Corfirean/coa-server-manager:20261116-custom-race-characters-off.md",
-    "Corfirean/coa-server-manager:20261118-custom-races-2-0-2-client.md"
+    "Corfirean/coa-server-manager:20261117-client-download-needs-launcher.md",
+    "Corfirean/coa-server-manager:20261118-custom-races-2-0-2-client.md",
+    "Corfirean/coa-server-manager:20261120-hd-graphics-hint-and-patch-labels.md",
+    "Corfirean/coa-server-manager:20261120-server-log-auto-cleanup.md",
+    "Corfirean/coa-server-manager:20261120-startup-fleet-creates-missing-companions.md",
+    "Corfirean/coa-server-manager:20261120-weekly-world-restart.md"
   ],
   "releases": [
     {
@@ -982,6 +987,21 @@
       ],
       "commit": "2b9021ce072e3b6c7e9c8106f8a54f59f1b37424",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.14...v0.9.15"
+    },
+    {
+      "tag": "v0.9.16",
+      "version": "0.9.16",
+      "date": "2026-11-20",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.16",
+      "notes": [
+        "The game client now comes from the community launcher, not from the Manager",
+        "Client setup says where to switch HD graphics; Custom Races patch card is translated",
+        "Clean server logs by hand or automatically when they grow too big",
+        "The startup limit for companions now creates the ones that are missing",
+        "Restart the world every week on a chosen day and time"
+      ],
+      "commit": "316ef078e8047c790cb081f0991d9e0d618fcd2d",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.15...v0.9.16"
     }
   ]
 }
