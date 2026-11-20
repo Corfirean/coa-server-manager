@@ -696,6 +696,8 @@ const en = {
   "comp.startCount": "How many log in",
   "comp.startSave": "Save",
   "comp.startSaved": "Saved. It applies the next time the server starts.",
+  "comp.startTopUp": "Saved. Creating {n} more companions so that {max} exist; the others already exist.",
+  "comp.startTopUpConfirm": "Create {n} more companions so that {max} exist? Companions that already exist are not created again.",
   "comp.startHint": "Bots that do not log in stay saved and can be brought online later.",
   "comp.startInvalid": "Enter a whole number from 0 to 5000.",
 

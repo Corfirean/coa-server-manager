@@ -597,6 +597,8 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "comp.startCount": "Combien se connectent",
   "comp.startSave": "Enregistrer",
   "comp.startSaved": "Enregistré. S’applique au prochain démarrage du serveur.",
+  "comp.startTopUp": "Enregistré. {n} compagnons de plus sont créés pour qu’il y en ait {max} ; les autres existent déjà.",
+  "comp.startTopUpConfirm": "Créer {n} compagnons de plus pour qu’il y en ait {max} ? Ceux qui existent déjà ne sont pas recréés.",
   "comp.startHint": "Les bots qui ne se connectent pas restent enregistrés et peuvent être mis en ligne plus tard.",
   "comp.startInvalid": "Saisissez un nombre entier de 0 à 5000.",
 

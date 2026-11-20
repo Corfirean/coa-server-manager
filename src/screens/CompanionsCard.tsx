@@ -305,11 +305,18 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
     setError(null);
     setStartNote(null);
     try {
+      // The limit is a fleet size: companions that exist count, only the missing ones are created.
+      const missing = autoOn && running && isViewingActiveRealm && pop ? Math.max(0, maxNum - pop.bots_total) : 0;
+      if (missing > 200 && !window.confirm(t("comp.startTopUpConfirm", { n: Math.min(missing, 2000), max: maxNum }))) {
+        setStartBusy(false);
+        return;
+      }
       await api.save(serverId, "bots", {
         "CoaBots.AutoLoginOnStartup": autoOn,
         "CoaBots.AutoLogin.MaxCount": maxNum,
       });
-      setStartNote(t("comp.startSaved"));
+      const queued = autoOn && running ? await api.topUpStartupFleet(serverId, activeServerRealm) : 0;
+      setStartNote(queued > 0 ? t("comp.startTopUp", { n: queued, max: maxNum }) : t("comp.startSaved"));
     } catch (e) {
       setError(asUiError(e));
     } finally {
@@ -781,7 +788,7 @@ export function CompanionsCard({ serverId }: { serverId: string }) {
           Persistent Startup Fleet
         </h3>
         <p className="text-xs text-muted">
-          Configure how many bots automatically log into the world whenever the server launches.
+          The server keeps this many companions. At every start the ones that exist log in, and only the missing ones are created.
         </p>
 
         <div className="flex flex-wrap items-center gap-4 text-sm">

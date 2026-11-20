@@ -583,6 +583,45 @@ pub fn cancel_pending_job(meta_dir: &Path, realm: &str) -> Result<Option<Compani
     Ok(None)
 }
 
+/// The most companions a startup fleet can hold (the limit the settings accept).
+pub const STARTUP_FLEET_MAX: u32 = 5000;
+
+/// The most companions one creation job asks the server for (a single server command takes at most this many).
+pub const FLEET_JOB_MAX: u32 = 2000;
+
+/// Companions still missing so that `limit` of them exist. The startup limit is a fleet size, not an addition: with
+/// 50 companions and a limit of 300 only 250 are missing, and with 300 or more nothing is.
+pub fn fleet_shortfall(limit: u32, existing: u32) -> u32 {
+    limit.min(STARTUP_FLEET_MAX).saturating_sub(existing)
+}
+
+/// Queue the durable job that creates the companions a realm's startup fleet is missing (at most `FLEET_JOB_MAX`
+/// at a time; the rest follows at the next start or save). Returns the new job, or `None` when the fleet is complete
+/// or an unfinished job already exists for the realm: that one is carried out instead, because a second job would
+/// create the same bots twice.
+pub fn queue_fleet_top_up(
+    meta_dir: &Path,
+    instance_id: &str,
+    mode: crate::realms::Mode,
+    limit: u32,
+    existing: u32,
+) -> Result<Option<CompanionsPendingJob>> {
+    let missing = fleet_shortfall(limit, existing).min(FLEET_JOB_MAX);
+    if missing == 0 {
+        return Ok(None);
+    }
+    let realm = mode.name();
+    if let Some(job) = load_pending_job(meta_dir, realm)? {
+        if !job.state.is_terminal() {
+            return Ok(None);
+        }
+    }
+    validate_spawn_request(mode, missing, None, None, None, None)?;
+    let job = CompanionsPendingJob::new(instance_id, realm, missing, None, None, None, None);
+    save_pending_job(meta_dir, realm, &job)?;
+    Ok(Some(job))
+}
+
 /// One-time idempotent migration of legacy `companions.pending.json` into `companions.pending.coa.json`.
 /// Never creates a duplicate job if `companions.pending.coa.json` already exists.
 pub fn migrate_legacy_pending_job(
@@ -1628,5 +1667,67 @@ mod tests {
         assert!(validate_spawn_request(Mode::Coa, 5, Some(60), Some(1), Some(1), None).is_err());
         assert!(validate_spawn_request(Mode::Wildcard, 5, Some(60), Some(7), Some(4), None).is_err());
         assert!(validate_spawn_request(Mode::Reborn, 5, Some(60), Some(7), Some(4), None).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod fleet_tests {
+    use super::*;
+    use crate::realms::Mode;
+
+    #[test]
+    fn the_limit_is_a_fleet_size_not_an_addition() {
+        assert_eq!(fleet_shortfall(300, 50), 250);
+        assert_eq!(fleet_shortfall(300, 300), 0);
+        assert_eq!(fleet_shortfall(300, 450), 0);
+        assert_eq!(fleet_shortfall(0, 0), 0);
+        assert_eq!(fleet_shortfall(9000, 0), STARTUP_FLEET_MAX);
+    }
+
+    #[test]
+    fn only_the_missing_companions_are_queued() {
+        let dir = tempfile::tempdir().unwrap();
+        let job = queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 300, 50).unwrap().unwrap();
+        assert_eq!(job.count, 250);
+        assert_eq!(job.effective_requested_count(), 250);
+        assert_eq!(job.realm, "coa");
+        let saved = load_pending_job(dir.path(), "coa").unwrap().unwrap();
+        assert_eq!(saved.job_id, job.job_id);
+    }
+
+    #[test]
+    fn a_complete_fleet_creates_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 300, 300).unwrap().is_none());
+        assert!(queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 300, 1000).unwrap().is_none());
+        assert!(load_pending_job(dir.path(), "coa").unwrap().is_none());
+    }
+
+    #[test]
+    fn an_unfinished_job_is_not_doubled_but_a_finished_one_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 300, 50).unwrap().unwrap();
+        assert!(queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 400, 50).unwrap().is_none());
+        assert_eq!(load_pending_job(dir.path(), "coa").unwrap().unwrap().job_id, first.job_id);
+        cancel_pending_job(dir.path(), "coa").unwrap();
+        let second = queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 400, 50).unwrap().unwrap();
+        assert_ne!(second.job_id, first.job_id);
+        assert_eq!(second.count, 350);
+    }
+
+    #[test]
+    fn one_job_never_asks_for_more_than_a_server_command_takes() {
+        let dir = tempfile::tempdir().unwrap();
+        let job = queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 5000, 0).unwrap().unwrap();
+        assert_eq!(job.count, FLEET_JOB_MAX);
+    }
+
+    #[test]
+    fn realms_keep_separate_jobs() {
+        let dir = tempfile::tempdir().unwrap();
+        queue_fleet_top_up(dir.path(), "srv", Mode::Coa, 100, 0).unwrap().unwrap();
+        let reborn = queue_fleet_top_up(dir.path(), "srv", Mode::Reborn, 40, 10).unwrap().unwrap();
+        assert_eq!(reborn.count, 30);
+        assert_eq!(load_pending_job(dir.path(), "coa").unwrap().unwrap().count, 100);
     }
 }

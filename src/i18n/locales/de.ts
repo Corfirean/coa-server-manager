@@ -597,6 +597,8 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "comp.startCount": "Wie viele sich anmelden",
   "comp.startSave": "Speichern",
   "comp.startSaved": "Gespeichert. Gilt ab dem nächsten Serverstart.",
+  "comp.startTopUp": "Gespeichert. {n} weitere Begleiter werden erstellt, damit {max} existieren; die übrigen gibt es schon.",
+  "comp.startTopUpConfirm": "{n} weitere Begleiter erstellen, damit {max} existieren? Vorhandene werden nicht erneut erstellt.",
   "comp.startHint": "Bots, die sich nicht anmelden, bleiben gespeichert und können später online gebracht werden.",
   "comp.startInvalid": "Gib eine ganze Zahl von 0 bis 5000 ein.",
 
