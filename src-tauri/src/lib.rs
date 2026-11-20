@@ -1720,6 +1720,16 @@ async fn pbc_connection(
 }
 
 #[tauri::command]
+async fn pbc_list_models(
+    state: State<'_, AppState>,
+    id: String,
+    request: coa_core::modules::pbc::models::Request,
+) -> std::result::Result<Vec<coa_core::modules::pbc::models::Model>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::modules::pbc::models::list(&root, request)).await
+}
+
+#[tauri::command]
 async fn pbc_save_connection(
     state: State<'_, AppState>,
     id: String,
@@ -3242,6 +3252,7 @@ pub fn run() {
             module_set_enabled,
             module_settings,
             pbc_connection,
+            pbc_list_models,
             pbc_save_connection,
             module_save_settings,
             all_settings,

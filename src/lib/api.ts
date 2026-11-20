@@ -244,6 +244,11 @@ export interface PbcConnectionUpdate extends PbcConnection {
   removeKey: boolean;
 }
 
+export interface PbcModel {
+  id: string;
+  name: string;
+}
+
 export interface ModuleView {
   id: string;
   name: string;
@@ -561,6 +566,7 @@ export const api = {
   realmlistActivate: (id: string, profileId: string) => invoke<string[]>("realmlist_activate", { id, profileId }),
   modulesList: (id: string) => invoke<ModuleView[]>("modules_list", { id }),
   pbcConnection: (id: string) => invoke<PbcConnectionSetup>("pbc_connection", { id }),
+  pbcListModels: (id: string, request: Omit<PbcConnectionUpdate, "model">) => invoke<PbcModel[]>("pbc_list_models", { id, request }),
   pbcSaveConnection: (id: string, update: PbcConnectionUpdate) => invoke<PbcConnectionSetup>("pbc_save_connection", { id, update }),
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
   moduleSettings: (id: string, module: string) => invoke<ModuleSetting[]>("module_settings", { id, module }),

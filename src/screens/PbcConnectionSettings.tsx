@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useHuman, useI18n } from "@/i18n";
 import { api, asUiError, type PbcConnection, type PbcConnectionSetup, type UiError } from "@/lib/api";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
+import { PbcModelPicker, type ModelCatalog } from "@/screens/PbcModelPicker";
 
 type Provider = "openai" | "ollama" | "anthropic" | "compatible";
 const presets: Record<Provider, PbcConnection> = {
-  openai: { apiType: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-5.4-mini" },
+  openai: { apiType: "openai", baseUrl: "https://api.openai.com/v1", model: "" },
   ollama: { apiType: "ollama", baseUrl: "http://127.0.0.1:11434", model: "" },
   anthropic: { apiType: "anthropic", baseUrl: "https://api.anthropic.com/v1", model: "" },
   compatible: { apiType: "openai", baseUrl: "", model: "" },
@@ -30,6 +31,13 @@ export function PbcConnectionSettings({ serverId, onSaved, onRegisterGuard }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
   const [saved, setSaved] = useState(false);
+  const [catalog, setCatalog] = useState<ModelCatalog>({ status: "idle", models: [] });
+  const requestId = useRef(0);
+
+  const clearCatalog = useCallback(() => {
+    requestId.current++;
+    setCatalog({ status: "idle", models: [] });
+  }, []);
 
   const reset = useCallback((value: PbcConnectionSetup) => {
     const current = value.connection ?? presets.openai;
@@ -37,20 +45,22 @@ export function PbcConnectionSettings({ serverId, onSaved, onRegisterGuard }: {
     setProvider(providerOf(current));
     setApiKey("");
     setRemoveKey(false);
-  }, []);
+    clearCatalog();
+  }, [clearCatalog]);
 
   useEffect(() => {
     let cancelled = false;
     setSetup(null);
     setSaved(false);
     setError(null);
+    clearCatalog();
     void api.pbcConnection(serverId).then(value => {
       if (cancelled) return;
       setSetup(value);
       reset(value);
     }).catch(e => { if (!cancelled) setError(asUiError(e)); });
-    return () => { cancelled = true; };
-  }, [serverId, reset]);
+    return () => { cancelled = true; requestId.current++; };
+  }, [serverId, reset, clearCatalog]);
 
   const previous = setup?.connection ?? presets.openai;
   const dirty = !!setup && (connection.apiType !== previous.apiType || connection.baseUrl !== previous.baseUrl
@@ -59,6 +69,25 @@ export function PbcConnectionSettings({ serverId, onSaved, onRegisterGuard }: {
     && connection.baseUrl.trim().replace(/\/+$/, "") === previous.baseUrl;
   const hasKey = !!setup?.connection?.hasKey && sameEndpoint;
   const valid = !!connection.baseUrl.trim() && !!connection.model.trim();
+  const needsKey = provider === "openai"
+    || (provider === "anthropic" && connection.baseUrl.trim().replace(/\/+$/, "") === presets.anthropic.baseUrl);
+  const discoveryBlocked = !connection.baseUrl.trim() ? t("mod.pbc.modelListNeedsUrl")
+    : needsKey && !apiKey.trim() && !(hasKey && !removeKey) ? t("mod.pbc.modelListNeedsKey")
+    : undefined;
+
+  async function loadModels(refresh: boolean) {
+    if (discoveryBlocked || catalog.status === "loading" || (!refresh && catalog.status !== "idle")) return;
+    const current = ++requestId.current;
+    setCatalog(previous => ({ ...previous, status: "loading" }));
+    try {
+      const models = await api.pbcListModels(serverId, {
+        apiType: connection.apiType, baseUrl: connection.baseUrl, apiKey: apiKey || undefined, removeKey,
+      });
+      if (current === requestId.current) setCatalog({ status: "ready", models });
+    } catch {
+      if (current === requestId.current) setCatalog(previous => ({ ...previous, status: "error" }));
+    }
+  }
 
   const save = useCallback(async () => {
     if (!setup || !valid || busy) return false;
@@ -92,6 +121,7 @@ export function PbcConnectionSettings({ serverId, onSaved, onRegisterGuard }: {
     setApiKey("");
     setRemoveKey(false);
     setSaved(false);
+    clearCatalog();
   }
 
   return (
@@ -111,25 +141,23 @@ export function PbcConnectionSettings({ serverId, onSaved, onRegisterGuard }: {
                 <option value="compatible">{t("mod.pbc.compatible")}</option>
               </select>
             </label>
-            <label className="space-y-1 text-sm">
-              <span>{t("mod.pbc.model")}</span>
-              <input className={inputClass} value={connection.model} required onChange={event => { setConnection({ ...connection, model: event.target.value }); setSaved(false); }} />
-            </label>
             <label className="space-y-1 text-sm sm:col-span-2">
               <span>{t("mod.pbc.endpoint")}</span>
               <input className={inputClass} value={connection.baseUrl} type="url" required readOnly={provider === "openai"}
-                onChange={event => { setConnection({ ...connection, baseUrl: event.target.value }); setApiKey(""); setRemoveKey(false); setSaved(false); }} />
+                onChange={event => { setConnection({ ...connection, baseUrl: event.target.value }); setApiKey(""); setRemoveKey(false); setSaved(false); clearCatalog(); }} />
             </label>
             <label className="space-y-1 text-sm sm:col-span-2">
               <span>{t("mod.pbc.key")}</span>
               <input className={inputClass} value={apiKey} type="password" autoComplete="off" disabled={removeKey}
                 placeholder={hasKey ? t("mod.pbc.savedKey") : undefined}
-                onChange={event => { setApiKey(event.target.value); setSaved(false); }} />
+                onChange={event => { setApiKey(event.target.value); setSaved(false); clearCatalog(); }} />
             </label>
             {hasKey && <label className="flex items-center gap-2 text-sm sm:col-span-2">
-              <input type="checkbox" checked={removeKey} onChange={event => { setRemoveKey(event.target.checked); setApiKey(""); setSaved(false); }} />
+              <input type="checkbox" checked={removeKey} onChange={event => { setRemoveKey(event.target.checked); setApiKey(""); setSaved(false); clearCatalog(); }} />
               {t("mod.pbc.removeKey")}
             </label>}
+            <PbcModelPicker key={provider} value={connection.model} catalog={catalog} discoveryBlocked={discoveryBlocked}
+              loadModels={loadModels} onChange={model => { setConnection({ ...connection, model }); setSaved(false); }} />
           </fieldset>
           <p className="text-sm text-muted">{t("mod.pbc.keyHint")}</p>
           <Button size="sm" type="submit" disabled={busy || !valid || (setup.active && !dirty)}>{t("mod.pbc.save")}</Button>

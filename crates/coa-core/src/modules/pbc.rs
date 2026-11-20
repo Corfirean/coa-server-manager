@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use crate::{Error, Result, fsx};
 
+pub mod models;
+
 const MODULE: &str = "mod-pbc";
 const PATH_SETTING: &str = "PBC.DefaultConnection";
 const CONNECTION_FILE: &str = "Extras/PlayerbotCharacters/manager-connection.jsonc";
@@ -99,38 +101,56 @@ pub fn load(root: &Path) -> Result<Setup> {
     Ok(Setup { active, connection })
 }
 
-pub fn save(root: &Path, meta: &Path, update: ConnectionUpdate) -> Result<Setup> {
-    let active = module_setting(root)?.trim_matches('"') == CONNECTION_SETTING;
-    let base_url = update.base_url.trim().trim_end_matches('/');
-    let url = reqwest::Url::parse(base_url).map_err(|_| Error::Invalid("Enter a valid model API base URL.".into()))?;
+fn connection_url(base_url: &str) -> Result<reqwest::Url> {
+    let url = reqwest::Url::parse(base_url.trim().trim_end_matches('/'))
+        .map_err(|_| Error::Invalid("Enter a valid model API base URL.".into()))?;
     if !matches!(url.scheme(), "http" | "https") || url.host().is_none()
         || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
     {
         return Err(Error::Invalid("Use an HTTP or HTTPS base URL without credentials, a query, or a fragment.".into()));
     }
+    Ok(url)
+}
+
+fn connection_key(
+    api_type: ApiType,
+    base_url: &str,
+    submitted_key: Option<&str>,
+    remove_key: bool,
+    previous: Option<Connection>,
+) -> Result<String> {
+    let submitted_key = submitted_key.map(str::trim).filter(|value| !value.is_empty());
+    if submitted_key.is_some_and(|value| value.chars().any(char::is_control)) {
+        return Err(Error::Invalid("Enter the API key on a single line.".into()));
+    }
+
+    let key = if remove_key {
+        String::new()
+    } else if let Some(key) = submitted_key {
+        key.to_owned()
+    } else {
+        previous
+            .filter(|old| old.api_type == api_type && old.base_url == base_url)
+            .map(|old| old.api_key)
+            .unwrap_or_default()
+    };
+    Ok(key)
+}
+
+pub fn save(root: &Path, meta: &Path, update: ConnectionUpdate) -> Result<Setup> {
+    let active = module_setting(root)?.trim_matches('"') == CONNECTION_SETTING;
+    let url = connection_url(&update.base_url)?;
     let base_url = url.as_str().trim_end_matches('/');
     let model = update.model.trim();
     if model.is_empty() || model.chars().any(char::is_control) {
         return Err(Error::Invalid("Enter a model name on a single line.".into()));
     }
-    let submitted_key = update.api_key.as_deref().map(str::trim).filter(|value| !value.is_empty());
-    if submitted_key.is_some_and(|value| value.chars().any(char::is_control)) {
-        return Err(Error::Invalid("Enter the API key on a single line.".into()));
-    }
-
     let path = connection_path(root)?;
     let previous = read_connection(&path)?;
-    let previous_connection = previous.as_deref().map(parse).transpose()?;
-    let key = if update.remove_key {
-        String::new()
-    } else if let Some(key) = submitted_key {
-        key.to_owned()
-    } else {
-        previous_connection
-            .filter(|old| old.api_type == update.api_type && old.base_url == base_url)
-            .map(|old| old.api_key)
-            .unwrap_or_default()
-    };
+    let key = connection_key(
+        update.api_type, base_url, update.api_key.as_deref(), update.remove_key,
+        previous.as_deref().map(parse).transpose()?,
+    )?;
     let connection = Connection {
         api_type: update.api_type,
         base_url: base_url.into(),
