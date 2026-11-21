@@ -1711,6 +1711,40 @@ async fn module_save_settings(
 }
 
 #[tauri::command]
+async fn pbc_connection(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::modules::pbc::Setup, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::modules::pbc::load(&root)).await
+}
+
+#[tauri::command]
+async fn pbc_list_models(
+    state: State<'_, AppState>,
+    id: String,
+    request: coa_core::modules::pbc::models::Request,
+) -> std::result::Result<Vec<coa_core::modules::pbc::models::Model>, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || coa_core::modules::pbc::models::list(&root, request)).await
+}
+
+#[tauri::command]
+async fn pbc_save_connection(
+    state: State<'_, AppState>,
+    id: String,
+    update: coa_core::modules::pbc::ConnectionUpdate,
+) -> std::result::Result<coa_core::modules::pbc::Setup, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        let (dir, _) = install_meta(&root)?;
+        coa_core::modules::pbc::save(&root, &dir, update)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn all_settings(
     state: State<'_, AppState>,
     id: String,
@@ -3217,6 +3251,9 @@ pub fn run() {
             repair_server,
             module_set_enabled,
             module_settings,
+            pbc_connection,
+            pbc_list_models,
+            pbc_save_connection,
             module_save_settings,
             all_settings,
             all_settings_save,
