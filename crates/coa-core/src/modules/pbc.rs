@@ -5,14 +5,15 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+use crate::config::parser::{ConfFile, unquote};
+use crate::realms::{self, Mode};
 use crate::{Error, Result, fsx};
 
 pub mod models;
 
 const MODULE: &str = "mod-pbc";
 const PATH_SETTING: &str = "PBC.DefaultConnection";
-const CONNECTION_FILE: &str = "Extras/PlayerbotCharacters/manager-connection.jsonc";
-const CONNECTION_SETTING: &str = "../Extras/PlayerbotCharacters/manager-connection.jsonc";
+pub(crate) const ASSET_DIR: &str = "Extras/PlayerbotCharacters";
 
 #[derive(Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -58,8 +59,34 @@ pub struct Setup {
     pub connection: Option<ConnectionView>,
 }
 
-fn connection_path(root: &Path) -> Result<PathBuf> {
-    fsx::ensure_within(root, &root.join(CONNECTION_FILE))
+fn managed_connection(root: &Path) -> Result<(PathBuf, String)> {
+    let file = match realms::state(root)?.active {
+        Mode::Coa => "manager-connection.jsonc",
+        Mode::Wildcard => "manager-connection-wildcard.jsonc",
+        Mode::Reborn => "manager-connection-reborn.jsonc",
+    };
+    let relative = format!("{ASSET_DIR}/{file}");
+    let path = fsx::ensure_within(root, &root.join(&relative))?;
+    Ok((path, format!("../{relative}")))
+}
+
+/// Secondary worlds use their own Core directory. Point their packaged paths back to the shared assets.
+pub(crate) fn rebase_packaged_paths(config: &str, root: &Path) -> Result<String> {
+    let mut conf = ConfFile::parse_bytes(config.as_bytes())?;
+    let assets = root.join(ASSET_DIR);
+    for key in [
+        PATH_SETTING, "PBC.UtilityConnection", "PBC.CondensationConnection",
+        "PBC.RelationshipUpdateConnection", "PBC.PromptsPath", "PBC.CharacterCardsPath",
+        "PBC.HttpServerFrontendPath",
+    ] {
+        let Some(relative) = conf.get(key).map(unquote)
+            .and_then(|path| path.strip_prefix("../Extras/PlayerbotCharacters/"))
+        else { continue };
+        let Ok(path) = fsx::safe_join(&assets, relative) else { continue };
+        let path = path.to_string_lossy().replace('\\', "/");
+        conf.set(key, &format!("\"{path}\""), &[]);
+    }
+    Ok(conf.to_text())
 }
 
 fn read_connection(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -92,8 +119,9 @@ fn module_setting(root: &Path) -> Result<String> {
 }
 
 pub fn load(root: &Path) -> Result<Setup> {
-    let active = module_setting(root)?.trim_matches('"') == CONNECTION_SETTING;
-    let connection = read_connection(&connection_path(root)?)?
+    let (path, setting) = managed_connection(root)?;
+    let active = unquote(&module_setting(root)?) == setting;
+    let connection = read_connection(&path)?
         .as_deref()
         .map(parse)
         .transpose()?
@@ -138,14 +166,14 @@ fn connection_key(
 }
 
 pub fn save(root: &Path, meta: &Path, update: ConnectionUpdate) -> Result<Setup> {
-    let active = module_setting(root)?.trim_matches('"') == CONNECTION_SETTING;
+    let (path, setting) = managed_connection(root)?;
+    let active = unquote(&module_setting(root)?) == setting;
     let url = connection_url(&update.base_url)?;
     let base_url = url.as_str().trim_end_matches('/');
     let model = update.model.trim();
     if model.is_empty() || model.chars().any(char::is_control) {
         return Err(Error::Invalid("Enter a model name on a single line.".into()));
     }
-    let path = connection_path(root)?;
     let previous = read_connection(&path)?;
     let key = connection_key(
         update.api_type, base_url, update.api_key.as_deref(), update.remove_key,
@@ -160,7 +188,7 @@ pub fn save(root: &Path, meta: &Path, update: ConnectionUpdate) -> Result<Setup>
     };
     fsx::atomic_write_private(&path, &serde_json::to_vec_pretty(&connection)?)?;
     if !active {
-        let changes = BTreeMap::from([(PATH_SETTING.into(), CONNECTION_SETTING.into())]);
+        let changes = BTreeMap::from([(PATH_SETTING.into(), setting)]);
         if let Err(error) = super::save_settings(root, meta, MODULE, &changes) {
             if let Some(bytes) = previous {
                 fsx::atomic_write_private(&path, &bytes)?;
@@ -211,5 +239,54 @@ mod tests {
         let config = fs::read_to_string(configs.join("playerbots_characters.conf")).unwrap();
         assert!(config.contains("PBC.Enable = 0"));
         assert!(!config.contains("replacement-key"));
+    }
+
+    #[test]
+    fn secondary_world_uses_the_shared_pbc_assets_and_keeps_custom_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = "[worldserver]\nPBC.DefaultConnection = \"../Extras/PlayerbotCharacters/manager-connection.jsonc\"\nPBC.PromptsPath = \"../Extras/PlayerbotCharacters/prompts\"\nPBC.UtilityConnection = \"custom.jsonc\"\n";
+        let result = rebase_packaged_paths(config, temp.path()).unwrap();
+        let result = ConfFile::parse_bytes(result.as_bytes()).unwrap();
+        let expected = temp.path().join(ASSET_DIR).to_string_lossy().replace('\\', "/");
+        assert_eq!(result.get(PATH_SETTING).map(unquote), Some(format!("{expected}/manager-connection.jsonc").as_str()));
+        assert_eq!(result.get("PBC.PromptsPath").map(unquote), Some(format!("{expected}/prompts").as_str()));
+        assert_eq!(result.get("PBC.UtilityConnection").map(unquote), Some("custom.jsonc"));
+    }
+
+    #[test]
+    fn each_realm_saves_its_own_model_connection() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let config = root.join("Core/configs/modules/playerbots_characters.conf");
+        let meta = root.join("metadata");
+        fsx::atomic_write(&config, b"[worldserver]\nPBC.Enable = 0\nPBC.DefaultConnection = \"\"\n").unwrap();
+        let (coa_path, _) = managed_connection(root).unwrap();
+        let endpoint = "https://example.test/v1";
+        save(root, &meta, update(ApiType::Openai, endpoint, Some("coa-key"))).unwrap();
+        let coa_config = fs::read(&config).unwrap();
+        let coa_connection = fs::read(&coa_path).unwrap();
+
+        let state = root.join("Settings/realm-profile.json");
+        let mut realm_state = realms::RealmState {
+            active: Mode::Wildcard,
+            wildcard_created: true,
+            ..Default::default()
+        };
+        fsx::atomic_write_json(&state, &realm_state).unwrap();
+        let (wildcard_path, _) = managed_connection(root).unwrap();
+        assert_ne!(coa_path, wildcard_path);
+        assert!(load(root).unwrap().connection.is_none());
+        let mut wildcard = update(ApiType::Openai, endpoint, None);
+        wildcard.model = "wildcard-model".into();
+        let saved = save(root, &meta, wildcard).unwrap().connection.unwrap();
+        assert!(!saved.has_key);
+        assert_eq!(saved.model, "wildcard-model");
+        assert_eq!(fs::read(&coa_path).unwrap(), coa_connection);
+
+        realm_state.active = Mode::Coa;
+        fsx::atomic_write_json(&state, &realm_state).unwrap();
+        fsx::atomic_write(&config, &coa_config).unwrap();
+        let restored = load(root).unwrap();
+        assert!(restored.active && restored.connection.unwrap().has_key);
     }
 }

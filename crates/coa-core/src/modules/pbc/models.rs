@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::{Error, Result};
 
-use super::{connection_key, connection_path, connection_url, module_setting, parse, read_connection, ApiType};
+use super::{connection_key, connection_url, managed_connection, module_setting, parse, read_connection, ApiType};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_PAGE_BYTES: u64 = 4 * 1024 * 1024;
@@ -80,7 +80,8 @@ fn request_headers(api_type: ApiType, key: &str) -> Result<HeaderMap> {
 pub fn list(root: &Path, request: Request) -> Result<Vec<Model>> {
     module_setting(root)?;
     let mut url = connection_url(&request.base_url)?;
-    let previous = read_connection(&connection_path(root)?)?;
+    let (path, _) = managed_connection(root)?;
+    let previous = read_connection(&path)?;
     let key = connection_key(
         request.api_type, url.as_str().trim_end_matches('/'), request.api_key.as_deref(),
         request.remove_key, previous.as_deref().map(parse).transpose()?,
@@ -233,7 +234,7 @@ mod tests {
             api_type: ApiType::Openai, base_url: base.clone(), model: "saved-model".into(),
             api_key: Some("fixture-secret".into()), remove_key: false,
         }).unwrap();
-        let path = connection_path(root.path()).unwrap();
+        let (path, _) = managed_connection(root.path()).unwrap();
         let saved = fs::read(&path).unwrap();
 
         let models = list(root.path(), request(ApiType::Openai, &base, None)).unwrap();
@@ -296,7 +297,7 @@ mod tests {
             api_type: ApiType::Openai, base_url: endpoint.clone(), model: "saved-model".into(),
             api_key: Some("fixture-secret".into()), remove_key: false,
         }).unwrap();
-        let path = connection_path(root.path()).unwrap();
+        let (path, _) = managed_connection(root.path()).unwrap();
         let saved = fs::read(&path).unwrap();
         let redirect = list(root.path(), request(ApiType::Openai, &endpoint, None)).err().unwrap();
         assert!(redirect.to_string().contains("302"));

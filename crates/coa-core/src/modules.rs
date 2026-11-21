@@ -514,6 +514,12 @@ fn settings_in(cat: &[Entry], root: &Path, id: &str) -> Result<Vec<Setting>> {
     };
     Ok(effective
         .entries()
+        .filter(|(key, _)| {
+            id != "mod-pbc"
+                || !["PBC.ApiKey", "PBC.AltModelApiKey"]
+                    .iter()
+                    .any(|secret| key.eq_ignore_ascii_case(secret))
+        })
         .map(|(k, v)| {
             let mut val = fields
                 .get(k)
@@ -734,6 +740,32 @@ mod tests {
         let active = read(&dir(&root).join("playerbots_characters.conf")).unwrap();
         assert_eq!(active.get(key), Some(path));
         assert_eq!(fs::read_to_string(dist).unwrap(), defaults);
+    }
+
+    #[test]
+    fn playerbot_characters_preserves_legacy_connections_without_exposing_keys() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(dir(root)).unwrap();
+        let name = "playerbots_characters.conf";
+        fs::write(
+            dir(root).join(name),
+            "[worldserver]\nPBC.Enable = 1\nPBC.BaseUrl = https://example.test/v1\nPBC.Model = legacy\nPBC.ApiKey = fixture-key\nPBC.AltModelApiKey = fixture-alt-key\n",
+        ).unwrap();
+        fs::write(
+            dir(root).join(format!("{name}.dist")),
+            "[worldserver]\nPBC.Enable = 0\nPBC.DefaultConnection = \"\"\n",
+        ).unwrap();
+
+        crate::config::materialize_module_configs(root).unwrap();
+        let config = read(&dir(root).join(name)).unwrap();
+        assert_eq!(config.get("PBC.Enable"), Some("1"));
+        assert_eq!(config.get("PBC.DefaultConnection"), Some("\"\""));
+        assert_eq!(config.get("PBC.ApiKey"), Some("fixture-key"));
+        assert_eq!(config.get("PBC.AltModelApiKey"), Some("fixture-alt-key"));
+        let visible = serde_json::to_string(&settings(root, "mod-pbc").unwrap()).unwrap();
+        assert!(!visible.contains("fixture-key") && !visible.contains("fixture-alt-key"));
+        assert!(!pbc::load(root).unwrap().active);
     }
 
     #[test]

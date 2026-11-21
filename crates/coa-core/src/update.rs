@@ -2369,7 +2369,7 @@ mod tests {
         const CONNECTION: &str = "Extras/PlayerbotCharacters/manager-connection.jsonc";
         const CARD: &str = "Extras/PlayerbotCharacters/cards/Companion.card.txt";
         const PROMPT: &str = "Extras/PlayerbotCharacters/prompts/enUS/CharacterContext.custom.txt";
-        let defaults = b"[worldserver]\nPBC.Enable = 0\nPBC.DefaultConnection = ../Extras/PlayerbotCharacters/my-connection.jsonc\n";
+        let defaults = b"[worldserver]\nPBC.Enable = 0\nPBC.DefaultConnection = \"\"\n";
         for configured in [false, true] {
             let w = world(&[(DIST, defaults), ("Extras/PlayerbotCharacters/cards/README.txt", b"Cards")], false);
             let host_config = b"[worldserver]\nPBC.Enable = 1\nPBC.DefaultConnection = ../Extras/PlayerbotCharacters/manager-connection.jsonc\n";
