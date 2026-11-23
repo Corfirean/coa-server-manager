@@ -58,7 +58,8 @@
       "Client setup says where to switch HD graphics; Custom Races patch card is translated": "Установка клиента подсказывает, где переключить HD-графику; карточка патча Custom Races переведена",
       "Clean server logs by hand or automatically when they grow too big": "Очищайте логи сервера вручную или автоматически, когда они становятся слишком большими",
       "The startup limit for companions now creates the ones that are missing": "Лимит запуска компаньонов теперь создаёт недостающих",
-      "Restart the world every week on a chosen day and time": "Перезапускайте мир каждую неделю в выбранный день и время"
+      "Restart the world every week on a chosen day and time": "Перезапускайте мир каждую неделю в выбранный день и время",
+      "The game client link points to the new community site, conquestofazerothcore.to": "Ссылка на клиент игры ведёт на новый сайт сообщества conquestofazerothcore.to"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -118,7 +119,8 @@
       "Client setup says where to switch HD graphics; Custom Races patch card is translated": "Die Client-Einrichtung sagt, wo man die HD-Grafik umschaltet; die Karte des Custom-Races-Patches ist übersetzt",
       "Clean server logs by hand or automatically when they grow too big": "Serverlogs von Hand oder automatisch bereinigen, wenn sie zu groß werden",
       "The startup limit for companions now creates the ones that are missing": "Das Startlimit für Begleiter erstellt jetzt die fehlenden",
-      "Restart the world every week on a chosen day and time": "Die Welt jede Woche an einem gewählten Tag und zu einer gewählten Zeit neu starten"
+      "Restart the world every week on a chosen day and time": "Die Welt jede Woche an einem gewählten Tag und zu einer gewählten Zeit neu starten",
+      "The game client link points to the new community site, conquestofazerothcore.to": "Der Link zum Spielclient führt jetzt zur neuen Community-Website conquestofazerothcore.to"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -178,7 +180,8 @@
       "Client setup says where to switch HD graphics; Custom Races patch card is translated": "La configuration du client indique où changer les graphismes HD ; la carte du patch Custom Races est traduite",
       "Clean server logs by hand or automatically when they grow too big": "Nettoyez les journaux du serveur à la main ou automatiquement quand ils deviennent trop gros",
       "The startup limit for companions now creates the ones that are missing": "La limite de démarrage des compagnons crée maintenant ceux qui manquent",
-      "Restart the world every week on a chosen day and time": "Redémarrez le monde chaque semaine au jour et à l’heure choisis"
+      "Restart the world every week on a chosen day and time": "Redémarrez le monde chaque semaine au jour et à l’heure choisis",
+      "The game client link points to the new community site, conquestofazerothcore.to": "Le lien vers le client du jeu mène au nouveau site de la communauté, conquestofazerothcore.to"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -238,7 +241,8 @@
       "Client setup says where to switch HD graphics; Custom Races patch card is translated": "La configuración del cliente indica dónde cambiar los gráficos HD; la tarjeta del parche de Custom Races está traducida",
       "Clean server logs by hand or automatically when they grow too big": "Limpia los registros del servidor a mano o automáticamente cuando crecen demasiado",
       "The startup limit for companions now creates the ones that are missing": "El límite de inicio de los compañeros ahora crea los que faltan",
-      "Restart the world every week on a chosen day and time": "Reinicia el mundo cada semana en el día y la hora elegidos"
+      "Restart the world every week on a chosen day and time": "Reinicia el mundo cada semana en el día y la hora elegidos",
+      "The game client link points to the new community site, conquestofazerothcore.to": "El enlace al cliente del juego apunta al nuevo sitio de la comunidad, conquestofazerothcore.to"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -298,7 +302,8 @@
       "Client setup says where to switch HD graphics; Custom Races patch card is translated": "客户端设置会说明在哪里切换 HD 画质;Custom Races 补丁卡片已翻译",
       "Clean server logs by hand or automatically when they grow too big": "手动清理服务器日志,或在日志过大时自动清理",
       "The startup limit for companions now creates the ones that are missing": "同伴的启动上限现在会创建缺少的同伴",
-      "Restart the world every week on a chosen day and time": "每周在选定的日期和时间重启世界"
+      "Restart the world every week on a chosen day and time": "每周在选定的日期和时间重启世界",
+      "The game client link points to the new community site, conquestofazerothcore.to": "游戏客户端链接现指向新的社区网站 conquestofazerothcore.to"
     }
   },
   "server": {

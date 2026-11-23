@@ -758,7 +758,7 @@ const en = {
   "client.setup.title": "Set up the game client",
   "client.setup.intro": "To play you need the game client. The community hands it out through its official launcher.",
   "client.setup.have": "I already have a client",
-  "client.setup.getLauncher": "Get the launcher (coa-development.org)",
+  "client.setup.getLauncher": "Get the launcher (conquestofazerothcore.to)",
   "client.setup.getLauncherHint": "Opens the community website in your browser. Download and install the launcher there, sign in with your account and let it download the game (about 43 GB).",
   "client.setup.haveHint": "Pick the folder the launcher installed the game to, or any other copy of the client.",
   "client.setup.hdHint": "Standard or HD graphics is chosen in the launcher: open its Settings and switch \"HD graphics\". The Manager cannot change it.",

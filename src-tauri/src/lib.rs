@@ -2680,7 +2680,7 @@ fn open_link(url: String) -> std::result::Result<(), UiError> {
         "https://login.tailscale.com/",
         "https://portforward.com/",
         "https://github.com/Corfirean/",
-        "https://coa-development.org/",
+        "https://conquestofazerothcore.to/",
     ];
     // A prefilled "new issue" page of one of the places a report can go (the Manager, Companions, SQUID Playerbots): the
     // address must be exactly that page, and its query may carry `&` between the (percent-encoded) title and text.
