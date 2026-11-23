@@ -196,7 +196,8 @@
     "Corfirean/coa-server-manager:20261120-hd-graphics-hint-and-patch-labels.md",
     "Corfirean/coa-server-manager:20261120-server-log-auto-cleanup.md",
     "Corfirean/coa-server-manager:20261120-startup-fleet-creates-missing-companions.md",
-    "Corfirean/coa-server-manager:20261120-weekly-world-restart.md"
+    "Corfirean/coa-server-manager:20261120-weekly-world-restart.md",
+    "Corfirean/coa-server-manager:20261123-client-site-link.md"
   ],
   "releases": [
     {
@@ -1002,6 +1003,17 @@
       ],
       "commit": "316ef078e8047c790cb081f0991d9e0d618fcd2d",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.15...v0.9.16"
+    },
+    {
+      "tag": "v0.9.17",
+      "version": "0.9.17",
+      "date": "2026-11-23",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.17",
+      "notes": [
+        "The game client link points to the new community site, conquestofazerothcore.to"
+      ],
+      "commit": "b5abc6fc4f6ab348efd57521136a2153ec948ca0",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.16...v0.9.17"
     }
   ]
 }

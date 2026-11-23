@@ -8,6 +8,12 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.17 — 2026-11-23
+
+- The game client link points to the new community site, conquestofazerothcore.to.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.17) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.16...v0.9.17)
+
 ## 0.9.16 — 2026-11-20
 
 - The game client now comes from the community launcher, not from the Manager.
