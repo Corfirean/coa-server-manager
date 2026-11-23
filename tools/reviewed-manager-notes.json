@@ -1,10 +1,6 @@
 {
-  "version": "0.9.16",
+  "version": "0.9.17",
   "notes": [
-    "The game client now comes from the community launcher, not from the Manager",
-    "Client setup says where to switch HD graphics; Custom Races patch card is translated",
-    "Clean server logs by hand or automatically when they grow too big",
-    "The startup limit for companions now creates the ones that are missing",
-    "Restart the world every week on a chosen day and time"
+    "The game client link points to the new community site, conquestofazerothcore.to"
   ]
 }

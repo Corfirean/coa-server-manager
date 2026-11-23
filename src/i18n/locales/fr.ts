@@ -650,7 +650,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "client.setup.title": "Configurer le client du jeu",
   "client.setup.intro": "Pour jouer, il faut le client du jeu. La communauté le distribue via son lanceur officiel.",
   "client.setup.have": "J’ai déjà un client",
-  "client.setup.getLauncher": "Obtenir le lanceur (coa-development.org)",
+  "client.setup.getLauncher": "Obtenir le lanceur (conquestofazerothcore.to)",
   "client.setup.getLauncherHint": "Ouvre le site de la communauté dans votre navigateur. Téléchargez et installez-y le lanceur, connectez-vous avec votre compte et laissez-le télécharger le jeu (environ 43 Go).",
   "client.setup.haveHint": "Choisissez le dossier où le lanceur a installé le jeu, ou toute autre copie du client.",
   "client.setup.hdHint": "Les graphismes standard ou HD se choisissent dans le lanceur : ouvrez ses Paramètres et basculez « HD graphics ». Le Manager ne peut pas le modifier.",

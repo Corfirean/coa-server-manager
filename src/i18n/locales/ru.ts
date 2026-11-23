@@ -741,7 +741,7 @@ const ru: Partial<Record<keyof typeof en, string>> = {
   "client.setup.title": "Настройка клиента игры",
   "client.setup.intro": "Чтобы играть, нужен клиент игры. Сообщество выдаёт его через свой официальный лаунчер.",
   "client.setup.have": "У меня уже есть клиент",
-  "client.setup.getLauncher": "Скачать лаунчер (coa-development.org)",
+  "client.setup.getLauncher": "Скачать лаунчер (conquestofazerothcore.to)",
   "client.setup.getLauncherHint": "Откроет сайт сообщества в браузере. Скачайте и установите лаунчер, войдите в свой аккаунт и дайте ему скачать игру (около 43 ГБ).",
   "client.setup.haveHint": "Укажите папку, куда лаунчер установил игру, или любую другую копию клиента.",
   "client.setup.hdHint": "Стандартная или HD-графика выбирается в лаунчере: откройте его «Настройки» и переключите «HD graphics». Менеджер этого изменить не может.",

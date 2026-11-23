@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { useHuman, useT } from "@/i18n";
 
 /** Where the community hands out its launcher, which downloads the game client. The Manager does not download it. */
-export const CLIENT_SITE = "https://coa-development.org/";
+export const CLIENT_SITE = "https://conquestofazerothcore.to/";
 
 type Phase = "choose" | "done" | "failed";
 

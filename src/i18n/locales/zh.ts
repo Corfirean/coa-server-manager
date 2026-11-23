@@ -712,7 +712,7 @@ const zh = {
   "client.setup.title": "配置游戏客户端",
   "client.setup.intro": "进行游戏需要安装客户端。社区通过其官方启动器提供客户端。",
   "client.setup.have": "已有游戏客户端",
-  "client.setup.getLauncher": "获取启动器（coa-development.org）",
+  "client.setup.getLauncher": "获取启动器（conquestofazerothcore.to）",
   "client.setup.getLauncherHint": "在浏览器中打开社区网站。在那里下载并安装启动器，用你的账号登录，让它下载游戏（约 43 GB）。",
   "client.setup.haveHint": "选择启动器安装游戏的文件夹，或任何其他客户端副本。",
   "client.setup.hdHint": "标准或高清画质在启动器中选择：打开启动器的“设置”，切换“HD graphics”。Manager 无法更改。",
