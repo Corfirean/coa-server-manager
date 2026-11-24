@@ -1839,7 +1839,7 @@ export function ModulesPage({
                                   {racesPatchStatus?.state === "enabled" && (
                                     <span className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-xs text-ok border border-ok/30">
                                       <span className="h-1.5 w-1.5 rounded-full bg-ok" />
-                                      {locale === "ru" ? "Патч клиента: Включен" : "Client Patch: Active"}
+                                      {t("races.patch.active")}
                                     </span>
                                   )}
                                   {racesPatchStatus?.state === "disabled" && (
@@ -1848,23 +1848,19 @@ export function ModulesPage({
                                       title="MPQ files disabled with .disabled suffix"
                                     >
                                       <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-                                      {locale === "ru"
-                                        ? "Патч клиента: Отключен (.disabled)"
-                                        : "Client Patch: Disabled (.disabled)"}
+                                      {t("races.patch.disabled")}
                                     </span>
                                   )}
                                   {racesPatchStatus?.state === "not-installed" && (
                                     <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
                                       <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                                      {locale === "ru" ? "Патч клиента: Не установлен" : "Client Patch: Not Installed"}
+                                      {t("races.patch.notInstalled")}
                                     </span>
                                   )}
                                   {racesPatchStatus?.state === "partially-installed" && (
                                     <span className="inline-flex items-center gap-1.5 rounded-full bg-warn/10 px-2.5 py-1 text-xs text-warn border border-warn/30">
                                       <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                                      {locale === "ru"
-                                        ? `Патч клиента: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`
-                                        : `Client Patch: ${racesPatchStatus.installedMpqs}/${racesPatchStatus.totalMpqs} MPQ`}
+                                      {t("races.patch.partial", { a: racesPatchStatus.installedMpqs, b: racesPatchStatus.totalMpqs })}
                                     </span>
                                   )}
                                 </div>
@@ -1877,13 +1873,7 @@ export function ModulesPage({
                                     onClick={() => void installClientPatch()}
                                   >
                                     {racesInstalling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                                    {racesPatchStatus?.state === "not-installed"
-                                      ? locale === "ru"
-                                        ? "Установить патч клиента"
-                                        : "Install Client Patch"
-                                      : locale === "ru"
-                                      ? "Восстановить патч клиента"
-                                      : "Repair Client Patch"}
+                                    {racesPatchStatus?.state === "not-installed" ? t("races.patch.install") : t("races.patch.repair")}
                                   </Button>
                                   {racesPatchStatus && racesPatchStatus.state !== "not-installed" && (
                                     <Button
@@ -1893,7 +1883,7 @@ export function ModulesPage({
                                       onClick={() => void uninstallClientPatch()}
                                       className="text-xs"
                                     >
-                                      {locale === "ru" ? "Удалить патч клиента" : "Uninstall Client Patch"}
+                                      {t("races.patch.uninstall")}
                                     </Button>
                                   )}
                                 </div>

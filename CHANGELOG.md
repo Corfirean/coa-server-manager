@@ -8,6 +8,22 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.17 — 2026-11-23
+
+- The game client link points to the new community site, conquestofazerothcore.to.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.17) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.16...v0.9.17)
+
+## 0.9.16 — 2026-11-20
+
+- The game client now comes from the community launcher, not from the Manager.
+- Client setup says where to switch HD graphics; Custom Races patch card is translated.
+- Clean server logs by hand or automatically when they grow too big.
+- The startup limit for companions now creates the ones that are missing.
+- Restart the world every week on a chosen day and time.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.16) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.15...v0.9.16)
+
 ## 0.9.15 — 2026-11-19
 
 - The Custom Races client update brings version 2.0.2.

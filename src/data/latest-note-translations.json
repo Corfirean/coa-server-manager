@@ -53,7 +53,13 @@
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Переключатели подклассов, героических рас и меню /dev из Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Боты-компаньоны на Wildcard и Warcraft Reborn",
       "The Custom Races card tells which characters stay out while races are off": "Карточка Custom Races показывает, какие персонажи не войдут в мир, пока расы выключены",
-      "The Custom Races client update brings version 2.0.2": "Обновление клиента Custom Races приносит версию 2.0.2"
+      "The Custom Races client update brings version 2.0.2": "Обновление клиента Custom Races приносит версию 2.0.2",
+      "The game client now comes from the community launcher, not from the Manager": "Игровой клиент теперь берётся из лаунчера сообщества, а не из Менеджера",
+      "Client setup says where to switch HD graphics; Custom Races patch card is translated": "Установка клиента подсказывает, где переключить HD-графику; карточка патча Custom Races переведена",
+      "Clean server logs by hand or automatically when they grow too big": "Очищайте логи сервера вручную или автоматически, когда они становятся слишком большими",
+      "The startup limit for companions now creates the ones that are missing": "Лимит запуска компаньонов теперь создаёт недостающих",
+      "Restart the world every week on a chosen day and time": "Перезапускайте мир каждую неделю в выбранный день и время",
+      "The game client link points to the new community site, conquestofazerothcore.to": "Ссылка на клиент игры ведёт на новый сайт сообщества conquestofazerothcore.to"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -108,7 +114,13 @@
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Schalter für die Unterklassen, Heldenvölker und das /dev-Menü von Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Begleiter-Bots auf Wildcard und Warcraft Reborn",
       "The Custom Races card tells which characters stay out while races are off": "Die Custom-Races-Karte zeigt, welche Figuren draußen bleiben, solange die Völker aus sind",
-      "The Custom Races client update brings version 2.0.2": "Das Update des Custom-Races-Clients bringt Version 2.0.2"
+      "The Custom Races client update brings version 2.0.2": "Das Update des Custom-Races-Clients bringt Version 2.0.2",
+      "The game client now comes from the community launcher, not from the Manager": "Der Spielclient kommt jetzt vom Community-Launcher und nicht mehr vom Manager",
+      "Client setup says where to switch HD graphics; Custom Races patch card is translated": "Die Client-Einrichtung sagt, wo man die HD-Grafik umschaltet; die Karte des Custom-Races-Patches ist übersetzt",
+      "Clean server logs by hand or automatically when they grow too big": "Serverlogs von Hand oder automatisch bereinigen, wenn sie zu groß werden",
+      "The startup limit for companions now creates the ones that are missing": "Das Startlimit für Begleiter erstellt jetzt die fehlenden",
+      "Restart the world every week on a chosen day and time": "Die Welt jede Woche an einem gewählten Tag und zu einer gewählten Zeit neu starten",
+      "The game client link points to the new community site, conquestofazerothcore.to": "Der Link zum Spielclient führt jetzt zur neuen Community-Website conquestofazerothcore.to"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -163,7 +175,13 @@
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Interrupteurs pour les sous-classes, races héroïques et le menu /dev de Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Bots compagnons sur Wildcard et Warcraft Reborn",
       "The Custom Races card tells which characters stay out while races are off": "La carte Custom Races indique quels personnages restent hors du monde quand les races sont désactivées",
-      "The Custom Races client update brings version 2.0.2": "La mise à jour du client Custom Races apporte la version 2.0.2"
+      "The Custom Races client update brings version 2.0.2": "La mise à jour du client Custom Races apporte la version 2.0.2",
+      "The game client now comes from the community launcher, not from the Manager": "Le client du jeu vient désormais du lanceur de la communauté, plus du Manager",
+      "Client setup says where to switch HD graphics; Custom Races patch card is translated": "La configuration du client indique où changer les graphismes HD ; la carte du patch Custom Races est traduite",
+      "Clean server logs by hand or automatically when they grow too big": "Nettoyez les journaux du serveur à la main ou automatiquement quand ils deviennent trop gros",
+      "The startup limit for companions now creates the ones that are missing": "La limite de démarrage des compagnons crée maintenant ceux qui manquent",
+      "Restart the world every week on a chosen day and time": "Redémarrez le monde chaque semaine au jour et à l’heure choisis",
+      "The game client link points to the new community site, conquestofazerothcore.to": "Le lien vers le client du jeu mène au nouveau site de la communauté, conquestofazerothcore.to"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -218,7 +236,13 @@
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Interruptores para las subclases, razas heroicas y el menú /dev de Custom Races V2",
       "Companion bots on Wildcard and Warcraft Reborn": "Bots acompañantes en Wildcard y Warcraft Reborn",
       "The Custom Races card tells which characters stay out while races are off": "La tarjeta Custom Races indica qué personajes quedan fuera mientras las razas están desactivadas",
-      "The Custom Races client update brings version 2.0.2": "La actualización del cliente de Custom Races trae la versión 2.0.2"
+      "The Custom Races client update brings version 2.0.2": "La actualización del cliente de Custom Races trae la versión 2.0.2",
+      "The game client now comes from the community launcher, not from the Manager": "El cliente del juego ahora viene del launcher de la comunidad, no del Manager",
+      "Client setup says where to switch HD graphics; Custom Races patch card is translated": "La configuración del cliente indica dónde cambiar los gráficos HD; la tarjeta del parche de Custom Races está traducida",
+      "Clean server logs by hand or automatically when they grow too big": "Limpia los registros del servidor a mano o automáticamente cuando crecen demasiado",
+      "The startup limit for companions now creates the ones that are missing": "El límite de inicio de los compañeros ahora crea los que faltan",
+      "Restart the world every week on a chosen day and time": "Reinicia el mundo cada semana en el día y la hora elegidos",
+      "The game client link points to the new community site, conquestofazerothcore.to": "El enlace al cliente del juego apunta al nuevo sitio de la comunidad, conquestofazerothcore.to"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -273,7 +297,13 @@
       "Switches for the Custom Races V2 subclasses, Hero Races and the /dev menu": "Custom Races V2 副职业、英雄种族和 /dev 菜单的开关",
       "Companion bots on Wildcard and Warcraft Reborn": "Wildcard 和 Warcraft Reborn 上的伙伴机器人",
       "The Custom Races card tells which characters stay out while races are off": "Custom Races 卡片会显示种族关闭时哪些角色无法进入世界",
-      "The Custom Races client update brings version 2.0.2": "Custom Races 客户端更新带来 2.0.2 版本"
+      "The Custom Races client update brings version 2.0.2": "Custom Races 客户端更新带来 2.0.2 版本",
+      "The game client now comes from the community launcher, not from the Manager": "游戏客户端现在来自社区启动器,而不是 Manager",
+      "Client setup says where to switch HD graphics; Custom Races patch card is translated": "客户端设置会说明在哪里切换 HD 画质;Custom Races 补丁卡片已翻译",
+      "Clean server logs by hand or automatically when they grow too big": "手动清理服务器日志,或在日志过大时自动清理",
+      "The startup limit for companions now creates the ones that are missing": "同伴的启动上限现在会创建缺少的同伴",
+      "Restart the world every week on a chosen day and time": "每周在选定的日期和时间重启世界",
+      "The game client link points to the new community site, conquestofazerothcore.to": "游戏客户端链接现指向新的社区网站 conquestofazerothcore.to"
     }
   },
   "server": {

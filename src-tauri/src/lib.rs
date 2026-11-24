@@ -46,7 +46,7 @@ struct AppState {
     busy: Mutex<HashSet<String>>,
     /// Cancel handle of the installation currently running, if any.
     install_cancel: Mutex<Option<Cancel>>,
-    /// Cancel handle of the game-client check or download currently running, if any.
+    /// Cancel handle of the game-client operation currently running (the custom-race patch), if any.
     client_cancel: Mutex<Option<Cancel>>,
     /// The portable play runtime (the Host loop): started with the application, stopped with it.
     portable: Option<Arc<PortableRuntime>>,
@@ -601,6 +601,91 @@ async fn run_verb(
         .map_err(Into::into)
 }
 
+/// Creates the companions a realm's startup fleet is missing (when its auto-login is on and its world runs) and
+/// carries out the realm's pending companion job. Returns how many companions were queued to top the fleet up.
+fn reconcile_realm_companions(
+    root: &Path,
+    meta: &Path,
+    instance_id: &str,
+    mode: coa_core::realms::Mode,
+    top_up: bool,
+) -> Result<u32> {
+    let target = coa_core::multiworld::resolve_bot_operation_target(root, mode)?;
+    let mut queued = 0;
+    if top_up && target.running {
+        match queue_startup_fleet(root, meta, instance_id, mode, &target.world_root) {
+            Ok(n) => queued = n,
+            Err(e) => tracing::warn!("startup fleet of realm {} was not topped up: {e}", mode.name()),
+        }
+    }
+    let r_snap = root.to_path_buf();
+    let chars_db = target.chars_db;
+    let r_ra = root.to_path_buf();
+    coa_core::companions::process_pending_job_with(
+        meta,
+        mode,
+        instance_id,
+        target.running,
+        |since_guid| {
+            let admin_db = coa_core::db::Db::from_repack(&r_snap, coa_core::db::Account::Admin)?;
+            let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, chars_db);
+            coa_core::companions::query_bot_db_snapshot(&r_snap, &admin_db, chars_db, since_guid)
+        },
+        |delta, job| {
+            let mut ra = Ra::connect_target(&r_ra, Some(mode))?;
+            if let Some(lvl) = job.level {
+                ra.spawn_custom(delta, lvl, job.class_id, job.spec_id, job.build_id.as_deref())
+            } else {
+                ra.spawn_bots(delta)
+            }
+        },
+    )?;
+    Ok(queued)
+}
+
+/// Queues the job that creates the companions missing from a realm's startup fleet. The realm's auto-login limit is
+/// the fleet size: companions that exist already count, so only the difference is created. Nothing is created when
+/// the number of existing companions cannot be read.
+fn queue_startup_fleet(
+    root: &Path,
+    meta: &Path,
+    instance_id: &str,
+    mode: coa_core::realms::Mode,
+    world_root: &Path,
+) -> Result<u32> {
+    let cfg = config::load(world_root, Scope::Bots)?;
+    let value = |key: &str| cfg.settings.iter().find(|s| s.meta.key == key).map(|s| s.value.clone());
+    let on = value("CoaBots.AutoLoginOnStartup").and_then(|v| v.as_bool()).unwrap_or(false);
+    let limit = value("CoaBots.AutoLogin.MaxCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    if !on || limit == 0 {
+        return Ok(0);
+    }
+    let existing = coa_core::population::query_for_realm(root, mode)?.bots_total;
+    let job = coa_core::companions::queue_fleet_top_up(meta, instance_id, mode, limit, existing)?;
+    Ok(job.map_or(0, |j| j.count))
+}
+
+/// After the startup fleet settings are saved: create the companions the fleet is missing right away when the realm's
+/// world is running (otherwise it happens at the next start). Returns how many were queued.
+#[tauri::command]
+async fn top_up_startup_fleet(
+    state: State<'_, AppState>,
+    id: String,
+    realm: Option<coa_core::realms::Mode>,
+) -> std::result::Result<u32, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        if coa_core::realms::guard_module(&root, "companions").is_err() {
+            return Ok(0);
+        }
+        let meta = meta_dir(&root)?;
+        let mode = realm.unwrap_or_else(|| coa_core::realms::view(&root).map(|v| v.active).unwrap_or_default());
+        reconcile_realm_companions(&root, &meta, &id, mode, true)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn start_server(
     state: State<'_, AppState>,
@@ -647,37 +732,8 @@ async fn start_server(
                     coa_core::realms::Mode::Wildcard,
                     coa_core::realms::Mode::Reborn,
                 ] {
-                    let target = match coa_core::multiworld::resolve_bot_operation_target(&r, mode) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            tracing::warn!("cannot resolve target for realm {}: {e}", mode.name());
-                            continue;
-                        }
-                    };
-                    let r_snap = r.clone();
-                    let chars_db = target.chars_db;
-                    let r_ra = r.clone();
-                    let res = coa_core::companions::process_pending_job_with(
-                        &meta,
-                        mode,
-                        &instance_id,
-                        target.running,
-                        |since_guid| {
-                            let admin_db = coa_core::db::Db::from_repack(&r_snap, coa_core::db::Account::Admin)?;
-                            let _ = coa_core::companions::ensure_templates_for_schema(&admin_db, chars_db);
-                            coa_core::companions::query_bot_db_snapshot(&r_snap, &admin_db, chars_db, since_guid)
-                        },
-                        |delta, job| {
-                            let mut ra = Ra::connect_target(&r_ra, Some(mode))?;
-                            if let Some(lvl) = job.level {
-                                ra.spawn_custom(delta, lvl, job.class_id, job.spec_id, job.build_id.as_deref())
-                            } else {
-                                ra.spawn_bots(delta)
-                            }
-                        },
-                    );
-                    if let Err(e) = res {
-                        tracing::warn!("pending companions for realm {} failed during reconciliation: {e}", mode.name());
+                    if let Err(e) = reconcile_realm_companions(&r, &meta, &instance_id, mode, true) {
+                        tracing::warn!("companions for realm {} failed during start-up: {e}", mode.name());
                     }
                 }
                 Ok(())
@@ -774,6 +830,15 @@ async fn get_settings(
 }
 
 #[tauri::command]
+async fn server_logging_state(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::server_logging::ServerLoggingView, UiError> {
+    let root = path_of(&state, &id)?;
+    blocking(move || Ok(coa_core::server_logging::state(&root))).await
+}
+
+#[tauri::command]
 async fn server_logging_preset(
     state: State<'_, AppState>,
     id: String,
@@ -785,6 +850,30 @@ async fn server_logging_preset(
         let meta = meta_dir(&root)?;
         coa_core::server_logging::apply(&root, &meta, &preset)
     }).await
+}
+
+#[tauri::command]
+async fn server_logging_settings_save(
+    state: State<'_, AppState>,
+    id: String,
+    settings: coa_core::server_logging::LogSettings,
+) -> std::result::Result<coa_core::server_logging::ServerLoggingView, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        coa_core::server_logging::save_settings(&root, &settings)?;
+        Ok(coa_core::server_logging::state(&root))
+    }).await
+}
+
+#[tauri::command]
+async fn server_logs_clean(
+    state: State<'_, AppState>,
+    id: String,
+) -> std::result::Result<coa_core::server_logging::CleanLogsReport, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || coa_core::server_logging::clean_logs(&root)).await
 }
 
 #[tauri::command]
@@ -2615,13 +2704,6 @@ fn client_install_addon(
 struct ClientStatus {
     /// A usable client folder is linked to this server.
     linked: bool,
-    /// The Manager keeps this folder up to date (it downloaded it or was asked to adopt it).
-    managed: bool,
-    installed_version: Option<String>,
-    latest_version: Option<String>,
-    latest_bytes: Option<u64>,
-    /// A managed client is older than the published one (or its download never finished).
-    update_available: bool,
 }
 
 fn linked_client(root: &std::path::Path) -> Result<Option<PathBuf>> {
@@ -2632,192 +2714,16 @@ fn linked_client(root: &std::path::Path) -> Result<Option<PathBuf>> {
         .filter(|p| coa_core::client::detect(p, None).is_some()))
 }
 
-/// Cheap: one small manifest request and the local state file; no game file is read.
+/// Whether a usable client folder is linked. Local only; the Manager no longer downloads or updates the client.
 #[tauri::command]
-async fn client_status(
+fn client_status(
     state: State<'_, AppState>,
     id: String,
 ) -> std::result::Result<ClientStatus, UiError> {
     let ctx = client_context(&state, &id)?;
-    blocking(move || {
-        let client = ctx.linked();
-        let latest = coa_core::clientdl::fetch_latest().ok();
-        let local = client.as_deref().map(coa_core::clientdl::local);
-        let managed = local.as_ref().map(|l| l.managed).unwrap_or(false);
-        let installed = local.and_then(|l| l.version);
-        let update_available = managed
-            && latest
-                .as_ref()
-                .map(|l| installed.as_deref() != Some(l.version.as_str()))
-                .unwrap_or(false);
-        Ok(ClientStatus {
-            linked: client.is_some(),
-            managed,
-            installed_version: installed,
-            latest_bytes: latest.as_ref().map(|l| l.total_bytes()),
-            latest_version: latest.map(|l| l.version),
-            update_available,
-        })
+    Ok(ClientStatus {
+        linked: ctx.linked().is_some(),
     })
-    .await
-}
-
-#[derive(Serialize)]
-struct ClientDownloadCheck {
-    needed_bytes: u64,
-    free_bytes: u64,
-    version: String,
-    /// Where the client would go.
-    dest: String,
-}
-
-const CLIENT_FOLDER: &str = "CoA Client";
-
-#[tauri::command]
-async fn client_download_check(
-    parent: String,
-) -> std::result::Result<ClientDownloadCheck, UiError> {
-    blocking(move || {
-        let latest = coa_core::clientdl::fetch_latest()?;
-        let dest = PathBuf::from(&parent).join(CLIENT_FOLDER);
-        Ok(ClientDownloadCheck {
-            needed_bytes: latest.total_bytes(),
-            free_bytes: coa_core::fsx::free_space(std::path::Path::new(&parent))?,
-            version: latest.version,
-            dest: dest.to_string_lossy().into_owned(),
-        })
-    })
-    .await
-}
-
-/// Compare the linked client with the published one. Hashes files only where the recorded state cannot vouch for them.
-#[tauri::command]
-async fn client_plan(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> std::result::Result<coa_core::clientdl::Plan, UiError> {
-    let ctx = client_context(&state, &id)?;
-    let cancel = begin_client_job(&state)?;
-    let result = blocking(move || {
-        let client = ctx.require()?;
-        let manifest = coa_core::clientdl::fetch_latest()?;
-        let current = coa_core::clientdl::load_state(&client).unwrap_or_default();
-        coa_core::clientdl::plan(&client, &manifest, &current, &cancel, &|s| {
-            let _ = app.emit("client-progress", s);
-        })
-    })
-    .await;
-    end_client_job(&state);
-    result
-}
-
-/// Bring the linked client to the published version. `keep_modified` leaves files the player changed alone.
-#[tauri::command]
-async fn client_sync(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    keep_modified: bool,
-) -> std::result::Result<(), UiError> {
-    let ctx = client_context(&state, &id)?;
-    let cancel = begin_client_job(&state)?;
-    let result = blocking(move || {
-        let client = ctx.require()?;
-        run_client_sync(&app, &client, keep_modified, &cancel)?;
-        if ctx.root.is_none() && !ctx.host.is_empty() {
-            coa_core::client::set_realmlist(&client, &ctx.dir, &ctx.host)?;
-        }
-        Ok(())
-    })
-    .await;
-    end_client_job(&state);
-    result
-}
-
-fn run_client_sync(
-    app: &AppHandle,
-    client: &std::path::Path,
-    keep_modified: bool,
-    cancel: &Cancel,
-) -> Result<()> {
-    let emit = |s: coa_core::clientdl::Step| {
-        let _ = app.emit("client-progress", s);
-    };
-    let manifest = coa_core::clientdl::fetch_latest()?;
-    let current = coa_core::clientdl::load_state(client).unwrap_or_default();
-    let plan = coa_core::clientdl::plan(client, &manifest, &current, cancel, &emit)?;
-    coa_core::download::check_url(coa_core::clientdl::OBJECTS_URL)?;
-    let transport = coa_core::download::HttpTransport::new()?;
-    coa_core::clientdl::apply(
-        &coa_core::clientdl::Apply {
-            client,
-            manifest: &manifest,
-            plan: &plan,
-            keep_modified,
-            transport: &transport,
-            objects_url: coa_core::clientdl::OBJECTS_URL,
-            cancel,
-        },
-        &emit,
-    )?;
-    tracing::info!(version = %manifest.version, downloaded = plan.items.len(), "client brought up to date");
-    Ok(())
-}
-
-/// Download the client into `<parent>/CoA Client`, then link it to a host or player profile.
-#[tauri::command]
-async fn client_download(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    parent: String,
-) -> std::result::Result<coa_core::client::ClientInfo, UiError> {
-    let ctx = client_context(&state, &id)?;
-    let cancel = begin_client_job(&state)?;
-    let result = blocking(move || {
-        let parent = PathBuf::from(&parent);
-        if !parent.is_dir() {
-            return Err(Error::Invalid(
-                "Choose an existing folder to put the game client in.".into(),
-            ));
-        }
-        let dest = parent.join(CLIENT_FOLDER);
-        let resuming = coa_core::clientdl::load_state(&dest).is_some();
-        let non_empty = std::fs::read_dir(&dest)
-            .map(|mut r| r.next().is_some())
-            .unwrap_or(false);
-        if non_empty && !resuming {
-            return Err(Error::Invalid(format!(
-                "{} already exists and is not an unfinished download. Choose another folder.",
-                dest.display()
-            )));
-        }
-        std::fs::create_dir_all(&dest)?;
-        run_client_sync(&app, &dest, false, &cancel)?;
-        let info = coa_core::client::detect(&dest, ctx.source.as_deref())
-            .ok_or_else(|| Error::Invalid("The downloaded client looks incomplete.".into()))?;
-        ctx.link(&info.path)?;
-        if !ctx.host.is_empty() {
-            coa_core::client::set_realmlist(&dest, &ctx.dir, &ctx.host)?;
-        }
-        if let Some(src) = &ctx.source {
-            coa_core::client::install_addon(&dest, &ctx.dir, src)?;
-        }
-        Ok(coa_core::client::detect(&dest, ctx.source.as_deref()).unwrap_or(info))
-    })
-    .await;
-    end_client_job(&state);
-    result
-}
-
-#[tauri::command]
-fn client_cancel(state: State<'_, AppState>) {
-    if let Ok(c) = state.client_cancel.lock() {
-        if let Some(c) = c.as_ref() {
-            c.cancel();
-        }
-    }
 }
 
 fn begin_client_job(state: &AppState) -> std::result::Result<Cancel, UiError> {
@@ -2826,10 +2732,7 @@ fn begin_client_job(state: &AppState) -> std::result::Result<Cancel, UiError> {
         .lock()
         .map_err(|_| Error::Invalid("state poisoned".into()))?;
     if slot.is_some() {
-        return Err(Error::Invalid(
-            "The game client is already being checked or downloaded.".into(),
-        )
-        .into());
+        return Err(Error::Invalid("A game client operation is already running.".into()).into());
     }
     let cancel = Cancel::default();
     *slot = Some(cancel.clone());
@@ -2963,6 +2866,7 @@ fn open_link(url: String) -> std::result::Result<(), UiError> {
         "https://login.tailscale.com/",
         "https://portforward.com/",
         "https://github.com/Corfirean/",
+        "https://conquestofazerothcore.to/",
     ];
     // A prefilled "new issue" page of one of the places a report can go (the Manager, Companions, SQUID Playerbots): the
     // address must be exactly that page, and its query may carry `&` between the (percent-encoded) title and text.
@@ -3844,7 +3748,10 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            server_logging_state,
             server_logging_preset,
+            server_logging_settings_save,
+            server_logs_clean,
             release_history,
             preview_toolchain_status,
             preview_install_msvc,
@@ -3951,6 +3858,7 @@ pub fn run() {
             report_targets,
             companion_sizes,
             add_companions,
+            top_up_startup_fleet,
             get_wildcard_archetypes,
             remote_connection,
             remote_connect,
@@ -3961,11 +3869,6 @@ pub fn run() {
             client_realmlist,
             client_install_addon,
             client_status,
-            client_download_check,
-            client_plan,
-            client_sync,
-            client_download,
-            client_cancel,
             play,
             friends_status,
             friends_check_internet,
