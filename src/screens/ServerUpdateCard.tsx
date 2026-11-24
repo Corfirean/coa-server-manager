@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, ChevronRight, Loader2, RefreshCw, Server } from "lucide-react";
-import { applyServerUpdate, clearServerUpdateResult, refreshServerUpdateState, useServerUpdate } from "@/lib/serverUpdate";
+import { applyServerUpdate, clearServerUpdateResult, getServerUpdateRevision, refreshServerUpdateState, useServerUpdate } from "@/lib/serverUpdate";
 import { isUpdateCurrent } from "@/lib/serverUpdateStatus";
 import { api, asUiError, type UiError, type UpdatePreview, type UpdateTxn } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,12 @@ export function ServerUpdateCard({ serverId, onHistory, onAttention }: { serverI
   const { t } = useI18n();
   const upd = useServerUpdate(serverId);
   const human = useHuman();
-  const [preview, setPreview] = useState<UpdatePreview | null>(upd.preview);
+  // The offer shown here is the shared one the main screen uses (it is checked at start and every five minutes), unless
+  // the owner pressed the check button on this card. A manual check counts only until the next finished update attempt,
+  // which is why it carries the revision it was made at. Nothing is copied from the shared state when this card opens,
+  // so an offer that arrives later, or one found before the card was opened, still shows.
+  const [manual, setManual] = useState<{ revision: number; preview: UpdatePreview | null } | null>(null);
+  const preview = manual && manual.revision === upd.stateRevision ? manual.preview : upd.preview;
   const [pending, setPending] = useState<UpdateTxn | null>(null);
   const [pendingChecked, setPendingChecked] = useState(false);
   const [pendingStateError, setPendingStateError] = useState<UiError | null>(null);
@@ -29,7 +34,8 @@ export function ServerUpdateCard({ serverId, onHistory, onAttention }: { serverI
   const error = pendingStateError ?? localError ?? upd.uiError;
   const [localDone, setDone] = useState<string | null>(null);
   const done = upd.result && "committed" in upd.result ? t("upd.updatedTo", { v: upd.result.committed }) : localDone;
-  const [choices, setChoices] = useState<Record<string, "keep" | "replace">>(() => Object.fromEntries((upd.preview?.conflicts ?? []).map(c => [c, "keep" as const])));
+  const [picked, setChoices] = useState<Record<string, "keep" | "replace">>({});
+  const choices: Record<string, "keep" | "replace"> = Object.fromEntries((preview?.conflicts ?? []).map(c => [c, picked[c] ?? "keep"]));
   const [advanced, setAdvanced] = useState(false);
   const [source, setSource] = useState("");
   const [startAfter, setStartAfter] = useStartAfterUpdate("server", serverId);
@@ -48,7 +54,6 @@ export function ServerUpdateCard({ serverId, onHistory, onAttention }: { serverI
   // Every finished attempt refreshes the disk state, including failures in the background.
   useEffect(() => {
     if (!upd.stateRevision) return;
-    setPreview(null);
     setPendingChecked(!upd.stateError);
     setPendingStateError(upd.stateError);
     if (!upd.stateError) setPending(upd.result && "pending" in upd.result ? upd.result.pending : null);
@@ -72,13 +77,13 @@ export function ServerUpdateCard({ serverId, onHistory, onAttention }: { serverI
     setError(null);
     setDone(null);
     clearServerUpdateResult(serverId);
-    setPreview(null);
+    setManual(null);
     try {
       const txn = await refreshPending();
       if (txn) return;
       const p = await api.checkUpdate(serverId, source.trim() || undefined);
-      setPreview(p);
-      setChoices(Object.fromEntries(p.conflicts.map((c) => [c, "keep" as const])));
+      setManual({ revision: getServerUpdateRevision(serverId), preview: p });
+      setChoices({});
     } catch (e) {
       setError(asUiError(e));
     } finally {
@@ -116,7 +121,7 @@ export function ServerUpdateCard({ serverId, onHistory, onAttention }: { serverI
       const result = await api.retryUpdateValidation(serverId, txn.id);
       if (result.state === "committed") {
         setPending(null);
-        setPreview(null);
+        setManual(null);
         setDone(t("upd.updatedTo", { v: result.to_version }));
         clearServerUpdateResult(serverId);
       } else setPending(result);
