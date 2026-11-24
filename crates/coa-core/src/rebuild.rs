@@ -311,7 +311,36 @@ fn install_recommended(realm_root: &Path, progress: &dyn Fn(&str, &str)) -> Vec<
     out
 }
 
+/// The commit this core recommends for an installed module when it differs from the one the module was built
+/// from. Never acted on by itself: the owner decides when to update (the Modules page asks).
+pub fn available_update(realm_root: &Path, id: &str) -> Option<String> {
+    let rec = recommended(realm_root)?;
+    let want = &rec.modules.iter().find(|m| m.id == id)?.commit;
+    let have = build_engine::read_build_recipe(realm_root, id)?.source_commit?;
+    let same = have.starts_with(want.as_str()) || want.starts_with(have.as_str());
+    (!same).then(|| want.clone())
+}
+
+/// Rebuild one installed module from the commit this core recommends and swap it in (the world must be stopped).
+/// The module's settings are merged, not reset, and the previous build stays in the plugin store.
+pub fn update_to_recommended(realm_root: &Path, id: &str) -> std::result::Result<String, String> {
+    let rec = recommended(realm_root).ok_or("this server's core does not list recommended modules")?;
+    let m = rec.modules.iter().find(|m| m.id == id).ok_or_else(|| format!("'{id}' is not a recommended module of this core"))?;
+    if !plugins::load_registry(realm_root).map_err(|e| e.to_string())?.plugins.contains_key(id) {
+        return Err(format!("'{id}' is not installed"));
+    }
+    install_module_sources(realm_root, m, true)?;
+    let mut handled = load_handled(realm_root);
+    handled.insert(m.id.clone(), m.commit.clone());
+    save_handled(realm_root, &handled);
+    Ok(m.commit.clone())
+}
+
 fn install_one(realm_root: &Path, m: &RecommendedModule) -> std::result::Result<(), String> {
+    install_module_sources(realm_root, m, false)
+}
+
+fn install_module_sources(realm_root: &Path, m: &RecommendedModule, update: bool) -> std::result::Result<(), String> {
     let cache = source_cache();
     let (owner, name) = split_repo(&m.repo)?;
     let primary = crate::module_sources::fetch_pinned(owner, name, &m.commit, &cache).map_err(|e| e.to_string())?;
@@ -337,7 +366,11 @@ fn install_one(realm_root: &Path, m: &RecommendedModule) -> std::result::Result<
     }
     let (meta, dll, confs) = crate::preview::built_package(realm_root, &m.id, &built.version).map_err(|e| e.to_string())?;
     let confs: Vec<(String, &[u8])> = confs.iter().map(|(n, b)| (n.clone(), b.as_slice())).collect();
-    plugins::install(realm_root, meta, &dll, None, &confs, true).map_err(|e| e.to_string())
+    if update {
+        plugins::update(realm_root, meta, &dll, None, &confs).map_err(|e| e.to_string())
+    } else {
+        plugins::install(realm_root, meta, &dll, None, &confs, true).map_err(|e| e.to_string())
+    }
 }
 
 
@@ -495,6 +528,33 @@ mod tests {
         assert!(!declined_all(server), "the mark applies to the first plugin-host core only");
         // a later core change does not bring it back either
         assert!(rebuild_for_current_core(server, &|_, _| panic!("nothing is built")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_newer_recommended_build_is_offered_never_applied_by_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = dir.path();
+        fs::create_dir_all(server.join("Core/plugins")).unwrap();
+        fs::write(server.join("Core/plugins/recommended.json"), r#"{"schema":1,"modules":[
+            {"id":"companions","repo":"Corfirean/mod-coa-playerbots","commit":"178a7fde6abe1c3c8813d338073b2c83835da497"}]}"#).unwrap();
+        // no recipe: the manager cannot tell what is installed, so it offers nothing
+        assert_eq!(available_update(server, "companions"), None);
+        let recipes = plugins::meta_dir(server).join("build-recipes");
+        fs::create_dir_all(&recipes).unwrap();
+        let recipe = |commit: &str| {
+            format!(r#"{{"schema":1,"source_dir":"x","bundled":[],"source_commit":"{commit}"}}"#)
+        };
+        fs::write(recipes.join("companions.json"), recipe("447558bc27d6bb447aaf10eefcb2e85ac2b15c32")).unwrap();
+        assert_eq!(
+            available_update(server, "companions").as_deref(),
+            Some("178a7fde6abe1c3c8813d338073b2c83835da497")
+        );
+        // already built from the recommended commit (a short form counts too)
+        fs::write(recipes.join("companions.json"), recipe("178a7fde")).unwrap();
+        assert_eq!(available_update(server, "companions"), None);
+        assert_eq!(available_update(server, "unknown-module"), None);
+        // a core change rebuilds the old sources and does not move the module to the newer commit
+        assert!(load_handled(server).is_empty());
     }
 
     /// Real run: COA_TEST_RECOMMENDED_REALM is a plugin-host realm with Core/plugins/recommended.json (or

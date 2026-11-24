@@ -628,7 +628,7 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "comp.deleteConfirm": "Alle {n} Begleiter endgültig löschen? Zuvor wird ein Wiederherstellungspunkt gespeichert. Deine eigenen Charaktere bleiben unberührt.",
   "comp.deleteDone": "Alle Begleiter wurden gelöscht. Zuvor wurde ein Wiederherstellungspunkt gespeichert.",
   "err.companion_command_unsupported.title": "Diese Serverversion kann das noch nicht",
-  "err.companion_command_unsupported.message": "Das Bot-Modul dieses Server-Builds kennt diesen Befehl nicht. Aktualisiere den Server oder starte ihn neu, um Laufendes zu stoppen.",
+  "err.companion_command_unsupported.message": "Das Bot-Modul dieses Servers ist älter als dieser Manager und kennt diesen Befehl nicht. Aktualisiere das Bot-Modul auf der Seite „Module“ (oder den Server) und starte die Welt neu.",
 
   // Despawn some
   "comp.despawnSome": "{n} Bots entfernen",
@@ -846,6 +846,11 @@ const de: Partial<Record<keyof typeof en, string>> = {
   "mod.restart": "Änderungen werden nach einem Neustart des Weltservers wirksam.",
   "mod.switch": "{name} ein- oder ausschalten",
   "mod.notHere": "Nicht Teil dieses Servers",
+  "mod.update.available": "Neuere Version verfügbar: {from} → {to}.",
+  "mod.update.hint": "Nichts wird von selbst aktualisiert. Der Server muss gestoppt sein; die Einstellungen des Moduls bleiben erhalten.",
+  "mod.update.do": "Aktualisieren",
+  "mod.update.working": "Wird aktualisiert…",
+  "mod.update.done": "Modul {id} auf {commit} aktualisiert. Starte den Server, um es zu nutzen.",
   "mod.github": "GitHub",
   "mod.settings": "Einstellungen",
   "mod.default": "Zurück zum Standard ({v})",

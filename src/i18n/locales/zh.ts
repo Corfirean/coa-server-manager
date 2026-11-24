@@ -690,7 +690,7 @@ const zh = {
   "comp.deleteConfirm": "是否彻底删除所有 {n} 名随从？系统会先自动保存恢复点。你自己的玩家角色绝不会受影响。",
   "comp.deleteDone": "所有随从已成功删除。操作前已保存安全恢复点。",
   "err.companion_command_unsupported.title": "当前服务器核心版本不支持该命令",
-  "err.companion_command_unsupported.message": "当前构建版本的随从模块缺少该指令。请更新服务器，或通过重启服务器来中止当前任务。",
+  "err.companion_command_unsupported.message": "此服务器上的随从模块比当前管理器版本旧，不认识该指令。请在“模块”页面更新随从模块（或更新服务器），然后重启世界服务器。",
 
   // Despawn some
   "comp.despawnSome": "减少 {n} 名随从",
@@ -846,6 +846,11 @@ const zh = {
   "mod.restart": "更改将在世界服务器重启后生效。",
   "mod.switch": "开启或关闭 {name}",
   "mod.notHere": "未包含在当前服务器中",
+  "mod.update.available": "有更新的版本：{from} → {to}。",
+  "mod.update.hint": "模块不会自动更新。需先停止服务器；模块设置会保留。",
+  "mod.update.do": "更新",
+  "mod.update.working": "正在更新…",
+  "mod.update.done": "模块 {id} 已更新到 {commit}。启动服务器后生效。",
   "mod.github": "GitHub 页面",
   "mod.settings": "模块设置",
   "mod.default": "恢复为默认值 ({v})",

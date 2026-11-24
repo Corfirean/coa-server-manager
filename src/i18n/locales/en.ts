@@ -750,7 +750,7 @@ const en = {
   "comp.deleteConfirm": "Delete all {n} companions for good? A recovery point is saved first. Your own characters are not touched.",
   "comp.deleteDone": "All companions were deleted. A recovery point was saved first.",
   "err.companion_command_unsupported.title": "This server version can not do that yet",
-  "err.companion_command_unsupported.message": "The bot module of this server build has no such command. Update the server, or restart it to stop what is running.",
+  "err.companion_command_unsupported.message": "The bot module on this server is older than this Manager and does not know this command. Update the bot module on the Modules page (or update the server), then restart the world.",
 
   // Despawn some
   "comp.despawnSome": "Despawn {n} bots",
@@ -951,6 +951,11 @@ const en = {
   "mod.restart": "Changes apply after the world server restarts.",
   "mod.switch": "Turn {name} on or off",
   "mod.notHere": "Not part of this server",
+  "mod.update.available": "Newer build available: {from} → {to}.",
+  "mod.update.hint": "Nothing updates on its own. The server must be stopped; the module’s settings are kept.",
+  "mod.update.do": "Update",
+  "mod.update.working": "Updating…",
+  "mod.update.done": "Module {id} updated to {commit}. Start the server to use it.",
   "mod.github": "GitHub",
   "mod.settings": "Settings",
   "mod.default": "Back to the default ({v})",

@@ -1654,6 +1654,23 @@ async fn repair_server(
     .await
 }
 
+/// Rebuild an installed module from the commit this server's core recommends. Only ever called by the owner's
+/// click on "Update": nothing updates a module on its own. The world must be stopped; settings are merged.
+#[tauri::command]
+async fn module_update(
+    state: State<'_, AppState>,
+    id: String,
+    module: String,
+) -> std::result::Result<String, UiError> {
+    let root = path_of(&state, &id)?;
+    let _guard = BusyGuard::acquire(&state, &id)?;
+    blocking(move || {
+        coa_core::plugins::require_server_stopped(&root)?;
+        coa_core::rebuild::update_to_recommended(&root, &module).map_err(Error::Invalid)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn module_set_enabled(
     state: State<'_, AppState>,
@@ -3826,6 +3843,7 @@ pub fn run() {
             repair_server,
             plugins_repair,
             module_set_enabled,
+            module_update,
             module_settings,
             module_save_settings,
             all_settings,

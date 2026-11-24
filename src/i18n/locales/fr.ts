@@ -628,7 +628,7 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "comp.deleteConfirm": "Supprimer définitivement les {n} compagnons ? Un point de restauration est d’abord enregistré. Vos propres personnages ne sont pas touchés.",
   "comp.deleteDone": "Tous les compagnons ont été supprimés. Un point de restauration a été enregistré d’abord.",
   "err.companion_command_unsupported.title": "Cette version du serveur ne sait pas encore le faire",
-  "err.companion_command_unsupported.message": "Le module de bots de cette version du serveur n’a pas cette commande. Mettez le serveur à jour ou redémarrez-le pour arrêter ce qui est en cours.",
+  "err.companion_command_unsupported.message": "Le module de bots de ce serveur est plus ancien que ce Manager et ne connaît pas cette commande. Mettez à jour le module de bots dans la page « Modules » (ou le serveur), puis redémarrez le monde.",
 
   // Despawn some
   "comp.despawnSome": "Retirer {n} bots",
@@ -846,6 +846,11 @@ const fr: Partial<Record<keyof typeof en, string>> = {
   "mod.restart": "Les changements s’appliquent après le redémarrage du serveur de monde.",
   "mod.switch": "Activer ou désactiver {name}",
   "mod.notHere": "Ne fait pas partie de ce serveur",
+  "mod.update.available": "Une version plus récente est disponible : {from} → {to}.",
+  "mod.update.hint": "Rien ne se met à jour tout seul. Le serveur doit être arrêté ; les réglages du module sont conservés.",
+  "mod.update.do": "Mettre à jour",
+  "mod.update.working": "Mise à jour…",
+  "mod.update.done": "Module {id} mis à jour vers {commit}. Démarrez le serveur pour l’utiliser.",
   "mod.github": "GitHub",
   "mod.settings": "Réglages",
   "mod.default": "Revenir à la valeur par défaut ({v})",

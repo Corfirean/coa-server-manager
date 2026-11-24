@@ -178,7 +178,7 @@ impl ErrorCode {
             ),
             ErrorCode::CompanionCommandUnsupported => (
                 "This server version can not do that yet",
-                "The bot module of this server build has no such command. Update the server, or restart it to stop what is running.",
+                "The bot module on this server is older than this Manager and does not know this command. Update the bot module on the Modules page (or update the server), then restart the world.",
                 &[ShowDetails],
             ),
             ErrorCode::Unknown => ("Something went wrong", "See the technical details.", &[ShowDetails]),

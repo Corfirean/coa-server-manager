@@ -628,7 +628,7 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "comp.deleteConfirm": "¿Eliminar definitivamente los {n} compañeros? Antes se guarda un punto de recuperación. Tus propios personajes no se tocan.",
   "comp.deleteDone": "Se eliminaron todos los compañeros. Antes se guardó un punto de recuperación.",
   "err.companion_command_unsupported.title": "Esta versión del servidor aún no puede hacerlo",
-  "err.companion_command_unsupported.message": "El módulo de bots de esta versión del servidor no tiene ese comando. Actualiza el servidor o reinícialo para detener lo que esté en marcha.",
+  "err.companion_command_unsupported.message": "El módulo de bots de este servidor es más antiguo que este Manager y no conoce ese comando. Actualiza el módulo de bots en la página «Módulos» (o el servidor) y reinicia el mundo.",
 
   // Despawn some
   "comp.despawnSome": "Retirar {n} bots",
@@ -846,6 +846,11 @@ const es: Partial<Record<keyof typeof en, string>> = {
   "mod.restart": "Los cambios se aplican al reiniciar el servidor del mundo.",
   "mod.switch": "Activar o desactivar {name}",
   "mod.notHere": "No forma parte de este servidor",
+  "mod.update.available": "Hay una versión más reciente: {from} → {to}.",
+  "mod.update.hint": "Nada se actualiza solo. El servidor debe estar detenido; los ajustes del módulo se conservan.",
+  "mod.update.do": "Actualizar",
+  "mod.update.working": "Actualizando…",
+  "mod.update.done": "Módulo {id} actualizado a {commit}. Inicia el servidor para usarlo.",
   "mod.github": "GitHub",
   "mod.settings": "Ajustes",
   "mod.default": "Volver al valor por defecto ({v})",

@@ -260,6 +260,8 @@ export interface ModuleView {
   component_type?: ComponentType;
   can_remove?: boolean;
   source_commit?: string | null;
+  /** a newer build of the module is recommended by the server's core; the owner chooses when to update */
+  available_commit?: string | null;
   part_of?: string | null;
 }
 
@@ -794,6 +796,7 @@ export const api = {
   analyzeGithubModule: (url: string, realmId: string) =>
     invoke<CompatibilityReport>("analyze_github_module", { url, realmId }),
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
+  moduleUpdate: (id: string, module: string) => invoke<string>("module_update", { id, module }),
   pluginsRepair: (id: string) => invoke<string[]>("plugins_repair", { id }),
   moduleSettings: (id: string, module: string) => invoke<ModuleSetting[]>("module_settings", { id, module }),
   moduleSaveSettings: (id: string, module: string, changes: Record<string, string>) => invoke<string[]>("module_save_settings", { id, module, changes }),

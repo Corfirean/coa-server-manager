@@ -632,6 +632,8 @@ export function ModulesPage({
   const [parts, setParts] = useState<ModuleView[]>([]);
   const toggleLock = useRef(false);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [updatingModule, setUpdatingModule] = useState<string | null>(null);
+  const [updatedNote, setUpdatedNote] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
   const [racesPatchStatus, setRacesPatchStatus] = useState<CustomRacesClientStatus | null>(null);
   const [raceChars, setRaceChars] = useState<CustomRaceCharacters | null>(null);
@@ -803,6 +805,23 @@ export function ModulesPage({
       unlisten?.();
     };
   }, []);
+
+  /** Updates one module to the build this server's core recommends. Only ever started by the owner's click. */
+  async function updateModule(id: string) {
+    setUpdatingModule(id);
+    setUpdatedNote(null);
+    setError(null);
+    try {
+      const commit = await api.moduleUpdate(serverId, id);
+      setUpdatedNote(t("mod.update.done", { id, commit: commit.slice(0, 8) }));
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setError(asUiError(e));
+    } finally {
+      setUpdatingModule(null);
+    }
+  }
 
   async function installClientPatch() {
     setRacesInstalling(true);
@@ -1345,6 +1364,10 @@ export function ModulesPage({
         </div>
       )}
 
+      {updatedNote && (
+        <p role="status" className="rounded border border-ok/30 bg-ok/10 p-3 text-xs text-ok">{updatedNote}</p>
+      )}
+
       {cacheOpen && <BuildCacheDialog serverId={serverId} locale={locale} onClose={() => setCacheOpen(false)} />}
 
       {/* Build tools: said only when something is missing */}
@@ -1688,6 +1711,24 @@ export function ModulesPage({
                         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                         {t("mod.switching")}
                       </p>
+                    )}
+
+                    {m.installed && m.available_commit && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-gold/30 bg-gold/5 px-3 py-2 text-xs">
+                        <span>
+                          {t("mod.update.available", { from: (m.source_commit ?? "?").slice(0, 8), to: m.available_commit.slice(0, 8) })}
+                          <span className="ml-1 text-muted">{t("mod.update.hint")}</span>
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={updatingModule !== null || toggling !== null}
+                          onClick={() => void updateModule(m.id)}
+                        >
+                          {updatingModule === m.id && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />}
+                          {updatingModule === m.id ? t("mod.update.working") : t("mod.update.do")}
+                        </Button>
+                      </div>
                     )}
 
                     {/* Custom Races Client Patch status badge */}

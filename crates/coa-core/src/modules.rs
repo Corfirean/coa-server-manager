@@ -168,6 +168,9 @@ pub struct ModuleView {
     pub component_type: ComponentType,
     pub can_remove: bool,
     pub source_commit: Option<String>,
+    /// A newer build of this module is recommended by the server's core; updating is the owner's choice.
+    #[serde(default)]
+    pub available_commit: Option<String>,
     pub part_of: Option<String>,
 }
 
@@ -493,6 +496,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 component_type,
                 can_remove,
                 source_commit,
+                available_commit: None,
                 part_of: e.part_of,
             }
         })
@@ -523,6 +527,10 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                 views[idx].version = Some(plugin_entry.version.clone());
                 views[idx].component_type = ComponentType::DynamicDll;
                 views[idx].can_remove = true;
+                if views[idx].source_commit.is_none() {
+                    views[idx].source_commit = crate::build_engine::read_build_recipe(root, plugin_id).and_then(|r| r.source_commit);
+                }
+                views[idx].available_commit = crate::rebuild::available_update(root, plugin_id);
                 continue;
             }
 
@@ -592,6 +600,7 @@ fn list_in(cat: &[Entry], root: &Path) -> Vec<ModuleView> {
                     component_type: ComponentType::DynamicDll,
                     can_remove: true,
                     source_commit,
+                    available_commit: None,
                     part_of: None,
                 });
             }

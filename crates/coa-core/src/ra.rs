@@ -286,9 +286,13 @@ impl Ra {
             ));
         }
         let out = self.command(&format!("botcmd spawnleveled {count}"))?;
+        if is_unsupported_command(&out) {
+            return Err(Error::CompanionCommandUnsupported);
+        }
         if out.to_lowercase().contains("no usable template characters") {
             return Err(Error::CompanionTemplatesMissing);
         }
+        refused_spawn(&out)?;
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
@@ -318,6 +322,7 @@ impl Ra {
             cmd.push_str(&format!(" {c}"));
         }
         let out = self.bot_command(&cmd)?;
+        refused_spawn(&out)?;
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
@@ -400,6 +405,28 @@ fn is_unsupported_command(out: &str) -> bool {
         || l.contains("### usage")
         || l.contains("no such command")
         || l.contains("unknown command")
+}
+
+/// The bot module answers a request it cannot carry out with an ordinary line of text, not with an error, so the
+/// caller must read it: otherwise the page shows "creating bots" for ever. Returns the module's own words.
+fn refused_spawn(out: &str) -> Result<()> {
+    let l = out.to_lowercase();
+    let refused = l.contains("switched off")
+        || l.contains("rejected")
+        || l.contains("nothing to do")
+        || l.contains("aborting")
+        || l.contains("created and spawned 0 of")
+        || l.contains("giving up");
+    if refused {
+        let line = out
+            .lines()
+            .rev()
+            .find(|x| !x.trim().is_empty())
+            .unwrap_or(out)
+            .trim();
+        return Err(Error::Invalid(format!("The bot module did not create the bots: {line}")));
+    }
+    Ok(())
 }
 
 fn first_number(text: &str) -> u32 {
@@ -623,6 +650,28 @@ AC>";
         assert!(ra.spawn_bots(0).is_err() && ra.spawn_bots(5000).is_err());
         drop(ra);
         assert_eq!(h.join().unwrap()[2], "botcmd spawnleveled 50");
+    }
+
+    #[test]
+    fn a_refusal_of_the_bot_module_is_an_error_not_a_started_job() {
+        let _lock = serial();
+        for reply in [
+            "BotMgr: companions are switched off (CoaBots.Enable = 0).",
+            "BotMgr: spawncustom rejected: level 60 is above this realm's cap.",
+            "BotMgr: spawncustom created and spawned 0 of 50 bots (level 60, class 0, spec 0).",
+        ] {
+            let (port, h) = fake_ra(reply);
+            let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+            let err = ra.spawn_custom(50, 60, None, None, None).unwrap_err().to_string();
+            assert!(err.contains("did not create"), "{reply}: {err}");
+            drop(ra);
+            h.join().unwrap();
+        }
+        let (port, h) = fake_ra("BotMgr: spawncustom created and spawned 50 of 50 bots (level 60, class 0, spec 0).");
+        let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+        assert!(ra.spawn_custom(50, 60, None, None, None).unwrap().contains("50 of 50"));
+        drop(ra);
+        h.join().unwrap();
     }
 
     #[test]
