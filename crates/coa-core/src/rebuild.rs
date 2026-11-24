@@ -361,6 +361,10 @@ fn install_module_sources(realm_root: &Path, m: &RecommendedModule, update: bool
         bundled.push(dir);
     }
     let built = build_engine::build_module_with_bundle(&primary, &bundled, realm_root, None, None).map_err(|e| e.to_string())?;
+    if !built.success {
+        // Never install a package left by an earlier build: it was made from other sources.
+        return Err(build_failure_reason(&built.errors));
+    }
     if built.module_id != m.id {
         return Err(format!("the sources build module '{}', not '{}'", built.module_id, m.id));
     }
