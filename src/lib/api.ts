@@ -236,6 +236,25 @@ export interface RealmProfile {
 }
 
 export type ComponentType = "DYNAMIC_DLL" | "CORE_EMBEDDED" | "CONTENT_PACK" | "CLIENT_PATCH" | "LOGICAL_FEATURE";
+export type PbcApiType = "openai" | "ollama" | "anthropic";
+export interface PbcConnection {
+  apiType: PbcApiType;
+  baseUrl: string;
+  model: string;
+}
+export interface PbcConnectionSetup {
+  active: boolean;
+  connection: (PbcConnection & { hasKey: boolean }) | null;
+}
+export interface PbcConnectionUpdate extends PbcConnection {
+  apiKey?: string;
+  removeKey: boolean;
+}
+
+export interface PbcModel {
+  id: string;
+  name: string;
+}
 
 export interface ModuleView {
   id: string;
@@ -795,6 +814,9 @@ export const api = {
     invoke<PublicCatalogueResponse>("get_public_module_catalog", { forceRefresh }),
   analyzeGithubModule: (url: string, realmId: string) =>
     invoke<CompatibilityReport>("analyze_github_module", { url, realmId }),
+  pbcConnection: (id: string) => invoke<PbcConnectionSetup>("pbc_connection", { id }),
+  pbcListModels: (id: string, request: Omit<PbcConnectionUpdate, "model">) => invoke<PbcModel[]>("pbc_list_models", { id, request }),
+  pbcSaveConnection: (id: string, update: PbcConnectionUpdate) => invoke<PbcConnectionSetup>("pbc_save_connection", { id, update }),
   moduleSetEnabled: (id: string, module: string, enabled: boolean) => invoke<void>("module_set_enabled", { id, module, enabled }),
   moduleUpdate: (id: string, module: string) => invoke<string>("module_update", { id, module }),
   pluginsRepair: (id: string) => invoke<string[]>("plugins_repair", { id }),

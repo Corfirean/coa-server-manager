@@ -60,6 +60,7 @@ import { AuctionTypes } from "@/screens/AuctionTypes";
 import { RaceAvailabilitySettings } from "@/screens/RaceAvailabilitySettings";
 import { BuildCacheDialog } from "@/screens/BuildCacheDialog";
 import { formatBytes } from "@/lib/utils";
+import { PbcConnectionSettings } from "@/screens/PbcConnectionSettings";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 /** The GitHub mark */
@@ -718,16 +719,18 @@ export function ModulesPage({
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
   const [racesGuard, setRacesGuard] = useState<UnsavedChangesGuard | null>(null);
+  const [pbcGuard, setPbcGuard] = useState<UnsavedChangesGuard | null>(null);
+  const markChanged = useCallback(() => setChanged(true), []);
 
   useEffect(() => {
-    const guards = [guard, racesGuard].filter((item): item is UnsavedChangesGuard => item !== null);
+    const guards = [guard, racesGuard, pbcGuard].filter((item): item is UnsavedChangesGuard => item !== null);
     onRegisterGuard?.(guards.length ? {
       isDirty: () => guards.some(item => item.isDirty()),
       save: async () => { for (const item of guards) if (item.isDirty() && !await item.save()) return false; return true; },
       discard: () => guards.forEach(item => item.discard()),
     } : null);
     return () => onRegisterGuard?.(null);
-  }, [guard, racesGuard, onRegisterGuard]);
+  }, [guard, racesGuard, pbcGuard, onRegisterGuard]);
 
   const loadPublicCatalog = useCallback(async (forceRefresh = false) => {
     setPublicLoading(true);
@@ -1819,6 +1822,7 @@ export function ModulesPage({
                             <X className="h-4 w-4" />
                           </button>
                         </div>
+                        {selectedModule.id === "mod-pbc" && <PbcConnectionSettings serverId={serverId} onSaved={markChanged} onRegisterGuard={setPbcGuard} />}
                         <ModuleSettings
                           serverId={serverId}
                           module={selectedModule}
@@ -2862,7 +2866,7 @@ function ModuleSettings({
       return next;
     });
 
-  const available = items?.filter((s) => s.key !== moduleEnableKey(module.id) && !["CoACustomRaces.DisabledRaceIds", "CoACustomRaces.DisabledRaceCatalogSha256"].includes(s.key) && !retiredModuleKeys.has(s.key)) ?? [];
+  const available = items?.filter((s) => s.key !== moduleEnableKey(module.id) && !["CoACustomRaces.DisabledRaceIds", "CoACustomRaces.DisabledRaceCatalogSha256", "PBC.DefaultConnection"].includes(s.key) && !retiredModuleKeys.has(s.key)) ?? [];
   const advancedCount = available.filter(
     (s) =>
       !auctionWeightKey(s.key) &&

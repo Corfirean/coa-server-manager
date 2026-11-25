@@ -2397,6 +2397,38 @@ mod tests {
     }
 
     #[test]
+    fn playerbot_characters_release_files_leave_host_connections_and_cards_in_place() {
+        const DIST: &str = "Core/configs/modules/playerbots_characters.conf.dist";
+        const CONFIG: &str = "Core/configs/modules/playerbots_characters.conf";
+        const CONNECTION: &str = "Extras/PlayerbotCharacters/manager-connection.jsonc";
+        const CARD: &str = "Extras/PlayerbotCharacters/cards/Companion.card.txt";
+        const PROMPT: &str = "Extras/PlayerbotCharacters/prompts/enUS/CharacterContext.custom.txt";
+        let defaults = b"[worldserver]\nPBC.Enable = 0\nPBC.DefaultConnection = \"\"\n";
+        for configured in [false, true] {
+            let w = world(&[(DIST, defaults), ("Extras/PlayerbotCharacters/cards/README.txt", b"Cards")], false);
+            let host_config = b"[worldserver]\nPBC.Enable = 1\nPBC.DefaultConnection = ../Extras/PlayerbotCharacters/manager-connection.jsonc\n";
+            if configured {
+                write(&w.root, CONFIG, host_config);
+                write(&w.root, CONNECTION, b"{\"apiKey\":\"fixture-only\"}");
+                write(&w.root, CARD, b"My character card");
+                write(&w.root, PROMPT, b"My custom prompt");
+            }
+            assert_eq!(run(&w, &Fake::ok(), BTreeMap::new(), None).unwrap().txn.state, State::Committed);
+            assert_eq!(fs::read(w.root.join(DIST)).unwrap(), defaults);
+            let module = crate::modules::list(&w.root).into_iter().find(|m| m.id == "mod-pbc").unwrap();
+            assert!(module.installed && module.enabled == configured);
+            if configured {
+                assert_eq!(fs::read(w.root.join(CONFIG)).unwrap(), host_config);
+                assert_eq!(fs::read(w.root.join(CONNECTION)).unwrap(), b"{\"apiKey\":\"fixture-only\"}");
+                assert_eq!(fs::read(w.root.join(CARD)).unwrap(), b"My character card");
+                assert_eq!(fs::read(w.root.join(PROMPT)).unwrap(), b"My custom prompt");
+            } else {
+                assert!(!w.root.join(CONNECTION).exists());
+            }
+        }
+    }
+
+    #[test]
     fn startup_waits_for_an_update_check_but_not_for_active_maintenance() {
         let temp = tempfile::tempdir().unwrap();
         let checker = operation_lock_for(temp.path(), "checking updates", false).unwrap();

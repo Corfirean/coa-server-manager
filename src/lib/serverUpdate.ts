@@ -63,6 +63,11 @@ export function startServerUpdatePolling(id: string): () => void {
   return () => clearInterval(t);
 }
 
+/** How many update attempts and disk-state refreshes have finished for this server. */
+export function getServerUpdateRevision(id: string): number {
+  return get(id).stateRevision;
+}
+
 export function clearServerUpdateResult(id: string) {
   set(id, { result: null, uiError: null });
 }
