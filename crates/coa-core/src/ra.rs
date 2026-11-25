@@ -327,6 +327,21 @@ impl Ra {
         Ok(out.lines().last().unwrap_or("").to_string())
     }
 
+    /// Log in up to `count` existing offline bots without creating new characters. Returns how many the server queued.
+    /// A bots module that takes no count answers with its usage text: that is reported as unsupported.
+    pub fn login_offline_bots(&mut self, count: u32) -> Result<u32> {
+        if !(1..=5000).contains(&count) {
+            return Err(Error::Invalid(
+                "Choose between 1 and 5000 companions.".into(),
+            ));
+        }
+        let out = self.bot_command(&format!("botcmd loginall {count}"))?;
+        if !out.contains("queued") {
+            return Err(Error::CompanionCommandUnsupported);
+        }
+        Ok(first_number(&out).min(count))
+    }
+
     /// Set a new password for an existing account.
     pub fn set_account_password(&mut self, name: &str, password: &str) -> Result<()> {
         validate_account(name, password)?;
@@ -623,6 +638,30 @@ AC>";
         assert!(ra.spawn_bots(0).is_err() && ra.spawn_bots(5000).is_err());
         drop(ra);
         assert_eq!(h.join().unwrap()[2], "botcmd spawnleveled 50");
+    }
+
+    #[test]
+    fn login_offline_bots_sends_count() {
+        let _lock = serial();
+        let (port, h) = fake_ra("BotMgr: queued 500 offline bot(s) for login.");
+        let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+        assert_eq!(ra.login_offline_bots(500).unwrap(), 500);
+        assert!(ra.login_offline_bots(0).is_err() && ra.login_offline_bots(6000).is_err());
+        drop(ra);
+        assert_eq!(h.join().unwrap()[2], "botcmd loginall 500");
+    }
+
+    #[test]
+    fn login_offline_bots_reports_a_module_without_a_count_as_unsupported() {
+        let _lock = serial();
+        let (port, h) = fake_ra("### USAGE: .botcmd loginall");
+        let mut ra = Ra::connect_to(port, "u", "p").unwrap();
+        assert!(matches!(
+            ra.login_offline_bots(5),
+            Err(Error::CompanionCommandUnsupported)
+        ));
+        drop(ra);
+        h.join().unwrap();
     }
 
     #[test]

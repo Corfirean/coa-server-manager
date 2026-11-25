@@ -9,6 +9,7 @@ import { useHuman, useI18n, useSchemaText, type Key } from "@/i18n";
 import { auctionWeightKey, canonicalModuleValue, moduleEnableKey, moduleField, retiredModuleKeys } from "@/lib/moduleSettings";
 import { AuctionTypes } from "@/screens/AuctionTypes";
 import { RaceAvailabilitySettings } from "@/screens/RaceAvailabilitySettings";
+import { PbcConnectionSettings } from "@/screens/PbcConnectionSettings";
 import type { UnsavedChangesGuard } from "@/lib/unsavedGuard";
 
 /** The GitHub mark (lucide dropped its brand icons). */
@@ -111,16 +112,18 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
   }, [serverId]);
   const [guard, setGuard] = useState<UnsavedChangesGuard | null>(null);
   const [racesGuard, setRacesGuard] = useState<UnsavedChangesGuard | null>(null);
+  const [pbcGuard, setPbcGuard] = useState<UnsavedChangesGuard | null>(null);
+  const markChanged = useCallback(() => setChanged(true), []);
 
   useEffect(() => {
-    const guards = [guard, racesGuard].filter((item): item is UnsavedChangesGuard => item !== null);
+    const guards = [guard, racesGuard, pbcGuard].filter((item): item is UnsavedChangesGuard => item !== null);
     onRegisterGuard?.(guards.length ? {
       isDirty: () => guards.some(item => item.isDirty()),
       save: async () => { for (const item of guards) if (item.isDirty() && !await item.save()) return false; return true; },
       discard: () => guards.forEach(item => item.discard()),
     } : null);
     return () => onRegisterGuard?.(null);
-  }, [guard, racesGuard, onRegisterGuard]);
+  }, [guard, racesGuard, pbcGuard, onRegisterGuard]);
 
   const load = useCallback(async () => {
     try {
@@ -343,6 +346,7 @@ export function ModulesPage({ serverId, onChanged, onRegisterGuard }: { serverId
           {selected?.has_settings && !selected.page && selectedAt >= 0 && Math.floor(selectedAt / 2) === Math.floor(i / 2) && (i % 2 === 1 || i === modules.length - 1) && (
             <SettingsPanel key={selected.id} className="sm:col-span-2">
               <h2 className="font-semibold">{t("mod.settingsOf", { name: selected.name })}</h2>
+              {selected.id === "mod-pbc" && <PbcConnectionSettings serverId={serverId} onSaved={markChanged} onRegisterGuard={setPbcGuard} />}
               <ModuleSettings serverId={serverId} module={selected} onSaved={() => setChanged(true)} onRegisterGuard={setGuard} />
               {selected.id === "custom-races" && <RaceAvailabilitySettings serverId={serverId}
                 blocked={racesInstalling || toggling !== null} onSaved={() => setChanged(true)}
@@ -461,7 +465,7 @@ function ModuleSettings({ serverId, module, onSaved, onRegisterGuard }: { server
     else next[key] = value;
     return next;
   });
-  const available = items?.filter(s => s.key !== moduleEnableKey(module.id) && !["CoACustomRaces.DisabledRaceIds", "CoACustomRaces.DisabledRaceCatalogSha256"].includes(s.key) && !retiredModuleKeys.has(s.key)) ?? [];
+  const available = items?.filter(s => s.key !== moduleEnableKey(module.id) && !["CoACustomRaces.DisabledRaceIds", "CoACustomRaces.DisabledRaceCatalogSha256", "PBC.DefaultConnection"].includes(s.key) && !retiredModuleKeys.has(s.key)) ?? [];
   const advancedCount = available.filter(s => !auctionWeightKey(s.key) && (!moduleField(s.key, locale, s.field) || moduleField(s.key, locale, s.field)?.advanced)).length;
   const visible = available.filter(s => {
     if (module.id === "ah-bot" && auctionWeightKey(s.key)) return false;

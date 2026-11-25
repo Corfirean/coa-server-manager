@@ -665,6 +665,11 @@ fn game_args(
     a.extend(env("AC_UPDATES_ENABLE_DATABASES", "0"));
     if kind == GameKind::World {
         a.extend(["--volume".into(), format!("{}:{DATA}:ro", data.display())]);
+        let pbc = crate::modules::pbc::ASSET_DIR;
+        let assets = host.join(pbc);
+        if assets.is_dir() {
+            a.extend(["--volume".into(), format!("{}:/srv/{pbc}:ro", assets.display())]);
+        }
         let races = host.join("Data/dbc_races");
         if races.is_dir() && races != data.join("dbc_races") {
             a.extend([
@@ -1066,6 +1071,8 @@ mod tests {
     #[test]
     fn a_first_start_creates_the_network_the_image_and_the_containers_in_order() {
         let (_d, root) = server("t1");
+        let assets = root.join(crate::modules::pbc::ASSET_DIR);
+        fs::create_dir_all(&assets).unwrap();
         let sim = Sim::new();
         let o = start_all(&sim, &root);
         assert!(o.ok, "{}", o.output);
@@ -1091,6 +1098,16 @@ mod tests {
             ["coa-t1-db", "coa-t1-world", "coa-t1-auth"],
             "database, then world, then auth"
         );
+        let calls = sim.calls_of("run");
+        // The containers get the canonical server folder; a temporary folder may be a short or linked path.
+        let host = std::fs::canonicalize(&root).unwrap();
+        let host = crate::fsx::canonicalize_lenient(&host).unwrap_or(host);
+        let mount = format!(
+            "{}:/srv/Extras/PlayerbotCharacters:ro",
+            host.join(crate::modules::pbc::ASSET_DIR).display()
+        );
+        assert!(calls[1].args.windows(2).any(|w| w == ["--volume", mount.as_str()]));
+        assert!(!calls[0].args.contains(&mount) && !calls[2].args.contains(&mount));
         let exec = sim.calls_of("exec");
         assert_eq!(
             exec.len(),

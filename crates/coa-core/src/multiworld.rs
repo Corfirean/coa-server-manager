@@ -376,6 +376,8 @@ fn prepare(main: &Path, tree: Tree) -> Result<PathBuf> {
                 conf.set("CoA.AllowRemoteClients", "1", &[]);
             }
             conf.to_text()
+        } else if path == "Core/configs/modules/playerbots_characters.conf" {
+            crate::modules::pbc::rebase_packaged_paths(&text, main)?
         } else {
             text
         };
