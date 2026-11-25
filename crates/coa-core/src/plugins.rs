@@ -603,6 +603,43 @@ pub fn install_to_store(
     Ok(target)
 }
 
+/// Config names the server core owns itself, by the module that also ships them. SQUID brings an auction house
+/// bot with the same `mod_ahbot.conf` as the core's mod-ah-bot-plus.
+const CORE_OWNED_CONFS: &[(&str, &str)] = &[("playerbots", "mod_ahbot.conf")];
+
+/// Settings a plugin needs on this core, written on every deployment: (plugin, config, key, value, comment).
+/// SQUID's own auction house bot would register a second set of `.ahbot` commands, which stops the world at
+/// startup; the core's auction house bot is the one that runs, as in the stable server builds.
+const FIXED_SETTINGS: &[(&str, &str, &str, &str, &str)] = &[(
+    "playerbots",
+    "playerbots.conf",
+    "AiPlayerbot.CoaEconomy.AHBot.Enable",
+    "0",
+    "Kept at 0 by CoA Server Manager: the server core runs its own auction house bot.",
+)];
+
+/// Whether a file a module ships is a config template to deploy. Other templates (SQUID's `conf.sh.dist` build
+/// script) are not server configs, and the host refuses a plugin that claims a config name the core owns.
+pub fn is_deployable_config(plugin_id: &str, name: &str) -> bool {
+    let base = name.strip_suffix(".dist").unwrap_or(name);
+    base.ends_with(".conf") && !CORE_OWNED_CONFS.contains(&(plugin_id, base))
+}
+
+fn apply_fixed_settings(conf_root: &Path, plugin_id: &str) -> Result<()> {
+    for (plugin, file, key, value, comment) in FIXED_SETTINGS {
+        let path = conf_root.join(file);
+        if *plugin != plugin_id || !path.is_file() {
+            continue;
+        }
+        let mut conf = ConfFile::parse_bytes(&fs::read(&path)?)?;
+        if conf.get(key) != Some(*value) {
+            conf.set(key, value, &[comment]);
+            fsx::atomic_write(&path, conf.to_text().as_bytes())?;
+        }
+    }
+    Ok(())
+}
+
 /// The installed module whose build deploys exactly this module config template (`rel_path` is relative to the
 /// server, e.g. `Core/configs/modules/x.conf.dist`, and `sha256` is the file's current hash). A module build
 /// replaces the template that came with the package, so an update must not mistake it for the owner's edit.
@@ -681,7 +718,7 @@ pub fn regenerate_lockfile_at(
 
         // Deploy conf.dist and ensure active .conf exists
         let mut deployed_conf_names = Vec::new();
-        for conf_entry in &entry.conf_files {
+        for conf_entry in entry.conf_files.iter().filter(|c| is_deployable_config(id, c)) {
             let base_name = conf_entry.strip_suffix(".dist").unwrap_or(conf_entry);
             let dist_name = format!("{base_name}.dist");
             let src_dist = store_path.join(&dist_name);
@@ -697,6 +734,7 @@ pub fn regenerate_lockfile_at(
             }
             deployed_conf_names.push(base_name.to_string());
         }
+        apply_fixed_settings(&conf_root, id)?;
 
         let rel_dll_path = format!("{id}/{dll_name}");
         let req_str = if entry.required { "1" } else { "0" };
@@ -1468,6 +1506,45 @@ mod tests {
         assert_eq!(parsed.get("CoA.Setting1"), Some("20"));
         assert_eq!(parsed.get("CoA.Setting2"), Some("\"beta\""));
         assert_eq!(parsed.get("CoA.Setting3"), Some("1"));
+    }
+
+    #[test]
+    fn squid_leaves_the_core_auction_house_bot_alone() {
+        let dir = tempdir().unwrap();
+        let server = dir.path();
+        let confs = modules_config_dir(server);
+        fs::create_dir_all(&confs).unwrap();
+        fs::write(confs.join("mod_ahbot.conf.dist"), "AuctionHouseBot.Enable = false\n").unwrap();
+        // The owner's file from the stable server, where the setting had no effect.
+        fs::write(confs.join("playerbots.conf"), "AiPlayerbot.Enabled = 1\nAiPlayerbot.CoaEconomy.AHBot.Enable = 1\n").unwrap();
+
+        let dll = b"MZ fake squid";
+        let names = ["conf.sh.dist", "mod_ahbot.conf.dist", "playerbots.conf.dist"];
+        let meta = PluginMetadata {
+            id: "playerbots".into(),
+            name: "SQUID".into(),
+            version: "1.0.0".into(),
+            description: BTreeMap::new(),
+            sha256: sha256_digest(dll),
+            required: false,
+            deps: vec![],
+            conf_files: names.iter().map(|n| n.to_string()).collect(),
+            enable_key: None,
+            status: None,
+            icon: None,
+        };
+        let dist: Vec<(String, &[u8])> = names.iter().map(|n| (n.to_string(), b"AiPlayerbot.Enabled = 1\n".as_slice())).collect();
+        install(server, meta, dll, None, &dist, true).unwrap();
+
+        let lock = fs::read_to_string(lockfile_path(server)).unwrap();
+        assert!(lock.contains("|playerbots.conf|"), "{lock}");
+        assert_eq!(fs::read_to_string(confs.join("mod_ahbot.conf.dist")).unwrap(), "AuctionHouseBot.Enable = false\n");
+        assert!(!confs.join("mod_ahbot.conf").exists() && !confs.join("conf.sh").exists());
+        let conf = ConfFile::parse(&fs::read_to_string(confs.join("playerbots.conf")).unwrap());
+        assert_eq!(conf.get("AiPlayerbot.CoaEconomy.AHBot.Enable"), Some("0"));
+        assert_eq!(conf.get("AiPlayerbot.Enabled"), Some("1"));
+        assert!(!is_deployable_config("playerbots", "mod_ahbot.conf"));
+        assert!(is_deployable_config("mod-ah-bot-plus", "mod_ahbot.conf.dist"));
     }
 
     #[test]

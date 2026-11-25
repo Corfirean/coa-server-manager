@@ -1253,6 +1253,9 @@ if errorlevel 1 exit /b 103
     let mut packaged_confs = Vec::new();
     for c in conf_files {
         let c_name = c.file_name().unwrap().to_string_lossy().into_owned();
+        if !crate::plugins::is_deployable_config(&module_id, &c_name) {
+            continue;
+        }
         let dest = store_dir.join(&c_name);
         fs::copy(&c, &dest)?;
         packaged_confs.push(c_name);
