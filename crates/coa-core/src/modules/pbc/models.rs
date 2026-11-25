@@ -192,6 +192,8 @@ mod tests {
                         Err(error) => panic!("Mock model endpoint did not receive its request: {error}"),
                     }
                 };
+                // Windows hands the listener's non-blocking mode to the accepted socket.
+                socket.set_nonblocking(false).unwrap();
                 socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
                 let mut request = String::new();
                 let mut reader = BufReader::new(&socket);
@@ -202,7 +204,11 @@ mod tests {
                     }
                     request.push_str(&line.to_ascii_lowercase());
                 }
-                write!(socket, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}", body.len()).unwrap();
+                let response = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}", body.len());
+                socket.write_all(response.as_bytes()).unwrap();
+                // Closing too early resets the connection on Windows: end our side, then wait for the client.
+                socket.shutdown(std::net::Shutdown::Write).ok();
+                std::io::copy(&mut socket, &mut std::io::sink()).ok();
                 request
             }).collect()
         });
