@@ -1,6 +1,10 @@
 {
-  "version": "0.9.17",
+  "version": "0.9.18",
   "notes": [
-    "The game client link points to the new community site, conquestofazerothcore.to"
+    "Configure Playerbot Characters from the Modules page",
+    "Choose Playerbot Characters models from a live provider list",
+    "Settings now shows the server version and update button after you have checked for updates",
+    "Adding companions reuses offline bots and keeps your startup limit",
+    "Custom Races installs the 2.0.3 client with the Snagtooth race"
   ]
 }

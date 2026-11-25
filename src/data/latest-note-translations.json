@@ -59,7 +59,12 @@
       "Clean server logs by hand or automatically when they grow too big": "Очищайте логи сервера вручную или автоматически, когда они становятся слишком большими",
       "The startup limit for companions now creates the ones that are missing": "Лимит запуска компаньонов теперь создаёт недостающих",
       "Restart the world every week on a chosen day and time": "Перезапускайте мир каждую неделю в выбранный день и время",
-      "The game client link points to the new community site, conquestofazerothcore.to": "Ссылка на клиент игры ведёт на новый сайт сообщества conquestofazerothcore.to"
+      "The game client link points to the new community site, conquestofazerothcore.to": "Ссылка на клиент игры ведёт на новый сайт сообщества conquestofazerothcore.to",
+      "Configure Playerbot Characters from the Modules page": "Настройка Playerbot Characters на странице «Модули»",
+      "Choose Playerbot Characters models from a live provider list": "Выбор модели Playerbot Characters из актуального списка провайдера",
+      "Settings now shows the server version and update button after you have checked for updates": "После проверки обновлений в настройках снова видны версия сервера и кнопка обновления",
+      "Adding companions reuses offline bots and keeps your startup limit": "При добавлении компаньонов сначала входят уже созданные боты, а лимит запуска не меняется",
+      "Custom Races installs the 2.0.3 client with the Snagtooth race": "Custom Races устанавливает клиент 2.0.3 с расой Snagtooth"
     },
     "de": {
       "Choose Parallel or Global level scaling in module settings": "Parallele oder globale Levelskalierung in den Moduleinstellungen wählen",
@@ -120,7 +125,12 @@
       "Clean server logs by hand or automatically when they grow too big": "Serverlogs von Hand oder automatisch bereinigen, wenn sie zu groß werden",
       "The startup limit for companions now creates the ones that are missing": "Das Startlimit für Begleiter erstellt jetzt die fehlenden",
       "Restart the world every week on a chosen day and time": "Die Welt jede Woche an einem gewählten Tag und zu einer gewählten Zeit neu starten",
-      "The game client link points to the new community site, conquestofazerothcore.to": "Der Link zum Spielclient führt jetzt zur neuen Community-Website conquestofazerothcore.to"
+      "The game client link points to the new community site, conquestofazerothcore.to": "Der Link zum Spielclient führt jetzt zur neuen Community-Website conquestofazerothcore.to",
+      "Configure Playerbot Characters from the Modules page": "Playerbot Characters auf der Modulseite einrichten",
+      "Choose Playerbot Characters models from a live provider list": "Modelle für Playerbot Characters aus der aktuellen Anbieterliste wählen",
+      "Settings now shows the server version and update button after you have checked for updates": "Die Einstellungen zeigen nach der Updatesuche wieder Serverversion und Aktualisieren-Knopf",
+      "Adding companions reuses offline bots and keeps your startup limit": "Beim Hinzufügen von Begleitern werden vorhandene Bots genutzt, das Startlimit bleibt erhalten",
+      "Custom Races installs the 2.0.3 client with the Snagtooth race": "Custom Races installiert den Client 2.0.3 mit dem Volk der Snagtooth"
     },
     "fr": {
       "Choose Parallel or Global level scaling in module settings": "Choisissez une progression parallèle ou globale des niveaux dans les paramètres du module",
@@ -181,7 +191,12 @@
       "Clean server logs by hand or automatically when they grow too big": "Nettoyez les journaux du serveur à la main ou automatiquement quand ils deviennent trop gros",
       "The startup limit for companions now creates the ones that are missing": "La limite de démarrage des compagnons crée maintenant ceux qui manquent",
       "Restart the world every week on a chosen day and time": "Redémarrez le monde chaque semaine au jour et à l’heure choisis",
-      "The game client link points to the new community site, conquestofazerothcore.to": "Le lien vers le client du jeu mène au nouveau site de la communauté, conquestofazerothcore.to"
+      "The game client link points to the new community site, conquestofazerothcore.to": "Le lien vers le client du jeu mène au nouveau site de la communauté, conquestofazerothcore.to",
+      "Configure Playerbot Characters from the Modules page": "Configurez Playerbot Characters depuis la page Modules",
+      "Choose Playerbot Characters models from a live provider list": "Choisissez les modèles de Playerbot Characters dans la liste à jour du fournisseur",
+      "Settings now shows the server version and update button after you have checked for updates": "Les réglages affichent à nouveau la version du serveur et le bouton de mise à jour après une recherche",
+      "Adding companions reuses offline bots and keeps your startup limit": "L’ajout de compagnons réutilise les bots hors ligne et conserve votre limite au démarrage",
+      "Custom Races installs the 2.0.3 client with the Snagtooth race": "Custom Races installe le client 2.0.3 avec la race Snagtooth"
     },
     "es": {
       "Choose Parallel or Global level scaling in module settings": "Elige escalado de nivel paralelo o global en los ajustes del módulo",
@@ -242,7 +257,12 @@
       "Clean server logs by hand or automatically when they grow too big": "Limpia los registros del servidor a mano o automáticamente cuando crecen demasiado",
       "The startup limit for companions now creates the ones that are missing": "El límite de inicio de los compañeros ahora crea los que faltan",
       "Restart the world every week on a chosen day and time": "Reinicia el mundo cada semana en el día y la hora elegidos",
-      "The game client link points to the new community site, conquestofazerothcore.to": "El enlace al cliente del juego apunta al nuevo sitio de la comunidad, conquestofazerothcore.to"
+      "The game client link points to the new community site, conquestofazerothcore.to": "El enlace al cliente del juego apunta al nuevo sitio de la comunidad, conquestofazerothcore.to",
+      "Configure Playerbot Characters from the Modules page": "Configura Playerbot Characters desde la página Módulos",
+      "Choose Playerbot Characters models from a live provider list": "Elige los modelos de Playerbot Characters en la lista actual del proveedor",
+      "Settings now shows the server version and update button after you have checked for updates": "Ajustes vuelve a mostrar la versión del servidor y el botón de actualizar tras buscar actualizaciones",
+      "Adding companions reuses offline bots and keeps your startup limit": "Al añadir compañeros se reutilizan los bots desconectados y se mantiene tu límite de inicio",
+      "Custom Races installs the 2.0.3 client with the Snagtooth race": "Custom Races instala el cliente 2.0.3 con la raza Snagtooth"
     },
     "zh": {
       "Choose Parallel or Global level scaling in module settings": "在模块设置中选择并行或全局等级缩放",
@@ -303,7 +323,12 @@
       "Clean server logs by hand or automatically when they grow too big": "手动清理服务器日志,或在日志过大时自动清理",
       "The startup limit for companions now creates the ones that are missing": "同伴的启动上限现在会创建缺少的同伴",
       "Restart the world every week on a chosen day and time": "每周在选定的日期和时间重启世界",
-      "The game client link points to the new community site, conquestofazerothcore.to": "游戏客户端链接现指向新的社区网站 conquestofazerothcore.to"
+      "The game client link points to the new community site, conquestofazerothcore.to": "游戏客户端链接现指向新的社区网站 conquestofazerothcore.to",
+      "Configure Playerbot Characters from the Modules page": "在模块页面中配置 Playerbot Characters",
+      "Choose Playerbot Characters models from a live provider list": "从服务商的实时列表中选择 Playerbot Characters 的模型",
+      "Settings now shows the server version and update button after you have checked for updates": "检查更新后，设置页面会正常显示服务器版本和更新按钮",
+      "Adding companions reuses offline bots and keeps your startup limit": "添加同伴时会优先使用离线机器人，并保留你的启动登录上限",
+      "Custom Races installs the 2.0.3 client with the Snagtooth race": "Custom Races 现在安装包含 Snagtooth 种族的 2.0.3 客户端"
     }
   },
   "server": {
