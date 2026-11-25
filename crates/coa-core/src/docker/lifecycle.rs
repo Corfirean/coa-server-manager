@@ -1099,7 +1099,13 @@ mod tests {
             "database, then world, then auth"
         );
         let calls = sim.calls_of("run");
-        let mount = format!("{}:/srv/Extras/PlayerbotCharacters:ro", assets.display());
+        // The containers get the canonical server folder; a temporary folder may be a short or linked path.
+        let host = std::fs::canonicalize(&root).unwrap();
+        let host = crate::fsx::canonicalize_lenient(&host).unwrap_or(host);
+        let mount = format!(
+            "{}:/srv/Extras/PlayerbotCharacters:ro",
+            host.join(crate::modules::pbc::ASSET_DIR).display()
+        );
         assert!(calls[1].args.windows(2).any(|w| w == ["--volume", mount.as_str()]));
         assert!(!calls[0].args.contains(&mount) && !calls[2].args.contains(&mount));
         let exec = sim.calls_of("exec");
