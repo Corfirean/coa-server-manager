@@ -1,42 +1,71 @@
 {
   "components": {
-    "core": {
-      "repository": "Corfirean/azerothcore-wotlk-coa",
-      "sha": "30003e18ab44198ee6f2d819c3047bf6a80631f6"
-    },
     "upstream": {
       "repository": "jealous-sound/azerothcore-wotlk-coa",
-      "sha": "96afaf0f51cc4b37f1eba282bffb1c5aab353de6"
+      "ref": "ca0298535462e58298c68f55d29599c48eecc08e",
+      "sha": "ca0298535462e58298c68f55d29599c48eecc08e"
+    },
+    "core": {
+      "repository": "Corfirean/azerothcore-wotlk-coa",
+      "ref": "47326095efc257e4e29ed5b030376f26d2dbb096",
+      "sha": "47326095efc257e4e29ed5b030376f26d2dbb096"
     },
     "bots": {
       "repository": "Corfirean/mod-coa-playerbots",
-      "sha": "178a7fde6abe1c3c8813d338073b2c83835da497"
+      "ref": "0f37ee911cd46dd4010e592fb7dc3989ef91c15f",
+      "sha": "57300a1cea54dea8cdd8693d95fb937dfd53bb78"
     },
     "scaling": {
       "repository": "Corfirean/mod-coa-content-scaling",
+      "ref": "3c2febf636bd09087bb278e381b975271a70fdf6",
       "sha": "3c2febf636bd09087bb278e381b975271a70fdf6"
-    },
-    "build": {
-      "repository": "Corfirean/coa-server-build",
-      "sha": "087ca17c4eb2c0ef218d84dd77f37263ee4ed7ee"
-    },
-    "squid": {
-      "repository": "Zyth45/mod-playerbots",
-      "ref": "v3.0",
-      "sha": "4ef5ed9ebe75a330de7df19639a042391e037e15"
     },
     "races": {
       "repository": "ilusixn/CustomRacesCoa",
-      "ref": "coa-custom-2.0",
-      "sha": "dae0c661f7197bafd0a42d80866fa8709b3792c9"
+      "ref": "coa-custom-2.0.3",
+      "sha": "823011f7e00d8249f5aca6c8281d013dab110d45"
+    },
+    "squid": {
+      "repository": "Zyth45/mod-playerbots",
+      "ref": "v3.2.1",
+      "sha": "d3bb1f81509addd923bae2e0164b9ca94d485e97"
+    },
+    "build": {
+      "repository": "Corfirean/coa-server-build",
+      "ref": "d32975e5488da4aec5e893bf37b890c6ab928bd6",
+      "sha": "d32975e5488da4aec5e893bf37b890c6ab928bd6"
     }
   },
   "notes": [
-    "Custom races stay on when an update changes the race catalog",
-    "Server support for companion bots on Wildcard and Warcraft Reborn",
-    "Custom-race characters stay out of the world while custom races are off",
-    "Companion bots play Wildcard and Warcraft Reborn",
-    "Stopping the server no longer leaves the world running now and then",
-    "The server includes a native launcher for the world supervisor"
+    "The Twins' brother sits on the back of every Ghost Wolf and Travel Form look",
+    "Game masters can move the Thin Twins brother's seats live",
+    "The head picked at Two-Players creation decides who leads the pair",
+    "A seated Two-Players head rests with the body and can log out at once in towns",
+    "Two-Players brothers of the same class share one class resource",
+    "The Two-Players Twins show the right brother on the character screen",
+    "The second brother of a paired Two-Players Twin picks his own outfit",
+    "Paired Twins are shown as \"Warken & Flarken\"",
+    "A paired Two-Players brother walks beside the first instead of riding on his head",
+    "Two-Players Twins can send a pair request from the player menu",
+    "A paired Two-Players brother hops on his brother's back and rides in the saddle again",
+    "The paired second brother is dressed and the brothers pair up again after a relog",
+    "The Thin Twins brother no longer turns green after a shapeshift",
+    "A whisper to a Two-Players pair reaches both heads",
+    "Custom race characters keep their skin and hair after leaving a shapeshift form",
+    "Bonk Heads! speaks of brothers for the Two-Players Twins",
+    "The Twins get One Lazy Thin, a racial that turns them back into Kul Tirans",
+    "Custom Races 2.0.3 adds the Snagtooth to the Alliance",
+    "The Ride button shows only for the head that can use it",
+    "Bots drink real drinks to recover mana and use potions in combat",
+    "Scripted dungeon runs for bot groups, off by default",
+    "Reborn bots spend talent points, keep pets and buffs up, and fight with more abilities",
+    "CoABotInspector addon shows what each bot is doing",
+    "Bots and bot accounts are created only when you ask for them",
+    "Bots are no longer created with a race that cannot be played",
+    "Playerbot Characters is available as an optional server module",
+    "SQUID Playerbots 3.2.1 and Dungeon Clear 3.1.4",
+    "Updated Custom Races to 2.0.3",
+    "Updated SQUID Playerbots to 3.2.1",
+    "Updated the reviewed CoA upstream snapshot"
   ]
 }
