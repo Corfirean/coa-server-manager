@@ -8,6 +8,14 @@ Published releases and previews. Pre-release entries do not change the stable up
 
 Dates follow GitHub publication (UTC); legacy records retain their archived dates. Newest releases first.
 
+## 0.9.18 — 2026-11-25
+
+- Settings now shows the server version and update button after you have checked for updates.
+- Adding companions reuses offline bots and keeps your startup limit.
+- Custom Races installs the 2.0.3 client with the Snagtooth race.
+
+[Release](https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.18) · [Source changes](https://github.com/Corfirean/coa-server-manager/compare/v0.9.17...v0.9.18)
+
 ## 0.9.17 — 2026-11-23
 
 - The game client link points to the new community site, conquestofazerothcore.to.

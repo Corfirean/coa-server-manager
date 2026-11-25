@@ -194,10 +194,15 @@
     "Corfirean/coa-server-manager:20261117-client-download-needs-launcher.md",
     "Corfirean/coa-server-manager:20261118-custom-races-2-0-2-client.md",
     "Corfirean/coa-server-manager:20261120-hd-graphics-hint-and-patch-labels.md",
+    "Corfirean/coa-server-manager:20261120-playerbot-characters.md",
+    "Corfirean/coa-server-manager:20261120-playerbot-model-picker.md",
     "Corfirean/coa-server-manager:20261120-server-log-auto-cleanup.md",
     "Corfirean/coa-server-manager:20261120-startup-fleet-creates-missing-companions.md",
     "Corfirean/coa-server-manager:20261120-weekly-world-restart.md",
-    "Corfirean/coa-server-manager:20261123-client-site-link.md"
+    "Corfirean/coa-server-manager:20261123-client-site-link.md",
+    "Corfirean/coa-server-manager:20261124-settings-server-card-shows-update.md",
+    "Corfirean/coa-server-manager:20261125-companions-reuse-offline-bots.md",
+    "Corfirean/coa-server-manager:20261125-custom-races-2-0-3-client.md"
   ],
   "releases": [
     {
@@ -1014,6 +1019,19 @@
       ],
       "commit": "b5abc6fc4f6ab348efd57521136a2153ec948ca0",
       "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.16...v0.9.17"
+    },
+    {
+      "tag": "v0.9.18",
+      "version": "0.9.18",
+      "date": "2026-11-25",
+      "url": "https://github.com/Corfirean/coa-server-manager/releases/tag/v0.9.18",
+      "notes": [
+        "Settings now shows the server version and update button after you have checked for updates",
+        "Adding companions reuses offline bots and keeps your startup limit",
+        "Custom Races installs the 2.0.3 client with the Snagtooth race"
+      ],
+      "commit": "d4c4b472c92142277035481a3007024932120805",
+      "compare": "https://github.com/Corfirean/coa-server-manager/compare/v0.9.17...v0.9.18"
     }
   ]
 }
