@@ -2,6 +2,24 @@
   "schema": 1,
   "modules": [
     {
+      "id": "mod-pbc",
+      "name": "Playerbot Characters",
+      "description": {
+        "en": "Gives CoA Companions or SQUID Playerbots dialogue, personalities and memories. Requires a model connection you configure.",
+        "ru": "Добавляет диалоги, характеры и воспоминания ботам CoA Companions или SQUID Playerbots. Нужно настроить подключение к модели.",
+        "de": "Gibt CoA Companions oder SQUID Playerbots Dialoge, Persönlichkeiten und Erinnerungen. Die Verbindung zu einem KI-Modell muss eingerichtet werden.",
+        "fr": "Ajoute des dialogues, des personnalités et des souvenirs aux bots CoA Companions ou SQUID Playerbots. Une connexion à un modèle doit être configurée.",
+        "es": "Añade diálogos, personalidades y recuerdos a los bots de CoA Companions o SQUID Playerbots. Requiere configurar una conexión con un modelo.",
+        "zh": "为 CoA Companions 或 SQUID Playerbots 添加对话、个性和记忆。需要自行配置模型连接。"
+      },
+      "repo": "https://github.com/deseven/mod-pbc#model-connection-setup",
+      "conf": "playerbots_characters.conf",
+      "enable_key": "PBC.Enable",
+      "default_on": false,
+      "status": "early",
+      "icon": "bot"
+    },
+    {
       "id": "dungeon-clear",
       "name": "Dungeon Clear",
       "description": {
